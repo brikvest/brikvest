@@ -22,6 +22,9 @@ export const properties = pgTable("properties", {
   fundingProgress: integer("funding_progress").notNull().default(0),
   imageUrl: text("image_url").notNull(),
   status: text("status").notNull().default("active"),
+  badge: text("badge"), // e.g., 'partnered', 'verified', etc.
+  partnershipDocumentUrl: text("partnership_document_url"), // URL to signed partnership document
+  partnershipDocumentName: text("partnership_document_name"), // Display name for document
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

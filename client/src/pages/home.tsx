@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award } from "lucide-react";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
@@ -171,6 +171,20 @@ export default function Home() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const getBadgeInfo = (badge: string | null) => {
+    switch (badge) {
+      case 'partnered':
+        return {
+          label: 'Partnered',
+          color: 'bg-green-100 text-green-800 border-green-200',
+          icon: Shield,
+          description: 'Verified partnership with land owner'
+        };
+      default:
+        return null;
+    }
   };
 
   return (
@@ -341,11 +355,26 @@ export default function Home() {
               {properties.map((property) => (
                 <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
                   <div onClick={() => openPropertyDetailModal(property)}>
-                    <img 
-                      src={property.imageUrl} 
-                      alt={property.name}
-                      className="w-full h-48 object-cover"
-                    />
+                    <div className="relative">
+                      <img 
+                        src={property.imageUrl} 
+                        alt={property.name}
+                        className="w-full h-48 object-cover"
+                      />
+                      {property.badge && (() => {
+                        const badgeInfo = getBadgeInfo(property.badge);
+                        if (!badgeInfo) return null;
+                        const IconComponent = badgeInfo.icon;
+                        return (
+                          <div className="absolute top-3 left-3">
+                            <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${badgeInfo.color}`}>
+                              <IconComponent className="w-3 h-3 mr-1" />
+                              {badgeInfo.label}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <CardContent className="p-6">
                       <div className="mb-4">
                         <h3 className="text-xl font-semibold mb-2">{property.name}</h3>
@@ -777,11 +806,28 @@ export default function Home() {
           {selectedProperty && (
             <>
               <DialogHeader>
-                <DialogTitle className="text-2xl font-bold">{selectedProperty.name}</DialogTitle>
-                <DialogDescription className="flex items-center text-base">
-                  <MapPin className="w-4 h-4 mr-1" />
-                  {selectedProperty.location}
-                </DialogDescription>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <DialogTitle className="text-2xl font-bold">{selectedProperty.name}</DialogTitle>
+                    <DialogDescription className="flex items-center text-base">
+                      <MapPin className="w-4 h-4 mr-1" />
+                      {selectedProperty.location}
+                    </DialogDescription>
+                  </div>
+                  {selectedProperty.badge && (() => {
+                    const badgeInfo = getBadgeInfo(selectedProperty.badge);
+                    if (!badgeInfo) return null;
+                    const IconComponent = badgeInfo.icon;
+                    return (
+                      <div className="flex-shrink-0">
+                        <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${badgeInfo.color}`}>
+                          <IconComponent className="w-4 h-4 mr-2" />
+                          {badgeInfo.label}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </DialogHeader>
               
               <div className="space-y-8">
