@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -14,8 +14,8 @@ export const properties = pgTable("properties", {
   name: text("name").notNull(),
   location: text("location").notNull(),
   description: text("description").notNull(),
-  totalValue: integer("total_value").notNull(),
-  minInvestment: integer("min_investment").notNull(),
+  totalValue: bigint("total_value", { mode: "number" }).notNull(),
+  minInvestment: bigint("min_investment", { mode: "number" }).notNull(),
   projectedReturn: decimal("projected_return", { precision: 5, scale: 2 }).notNull(),
   availableSlots: integer("available_slots").notNull(),
   totalSlots: integer("total_slots").notNull(),
@@ -45,7 +45,7 @@ export const developerBids = pgTable("developer_bids", {
   phone: text("phone").notNull(),
   projectType: text("project_type").notNull(),
   location: text("location").notNull(),
-  projectValue: integer("project_value").notNull(),
+  projectValue: bigint("project_value", { mode: "number" }).notNull(),
   timeline: integer("timeline").notNull(),
   description: text("description").notNull(),
   experience: text("experience").notNull(),
