@@ -155,9 +155,9 @@ export default function Home() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-NG", {
       style: "currency",
-      currency: "USD",
+      currency: "NGN",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
@@ -207,7 +207,7 @@ export default function Home() {
                 <span className="text-yellow-400">Fractional Ownership</span>
               </h1>
               <p className="text-xl text-blue-100 mb-8 leading-relaxed">
-                Start building your real estate portfolio with as little as $1,000. Access institutional-grade properties and earn passive income through our curated investment opportunities.
+                Start building your real estate portfolio with as little as ₦500,000. Access premium Nigerian properties and earn passive income through our curated investment opportunities.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
@@ -226,15 +226,15 @@ export default function Home() {
               </div>
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold">$2.4M+</div>
+                  <div className="text-2xl font-bold">₦1.2B+</div>
                   <div className="text-blue-200 text-sm">Total Invested</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold">1,200+</div>
+                  <div className="text-2xl font-bold">850+</div>
                   <div className="text-blue-200 text-sm">Active Investors</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold">12.5%</div>
+                  <div className="text-2xl font-bold">15.2%</div>
                   <div className="text-blue-200 text-sm">Avg. Annual Return</div>
                 </div>
               </div>
@@ -440,8 +440,8 @@ export default function Home() {
               <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="text-blue-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">SEC Compliant</h3>
-              <p className="text-slate-600 text-sm">All investments comply with federal securities regulations</p>
+              <h3 className="font-semibold mb-2">Transparent Operations</h3>
+              <p className="text-slate-600 text-sm">Full transparency in all our investment processes and operations</p>
             </div>
             <div className="text-center">
               <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -454,15 +454,15 @@ export default function Home() {
               <div className="bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <TrendingUp className="text-yellow-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">Transparent Reporting</h3>
-              <p className="text-slate-600 text-sm">Regular updates on property performance and returns</p>
+              <h3 className="font-semibold mb-2">No Payment Required</h3>
+              <p className="text-slate-600 text-sm">Reserve investment slots without payment - we contact you when ready</p>
             </div>
             <div className="text-center">
               <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Users className="text-blue-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">Expert Team</h3>
-              <p className="text-slate-600 text-sm">Experienced real estate professionals managing your investments</p>
+              <h3 className="font-semibold mb-2">Expert Nigerian Team</h3>
+              <p className="text-slate-600 text-sm">Local real estate professionals with deep market knowledge</p>
             </div>
           </div>
         </div>
@@ -498,7 +498,7 @@ export default function Home() {
             </div>
           </div>
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
-            <p className="text-slate-400">&copy; 2024 Brikvest. All rights reserved. Securities offered through licensed broker-dealers.</p>
+            <p className="text-slate-400">&copy; 2024 Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
           </div>
         </div>
       </footer>
