@@ -25,11 +25,12 @@ export default function AdminDashboard() {
     name: "",
     location: "",
     description: "",
-    developmentCost: "",
-    fundingTarget: "",
+    totalValue: "",
     minInvestment: "",
+    projectedReturn: "",
     totalSlots: "",
     availableSlots: "",
+    imageUrl: "",
     badge: "none",
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
@@ -61,11 +62,18 @@ export default function AdminDashboard() {
   // Create property mutation
   const createPropertyMutation = useMutation({
     mutationFn: async (data: InsertProperty) => {
-      return apiRequest("/api/properties", {
+      const response = await fetch("/api/properties", {
         method: "POST",
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" }
       });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to create property");
+      }
+      
+      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -77,11 +85,12 @@ export default function AdminDashboard() {
         name: "",
         location: "",
         description: "",
-        developmentCost: "",
-        fundingTarget: "",
+        totalValue: "",
         minInvestment: "",
+        projectedReturn: "",
         totalSlots: "",
         availableSlots: "",
+        imageUrl: "",
         badge: "none",
         partnershipDocumentName: "",
         partnershipDocumentUrl: "",
@@ -119,15 +128,15 @@ export default function AdminDashboard() {
       name: propertyForm.name,
       location: propertyForm.location,
       description: propertyForm.description,
-      developmentCost: parseFloat(propertyForm.developmentCost),
-      fundingTarget: parseFloat(propertyForm.fundingTarget),
+      totalValue: parseFloat(propertyForm.totalValue),
       minInvestment: parseFloat(propertyForm.minInvestment),
+      projectedReturn: propertyForm.projectedReturn,
       totalSlots: parseInt(propertyForm.totalSlots),
       availableSlots: parseInt(propertyForm.availableSlots),
+      imageUrl: propertyForm.imageUrl,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
-      partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
-      developerNotes: propertyForm.developerNotes || null
+      partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null
     };
 
     createPropertyMutation.mutate(propertyData);
@@ -329,7 +338,7 @@ export default function AdminDashboard() {
                           <TableRow key={property.id}>
                             <TableCell className="font-medium">{property.name}</TableCell>
                             <TableCell>{property.location}</TableCell>
-                            <TableCell>{formatCurrency(property.fundingTarget)}</TableCell>
+                            <TableCell>{formatCurrency(property.totalValue)}</TableCell>
                             <TableCell>{property.availableSlots}/{property.totalSlots}</TableCell>
                             <TableCell>
                               {property.badge && (
@@ -379,22 +388,21 @@ export default function AdminDashboard() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="developmentCost">Development Cost (₦)</Label>
+                        <Label htmlFor="totalValue">Total Value (₦)</Label>
                         <Input
-                          id="developmentCost"
+                          id="totalValue"
                           type="number"
-                          value={propertyForm.developmentCost}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, developmentCost: e.target.value }))}
+                          value={propertyForm.totalValue}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: e.target.value }))}
                           required
                         />
                       </div>
                       <div>
-                        <Label htmlFor="fundingTarget">Funding Target (₦)</Label>
+                        <Label htmlFor="projectedReturn">Projected Return (%)</Label>
                         <Input
-                          id="fundingTarget"
-                          type="number"
-                          value={propertyForm.fundingTarget}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, fundingTarget: e.target.value }))}
+                          id="projectedReturn"
+                          value={propertyForm.projectedReturn}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
                           required
                         />
                       </div>
@@ -440,21 +448,32 @@ export default function AdminDashboard() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <Label htmlFor="partnershipDocumentName">Partnership Document Name</Label>
-                        <Input
-                          id="partnershipDocumentName"
-                          value={propertyForm.partnershipDocumentName}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, partnershipDocumentName: e.target.value }))}
+                      <div className="col-span-2">
+                        <FileUpload
+                          label="Property Image"
+                          accept="image/*"
+                          uploadType="image"
+                          currentFile={propertyForm.imageUrl}
+                          onUploadSuccess={(url, fileName) => 
+                            setPropertyForm(prev => ({ ...prev, imageUrl: url }))
+                          }
+                          disabled={createPropertyMutation.isPending}
                         />
                       </div>
-                      <div>
-                        <Label htmlFor="partnershipDocumentUrl">Partnership Document URL</Label>
-                        <Input
-                          id="partnershipDocumentUrl"
-                          type="url"
-                          value={propertyForm.partnershipDocumentUrl}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, partnershipDocumentUrl: e.target.value }))}
+                      <div className="col-span-2">
+                        <FileUpload
+                          label="Partnership Document"
+                          accept=".pdf,.doc,.docx"
+                          uploadType="document"
+                          currentFile={propertyForm.partnershipDocumentUrl}
+                          onUploadSuccess={(url, fileName) => 
+                            setPropertyForm(prev => ({ 
+                              ...prev, 
+                              partnershipDocumentUrl: url,
+                              partnershipDocumentName: fileName 
+                            }))
+                          }
+                          disabled={createPropertyMutation.isPending}
                         />
                       </div>
                     </div>
