@@ -1,0 +1,365 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 215 25% 27%; /* #334155 - slate-700 */
+  --muted: 210 40% 98%; /* #f8fafc - slate-50 */
+  --muted-foreground: 215 16% 47%; /* #64748b - slate-500 */
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 25% 27%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 25% 27%;
+  --border: 214 32% 91%; /* #e2e8f0 - slate-200 */
+  --input: 214 32% 91%;
+  --primary: 224 76% 48%; /* #1E40AF - trust-blue */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 158 64% 52%; /* #059669 - growth-green */
+  --secondary-foreground: 0 0% 100%;
+  --accent: 43 96% 56%; /* #F59E0B - accent-gold */
+  --accent-foreground: 215 25% 27%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 224 76% 48%;
+  --radius: 0.5rem;
+  --chart-1: 224 76% 48%;
+  --chart-2: 158 64% 52%;
+  --chart-3: 43 96% 56%;
+  --chart-4: 262 83% 58%;
+  --chart-5: 25 95% 53%;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 215 25% 27%;
+  --sidebar-primary: 224 76% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 40% 98%;
+  --sidebar-accent-foreground: 215 25% 27%;
+  --sidebar-border: 214 32% 91%;
+  --sidebar-ring: 224 76% 48%;
+}
+
+.dark {
+  --background: 222 84% 5%; /* #0f172a - slate-950 */
+  --foreground: 210 40% 98%;
+  --muted: 217 33% 17%; /* #1e293b - slate-800 */
+  --muted-foreground: 215 20% 65%;
+  --popover: 222 84% 5%;
+  --popover-foreground: 210 40% 98%;
+  --card: 222 84% 5%;
+  --card-foreground: 210 40% 98%;
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --primary: 224 76% 48%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 158 64% 52%;
+  --secondary-foreground: 222 84% 5%;
+  --accent: 43 96% 56%;
+  --accent-foreground: 222 84% 5%;
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+  --ring: 224 76% 48%;
+  --sidebar-background: 222 84% 5%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 224 76% 48%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 217 33% 17%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 217 33% 17%;
+  --sidebar-ring: 224 76% 48%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Trust-focused color utilities */
+.trust-blue {
+  color: hsl(224 76% 48%);
+}
+
+.bg-trust-blue {
+  background-color: hsl(224 76% 48%);
+}
+
+.growth-green {
+  color: hsl(158 64% 52%);
+}
+
+.bg-growth-green {
+  background-color: hsl(158 64% 52%);
+}
+
+.accent-gold {
+  color: hsl(43 96% 56%);
+}
+
+.bg-accent-gold {
+  background-color: hsl(43 96% 56%);
+}
+
+/* Custom scrollbar for professional look */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(210 40% 98%);
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(215 16% 47%);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(215 25% 27%);
+}
+
+/* Smooth scrolling for navigation */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Professional button hover effects */
+.hover-lift {
+  transition: all 0.2s ease-in-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(0, 0, 0, 0.2);
+}
+
+/* Property cards professional styling */
+.property-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid hsl(214 32% 91%);
+}
+
+.property-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  border-color: hsl(224 76% 48% / 0.2);
+}
+
+/* Investment progress bars */
+.progress-bar {
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, hsl(158 64% 52%), hsl(158 64% 45%));
+}
+
+/* Modal backdrop professional styling */
+.modal-backdrop {
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+/* Hero gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, hsl(224 76% 48%) 0%, hsl(224 76% 40%) 50%, hsl(224 76% 35%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Professional loading states */
+.skeleton {
+  animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% {
+    background-color: hsl(214 32% 91%);
+  }
+  50% {
+    background-color: hsl(210 40% 98%);
+  }
+}
+
+/* Form focus states for investment forms */
+.form-input:focus {
+  border-color: hsl(224 76% 48%);
+  box-shadow: 0 0 0 3px hsl(224 76% 48% / 0.1);
+}
+
+/* Success states */
+.success-state {
+  color: hsl(158 64% 52%);
+  background-color: hsl(158 64% 52% / 0.1);
+  border-color: hsl(158 64% 52% / 0.2);
+}
+
+/* Trust indicators styling */
+.trust-indicator {
+  background: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(210 40% 98%) 100%);
+  border: 1px solid hsl(214 32% 91%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Professional typography scale */
+.text-financial {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Investment card hover glow */
+.investment-glow:hover {
+  box-shadow: 0 0 0 1px hsl(224 76% 48% / 0.1), 
+              0 4px 8px rgba(0, 0, 0, 0.04),
+              0 16px 24px rgba(0, 0, 0, 0.04);
+}
+
+/* Developer section styling */
+.developer-section {
+  background: linear-gradient(135deg, hsl(210 40% 98%) 0%, hsl(0 0% 100%) 100%);
+}
+
+/* CTA button professional styling */
+.cta-primary {
+  background: linear-gradient(135deg, hsl(224 76% 48%) 0%, hsl(224 76% 40%) 100%);
+  box-shadow: 0 4px 14px rgba(30, 64, 175, 0.4);
+  transition: all 0.2s ease;
+}
+
+.cta-primary:hover {
+  background: linear-gradient(135deg, hsl(224 76% 40%) 0%, hsl(224 76% 35%) 100%);
+  box-shadow: 0 6px 20px rgba(30, 64, 175, 0.5);
+  transform: translateY(-1px);
+}
+
+.cta-secondary {
+  background: linear-gradient(135deg, hsl(158 64% 52%) 0%, hsl(158 64% 45%) 100%);
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.4);
+  transition: all 0.2s ease;
+}
+
+.cta-secondary:hover {
+  background: linear-gradient(135deg, hsl(158 64% 45%) 0%, hsl(158 64% 40%) 100%);
+  box-shadow: 0 6px 20px rgba(5, 150, 105, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Professional focus rings */
+.focus-ring:focus {
+  outline: 2px solid hsl(224 76% 48%);
+  outline-offset: 2px;
+}
+
+/* Status badges */
+.status-active {
+  background-color: hsl(158 64% 52% / 0.1);
+  color: hsl(158 64% 40%);
+  border: 1px solid hsl(158 64% 52% / 0.2);
+}
+
+.status-pending {
+  background-color: hsl(43 96% 56% / 0.1);
+  color: hsl(43 96% 40%);
+  border: 1px solid hsl(43 96% 56% / 0.2);
+}
+
+/* Professional table styling */
+.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid hsl(214 32% 91%);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.data-table th {
+  background-color: hsl(210 40% 98%);
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid hsl(214 32% 91%);
+}
+
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid hsl(214 32% 91%);
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Animation for property funding progress */
+@keyframes funding-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: var(--progress-width);
+  }
+}
+
+.funding-bar {
+  animation: funding-progress 1.5s ease-out forwards;
+}
+
+/* Professional form validation */
+.form-error {
+  border-color: hsl(0 84% 60%);
+  box-shadow: 0 0 0 3px hsl(0 84% 60% / 0.1);
+}
+
+.form-success {
+  border-color: hsl(158 64% 52%);
+  box-shadow: 0 0 0 3px hsl(158 64% 52% / 0.1);
+}
+
+/* Investment calculator styling */
+.calculator-highlight {
+  background: linear-gradient(135deg, hsl(43 96% 56% / 0.1) 0%, hsl(43 96% 56% / 0.05) 100%);
+  border: 1px solid hsl(43 96% 56% / 0.2);
+}
+
+/* Media queries for responsive professional design */
+@media (max-width: 768px) {
+  .property-card:hover {
+    transform: none;
+  }
+  
+  .hover-lift:hover {
+    transform: none;
+  }
+}
+
+/* Dark mode adjustments for professional appearance */
+@media (prefers-color-scheme: dark) {
+  .trust-indicator {
+    background: linear-gradient(135deg, hsl(217 33% 17%) 0%, hsl(222 84% 5%) 100%);
+    border-color: hsl(217 33% 17%);
+  }
+  
+  .developer-section {
+    background: linear-gradient(135deg, hsl(217 33% 17%) 0%, hsl(222 84% 5%) 100%);
+  }
+}
+
+/* Toast notifications professional styling */
+.toast-success {
+  background-color: hsl(158 64% 52% / 0.1);
+  border: 1px solid hsl(158 64% 52% / 0.2);
+  color: hsl(158 64% 40%);
+}
+
+.toast-error {
+  background-color: hsl(0 84% 60% / 0.1);
+  border: 1px solid hsl(0 84% 60% / 0.2);
+  color: hsl(0 84% 50%);
+}
+
+.toast-info {
+  background-color: hsl(224 76% 48% / 0.1);
+  border: 1px solid hsl(224 76% 48% / 0.2);
+  color: hsl(224 76% 40%);
+}
