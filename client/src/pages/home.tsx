@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 
@@ -170,7 +170,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-blue-600">PropInvest</h1>
+              <h1 className="text-2xl font-bold text-blue-600">Brikvest</h1>
             </div>
             <nav className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-8">
@@ -473,7 +473,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="col-span-1 md:col-span-2">
-              <h3 className="text-2xl font-bold mb-4">PropInvest</h3>
+              <h3 className="text-2xl font-bold mb-4">Brikvest</h3>
               <p className="text-slate-300 mb-6 max-w-md">
                 Making real estate investment accessible to everyone through fractional ownership and professional management.
               </p>
@@ -498,7 +498,7 @@ export default function Home() {
             </div>
           </div>
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
-            <p className="text-slate-400">&copy; 2024 PropInvest. All rights reserved. Securities offered through licensed broker-dealers.</p>
+            <p className="text-slate-400">&copy; 2024 Brikvest. All rights reserved. Securities offered through licensed broker-dealers.</p>
           </div>
         </div>
       </footer>
@@ -508,6 +508,9 @@ export default function Home() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Reserve Investment Slot</DialogTitle>
+            <DialogDescription>
+              Fill out the form below to reserve your investment slot. No payment required at this time.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInvestmentSubmit} className="space-y-6">
             <div>
@@ -592,6 +595,9 @@ export default function Home() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Submit Development Bid</DialogTitle>
+            <DialogDescription>
+              Join our network of trusted developers. Complete the form below to submit your development proposal.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleDeveloperSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
