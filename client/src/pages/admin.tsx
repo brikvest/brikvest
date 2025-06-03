@@ -1,17 +1,41 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload } from "lucide-react";
 import { Link } from "wouter";
-import type { Property, InvestmentReservation, DeveloperBid } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
+import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Property form state
+  const [propertyForm, setPropertyForm] = useState({
+    name: "",
+    location: "",
+    description: "",
+    totalValue: 0,
+    minInvestment: 0,
+    projectedReturn: "",
+    availableSlots: 0,
+    totalSlots: 0,
+    imageUrl: "",
+    badge: "",
+    partnershipDocumentUrl: "",
+    partnershipDocumentName: "",
+  });
 
   // Fetch all data
   const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
@@ -20,6 +44,43 @@ export default function AdminDashboard() {
 
   const { data: developerBids = [], isLoading: bidsLoading } = useQuery<DeveloperBid[]>({
     queryKey: ["/api/developer-bids"],
+  });
+
+  // Property creation mutation
+  const createPropertyMutation = useMutation({
+    mutationFn: async (data: InsertProperty) => {
+      const response = await apiRequest("POST", "/api/properties", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Success",
+        description: "Property created successfully!",
+      });
+      setPropertyForm({
+        name: "",
+        location: "",
+        description: "",
+        totalValue: 0,
+        minInvestment: 0,
+        projectedReturn: "",
+        availableSlots: 0,
+        totalSlots: 0,
+        imageUrl: "",
+        badge: "",
+        partnershipDocumentUrl: "",
+        partnershipDocumentName: "",
+      });
+      setSelectedTab("properties");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create property",
+        variant: "destructive",
+      });
+    },
   });
 
   // Calculate totals from all reservations
@@ -49,6 +110,28 @@ export default function AdminDashboard() {
     });
   };
 
+  const handlePropertySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const propertyData: InsertProperty = {
+      name: propertyForm.name,
+      location: propertyForm.location,
+      description: propertyForm.description,
+      totalValue: propertyForm.totalValue,
+      minInvestment: propertyForm.minInvestment,
+      projectedReturn: propertyForm.projectedReturn,
+      availableSlots: propertyForm.availableSlots,
+      totalSlots: propertyForm.totalSlots,
+      fundingProgress: Math.round(((propertyForm.totalSlots - propertyForm.availableSlots) / propertyForm.totalSlots) * 100),
+      imageUrl: propertyForm.imageUrl,
+      badge: propertyForm.badge || undefined,
+      partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || undefined,
+      partnershipDocumentName: propertyForm.partnershipDocumentName || undefined,
+    };
+
+    createPropertyMutation.mutate(propertyData);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -76,9 +159,10 @@ export default function AdminDashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="properties">Properties</TabsTrigger>
+            <TabsTrigger value="add-property">Add Property</TabsTrigger>
             <TabsTrigger value="investments">Investments</TabsTrigger>
             <TabsTrigger value="developers">Developer Bids</TabsTrigger>
           </TabsList>
@@ -185,11 +269,194 @@ export default function AdminDashboard() {
             </div>
           </TabsContent>
 
+          {/* Add Property Tab */}
+          <TabsContent value="add-property">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Plus className="w-5 h-5" />
+                  <span>Add New Property</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handlePropertySubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="name">Property Name *</Label>
+                      <Input
+                        id="name"
+                        required
+                        value={propertyForm.name}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="e.g., Eko Atlantic Towers"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="location">Location *</Label>
+                      <Input
+                        id="location"
+                        required
+                        value={propertyForm.location}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, location: e.target.value }))}
+                        placeholder="e.g., Victoria Island, Lagos"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">Description *</Label>
+                    <Textarea
+                      id="description"
+                      required
+                      rows={4}
+                      value={propertyForm.description}
+                      onChange={(e) => setPropertyForm(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Detailed description of the property..."
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                      <Label htmlFor="totalValue">Total Value (₦) *</Label>
+                      <Input
+                        id="totalValue"
+                        type="number"
+                        required
+                        value={propertyForm.totalValue}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: parseInt(e.target.value) || 0 }))}
+                        placeholder="1100000000"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="minInvestment">Minimum Investment (₦) *</Label>
+                      <Input
+                        id="minInvestment"
+                        type="number"
+                        required
+                        value={propertyForm.minInvestment}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, minInvestment: parseInt(e.target.value) || 0 }))}
+                        placeholder="30000"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="projectedReturn">Projected Return (%) *</Label>
+                      <Input
+                        id="projectedReturn"
+                        required
+                        value={propertyForm.projectedReturn}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
+                        placeholder="11.00"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="totalSlots">Total Slots *</Label>
+                      <Input
+                        id="totalSlots"
+                        type="number"
+                        required
+                        value={propertyForm.totalSlots}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, totalSlots: parseInt(e.target.value) || 0 }))}
+                        placeholder="100"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="availableSlots">Available Slots *</Label>
+                      <Input
+                        id="availableSlots"
+                        type="number"
+                        required
+                        value={propertyForm.availableSlots}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, availableSlots: parseInt(e.target.value) || 0 }))}
+                        placeholder="97"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="imageUrl">Property Image URL *</Label>
+                    <Input
+                      id="imageUrl"
+                      type="url"
+                      required
+                      value={propertyForm.imageUrl}
+                      onChange={(e) => setPropertyForm(prev => ({ ...prev, imageUrl: e.target.value }))}
+                      placeholder="https://example.com/property-image.jpg"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="badge">Badge Type</Label>
+                      <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select badge type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">No Badge</SelectItem>
+                          <SelectItem value="partnered">Partnered</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="partnershipDocumentName">Partnership Document Name</Label>
+                      <Input
+                        id="partnershipDocumentName"
+                        value={propertyForm.partnershipDocumentName}
+                        onChange={(e) => setPropertyForm(prev => ({ ...prev, partnershipDocumentName: e.target.value }))}
+                        placeholder="Partnership Agreement - Property Name"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="partnershipDocumentUrl">Partnership Document URL</Label>
+                    <Input
+                      id="partnershipDocumentUrl"
+                      type="url"
+                      value={propertyForm.partnershipDocumentUrl}
+                      onChange={(e) => setPropertyForm(prev => ({ ...prev, partnershipDocumentUrl: e.target.value }))}
+                      placeholder="https://example.com/partnership-agreement.pdf"
+                    />
+                  </div>
+
+                  <div className="flex gap-4 pt-6">
+                    <Button 
+                      type="submit" 
+                      className="bg-blue-600 hover:bg-blue-700"
+                      disabled={createPropertyMutation.isPending}
+                    >
+                      {createPropertyMutation.isPending ? "Creating..." : "Create Property"}
+                    </Button>
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      onClick={() => setSelectedTab("properties")}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Properties Tab */}
           <TabsContent value="properties">
             <Card>
               <CardHeader>
-                <CardTitle>All Properties</CardTitle>
+                <div className="flex justify-between items-center">
+                  <CardTitle>All Properties</CardTitle>
+                  <Button 
+                    onClick={() => setSelectedTab("add-property")}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Property
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>

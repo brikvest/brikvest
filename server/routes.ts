@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { 
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
+  insertPropertySchema,
   type Property,
   type InvestmentReservation,
   type DeveloperBid 
@@ -35,6 +36,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching property:", error);
       res.status(500).json({ message: "Failed to fetch property" });
+    }
+  });
+
+  // Create new property
+  app.post("/api/properties", async (req, res) => {
+    try {
+      const result = insertPropertySchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid property data", 
+          details: result.error.errors 
+        });
+      }
+
+      const property = await storage.createProperty(result.data);
+      res.status(201).json(property);
+    } catch (error) {
+      console.error("Error creating property:", error);
+      res.status(500).json({ error: "Failed to create property" });
     }
   });
 
