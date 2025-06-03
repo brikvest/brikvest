@@ -39,16 +39,17 @@ export const investmentReservations = pgTable("investment_reservations", {
 
 export const developerBids = pgTable("developer_bids", {
   id: serial("id").primaryKey(),
+  developerName: text("developer_name").notNull(),
   companyName: text("company_name").notNull(),
-  contactPerson: text("contact_person").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
-  projectType: text("project_type").notNull(),
-  location: text("location").notNull(),
-  projectValue: bigint("project_value", { mode: "number" }).notNull(),
-  timeline: integer("timeline").notNull(),
+  estimatedCost: bigint("estimated_cost", { mode: "number" }).notNull(),
+  costCurrency: text("cost_currency").notNull().default("NGN"),
   description: text("description").notNull(),
-  experience: text("experience").notNull(),
+  timeline: integer("timeline").notNull(),
+  pastProjectLink: text("past_project_link"),
+  pastProjectFile: text("past_project_file"),
+  whySelected: text("why_selected").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
