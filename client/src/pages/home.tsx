@@ -897,14 +897,14 @@ export default function Home() {
                 {/* Developer Notes */}
                 <div>
                   <h3 className="text-xl font-semibold mb-4">Developer Notes</h3>
-                  <div className="bg-slate-50 p-6 rounded-lg">
-                    <p className="mb-4">
+                  <div className="space-y-4">
+                    <p>
                       We are inviting bids from real estate developers to design and execute a high-income-generating project on the 1,700 sqm land at {selectedProperty.location}.
                     </p>
                     
-                    <div className="mb-4">
+                    <div>
                       <h4 className="font-semibold mb-2">Key Requirements:</h4>
-                      <ul className="list-disc ml-6 space-y-2">
+                      <ul className="list-disc ml-6 space-y-2 text-slate-700">
                         <li><strong>Development Type:</strong> Multi-unit residential apartments are strongly preferred. Ideal configurations: Studio, 1-bedroom, 2-bedroom, and 3-bedroom units.</li>
                         <li><strong>Occupancy Goal:</strong> Minimum capacity to serve 50 tenants or more.</li>
                         <li><strong>Alternative Consideration:</strong> Villas may be considered, but only if the proposed development demonstrates very high income-generating potential.</li>
@@ -912,44 +912,45 @@ export default function Home() {
                       </ul>
                     </div>
 
-                    <div className="mb-4">
-                      <p className="mb-2">Developers are expected to:</p>
-                      <ul className="list-disc ml-6 space-y-1">
+                    <div>
+                      <p className="font-semibold mb-2">Developers are expected to:</p>
+                      <ul className="list-disc ml-6 space-y-1 text-slate-700">
                         <li>Generate rental income during this period</li>
                         <li>Strategically sell all units before the 7-year timeline</li>
                       </ul>
                     </div>
 
-                    <div className="mb-4">
+                    <div>
                       <h4 className="font-semibold mb-2">Application Process:</h4>
-                      <ul className="list-disc ml-6 space-y-2">
+                      <ul className="list-disc ml-6 space-y-2 text-slate-700">
                         <li>Click the "Bid to Develop" button and submit a proposal including approximate financial projections and target unit mix.</li>
                         <li>Share your track record and past completed projects to strengthen your application.</li>
                         <li>Successful applicants from this first stage will be contacted for a due diligence phase, where we will assess project feasibility and your capacity to deliver.</li>
                       </ul>
                     </div>
-
-                    <div className="flex gap-4 mt-6">
-                      <Button 
-                        onClick={() => {
-                          setPropertyDetailModalOpen(false);
-                          setDeveloperModalOpen(true);
-                        }}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        Bid to Develop
-                      </Button>
-                      <Button 
-                        onClick={() => {
-                          setPropertyDetailModalOpen(false);
-                          openInvestmentModal(selectedProperty);
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        Reserve Investment Slot
-                      </Button>
-                    </div>
                   </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-4 pt-6 border-t border-slate-200">
+                  <Button 
+                    onClick={() => {
+                      setPropertyDetailModalOpen(false);
+                      setDeveloperModalOpen(true);
+                    }}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Bid to Develop
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setPropertyDetailModalOpen(false);
+                      openInvestmentModal(selectedProperty);
+                    }}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Reserve Investment Slot
+                  </Button>
                 </div>
               </div>
             </>
