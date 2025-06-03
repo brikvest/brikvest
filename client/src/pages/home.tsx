@@ -904,6 +904,56 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* Partnership Verification */}
+                {selectedProperty.badge === 'partnered' && selectedProperty.partnershipDocumentUrl && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-4">Partnership Verification</h3>
+                    <div className="border border-green-200 bg-green-50 rounded-lg p-6">
+                      <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0">
+                          <Shield className="w-8 h-8 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-green-800 mb-2">Verified Partnership</h4>
+                          <p className="text-green-700 mb-4">
+                            This property has been verified with a signed partnership agreement between Brikvest and the land owner. 
+                            You can view and download the official documentation below for transparency and peace of mind.
+                          </p>
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <Button
+                              onClick={() => window.open(selectedProperty.partnershipDocumentUrl, '_blank')}
+                              variant="outline"
+                              className="border-green-600 text-green-600 hover:bg-green-600 hover:text-white"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              Preview Document
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = selectedProperty.partnershipDocumentUrl || '';
+                                link.download = selectedProperty.partnershipDocumentName || 'Partnership Agreement';
+                                link.click();
+                              }}
+                              variant="outline"
+                              className="border-green-600 text-green-600 hover:bg-green-600 hover:text-white"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download PDF
+                            </Button>
+                          </div>
+                          {selectedProperty.partnershipDocumentName && (
+                            <p className="text-sm text-green-600 mt-2">
+                              <FileText className="w-4 h-4 inline mr-1" />
+                              {selectedProperty.partnershipDocumentName}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Description */}
                 <div>
                   <h3 className="text-xl font-semibold mb-4">Description</h3>
