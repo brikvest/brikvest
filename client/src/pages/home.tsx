@@ -18,6 +18,7 @@ export default function Home() {
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [developerModalOpen, setDeveloperModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [propertyDetailModalOpen, setPropertyDetailModalOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -156,6 +157,11 @@ export default function Home() {
   const openInvestmentModal = (property: Property) => {
     setSelectedProperty(property);
     setInvestmentModalOpen(true);
+  };
+
+  const openPropertyDetailModal = (property: Property) => {
+    setSelectedProperty(property);
+    setPropertyDetailModalOpen(true);
   };
 
   const formatCurrency = (amount: number) => {
@@ -333,52 +339,59 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {properties.map((property) => (
-                <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow">
-                  <img 
-                    src={property.imageUrl} 
-                    alt={property.name}
-                    className="w-full h-48 object-cover"
-                  />
-                  <CardContent className="p-6">
-                    <div className="mb-4">
-                      <h3 className="text-xl font-semibold mb-2">{property.name}</h3>
-                      <p className="text-slate-600 text-sm flex items-center">
-                        <MapPin className="w-4 h-4 mr-1" />
-                        {property.location}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-                      <div>
-                        <span className="text-slate-600">Total Value:</span>
-                        <div className="font-semibold">{formatCurrency(property.totalValue)}</div>
+                <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
+                  <div onClick={() => openPropertyDetailModal(property)}>
+                    <img 
+                      src={property.imageUrl} 
+                      alt={property.name}
+                      className="w-full h-48 object-cover"
+                    />
+                    <CardContent className="p-6">
+                      <div className="mb-4">
+                        <h3 className="text-xl font-semibold mb-2">{property.name}</h3>
+                        <p className="text-slate-600 text-sm flex items-center">
+                          <MapPin className="w-4 h-4 mr-1" />
+                          {property.location}
+                        </p>
                       </div>
-                      <div>
-                        <span className="text-slate-600">Min. Investment:</span>
-                        <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
+                      <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+                        <div>
+                          <span className="text-slate-600">Total Value:</span>
+                          <div className="font-semibold">{formatCurrency(property.totalValue)}</div>
+                        </div>
+                        <div>
+                          <span className="text-slate-600">Min. Investment:</span>
+                          <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
+                        </div>
+                        <div>
+                          <span className="text-slate-600">Projected Return:</span>
+                          <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
+                        </div>
+                        <div>
+                          <span className="text-slate-600">Available Slots:</span>
+                          <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-600">Projected Return:</span>
-                        <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
+                      <div className="mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm text-slate-600">Funding Progress</span>
+                          <span className="text-sm font-medium">{property.fundingProgress}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                            style={{ width: `${property.fundingProgress}%` }}
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-600">Available Slots:</span>
-                        <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
-                      </div>
-                    </div>
-                    <div className="mb-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm text-slate-600">Funding Progress</span>
-                        <span className="text-sm font-medium">{property.fundingProgress}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2">
-                        <div 
-                          className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${property.fundingProgress}%` }}
-                        />
-                      </div>
-                    </div>
+                    </CardContent>
+                  </div>
+                  <CardContent className="px-6 pb-6">
                     <Button 
-                      onClick={() => openInvestmentModal(property)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openInvestmentModal(property);
+                      }}
                       className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                     >
                       Reserve Investment Slot
@@ -755,6 +768,192 @@ export default function Home() {
               {developerMutation.isPending ? "Submitting..." : "Submit Bid"}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Property Detail Modal */}
+      <Dialog open={propertyDetailModalOpen} onOpenChange={setPropertyDetailModalOpen}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          {selectedProperty && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold">{selectedProperty.name}</DialogTitle>
+                <DialogDescription className="flex items-center text-base">
+                  <MapPin className="w-4 h-4 mr-1" />
+                  {selectedProperty.location}
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-8">
+                {/* Property Image */}
+                <div className="relative">
+                  <img 
+                    src={selectedProperty.imageUrl} 
+                    alt={selectedProperty.name}
+                    className="w-full h-64 object-cover rounded-lg"
+                  />
+                  <div className="absolute top-4 right-4">
+                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+                      {selectedProperty.projectedReturn}% Annual ROI
+                    </span>
+                  </div>
+                </div>
+
+                {/* Investment Details */}
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-slate-600">Location:</span>
+                        <div className="font-semibold">{selectedProperty.location}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Land Size:</span>
+                        <div className="font-semibold">1,700 sqm</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Funding Target:</span>
+                        <div className="font-semibold">{formatCurrency(selectedProperty.totalValue)}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Total Invested:</span>
+                        <div className="font-semibold text-green-600">
+                          {formatCurrency((selectedProperty.totalSlots - selectedProperty.availableSlots) * selectedProperty.minInvestment)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-slate-600">Minimum Investment:</span>
+                        <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Maturity Date:</span>
+                        <div className="font-semibold">5/6/2033</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Annual ROI:</span>
+                        <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600">Exit Strategy:</span>
+                        <div className="font-semibold">7-year exit with ongoing rental income and resale flexibility</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Funding Progress */}
+                  <div className="mt-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-medium">Funding Progress</span>
+                      <span className="font-semibold">{selectedProperty.fundingProgress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div 
+                        className="bg-green-600 h-3 rounded-full transition-all duration-300" 
+                        style={{ width: `${selectedProperty.fundingProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">Description</h3>
+                  <div className="prose prose-slate max-w-none">
+                    <p className="mb-4">
+                      We are excited to offer investors a unique opportunity to co-invest in a high-value residential development located in Guzape, one of Abuja's most prestigious and secure neighborhoods.
+                    </p>
+                    
+                    <div className="mb-4">
+                      <h4 className="font-semibold mb-2">📍 Strategic Location Highlights:</h4>
+                      <ul className="list-disc ml-6 space-y-1">
+                        <li>35-minute drive from Nnamdi Azikiwe International Airport</li>
+                        <li>10-minute drive from the Central Business District</li>
+                        <li>5-minute proximity to premium supermarkets and shopping centers</li>
+                        <li>Situated in a neighborhood known for security and infrastructure, with an average of 20 hours of power supply daily</li>
+                      </ul>
+                    </div>
+
+                    <p className="mb-4">
+                      Investors may exit early by reselling their shares to other users on the platform.
+                    </p>
+
+                    <p className="mb-4">
+                      Before development begins, all investors will vote to select the preferred real estate developer, based on submitted proposals via the platform.
+                    </p>
+
+                    <p className="mb-4">
+                      This is an opportunity to participate in a professionally managed, income-generating real estate project in a high-demand location—while retaining flexibility and collective decision-making power.
+                    </p>
+
+                    <p className="font-medium">
+                      👉 If you're interested in investing, please sign up to express your interest and you will be informed of the next steps.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Developer Notes */}
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">Developer Notes</h3>
+                  <div className="bg-slate-50 p-6 rounded-lg">
+                    <p className="mb-4">
+                      We are inviting bids from real estate developers to design and execute a high-income-generating project on the 1,700 sqm land at {selectedProperty.location}.
+                    </p>
+                    
+                    <div className="mb-4">
+                      <h4 className="font-semibold mb-2">Key Requirements:</h4>
+                      <ul className="list-disc ml-6 space-y-2">
+                        <li><strong>Development Type:</strong> Multi-unit residential apartments are strongly preferred. Ideal configurations: Studio, 1-bedroom, 2-bedroom, and 3-bedroom units.</li>
+                        <li><strong>Occupancy Goal:</strong> Minimum capacity to serve 50 tenants or more.</li>
+                        <li><strong>Alternative Consideration:</strong> Villas may be considered, but only if the proposed development demonstrates very high income-generating potential.</li>
+                        <li><strong>Exit Plan:</strong> The exit timeline is 7 years from project commencement.</li>
+                      </ul>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="mb-2">Developers are expected to:</p>
+                      <ul className="list-disc ml-6 space-y-1">
+                        <li>Generate rental income during this period</li>
+                        <li>Strategically sell all units before the 7-year timeline</li>
+                      </ul>
+                    </div>
+
+                    <div className="mb-4">
+                      <h4 className="font-semibold mb-2">Application Process:</h4>
+                      <ul className="list-disc ml-6 space-y-2">
+                        <li>Click the "Bid to Develop" button and submit a proposal including approximate financial projections and target unit mix.</li>
+                        <li>Share your track record and past completed projects to strengthen your application.</li>
+                        <li>Successful applicants from this first stage will be contacted for a due diligence phase, where we will assess project feasibility and your capacity to deliver.</li>
+                      </ul>
+                    </div>
+
+                    <div className="flex gap-4 mt-6">
+                      <Button 
+                        onClick={() => {
+                          setPropertyDetailModalOpen(false);
+                          setDeveloperModalOpen(true);
+                        }}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        Bid to Develop
+                      </Button>
+                      <Button 
+                        onClick={() => {
+                          setPropertyDetailModalOpen(false);
+                          openInvestmentModal(selectedProperty);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        Reserve Investment Slot
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
