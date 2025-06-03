@@ -299,7 +299,7 @@ export default function AdminDashboard() {
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           <h3 className="text-lg font-semibold">{bid.companyName}</h3>
-                          <p className="text-sm text-muted-foreground">Contact: {bid.contactPerson}</p>
+                          <p className="text-sm text-muted-foreground">Developer: {bid.developerName}</p>
                         </div>
                         <Badge variant={bid.status === "pending" ? "secondary" : "default"}>
                           {bid.status}
@@ -316,23 +316,29 @@ export default function AdminDashboard() {
                           <span className="text-sm">{bid.phone}</span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <MapPin className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm">{bid.location}</span>
+                          <span className="text-sm font-medium">Developer:</span>
+                          <span className="text-sm">{bid.developerName}</span>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
-                          <p className="text-sm font-medium">Project Type</p>
-                          <p className="text-sm text-muted-foreground">{bid.projectType}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">Project Value</p>
-                          <p className="text-sm text-muted-foreground">{formatCurrency(bid.projectValue)}</p>
+                          <p className="text-sm font-medium">Estimated Cost</p>
+                          <p className="text-sm text-muted-foreground">{bid.costCurrency} {bid.estimatedCost.toLocaleString()}</p>
                         </div>
                         <div>
                           <p className="text-sm font-medium">Timeline</p>
                           <p className="text-sm text-muted-foreground">{bid.timeline} months</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Past Project</p>
+                          <p className="text-sm text-muted-foreground">
+                            {bid.pastProjectLink ? (
+                              <a href={bid.pastProjectLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                View Project
+                              </a>
+                            ) : "Not provided"}
+                          </p>
                         </div>
                       </div>
 
@@ -342,9 +348,15 @@ export default function AdminDashboard() {
                           <p className="text-sm text-muted-foreground">{bid.description}</p>
                         </div>
                         <div>
-                          <p className="text-sm font-medium">Experience</p>
-                          <p className="text-sm text-muted-foreground">{bid.experience}</p>
+                          <p className="text-sm font-medium">Why Selected</p>
+                          <p className="text-sm text-muted-foreground">{bid.whySelected}</p>
                         </div>
+                        {bid.pastProjectFile && (
+                          <div>
+                            <p className="text-sm font-medium">Uploaded File</p>
+                            <p className="text-sm text-muted-foreground">{bid.pastProjectFile}</p>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex justify-between items-center mt-4 pt-4 border-t">
