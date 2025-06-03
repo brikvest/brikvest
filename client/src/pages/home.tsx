@@ -247,7 +247,7 @@ export default function Home() {
                 <Button 
                   variant="outline"
                   onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="border-2 border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 text-lg font-semibold"
+                  className="border-2 border-white text-white bg-transparent hover:bg-white hover:text-blue-600 px-8 py-4 text-lg font-semibold"
                 >
                   Learn More
                 </Button>
@@ -921,7 +921,7 @@ export default function Home() {
                           </p>
                           <div className="flex flex-col sm:flex-row gap-3">
                             <Button
-                              onClick={() => window.open(selectedProperty.partnershipDocumentUrl, '_blank')}
+                              onClick={() => selectedProperty.partnershipDocumentUrl && window.open(selectedProperty.partnershipDocumentUrl, '_blank')}
                               variant="outline"
                               className="border-green-600 text-green-600 hover:bg-green-600 hover:text-white"
                             >
