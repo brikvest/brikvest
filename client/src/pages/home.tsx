@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
+import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function Home() {
   const { toast } = useToast();
@@ -171,7 +172,7 @@ export default function Home() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <img 
-                src="/src/assets/brikvest-logo.png" 
+                src={brikvest_logo} 
                 alt="Brikvest Logo" 
                 className="h-8 w-auto"
               />
@@ -477,7 +478,13 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="col-span-1 md:col-span-2">
-              <h3 className="text-2xl font-bold mb-4">Brikvest</h3>
+              <div className="flex items-center mb-4">
+                <img 
+                  src={brikvest_logo} 
+                  alt="Brikvest Logo" 
+                  className="h-10 w-auto filter brightness-0 invert"
+                />
+              </div>
               <p className="text-slate-300 mb-6 max-w-md">
                 Making real estate investment accessible to everyone through fractional ownership and professional management.
               </p>
