@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { FileUpload } from "@/components/FileUpload";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
