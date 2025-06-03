@@ -167,7 +167,7 @@ export default function AdminDashboard() {
                       <div key={bid.id} className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{bid.companyName}</p>
-                          <p className="text-sm text-muted-foreground">{bid.projectType}</p>
+                          <p className="text-sm text-muted-foreground">{bid.costCurrency} {bid.estimatedCost.toLocaleString()}</p>
                         </div>
                         <div className="text-right">
                           <Badge variant={bid.status === "pending" ? "secondary" : "default"}>

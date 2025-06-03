@@ -31,16 +31,17 @@ export default function Home() {
   });
 
   const [developerForm, setDeveloperForm] = useState({
+    developerName: "",
     companyName: "",
-    contactPerson: "",
     email: "",
     phone: "",
-    projectType: "",
-    location: "",
-    projectValue: "",
-    timeline: "",
+    estimatedCost: 0,
+    costCurrency: "NGN",
     description: "",
-    experience: ""
+    timeline: 0,
+    pastProjectLink: "",
+    pastProjectFile: "",
+    whySelected: ""
   });
 
   // Fetch properties
@@ -94,16 +95,17 @@ export default function Home() {
       setSuccessMessage("Your development bid has been submitted successfully! Our team will review it and get back to you within 48 hours.");
       setSuccessModalOpen(true);
       setDeveloperForm({
+        developerName: "",
         companyName: "",
-        contactPerson: "",
         email: "",
         phone: "",
-        projectType: "",
-        location: "",
-        projectValue: "",
-        timeline: "",
+        estimatedCost: 0,
+        costCurrency: "NGN",
         description: "",
-        experience: ""
+        timeline: 0,
+        pastProjectLink: "",
+        pastProjectFile: "",
+        whySelected: ""
       });
     },
     onError: (error) => {
@@ -135,16 +137,17 @@ export default function Home() {
     e.preventDefault();
 
     const bidData: InsertDeveloperBid = {
+      developerName: developerForm.developerName,
       companyName: developerForm.companyName,
-      contactPerson: developerForm.contactPerson,
       email: developerForm.email,
       phone: developerForm.phone,
-      projectType: developerForm.projectType,
-      location: developerForm.location,
-      projectValue: parseInt(developerForm.projectValue),
-      timeline: parseInt(developerForm.timeline),
+      estimatedCost: developerForm.estimatedCost,
+      costCurrency: developerForm.costCurrency,
       description: developerForm.description,
-      experience: developerForm.experience,
+      timeline: developerForm.timeline,
+      pastProjectLink: developerForm.pastProjectLink || undefined,
+      pastProjectFile: developerForm.pastProjectFile || undefined,
+      whySelected: developerForm.whySelected,
     };
 
     developerMutation.mutate(bidData);
@@ -613,6 +616,17 @@ export default function Home() {
           <form onSubmit={handleDeveloperSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
+                <Label htmlFor="developerName">Developer Name *</Label>
+                <Input
+                  id="developerName"
+                  type="text"
+                  required
+                  value={developerForm.developerName}
+                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, developerName: e.target.value }))}
+                  placeholder="Your full name"
+                />
+              </div>
+              <div>
                 <Label htmlFor="companyName">Company Name *</Label>
                 <Input
                   id="companyName"
@@ -621,17 +635,6 @@ export default function Home() {
                   value={developerForm.companyName}
                   onChange={(e) => setDeveloperForm(prev => ({ ...prev, companyName: e.target.value }))}
                   placeholder="Your company name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="contactPerson">Contact Person *</Label>
-                <Input
-                  id="contactPerson"
-                  type="text"
-                  required
-                  value={developerForm.contactPerson}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, contactPerson: e.target.value }))}
-                  placeholder="Primary contact name"
                 />
               </div>
             </div>
@@ -659,88 +662,97 @@ export default function Home() {
                 />
               </div>
             </div>
-            <div>
-              <Label htmlFor="projectType">Project Type *</Label>
-              <Select value={developerForm.projectType} onValueChange={(value) => setDeveloperForm(prev => ({ ...prev, projectType: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select project type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="residential">Residential Development</SelectItem>
-                  <SelectItem value="commercial">Commercial Development</SelectItem>
-                  <SelectItem value="mixed-use">Mixed-Use Development</SelectItem>
-                  <SelectItem value="retail">Retail Development</SelectItem>
-                  <SelectItem value="industrial">Industrial Development</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="devLocation">Project Location *</Label>
-              <Input
-                id="devLocation"
-                type="text"
-                required
-                value={developerForm.location}
-                onChange={(e) => setDeveloperForm(prev => ({ ...prev, location: e.target.value }))}
-                placeholder="City, State"
-              />
-            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <Label htmlFor="projectValue">Estimated Project Value *</Label>
+                <Label htmlFor="estimatedCost">Estimated Construction Cost *</Label>
                 <Input
-                  id="projectValue"
+                  id="estimatedCost"
                   type="number"
                   required
-                  value={developerForm.projectValue}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, projectValue: e.target.value }))}
-                  placeholder="Total project cost"
+                  value={developerForm.estimatedCost}
+                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, estimatedCost: parseInt(e.target.value) || 0 }))}
+                  placeholder="Enter amount"
                 />
               </div>
               <div>
-                <Label htmlFor="timeline">Timeline (Months) *</Label>
-                <Input
-                  id="timeline"
-                  type="number"
-                  required
-                  value={developerForm.timeline}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, timeline: e.target.value }))}
-                  placeholder="Expected completion time"
-                />
+                <Label htmlFor="costCurrency">Currency *</Label>
+                <Select value={developerForm.costCurrency} onValueChange={(value) => setDeveloperForm(prev => ({ ...prev, costCurrency: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NGN">₦ Nigerian Naira</SelectItem>
+                    <SelectItem value="USD">$ US Dollar</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div>
-              <Label htmlFor="description">Project Description *</Label>
+              <Label htmlFor="description">Description of Proposed Development *</Label>
               <Textarea
                 id="description"
                 required
                 rows={4}
                 value={developerForm.description}
                 onChange={(e) => setDeveloperForm(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Detailed description of your development project..."
+                placeholder="Type of structure, number of units, target market, financial projections..."
               />
             </div>
             <div>
-              <Label htmlFor="experience">Years of Experience *</Label>
-              <Select value={developerForm.experience} onValueChange={(value) => setDeveloperForm(prev => ({ ...prev, experience: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select experience level" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0-2">0-2 Years</SelectItem>
-                  <SelectItem value="3-5">3-5 Years</SelectItem>
-                  <SelectItem value="6-10">6-10 Years</SelectItem>
-                  <SelectItem value="11-20">11-20 Years</SelectItem>
-                  <SelectItem value="20+">20+ Years</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="timeline">Estimated Timeline (in months) *</Label>
+              <Input
+                id="timeline"
+                type="number"
+                required
+                value={developerForm.timeline}
+                onChange={(e) => setDeveloperForm(prev => ({ ...prev, timeline: parseInt(e.target.value) || 0 }))}
+                placeholder="e.g., 24"
+              />
+            </div>
+            <div>
+              <Label htmlFor="pastProjectLink">Past Project Link (Optional)</Label>
+              <Input
+                id="pastProjectLink"
+                type="url"
+                value={developerForm.pastProjectLink}
+                onChange={(e) => setDeveloperForm(prev => ({ ...prev, pastProjectLink: e.target.value }))}
+                placeholder="https://example.com/project"
+              />
+            </div>
+            <div>
+              <Label htmlFor="pastProjectFile">📎 Upload a Similar Past Project (Optional)</Label>
+              <Input
+                id="pastProjectFile"
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setDeveloperForm(prev => ({ ...prev, pastProjectFile: file.name }));
+                  }
+                }}
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                {developerForm.pastProjectFile || "No file chosen"}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="whySelected">Why Should You Be Selected? *</Label>
+              <Textarea
+                id="whySelected"
+                required
+                rows={4}
+                value={developerForm.whySelected}
+                onChange={(e) => setDeveloperForm(prev => ({ ...prev, whySelected: e.target.value }))}
+                placeholder="Explain why your company is a good fit for this development opportunity..."
+              />
             </div>
             <Button 
               type="submit" 
               className="w-full bg-green-600 hover:bg-green-700"
               disabled={developerMutation.isPending}
             >
-              {developerMutation.isPending ? "Submitting..." : "Submit Development Bid"}
+              {developerMutation.isPending ? "Submitting..." : "Submit Bid"}
             </Button>
           </form>
         </DialogContent>
