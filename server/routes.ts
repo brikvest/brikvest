@@ -1,9 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { upload, uploadToCloudinary } from "./cloudinary";
 import { 
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
+  insertPropertySchema,
   type Property,
   type InvestmentReservation,
   type DeveloperBid 
@@ -35,6 +37,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching property:", error);
       res.status(500).json({ message: "Failed to fetch property" });
+    }
+  });
+
+  // Create new property
+  app.post("/api/properties", async (req, res) => {
+    try {
+      const result = insertPropertySchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid property data", 
+          details: result.error.errors 
+        });
+      }
+
+      const property = await storage.createProperty(result.data);
+      res.status(201).json(property);
+    } catch (error) {
+      console.error("Error creating property:", error);
+      res.status(500).json({ error: "Failed to create property" });
     }
   });
 
@@ -210,6 +231,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding properties:", error);
       res.status(500).json({ message: "Failed to seed properties" });
+    }
+  });
+
+  // File upload endpoint for partnership documents
+  app.post("/api/upload/document", upload.single('document'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        req.file.originalname,
+        'brikvest/documents'
+      );
+
+      res.json({
+        url: result.url,
+        publicId: result.publicId,
+        originalName: req.file.originalname
+      });
+    } catch (error) {
+      console.error("Error uploading document:", error);
+      res.status(500).json({ error: "Failed to upload document" });
+    }
+  });
+
+  // File upload endpoint for property images
+  app.post("/api/upload/image", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        req.file.originalname,
+        'brikvest/properties'
+      );
+
+      res.json({
+        url: result.url,
+        publicId: result.publicId,
+        originalName: req.file.originalname
+      });
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      res.status(500).json({ error: "Failed to upload image" });
     }
   });
 
