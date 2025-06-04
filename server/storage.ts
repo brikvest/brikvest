@@ -240,12 +240,15 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     // Update member's contributed amount
-    await db
-      .update(groupMembers)
-      .set({ 
-        contributedAmount: db.raw(`contributed_amount + ${contribution.amount}`)
-      })
-      .where(eq(groupMembers.id, contribution.memberId));
+    const [member] = await db.select().from(groupMembers).where(eq(groupMembers.id, contribution.memberId));
+    if (member) {
+      await db
+        .update(groupMembers)
+        .set({ 
+          contributedAmount: member.contributedAmount + contribution.amount
+        })
+        .where(eq(groupMembers.id, contribution.memberId));
+    }
 
     // Update group's current amount
     const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, contribution.groupId));

@@ -6,9 +6,14 @@ import {
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
   insertPropertySchema,
+  insertInvestmentGroupSchema,
+  insertGroupMemberSchema,
+  joinGroupSchema,
   type Property,
   type InvestmentReservation,
-  type DeveloperBid 
+  type DeveloperBid,
+  type InvestmentGroup,
+  type GroupMember 
 } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -279,6 +284,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error uploading image:", error);
       res.status(500).json({ error: "Failed to upload image" });
+    }
+  });
+
+  // Group Investment Routes
+  
+  // Create investment group
+  app.post("/api/investment-groups", async (req, res) => {
+    try {
+      const validatedData = insertInvestmentGroupSchema.parse(req.body);
+      const group = await storage.createInvestmentGroup(validatedData);
+      res.status(201).json(group);
+    } catch (error) {
+      console.error("Error creating investment group:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid data provided" });
+      }
+      res.status(500).json({ message: "Failed to create investment group" });
+    }
+  });
+
+  // Get all investment groups
+  app.get("/api/investment-groups", async (req, res) => {
+    try {
+      const groups = await storage.getInvestmentGroups();
+      res.json(groups);
+    } catch (error) {
+      console.error("Error fetching investment groups:", error);
+      res.status(500).json({ message: "Failed to fetch investment groups" });
+    }
+  });
+
+  // Get investment group by invite code
+  app.get("/api/investment-groups/invite/:code", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const group = await storage.getInvestmentGroupByInviteCode(code);
+      
+      if (!group) {
+        return res.status(404).json({ message: "Investment group not found" });
+      }
+      
+      res.json(group);
+    } catch (error) {
+      console.error("Error fetching investment group:", error);
+      res.status(500).json({ message: "Failed to fetch investment group" });
+    }
+  });
+
+  // Join investment group
+  app.post("/api/investment-groups/join", async (req, res) => {
+    try {
+      const validatedData = joinGroupSchema.parse(req.body);
+      
+      // Find group by invite code
+      const group = await storage.getInvestmentGroupByInviteCode(validatedData.inviteCode);
+      if (!group) {
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      // Check if group is still accepting members
+      if (group.status !== 'recruiting') {
+        return res.status(400).json({ message: "Group is no longer accepting new members" });
+      }
+
+      // Check if user already joined
+      const existingMembers = await storage.getGroupMembers(group.id);
+      const existingMember = existingMembers.find(m => m.email === validatedData.email);
+      if (existingMember) {
+        return res.status(400).json({ message: "You have already joined this group" });
+      }
+
+      // Check member limit
+      if (existingMembers.length >= group.maxMembers) {
+        return res.status(400).json({ message: "Group has reached maximum capacity" });
+      }
+
+      const memberData = {
+        fullName: validatedData.fullName,
+        email: validatedData.email,
+        phone: validatedData.phone,
+        pledgedAmount: validatedData.pledgedAmount
+      };
+
+      const member = await storage.joinInvestmentGroup(group.id, memberData);
+      res.status(201).json({ member, group });
+    } catch (error) {
+      console.error("Error joining investment group:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid data provided" });
+      }
+      res.status(500).json({ message: "Failed to join investment group" });
+    }
+  });
+
+  // Get group members
+  app.get("/api/investment-groups/:id/members", async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.id);
+      const members = await storage.getGroupMembers(groupId);
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching group members:", error);
+      res.status(500).json({ message: "Failed to fetch group members" });
     }
   });
 
