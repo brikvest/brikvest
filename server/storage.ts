@@ -3,9 +3,6 @@ import {
   properties,
   investmentReservations,
   developerBids,
-  investmentGroups,
-  groupMembers,
-  groupContributions,
   type User, 
   type InsertUser,
   type Property,
@@ -13,14 +10,7 @@ import {
   type InvestmentReservation,
   type InsertInvestmentReservation,
   type DeveloperBid,
-  type InsertDeveloperBid,
-  type InvestmentGroup,
-  type InsertInvestmentGroup,
-  type GroupMember,
-  type InsertGroupMember,
-  type GroupContribution,
-  type InsertGroupContribution,
-  type JoinGroupData
+  type InsertDeveloperBid
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -46,18 +36,6 @@ export interface IStorage {
   createDeveloperBid(bid: InsertDeveloperBid): Promise<DeveloperBid>;
   getDeveloperBids(): Promise<DeveloperBid[]>;
   getDeveloperBid(id: number): Promise<DeveloperBid | undefined>;
-  
-  // Group investment methods
-  createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
-  getInvestmentGroups(): Promise<InvestmentGroup[]>;
-  getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined>;
-  getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined>;
-  joinInvestmentGroup(groupId: number, memberData: InsertGroupMember): Promise<GroupMember>;
-  getGroupMembers(groupId: number): Promise<GroupMember[]>;
-  updateGroupAmount(groupId: number, amount: number): Promise<void>;
-  addGroupContribution(contribution: InsertGroupContribution): Promise<GroupContribution>;
-  getGroupContributions(groupId: number): Promise<GroupContribution[]>;
-  getMemberContributions(memberId: number): Promise<GroupContribution[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -159,120 +137,6 @@ export class DatabaseStorage implements IStorage {
   async getDeveloperBid(id: number): Promise<DeveloperBid | undefined> {
     const [bid] = await db.select().from(developerBids).where(eq(developerBids.id, id));
     return bid || undefined;
-  }
-
-  // Group investment methods
-  async createInvestmentGroup(groupData: InsertInvestmentGroup): Promise<InvestmentGroup> {
-    // Generate unique invite code
-    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    const [newGroup] = await db
-      .insert(investmentGroups)
-      .values({
-        ...groupData,
-        inviteCode,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-      })
-      .returning();
-
-    // Add group leader as first member
-    await db
-      .insert(groupMembers)
-      .values({
-        groupId: newGroup.id,
-        fullName: groupData.leaderName,
-        email: groupData.leaderEmail,
-        phone: groupData.leaderPhone,
-        pledgedAmount: Math.floor(groupData.targetAmount / groupData.targetUnits), // Leader's share
-        isLeader: true
-      });
-
-    return newGroup;
-  }
-
-  async getInvestmentGroups(): Promise<InvestmentGroup[]> {
-    return await db
-      .select()
-      .from(investmentGroups)
-      .orderBy(desc(investmentGroups.createdAt));
-  }
-
-  async getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined> {
-    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, id));
-    return group || undefined;
-  }
-
-  async getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined> {
-    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.inviteCode, inviteCode));
-    return group || undefined;
-  }
-
-  async joinInvestmentGroup(groupId: number, memberData: InsertGroupMember): Promise<GroupMember> {
-    const [newMember] = await db
-      .insert(groupMembers)
-      .values({
-        ...memberData,
-        groupId
-      })
-      .returning();
-    return newMember;
-  }
-
-  async getGroupMembers(groupId: number): Promise<GroupMember[]> {
-    return await db
-      .select()
-      .from(groupMembers)
-      .where(eq(groupMembers.groupId, groupId))
-      .orderBy(desc(groupMembers.joinedAt));
-  }
-
-  async updateGroupAmount(groupId: number, amount: number): Promise<void> {
-    await db
-      .update(investmentGroups)
-      .set({ currentAmount: amount })
-      .where(eq(investmentGroups.id, groupId));
-  }
-
-  async addGroupContribution(contribution: InsertGroupContribution): Promise<GroupContribution> {
-    const [newContribution] = await db
-      .insert(groupContributions)
-      .values(contribution)
-      .returning();
-
-    // Update member's contributed amount
-    const [member] = await db.select().from(groupMembers).where(eq(groupMembers.id, contribution.memberId));
-    if (member) {
-      await db
-        .update(groupMembers)
-        .set({ 
-          contributedAmount: member.contributedAmount + contribution.amount
-        })
-        .where(eq(groupMembers.id, contribution.memberId));
-    }
-
-    // Update group's current amount
-    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, contribution.groupId));
-    if (group) {
-      await this.updateGroupAmount(contribution.groupId, group.currentAmount + contribution.amount);
-    }
-
-    return newContribution;
-  }
-
-  async getGroupContributions(groupId: number): Promise<GroupContribution[]> {
-    return await db
-      .select()
-      .from(groupContributions)
-      .where(eq(groupContributions.groupId, groupId))
-      .orderBy(desc(groupContributions.contributionDate));
-  }
-
-  async getMemberContributions(memberId: number): Promise<GroupContribution[]> {
-    return await db
-      .select()
-      .from(groupContributions)
-      .where(eq(groupContributions.memberId, memberId))
-      .orderBy(desc(groupContributions.contributionDate));
   }
 }
 

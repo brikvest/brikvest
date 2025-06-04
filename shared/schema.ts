@@ -40,49 +40,6 @@ export const investmentReservations = pgTable("investment_reservations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Investment Groups for collaborative investing
-export const investmentGroups = pgTable("investment_groups", {
-  id: serial("id").primaryKey(),
-  propertyId: integer("property_id").notNull().references(() => properties.id),
-  groupName: text("group_name").notNull(),
-  description: text("description"),
-  leaderName: text("leader_name").notNull(),
-  leaderEmail: text("leader_email").notNull(),
-  leaderPhone: text("leader_phone").notNull(),
-  targetAmount: bigint("target_amount", { mode: "number" }).notNull(),
-  targetUnits: integer("target_units").notNull(),
-  currentAmount: bigint("current_amount", { mode: "number" }).notNull().default(0),
-  inviteCode: text("invite_code").notNull().unique(),
-  maxMembers: integer("max_members").notNull().default(10),
-  status: text("status").notNull().default("recruiting"), // recruiting, funded, confirmed, closed
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const groupMembers = pgTable("group_members", {
-  id: serial("id").primaryKey(),
-  groupId: integer("group_id").notNull().references(() => investmentGroups.id),
-  fullName: text("full_name").notNull(),
-  email: text("email").notNull(),
-  phone: text("phone").notNull(),
-  pledgedAmount: bigint("pledged_amount", { mode: "number" }).notNull(),
-  contributedAmount: bigint("contributed_amount", { mode: "number" }).notNull().default(0),
-  isLeader: boolean("is_leader").notNull().default(false),
-  status: text("status").notNull().default("active"), // active, left, removed
-  joinedAt: timestamp("joined_at").defaultNow().notNull(),
-});
-
-export const groupContributions = pgTable("group_contributions", {
-  id: serial("id").primaryKey(),
-  memberId: integer("member_id").notNull().references(() => groupMembers.id),
-  groupId: integer("group_id").notNull().references(() => investmentGroups.id),
-  amount: bigint("amount", { mode: "number" }).notNull(),
-  contributionDate: timestamp("contribution_date").defaultNow().notNull(),
-  paymentMethod: text("payment_method"), // bank_transfer, card, etc.
-  transactionRef: text("transaction_ref"),
-  status: text("status").notNull().default("pending"), // pending, confirmed, failed
-});
-
 export const developerBids = pgTable("developer_bids", {
   id: serial("id").primaryKey(),
   developerName: text("developer_name").notNull(),
@@ -103,41 +60,12 @@ export const developerBids = pgTable("developer_bids", {
 // Relations
 export const propertiesRelations = relations(properties, ({ many }) => ({
   reservations: many(investmentReservations),
-  investmentGroups: many(investmentGroups),
 }));
 
 export const investmentReservationsRelations = relations(investmentReservations, ({ one }) => ({
   property: one(properties, {
     fields: [investmentReservations.propertyId],
     references: [properties.id],
-  }),
-}));
-
-export const investmentGroupsRelations = relations(investmentGroups, ({ one, many }) => ({
-  property: one(properties, {
-    fields: [investmentGroups.propertyId],
-    references: [properties.id],
-  }),
-  members: many(groupMembers),
-  contributions: many(groupContributions),
-}));
-
-export const groupMembersRelations = relations(groupMembers, ({ one, many }) => ({
-  group: one(investmentGroups, {
-    fields: [groupMembers.groupId],
-    references: [investmentGroups.id],
-  }),
-  contributions: many(groupContributions),
-}));
-
-export const groupContributionsRelations = relations(groupContributions, ({ one }) => ({
-  member: one(groupMembers, {
-    fields: [groupContributions.memberId],
-    references: [groupMembers.id],
-  }),
-  group: one(investmentGroups, {
-    fields: [groupContributions.groupId],
-    references: [investmentGroups.id],
   }),
 }));
 
@@ -164,35 +92,6 @@ export const insertDeveloperBidSchema = createInsertSchema(developerBids).omit({
   status: true,
 });
 
-export const insertInvestmentGroupSchema = createInsertSchema(investmentGroups).omit({
-  id: true,
-  createdAt: true,
-  currentAmount: true,
-  status: true,
-});
-
-export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({
-  id: true,
-  joinedAt: true,
-  contributedAmount: true,
-  status: true,
-  isLeader: true,
-});
-
-export const insertGroupContributionSchema = createInsertSchema(groupContributions).omit({
-  id: true,
-  contributionDate: true,
-  status: true,
-});
-
-export const joinGroupSchema = z.object({
-  inviteCode: z.string().min(1, "Invite code is required"),
-  fullName: z.string().min(2, "Full name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
-  pledgedAmount: z.number().min(1, "Pledged amount must be greater than 0"),
-});
-
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -205,14 +104,3 @@ export type InvestmentReservation = typeof investmentReservations.$inferSelect;
 
 export type InsertDeveloperBid = z.infer<typeof insertDeveloperBidSchema>;
 export type DeveloperBid = typeof developerBids.$inferSelect;
-
-export type InsertInvestmentGroup = z.infer<typeof insertInvestmentGroupSchema>;
-export type InvestmentGroup = typeof investmentGroups.$inferSelect;
-
-export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
-export type GroupMember = typeof groupMembers.$inferSelect;
-
-export type InsertGroupContribution = z.infer<typeof insertGroupContributionSchema>;
-export type GroupContribution = typeof groupContributions.$inferSelect;
-
-export type JoinGroupData = z.infer<typeof joinGroupSchema>;
