@@ -6,12 +6,110 @@ import {
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
   insertPropertySchema,
+  insertInvestmentGroupSchema,
+  insertGroupMembershipSchema,
+  loginSchema,
   type Property,
   type InvestmentReservation,
-  type DeveloperBid 
+  type DeveloperBid,
+  type InvestmentGroup,
+  type GroupMembership 
 } from "@shared/schema";
 
+// Simple session store for admin authentication
+const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
+
+// Authentication middleware
+function requireAdminAuth(req: any, res: any, next: any) {
+  const sessionId = req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!sessionId) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  
+  const session = adminSessions.get(sessionId);
+  if (!session || session.expiresAt < Date.now()) {
+    if (session) adminSessions.delete(sessionId);
+    return res.status(401).json({ message: "Invalid or expired session" });
+  }
+  
+  if (session.role !== 'admin' && session.role !== 'super_admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  req.user = session;
+  next();
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Admin authentication routes
+  app.post("/api/admin/login", async (req, res) => {
+    try {
+      const result = loginSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid login data", 
+          details: result.error.errors 
+        });
+      }
+
+      const { username, password } = result.data;
+      const user = await storage.getUserByUsername(username);
+
+      if (!user || user.password !== password || !user.isActive) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+
+      // Create session
+      const sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+
+      adminSessions.set(sessionId, {
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        expiresAt
+      });
+
+      res.json({
+        sessionId,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role
+        }
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  app.post("/api/admin/logout", (req, res) => {
+    const sessionId = req.headers.authorization?.replace('Bearer ', '');
+    if (sessionId) {
+      adminSessions.delete(sessionId);
+    }
+    res.json({ message: "Logged out successfully" });
+  });
+
+  app.get("/api/admin/me", requireAdminAuth, (req: any, res) => {
+    res.json({
+      user: {
+        id: req.user.userId,
+        username: req.user.username,
+        role: req.user.role
+      }
+    });
+  });
+
   // Get all properties
   app.get("/api/properties", async (req, res) => {
     try {
@@ -40,8 +138,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create new property
-  app.post("/api/properties", async (req, res) => {
+  // Create new property (Admin only)
+  app.post("/api/properties", requireAdminAuth, async (req, res) => {
     try {
       const result = insertPropertySchema.safeParse(req.body);
       if (!result.success) {
@@ -103,6 +201,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(reservations);
     } catch (error) {
       console.error("Error fetching reservations:", error);
+      res.status(500).json({ message: "Failed to fetch reservations" });
+    }
+  });
+
+  // Get all reservations (Admin only)
+  app.get("/api/reservations/all", async (req, res) => {
+    try {
+      const reservations = await storage.getAllReservations();
+      res.json(reservations);
+    } catch (error) {
+      console.error("Error fetching all reservations:", error);
       res.status(500).json({ message: "Failed to fetch reservations" });
     }
   });
@@ -234,6 +343,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update property (Admin only)
+  app.put("/api/properties/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const result = insertPropertySchema.safeParse(req.body);
+      
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid property data", 
+          details: result.error.errors 
+        });
+      }
+
+      const property = await storage.updateProperty(propertyId, result.data);
+      res.json(property);
+    } catch (error) {
+      console.error("Error updating property:", error);
+      res.status(500).json({ error: "Failed to update property" });
+    }
+  });
+
+  // Delete property (Admin only)
+  app.delete("/api/properties/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      await storage.deleteProperty(propertyId);
+      res.json({ message: "Property deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting property:", error);
+      res.status(500).json({ error: "Failed to delete property" });
+    }
+  });
+
   // File upload endpoint for partnership documents
   app.post("/api/upload/document", upload.single('document'), async (req, res) => {
     try {
@@ -279,6 +421,160 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error uploading image:", error);
       res.status(500).json({ error: "Failed to upload image" });
+    }
+  });
+
+  // Investment Group Routes
+  
+  // Create investment group
+  app.post("/api/groups", async (req, res) => {
+    try {
+      const validatedData = insertInvestmentGroupSchema.parse(req.body);
+      
+      // Generate unique invite code
+      const inviteCode = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      
+      const groupData = {
+        ...validatedData,
+        inviteCode
+      };
+      
+      const group = await storage.createInvestmentGroup(groupData);
+      
+      // Add creator as first member
+      const membershipData = {
+        groupId: group.id,
+        memberEmail: group.creatorEmail,
+        memberName: "Group Creator",
+        memberPhone: "",
+        contributionAmount: 0
+      };
+      
+      await storage.createGroupMembership(membershipData);
+      
+      res.status(201).json(group);
+    } catch (error) {
+      console.error("Error creating investment group:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid data provided" });
+      }
+      res.status(500).json({ message: "Failed to create investment group" });
+    }
+  });
+
+  // Get all investment groups
+  app.get("/api/groups", async (req, res) => {
+    try {
+      const groups = await storage.getInvestmentGroups();
+      res.json(groups);
+    } catch (error) {
+      console.error("Error fetching investment groups:", error);
+      res.status(500).json({ message: "Failed to fetch investment groups" });
+    }
+  });
+
+  // Get specific investment group
+  app.get("/api/groups/:id", async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.id);
+      const group = await storage.getInvestmentGroup(groupId);
+      
+      if (!group) {
+        return res.status(404).json({ message: "Investment group not found" });
+      }
+      
+      res.json(group);
+    } catch (error) {
+      console.error("Error fetching investment group:", error);
+      res.status(500).json({ message: "Failed to fetch investment group" });
+    }
+  });
+
+  // Get investment group by invite code
+  app.get("/api/groups/invite/:code", async (req, res) => {
+    try {
+      const inviteCode = req.params.code;
+      const group = await storage.getInvestmentGroupByInviteCode(inviteCode);
+      
+      if (!group) {
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+      
+      res.json(group);
+    } catch (error) {
+      console.error("Error fetching group by invite code:", error);
+      res.status(500).json({ message: "Failed to fetch group" });
+    }
+  });
+
+  // Join investment group
+  app.post("/api/groups/:id/join", async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.id);
+      const validatedData = insertGroupMembershipSchema.parse(req.body);
+      
+      const group = await storage.getInvestmentGroup(groupId);
+      if (!group) {
+        return res.status(404).json({ message: "Investment group not found" });
+      }
+      
+      if (group.currentMembers >= group.maxMembers) {
+        return res.status(400).json({ message: "Group is full" });
+      }
+      
+      if (group.status !== 'open') {
+        return res.status(400).json({ message: "Group is not accepting new members" });
+      }
+      
+      const membershipData = {
+        ...validatedData,
+        groupId
+      };
+      
+      const membership = await storage.createGroupMembership(membershipData);
+      
+      // Update group member count and current amount
+      await storage.updateInvestmentGroup(groupId, {
+        currentMembers: group.currentMembers + 1,
+        currentAmount: group.currentAmount + validatedData.contributionAmount
+      });
+      
+      res.status(201).json(membership);
+    } catch (error) {
+      console.error("Error joining investment group:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid data provided" });
+      }
+      res.status(500).json({ message: "Failed to join investment group" });
+    }
+  });
+
+  // Get group memberships
+  app.get("/api/groups/:id/members", async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.id);
+      const memberships = await storage.getGroupMemberships(groupId);
+      res.json(memberships);
+    } catch (error) {
+      console.error("Error fetching group memberships:", error);
+      res.status(500).json({ message: "Failed to fetch group memberships" });
+    }
+  });
+
+  // Get user's group memberships
+  app.get("/api/memberships", async (req, res) => {
+    try {
+      const { email } = req.query;
+      
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ message: "Email parameter is required" });
+      }
+
+      const memberships = await storage.getMembershipsByEmail(email);
+      res.json(memberships);
+    } catch (error) {
+      console.error("Error fetching user memberships:", error);
+      res.status(500).json({ message: "Failed to fetch memberships" });
     }
   });
 
