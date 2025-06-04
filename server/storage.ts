@@ -20,21 +20,17 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUserLastLogin(id: number): Promise<void>;
   
   // Property methods
   getProperties(): Promise<Property[]>;
   getProperty(id: number): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
-  updateProperty(id: number, property: InsertProperty): Promise<Property>;
-  deleteProperty(id: number): Promise<void>;
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
   createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
-  getAllReservations(): Promise<InvestmentReservation[]>;
   
   // Developer bid methods
   createDeveloperBid(bid: InsertDeveloperBid): Promise<DeveloperBid>;
@@ -62,13 +58,6 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async updateUserLastLogin(id: number): Promise<void> {
-    await db
-      .update(users)
-      .set({ lastLogin: new Date() })
-      .where(eq(users.id, id));
-  }
-
   // Property methods
   async getProperties(): Promise<Property[]> {
     return await db.select().from(properties).orderBy(desc(properties.createdAt));
@@ -85,19 +74,6 @@ export class DatabaseStorage implements IStorage {
       .values(insertProperty)
       .returning();
     return property;
-  }
-
-  async updateProperty(id: number, updateData: InsertProperty): Promise<Property> {
-    const [property] = await db
-      .update(properties)
-      .set(updateData)
-      .where(eq(properties.id, id))
-      .returning();
-    return property;
-  }
-
-  async deleteProperty(id: number): Promise<void> {
-    await db.delete(properties).where(eq(properties.id, id));
   }
 
   async updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void> {
@@ -139,13 +115,6 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(investmentReservations)
       .where(eq(investmentReservations.propertyId, propertyId))
-      .orderBy(desc(investmentReservations.createdAt));
-  }
-
-  async getAllReservations(): Promise<InvestmentReservation[]> {
-    return await db
-      .select()
-      .from(investmentReservations)
       .orderBy(desc(investmentReservations.createdAt));
   }
 
