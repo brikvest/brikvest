@@ -205,6 +205,9 @@ export default function Home() {
                 <a href="#properties" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   Properties
                 </a>
+                <a href="/groups" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  Investment Groups
+                </a>
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
                 </a>
@@ -430,6 +433,60 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Investment Groups Section */}
+      <section className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-6">Investment Groups</h2>
+              <p className="text-xl text-slate-600 mb-8">
+                Join forces with other investors to pool resources and access larger investment opportunities. Create or join investment groups to collaborate and achieve your financial goals together.
+              </p>
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center">
+                  <CheckCircle className="text-blue-600 w-5 h-5 mr-4" />
+                  <span className="text-slate-700">Pool resources with other investors</span>
+                </div>
+                <div className="flex items-center">
+                  <CheckCircle className="text-blue-600 w-5 h-5 mr-4" />
+                  <span className="text-slate-700">Access larger investment opportunities</span>
+                </div>
+                <div className="flex items-center">
+                  <CheckCircle className="text-blue-600 w-5 h-5 mr-4" />
+                  <span className="text-slate-700">Share knowledge and strategies</span>
+                </div>
+                <div className="flex items-center">
+                  <CheckCircle className="text-blue-600 w-5 h-5 mr-4" />
+                  <span className="text-slate-700">Reduce individual investment risk</span>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Button 
+                  onClick={() => window.location.href = '/groups'}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-semibold"
+                >
+                  Browse Groups
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => window.location.href = '/groups'}
+                  className="border-2 border-blue-600 text-blue-600 bg-transparent hover:bg-blue-600 hover:text-white px-8 py-4 text-lg font-semibold"
+                >
+                  Create Group
+                </Button>
+              </div>
+            </div>
+            <div className="lg:text-right">
+              <img 
+                src="https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
+                alt="Team of investors collaborating on investment decisions" 
+                className="rounded-2xl shadow-2xl w-full h-auto"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
