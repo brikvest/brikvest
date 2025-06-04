@@ -3,6 +3,8 @@ import {
   properties,
   investmentReservations,
   developerBids,
+  investmentGroups,
+  groupMemberships,
   type User, 
   type InsertUser,
   type Property,
@@ -10,7 +12,11 @@ import {
   type InvestmentReservation,
   type InsertInvestmentReservation,
   type DeveloperBid,
-  type InsertDeveloperBid
+  type InsertDeveloperBid,
+  type InvestmentGroup,
+  type InsertInvestmentGroup,
+  type GroupMembership,
+  type InsertGroupMembership
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -40,6 +46,19 @@ export interface IStorage {
   createDeveloperBid(bid: InsertDeveloperBid): Promise<DeveloperBid>;
   getDeveloperBids(): Promise<DeveloperBid[]>;
   getDeveloperBid(id: number): Promise<DeveloperBid | undefined>;
+  
+  // Investment group methods
+  createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
+  getInvestmentGroups(): Promise<InvestmentGroup[]>;
+  getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined>;
+  getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined>;
+  updateInvestmentGroup(id: number, updates: Partial<InvestmentGroup>): Promise<InvestmentGroup>;
+  
+  // Group membership methods
+  createGroupMembership(membership: InsertGroupMembership): Promise<GroupMembership>;
+  getGroupMemberships(groupId: number): Promise<GroupMembership[]>;
+  getMembershipsByEmail(email: string): Promise<GroupMembership[]>;
+  updateGroupMembership(id: number, updates: Partial<GroupMembership>): Promise<GroupMembership>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -168,6 +187,75 @@ export class DatabaseStorage implements IStorage {
   async getDeveloperBid(id: number): Promise<DeveloperBid | undefined> {
     const [bid] = await db.select().from(developerBids).where(eq(developerBids.id, id));
     return bid || undefined;
+  }
+
+  // Investment group methods
+  async createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup> {
+    const [newGroup] = await db
+      .insert(investmentGroups)
+      .values(group)
+      .returning();
+    return newGroup;
+  }
+
+  async getInvestmentGroups(): Promise<InvestmentGroup[]> {
+    return await db
+      .select()
+      .from(investmentGroups)
+      .orderBy(desc(investmentGroups.createdAt));
+  }
+
+  async getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined> {
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, id));
+    return group || undefined;
+  }
+
+  async getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined> {
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.inviteCode, inviteCode));
+    return group || undefined;
+  }
+
+  async updateInvestmentGroup(id: number, updates: Partial<InvestmentGroup>): Promise<InvestmentGroup> {
+    const [updatedGroup] = await db
+      .update(investmentGroups)
+      .set(updates)
+      .where(eq(investmentGroups.id, id))
+      .returning();
+    return updatedGroup;
+  }
+
+  // Group membership methods
+  async createGroupMembership(membership: InsertGroupMembership): Promise<GroupMembership> {
+    const [newMembership] = await db
+      .insert(groupMemberships)
+      .values(membership)
+      .returning();
+    return newMembership;
+  }
+
+  async getGroupMemberships(groupId: number): Promise<GroupMembership[]> {
+    return await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId))
+      .orderBy(desc(groupMemberships.joinedAt));
+  }
+
+  async getMembershipsByEmail(email: string): Promise<GroupMembership[]> {
+    return await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.memberEmail, email))
+      .orderBy(desc(groupMemberships.joinedAt));
+  }
+
+  async updateGroupMembership(id: number, updates: Partial<GroupMembership>): Promise<GroupMembership> {
+    const [updatedMembership] = await db
+      .update(groupMemberships)
+      .set(updates)
+      .where(eq(groupMemberships.id, id))
+      .returning();
+    return updatedMembership;
   }
 }
 
