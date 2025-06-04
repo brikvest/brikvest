@@ -6,106 +6,12 @@ import {
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
   insertPropertySchema,
-  loginSchema,
   type Property,
   type InvestmentReservation,
   type DeveloperBid 
 } from "@shared/schema";
 
-// Simple session store for admin authentication
-const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
-
-// Authentication middleware
-function requireAdminAuth(req: any, res: any, next: any) {
-  const sessionId = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (!sessionId) {
-    return res.status(401).json({ message: "Authentication required" });
-  }
-  
-  const session = adminSessions.get(sessionId);
-  if (!session || session.expiresAt < Date.now()) {
-    if (session) adminSessions.delete(sessionId);
-    return res.status(401).json({ message: "Invalid or expired session" });
-  }
-  
-  if (session.role !== 'admin' && session.role !== 'super_admin') {
-    return res.status(403).json({ message: "Admin access required" });
-  }
-  
-  req.user = session;
-  next();
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Admin authentication routes
-  app.post("/api/admin/login", async (req, res) => {
-    try {
-      const result = loginSchema.safeParse(req.body);
-      if (!result.success) {
-        return res.status(400).json({ 
-          error: "Invalid login data", 
-          details: result.error.errors 
-        });
-      }
-
-      const { username, password } = result.data;
-      const user = await storage.getUserByUsername(username);
-
-      if (!user || user.password !== password || !user.isActive) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      if (user.role !== 'admin' && user.role !== 'super_admin') {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      // Update last login
-      await storage.updateUserLastLogin(user.id);
-
-      // Create session
-      const sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-
-      adminSessions.set(sessionId, {
-        userId: user.id,
-        username: user.username,
-        role: user.role,
-        expiresAt
-      });
-
-      res.json({
-        sessionId,
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role
-        }
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({ message: "Login failed" });
-    }
-  });
-
-  app.post("/api/admin/logout", (req, res) => {
-    const sessionId = req.headers.authorization?.replace('Bearer ', '');
-    if (sessionId) {
-      adminSessions.delete(sessionId);
-    }
-    res.json({ message: "Logged out successfully" });
-  });
-
-  app.get("/api/admin/me", requireAdminAuth, (req: any, res) => {
-    res.json({
-      user: {
-        id: req.user.userId,
-        username: req.user.username,
-        role: req.user.role
-      }
-    });
-  });
-
   // Get all properties
   app.get("/api/properties", async (req, res) => {
     try {
@@ -134,8 +40,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create new property (Admin only)
-  app.post("/api/properties", requireAdminAuth, async (req, res) => {
+  // Create new property
+  app.post("/api/properties", async (req, res) => {
     try {
       const result = insertPropertySchema.safeParse(req.body);
       if (!result.success) {
@@ -197,17 +103,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(reservations);
     } catch (error) {
       console.error("Error fetching reservations:", error);
-      res.status(500).json({ message: "Failed to fetch reservations" });
-    }
-  });
-
-  // Get all reservations (Admin only)
-  app.get("/api/reservations/all", async (req, res) => {
-    try {
-      const reservations = await storage.getAllReservations();
-      res.json(reservations);
-    } catch (error) {
-      console.error("Error fetching all reservations:", error);
       res.status(500).json({ message: "Failed to fetch reservations" });
     }
   });
@@ -336,39 +231,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding properties:", error);
       res.status(500).json({ message: "Failed to seed properties" });
-    }
-  });
-
-  // Update property (Admin only)
-  app.put("/api/properties/:id", requireAdminAuth, async (req, res) => {
-    try {
-      const propertyId = parseInt(req.params.id);
-      const result = insertPropertySchema.safeParse(req.body);
-      
-      if (!result.success) {
-        return res.status(400).json({ 
-          error: "Invalid property data", 
-          details: result.error.errors 
-        });
-      }
-
-      const property = await storage.updateProperty(propertyId, result.data);
-      res.json(property);
-    } catch (error) {
-      console.error("Error updating property:", error);
-      res.status(500).json({ error: "Failed to update property" });
-    }
-  });
-
-  // Delete property (Admin only)
-  app.delete("/api/properties/:id", requireAdminAuth, async (req, res) => {
-    try {
-      const propertyId = parseInt(req.params.id);
-      await storage.deleteProperty(propertyId);
-      res.json({ message: "Property deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting property:", error);
-      res.status(500).json({ error: "Failed to delete property" });
     }
   });
 
