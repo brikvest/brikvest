@@ -226,44 +226,44 @@ export default function Home() {
       </header>
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-blue-50 to-slate-100 text-slate-800 py-20">
+      <section className="bg-gradient-to-br from-blue-600 to-blue-800 text-white py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
                 Invest in Premium Real Estate with{" "}
-                <span className="text-blue-600">Fractional Ownership</span>
+                <span className="text-yellow-400">Fractional Ownership</span>
               </h1>
-              <p className="text-xl text-slate-600 mb-8 leading-relaxed">
+              <p className="text-xl text-blue-100 mb-8 leading-relaxed">
                 Start building your real estate portfolio with as little as ₦500,000. Access premium Nigerian properties and earn passive income through our curated investment opportunities.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
                   onClick={() => document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-semibold"
+                  className="bg-yellow-500 hover:bg-yellow-600 text-black px-8 py-4 text-lg font-semibold"
                 >
                   Browse Properties
                 </Button>
                 <Button 
                   variant="outline"
                   onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="border-2 border-blue-600 text-blue-600 bg-transparent hover:bg-blue-600 hover:text-white px-8 py-4 text-lg font-semibold"
+                  className="border-2 border-white text-white bg-transparent hover:bg-white hover:text-blue-600 px-8 py-4 text-lg font-semibold"
                 >
                   Learn More
                 </Button>
               </div>
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">₦1.2B+</div>
-                  <div className="text-slate-500 text-sm">Total Invested</div>
+                  <div className="text-2xl font-bold">₦1.2B+</div>
+                  <div className="text-blue-200 text-sm">Total Invested</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">850+</div>
-                  <div className="text-slate-500 text-sm">Active Investors</div>
+                  <div className="text-2xl font-bold">850+</div>
+                  <div className="text-blue-200 text-sm">Active Investors</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">15.2%</div>
-                  <div className="text-slate-500 text-sm">Avg. Annual Return</div>
+                  <div className="text-2xl font-bold">15.2%</div>
+                  <div className="text-blue-200 text-sm">Avg. Annual Return</div>
                 </div>
               </div>
             </div>
@@ -330,7 +330,7 @@ export default function Home() {
               Carefully selected properties with strong growth potential and steady returns
             </p>
           </div>
-
+          
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {[...Array(6)].map((_, i) => (
@@ -829,7 +829,7 @@ export default function Home() {
                   })()}
                 </div>
               </DialogHeader>
-
+              
               <div className="space-y-8">
                 {/* Property Image */}
                 <div className="relative">
@@ -888,7 +888,7 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-
+                  
                   {/* Funding Progress */}
                   <div className="mt-6">
                     <div className="flex justify-between items-center mb-2">
@@ -961,7 +961,7 @@ export default function Home() {
                     <p className="mb-4">
                       We are excited to offer investors a unique opportunity to co-invest in a high-value residential development located in Guzape, one of Abuja's most prestigious and secure neighborhoods.
                     </p>
-
+                    
                     <div className="mb-4">
                       <h4 className="font-semibold mb-2">📍 Strategic Location Highlights:</h4>
                       <ul className="list-disc ml-6 space-y-1">
@@ -997,7 +997,7 @@ export default function Home() {
                     <p>
                       We are inviting bids from real estate developers to design and execute a high-income-generating project on the 1,700 sqm land at {selectedProperty.location}.
                     </p>
-
+                    
                     <div>
                       <h4 className="font-semibold mb-2">Key Requirements:</h4>
                       <ul className="list-disc ml-6 space-y-2 text-slate-700">
