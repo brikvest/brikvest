@@ -481,8 +481,8 @@ export default function Home() {
             </div>
             <div className="lg:text-right">
               <img 
-                src="https://images.unsplash.com/photo-1600880292203-757bb62b4baf?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
-                alt="Professional business meeting with investment charts and collaboration" 
+                src="https://images.unsplash.com/photo-1531482615713-2afd69097998?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
+                alt="Black professionals collaborating on investment decisions in modern office" 
                 className="rounded-2xl shadow-2xl w-full h-auto"
               />
             </div>
