@@ -16,6 +16,7 @@ import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Pl
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 
 export default function AdminDashboard() {
@@ -885,13 +886,10 @@ export default function AdminDashboard() {
 
                       <div className="space-y-2">
                         <Label htmlFor="description">Description *</Label>
-                        <Textarea
-                          id="description"
-                          value={propertyForm.description}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, description: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.description}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
                           placeholder="Describe the property, amenities, and investment opportunity..."
-                          rows={4}
-                          required
                         />
                       </div>
 
@@ -1004,23 +1002,19 @@ export default function AdminDashboard() {
 
                       <div className="space-y-2">
                         <Label htmlFor="developerNotes">Developer Notes</Label>
-                        <Textarea
-                          id="developerNotes"
-                          value={propertyForm.developerNotes}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, developerNotes: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.developerNotes}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
                           placeholder="Internal notes about the developer or partnership..."
-                          rows={3}
                         />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="investmentDetails">Investment Details</Label>
-                        <Textarea
-                          id="investmentDetails"
-                          value={propertyForm.investmentDetails}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, investmentDetails: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.investmentDetails}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
                           placeholder="Detailed investment information for potential investors..."
-                          rows={4}
                         />
                       </div>
 
@@ -1396,14 +1390,20 @@ export default function AdminDashboard() {
               {/* Description */}
               <div>
                 <h3 className="font-semibold text-slate-900 mb-2">Description</h3>
-                <p className="text-slate-600 leading-relaxed">{viewingProperty.description}</p>
+                <div 
+                  className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: viewingProperty.description }}
+                />
               </div>
 
               {/* Investment Details */}
               {viewingProperty.investmentDetails && (
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-2">Investment Details</h3>
-                  <p className="text-slate-600 leading-relaxed">{viewingProperty.investmentDetails}</p>
+                  <div 
+                    className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: viewingProperty.investmentDetails }}
+                  />
                 </div>
               )}
 
@@ -1411,7 +1411,10 @@ export default function AdminDashboard() {
               {viewingProperty.developerNotes && (
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-2">Developer Notes</h3>
-                  <p className="text-slate-600 leading-relaxed">{viewingProperty.developerNotes}</p>
+                  <div 
+                    className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: viewingProperty.developerNotes }}
+                  />
                 </div>
               )}
 
@@ -1463,12 +1466,10 @@ export default function AdminDashboard() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-description">Description *</Label>
-              <Textarea
-                id="edit-description"
-                value={propertyForm.description}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, description: e.target.value }))}
-                rows={4}
-                required
+              <RichTextEditor
+                content={propertyForm.description}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
+                placeholder="Describe the property, amenities, and investment opportunity..."
               />
             </div>
 
@@ -1576,23 +1577,19 @@ export default function AdminDashboard() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-developerNotes">Developer Notes</Label>
-              <Textarea
-                id="edit-developerNotes"
-                value={propertyForm.developerNotes}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, developerNotes: e.target.value }))}
+              <RichTextEditor
+                content={propertyForm.developerNotes}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
                 placeholder="Internal notes about the developer or partnership..."
-                rows={3}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="edit-investmentDetails">Investment Details</Label>
-              <Textarea
-                id="edit-investmentDetails"
-                value={propertyForm.investmentDetails}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, investmentDetails: e.target.value }))}
+              <RichTextEditor
+                content={propertyForm.investmentDetails}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
                 placeholder="Detailed investment information for potential investors..."
-                rows={4}
               />
             </div>
 
