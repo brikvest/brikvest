@@ -217,6 +217,7 @@ export default function AdminDashboard() {
       totalSlots: parseInt(propertyForm.totalSlots),
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || null,
+      propertyType: propertyForm.propertyType,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
@@ -906,6 +907,21 @@ export default function AdminDashboard() {
                             placeholder="e.g., Victoria Island, Lagos"
                             required
                           />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="propertyType">Property Type *</Label>
+                          <Select value={propertyForm.propertyType} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, propertyType: value }))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select property type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="land">Land</SelectItem>
+                              <SelectItem value="apartment">Apartment</SelectItem>
+                              <SelectItem value="house">House</SelectItem>
+                              <SelectItem value="commercial">Commercial</SelectItem>
+                              <SelectItem value="mixed-use">Mixed Use</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
 
