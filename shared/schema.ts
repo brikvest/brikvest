@@ -6,8 +6,13 @@ import { relations } from "drizzle-orm";
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin'
+  password: text("password").notNull().default("temp_password"),
+  email: text("email").unique(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  phone: text("phone"),
+  referralCode: text("referral_code"),
+  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
   isActive: boolean("is_active").notNull().default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
