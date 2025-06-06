@@ -309,11 +309,11 @@ export default function Home() {
               </div>
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">₦1.2B+</div>
+                  <div className="text-2xl font-bold text-slate-800">₦90.8M+</div>
                   <div className="text-slate-500 text-sm">Total Invested</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">850+</div>
+                  <div className="text-2xl font-bold text-slate-800">22+</div>
                   <div className="text-slate-500 text-sm">Active Investors</div>
                 </div>
                 <div className="text-center">
