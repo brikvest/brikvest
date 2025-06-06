@@ -51,6 +51,16 @@ export default function Home() {
     queryKey: ["/api/properties"],
   });
 
+  // Fetch live statistics
+  const { data: stats } = useQuery<{
+    totalInvested: number;
+    activeInvestors: number;
+    avgReturn: number;
+  }>({
+    queryKey: ["/api/statistics"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
   // Seed properties on first load if none exist
   useEffect(() => {
     if (properties.length === 0 && !isLoading) {
@@ -66,6 +76,7 @@ export default function Home() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
       setInvestmentModalOpen(false);
       setSuccessMessage("Your investment slot has been reserved successfully! We'll contact you soon with next steps.");
       setSuccessModalOpen(true);
@@ -309,15 +320,21 @@ export default function Home() {
               </div>
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">₦90.8M+</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? formatCurrency(stats.totalInvested) : "₦90.8M+"}
+                  </div>
                   <div className="text-slate-500 text-sm">Total Invested</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">22+</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? `${stats.activeInvestors}+` : "22+"}
+                  </div>
                   <div className="text-slate-500 text-sm">Active Investors</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">15.2%</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? `${stats.avgReturn}%` : "15.2%"}
+                  </div>
                   <div className="text-slate-500 text-sm">Avg. Annual Return</div>
                 </div>
               </div>
