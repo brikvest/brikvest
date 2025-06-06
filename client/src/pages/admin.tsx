@@ -183,6 +183,25 @@ export default function AdminDashboard() {
     setIsDeveloperBidViewOpen(true);
   };
 
+  const resetPropertyForm = () => {
+    setPropertyForm({
+      name: "",
+      location: "",
+      description: "",
+      totalValue: "",
+      minInvestment: "",
+      projectedReturn: "",
+      totalSlots: "",
+      availableSlots: "",
+      imageUrl: "",
+      badge: "none",
+      partnershipDocumentName: "",
+      partnershipDocumentUrl: "",
+      developerNotes: "",
+      investmentDetails: ""
+    });
+  };
+
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -322,7 +341,11 @@ export default function AdminDashboard() {
                     <p className="text-slate-600 mt-2 text-lg">Manage your real estate investment portfolio</p>
                   </div>
                   <Button 
-                    onClick={() => setSelectedTab('add-property')} 
+                    onClick={() => {
+                      resetPropertyForm();
+                      setEditingProperty(null);
+                      setSelectedTab('add-property');
+                    }} 
                     className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg w-full lg:w-auto transition-all duration-200"
                     size="lg"
                   >
@@ -837,12 +860,12 @@ export default function AdminDashboard() {
 
             {/* Add Property */}
             {selectedTab === "add-property" && (
-              <div className="space-y-8 mt-6">
+              <div className="space-y-6 mt-4">
                 {/* Header Section */}
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Add New Property</h1>
-                    <p className="text-slate-600 mt-2 text-lg">Create a new property listing for investors</p>
+                    <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Add New Property</h1>
+                    <p className="text-slate-600 mt-1 text-base">Create a new property listing for investors</p>
                   </div>
                   <Button 
                     onClick={() => setSelectedTab('properties')} 
@@ -855,12 +878,12 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Add Property Form */}
-                <Card className="border-slate-200 shadow-sm">
-                  <CardHeader>
-                    <CardTitle>Property Details</CardTitle>
+                <Card className="border-slate-200 shadow-sm max-w-5xl mx-auto">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handlePropertySubmit} className="space-y-6">
+                  <CardContent className="pt-0">
+                    <form onSubmit={handlePropertySubmit} className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <Label htmlFor="name">Property Name *</Label>

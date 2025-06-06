@@ -45,7 +45,7 @@ export function RichTextEditor({ content, onChange, placeholder, className }: Ri
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[200px] p-4',
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-[150px] p-3 text-sm',
       },
     },
   })
@@ -178,7 +178,7 @@ export function RichTextEditor({ content, onChange, placeholder, className }: Ri
       {/* Editor Content */}
       <EditorContent 
         editor={editor} 
-        className="min-h-[200px]"
+        className="min-h-[150px]"
         placeholder={placeholder}
       />
     </div>
