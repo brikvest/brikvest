@@ -1,7 +1,7 @@
 import fs from 'fs';
 import csv from 'csv-parser';
 import { db } from '../server/db';
-import { properties } from '../shared/schema';
+import { properties, investmentReservations, developerBids, investmentGroups, groupMemberships } from '../shared/schema';
 
 interface CSVProperty {
   id: string;
@@ -53,7 +53,19 @@ async function migrateProperties() {
         console.log(`Found ${results.length} properties to migrate`);
         
         try {
-          // Clear existing properties first
+          // Clear related data first to avoid foreign key constraints
+          await db.delete(groupMemberships);
+          console.log('Cleared existing group memberships');
+          
+          await db.delete(investmentGroups);
+          console.log('Cleared existing investment groups');
+          
+          await db.delete(investmentReservations);
+          console.log('Cleared existing investment reservations');
+          
+          await db.delete(developerBids);
+          console.log('Cleared existing developer bids');
+          
           await db.delete(properties);
           console.log('Cleared existing properties');
           
