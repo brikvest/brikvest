@@ -2,7 +2,7 @@ import fs from 'fs';
 import csv from 'csv-parser';
 import { db } from '../server/db';
 import { users, investmentReservations, properties } from '../shared/schema';
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 interface CSVInvestor {
   id: string;
@@ -93,7 +93,7 @@ async function migrateInvestors() {
       const [user] = await db
         .select({ id: users.id })
         .from(users)
-        .where(sql`${users.email} = ${investor.email}`)
+        .where(eq(users.email, investor.email))
         .limit(1);
       
       if (!user) {
@@ -117,7 +117,7 @@ async function migrateInvestors() {
         fullName: investor.full_name,
         email: investor.email,
         phone: investor.phone_number,
-        units: parseInt(investment.amount) / 11000000, // Convert amount to units based on price per unit
+        units: Math.floor(parseInt(investment.amount) / 11000000), // Convert amount to whole units
         referralCode: investor.referral_code,
         status: investment.status === 'pending' ? 'reserved' : 'confirmed',
         createdAt: new Date(investment.created_at),
