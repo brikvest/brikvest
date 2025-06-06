@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink } from "lucide-react";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
@@ -21,6 +21,7 @@ export default function Home() {
   const [propertyDetailModalOpen, setPropertyDetailModalOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Form states
   const [investmentForm, setInvestmentForm] = useState({
@@ -224,7 +225,66 @@ export default function Home() {
                 Get Started
               </Button>
             </div>
+            
+            {/* Mobile menu button */}
+            <div className="md:hidden">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="text-slate-600 hover:text-blue-600"
+              >
+                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              </Button>
+            </div>
           </div>
+          
+          {/* Mobile menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden">
+              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white border-t border-slate-200">
+                <a 
+                  href="#properties" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Properties
+                </a>
+                <a 
+                  href="/groups" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Investment Groups
+                </a>
+                <a 
+                  href="#how-it-works" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  How It Works
+                </a>
+                <a 
+                  href="#developers" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  For Developers
+                </a>
+                <div className="pt-4">
+                  <Button 
+                    onClick={() => {
+                      document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' });
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Get Started
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -481,8 +541,8 @@ export default function Home() {
             </div>
             <div className="lg:text-right">
               <img 
-                src="https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
-                alt="Team of investors collaborating on investment decisions" 
+                src="https://images.unsplash.com/photo-1556155092-490a1ba16284?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
+                alt="Diverse business team collaborating on investment strategy" 
                 className="rounded-2xl shadow-2xl w-full h-auto"
               />
             </div>
