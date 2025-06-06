@@ -977,18 +977,19 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="badge">Property Status</Label>
+                        <Label htmlFor="badge">Partnership Status</Label>
                         <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder="Select partnership status" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Available</SelectItem>
+                            <SelectItem value="none">No Badge</SelectItem>
                             <SelectItem value="partnered">Partnered</SelectItem>
-                            <SelectItem value="premium">Premium</SelectItem>
-                            <SelectItem value="featured">Featured</SelectItem>
+                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="exclusive">Exclusive</SelectItem>
                           </SelectContent>
                         </Select>
+                        <p className="text-xs text-slate-500">Badge indicates our relationship status with this property</p>
                       </div>
 
                       <div className="space-y-2">
