@@ -45,6 +45,7 @@ export default function AdminDashboard() {
     totalSlots: "",
     availableSlots: "",
     imageUrl: "",
+    propertyType: "land",
     badge: "none",
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
@@ -194,6 +195,7 @@ export default function AdminDashboard() {
       totalSlots: "",
       availableSlots: "",
       imageUrl: "",
+      propertyType: "land",
       badge: "none",
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
@@ -215,6 +217,7 @@ export default function AdminDashboard() {
       totalSlots: parseInt(propertyForm.totalSlots),
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || null,
+      propertyType: propertyForm.propertyType,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
@@ -905,6 +908,21 @@ export default function AdminDashboard() {
                             required
                           />
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="propertyType">Property Type *</Label>
+                          <Select value={propertyForm.propertyType} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, propertyType: value }))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select property type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="land">Land</SelectItem>
+                              <SelectItem value="apartment">Apartment</SelectItem>
+                              <SelectItem value="house">House</SelectItem>
+                              <SelectItem value="commercial">Commercial</SelectItem>
+                              <SelectItem value="mixed-use">Mixed Use</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -977,18 +995,19 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="badge">Property Status</Label>
+                        <Label htmlFor="badge">Partnership Status</Label>
                         <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder="Select partnership status" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Available</SelectItem>
+                            <SelectItem value="none">No Badge</SelectItem>
                             <SelectItem value="partnered">Partnered</SelectItem>
-                            <SelectItem value="premium">Premium</SelectItem>
-                            <SelectItem value="featured">Featured</SelectItem>
+                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="exclusive">Exclusive</SelectItem>
                           </SelectContent>
                         </Select>
+                        <p className="text-xs text-slate-500">Badge indicates our relationship status with this property</p>
                       </div>
 
                       <div className="space-y-2">
