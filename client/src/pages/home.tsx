@@ -185,6 +185,21 @@ export default function Home() {
     }).format(amount);
   };
 
+  const formatCompactCurrency = (amount: number) => {
+    if (amount >= 1000000000) {
+      const billions = amount / 1000000000;
+      return billions % 1 === 0 ? `₦${billions}B` : `₦${billions.toFixed(1)}B`;
+    } else if (amount >= 1000000) {
+      const millions = amount / 1000000;
+      return millions % 1 === 0 ? `₦${millions}M` : `₦${millions.toFixed(1)}M`;
+    } else if (amount >= 1000) {
+      const thousands = amount / 1000;
+      return thousands % 1 === 0 ? `₦${thousands}K` : `₦${thousands.toFixed(1)}K`;
+    } else {
+      return `₦${amount}`;
+    }
+  };
+
   const getBadgeInfo = (badge: string | null) => {
     switch (badge) {
       case 'partnered':
@@ -321,7 +336,7 @@ export default function Home() {
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-slate-800">
-                    {stats ? formatCurrency(stats.totalInvested) : "₦90.8M+"}
+                    {stats ? formatCompactCurrency(stats.totalInvested) + "+" : "₦90.8M+"}
                   </div>
                   <div className="text-slate-500 text-sm">Total Invested</div>
                 </div>
