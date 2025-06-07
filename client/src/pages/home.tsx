@@ -222,7 +222,7 @@ export default function Home() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <img 
-                src={brikvest_logo} 
+                src="/brikvest-logo.svg" 
                 alt="Brikvest Logo" 
                 className="h-8 w-auto"
               />
