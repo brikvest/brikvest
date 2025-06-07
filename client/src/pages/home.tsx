@@ -698,11 +698,11 @@ export default function Home() {
                   <SelectValue placeholder="Select units to reserve" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1 Unit ({formatCurrency(selectedProperty?.minInvestment || 1000)})</SelectItem>
-                  <SelectItem value="5">5 Units ({formatCurrency((selectedProperty?.minInvestment || 1000) * 5)})</SelectItem>
-                  <SelectItem value="10">10 Units ({formatCurrency((selectedProperty?.minInvestment || 1000) * 10)})</SelectItem>
-                  <SelectItem value="25">25 Units ({formatCurrency((selectedProperty?.minInvestment || 1000) * 25)})</SelectItem>
-                  <SelectItem value="50">50 Units ({formatCurrency((selectedProperty?.minInvestment || 1000) * 50)})</SelectItem>
+                  <SelectItem value="1">1 Unit ({formatCurrency(selectedProperty?.minInvestment || 30000)})</SelectItem>
+                  <SelectItem value="5">5 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 5)})</SelectItem>
+                  <SelectItem value="10">10 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 10)})</SelectItem>
+                  <SelectItem value="25">25 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 25)})</SelectItem>
+                  <SelectItem value="50">50 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 50)})</SelectItem>
                 </SelectContent>
               </Select>
             </div>
