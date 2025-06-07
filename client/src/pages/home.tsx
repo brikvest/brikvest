@@ -350,7 +350,7 @@ export default function Home() {
                   <div className="text-2xl font-bold text-slate-800">
                     {stats ? `${stats.avgReturn}%` : "15.2%"}
                   </div>
-                  <div className="text-slate-500 text-sm">Avg. Annual Return</div>
+                  <div className="text-slate-500 text-sm">Avg. Expected Annual Return</div>
                 </div>
               </div>
             </div>
@@ -480,7 +480,7 @@ export default function Home() {
                           <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
                         </div>
                         <div>
-                          <span className="text-slate-600">Projected Return:</span>
+                          <span className="text-slate-600">Expected Annual ROI:</span>
                           <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
                         </div>
                         <div>
@@ -929,7 +929,7 @@ export default function Home() {
                   />
                   <div className="absolute top-4 right-4">
                     <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {selectedProperty.projectedReturn}% Annual ROI
+                      {selectedProperty.projectedReturn}% Expected Annual ROI
                     </span>
                   </div>
                 </div>
@@ -968,7 +968,7 @@ export default function Home() {
                         <div className="font-semibold">5/6/2033</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Annual ROI:</span>
+                        <span className="text-slate-600">Expected Annual ROI:</span>
                         <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
                       </div>
                       <div>
