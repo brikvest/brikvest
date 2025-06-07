@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { upload, uploadToCloudinary } from "./cloudinary";
+import { sendEmail } from "./emailService";
+import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
 import { 
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
@@ -203,6 +205,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update property available slots
       await storage.updatePropertySlots(validatedData.propertyId, validatedData.units);
+
+      // Generate referral code for the user
+      const referralCode = `REF${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+      
+      // Send confirmation email
+      try {
+        const investmentAmount = validatedData.units * property.minInvestment;
+        const emailTemplate = investmentEmailTemplate({
+          fullName: validatedData.fullName,
+          propertyName: property.name,
+          amount: investmentAmount,
+          referralCode: referralCode
+        });
+        
+        await sendEmail({
+          to: validatedData.email,
+          subject: emailTemplate.subject,
+          html: emailTemplate.html
+        });
+        
+        console.log(`Investment confirmation email sent to ${validatedData.email}`);
+      } catch (emailError) {
+        console.error("Failed to send investment confirmation email:", emailError);
+        // Don't fail the request if email fails
+      }
       
       res.status(201).json(reservation);
     } catch (error) {
@@ -247,6 +274,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertDeveloperBidSchema.parse(req.body);
       const bid = await storage.createDeveloperBid(validatedData);
+
+      // Send confirmation email to developer
+      try {
+        const emailTemplate = developerBidEmailTemplate({
+          fullName: validatedData.developerName,
+          propertyName: "our available properties" // Generic since bids aren't property-specific
+        });
+        
+        await sendEmail({
+          to: validatedData.email,
+          subject: emailTemplate.subject,
+          html: emailTemplate.html
+        });
+        
+        console.log(`Developer bid confirmation email sent to ${validatedData.email}`);
+      } catch (emailError) {
+        console.error("Failed to send developer bid confirmation email:", emailError);
+        // Don't fail the request if email fails
+      }
+
       res.status(201).json(bid);
     } catch (error) {
       console.error("Error creating developer bid:", error);
