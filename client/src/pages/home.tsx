@@ -51,6 +51,16 @@ export default function Home() {
     queryKey: ["/api/properties"],
   });
 
+  // Fetch live statistics
+  const { data: stats } = useQuery<{
+    totalInvested: number;
+    activeInvestors: number;
+    avgReturn: number;
+  }>({
+    queryKey: ["/api/statistics"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
   // Seed properties on first load if none exist
   useEffect(() => {
     if (properties.length === 0 && !isLoading) {
@@ -66,6 +76,7 @@ export default function Home() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
       setInvestmentModalOpen(false);
       setSuccessMessage("Your investment slot has been reserved successfully! We'll contact you soon with next steps.");
       setSuccessModalOpen(true);
@@ -172,6 +183,21 @@ export default function Home() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const formatCompactCurrency = (amount: number) => {
+    if (amount >= 1000000000) {
+      const billions = amount / 1000000000;
+      return billions % 1 === 0 ? `₦${billions}B` : `₦${billions.toFixed(1)}B`;
+    } else if (amount >= 1000000) {
+      const millions = amount / 1000000;
+      return millions % 1 === 0 ? `₦${millions}M` : `₦${millions.toFixed(1)}M`;
+    } else if (amount >= 1000) {
+      const thousands = amount / 1000;
+      return thousands % 1 === 0 ? `₦${thousands}K` : `₦${thousands.toFixed(1)}K`;
+    } else {
+      return `₦${amount}`;
+    }
   };
 
   const getBadgeInfo = (badge: string | null) => {
@@ -309,15 +335,21 @@ export default function Home() {
               </div>
               <div className="flex items-center mt-8 space-x-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">₦1.2B+</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? formatCompactCurrency(stats.totalInvested) + "+" : "₦90.8M+"}
+                  </div>
                   <div className="text-slate-500 text-sm">Total Invested</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">850+</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? `${stats.activeInvestors}+` : "22+"}
+                  </div>
                   <div className="text-slate-500 text-sm">Active Investors</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">15.2%</div>
+                  <div className="text-2xl font-bold text-slate-800">
+                    {stats ? `${stats.avgReturn}%` : "15.2%"}
+                  </div>
                   <div className="text-slate-500 text-sm">Avg. Annual Return</div>
                 </div>
               </div>

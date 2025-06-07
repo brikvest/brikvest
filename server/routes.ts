@@ -121,6 +121,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get investment statistics
+  app.get("/api/statistics", async (req, res) => {
+    try {
+      const reservations = await storage.getAllReservations();
+      const properties = await storage.getProperties();
+      
+      // Calculate total invested amount
+      const totalInvested = reservations.reduce((sum, reservation) => {
+        const property = properties.find(p => p.id === reservation.propertyId);
+        return sum + (property ? reservation.units * property.minInvestment : 0);
+      }, 0);
+      
+      // Count unique investors
+      const uniqueInvestors = new Set(reservations.map(r => r.email)).size;
+      
+      res.json({
+        totalInvested,
+        activeInvestors: uniqueInvestors,
+        avgReturn: 15.2
+      });
+    } catch (error) {
+      console.error("Error fetching statistics:", error);
+      res.status(500).json({ message: "Failed to fetch statistics" });
+    }
+  });
+
   // Get property by ID
   app.get("/api/properties/:id", async (req, res) => {
     try {

@@ -16,6 +16,7 @@ import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Pl
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 
 export default function AdminDashboard() {
@@ -44,6 +45,7 @@ export default function AdminDashboard() {
     totalSlots: "",
     availableSlots: "",
     imageUrl: "",
+    propertyType: "land",
     badge: "none",
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
@@ -182,6 +184,26 @@ export default function AdminDashboard() {
     setIsDeveloperBidViewOpen(true);
   };
 
+  const resetPropertyForm = () => {
+    setPropertyForm({
+      name: "",
+      location: "",
+      description: "",
+      totalValue: "",
+      minInvestment: "",
+      projectedReturn: "",
+      totalSlots: "",
+      availableSlots: "",
+      imageUrl: "",
+      propertyType: "land",
+      badge: "none",
+      partnershipDocumentName: "",
+      partnershipDocumentUrl: "",
+      developerNotes: "",
+      investmentDetails: ""
+    });
+  };
+
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -195,6 +217,7 @@ export default function AdminDashboard() {
       totalSlots: parseInt(propertyForm.totalSlots),
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || null,
+      propertyType: propertyForm.propertyType,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
@@ -321,7 +344,11 @@ export default function AdminDashboard() {
                     <p className="text-slate-600 mt-2 text-lg">Manage your real estate investment portfolio</p>
                   </div>
                   <Button 
-                    onClick={() => setSelectedTab('add-property')} 
+                    onClick={() => {
+                      resetPropertyForm();
+                      setEditingProperty(null);
+                      setSelectedTab('add-property');
+                    }} 
                     className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg w-full lg:w-auto transition-all duration-200"
                     size="lg"
                   >
@@ -836,12 +863,12 @@ export default function AdminDashboard() {
 
             {/* Add Property */}
             {selectedTab === "add-property" && (
-              <div className="space-y-8 mt-6">
+              <div className="space-y-6 mt-4">
                 {/* Header Section */}
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Add New Property</h1>
-                    <p className="text-slate-600 mt-2 text-lg">Create a new property listing for investors</p>
+                    <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Add New Property</h1>
+                    <p className="text-slate-600 mt-1 text-base">Create a new property listing for investors</p>
                   </div>
                   <Button 
                     onClick={() => setSelectedTab('properties')} 
@@ -854,12 +881,12 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Add Property Form */}
-                <Card className="border-slate-200 shadow-sm">
-                  <CardHeader>
-                    <CardTitle>Property Details</CardTitle>
+                <Card className="border-slate-200 shadow-sm max-w-5xl mx-auto">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handlePropertySubmit} className="space-y-6">
+                  <CardContent className="pt-0">
+                    <form onSubmit={handlePropertySubmit} className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <Label htmlFor="name">Property Name *</Label>
@@ -881,17 +908,29 @@ export default function AdminDashboard() {
                             required
                           />
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="propertyType">Property Type *</Label>
+                          <Select value={propertyForm.propertyType} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, propertyType: value }))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select property type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="land">Land</SelectItem>
+                              <SelectItem value="apartment">Apartment</SelectItem>
+                              <SelectItem value="house">House</SelectItem>
+                              <SelectItem value="commercial">Commercial</SelectItem>
+                              <SelectItem value="mixed-use">Mixed Use</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="description">Description *</Label>
-                        <Textarea
-                          id="description"
-                          value={propertyForm.description}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, description: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.description}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
                           placeholder="Describe the property, amenities, and investment opportunity..."
-                          rows={4}
-                          required
                         />
                       </div>
 
@@ -956,18 +995,19 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="badge">Property Status</Label>
+                        <Label htmlFor="badge">Partnership Status</Label>
                         <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder="Select partnership status" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Available</SelectItem>
+                            <SelectItem value="none">No Badge</SelectItem>
                             <SelectItem value="partnered">Partnered</SelectItem>
-                            <SelectItem value="premium">Premium</SelectItem>
-                            <SelectItem value="featured">Featured</SelectItem>
+                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="exclusive">Exclusive</SelectItem>
                           </SelectContent>
                         </Select>
+                        <p className="text-xs text-slate-500">Badge indicates our relationship status with this property</p>
                       </div>
 
                       <div className="space-y-2">
@@ -1004,23 +1044,19 @@ export default function AdminDashboard() {
 
                       <div className="space-y-2">
                         <Label htmlFor="developerNotes">Developer Notes</Label>
-                        <Textarea
-                          id="developerNotes"
-                          value={propertyForm.developerNotes}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, developerNotes: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.developerNotes}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
                           placeholder="Internal notes about the developer or partnership..."
-                          rows={3}
                         />
                       </div>
 
                       <div className="space-y-2">
                         <Label htmlFor="investmentDetails">Investment Details</Label>
-                        <Textarea
-                          id="investmentDetails"
-                          value={propertyForm.investmentDetails}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, investmentDetails: e.target.value }))}
+                        <RichTextEditor
+                          content={propertyForm.investmentDetails}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
                           placeholder="Detailed investment information for potential investors..."
-                          rows={4}
                         />
                       </div>
 
@@ -1396,14 +1432,20 @@ export default function AdminDashboard() {
               {/* Description */}
               <div>
                 <h3 className="font-semibold text-slate-900 mb-2">Description</h3>
-                <p className="text-slate-600 leading-relaxed">{viewingProperty.description}</p>
+                <div 
+                  className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: viewingProperty.description }}
+                />
               </div>
 
               {/* Investment Details */}
               {viewingProperty.investmentDetails && (
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-2">Investment Details</h3>
-                  <p className="text-slate-600 leading-relaxed">{viewingProperty.investmentDetails}</p>
+                  <div 
+                    className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: viewingProperty.investmentDetails }}
+                  />
                 </div>
               )}
 
@@ -1411,7 +1453,10 @@ export default function AdminDashboard() {
               {viewingProperty.developerNotes && (
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-2">Developer Notes</h3>
-                  <p className="text-slate-600 leading-relaxed">{viewingProperty.developerNotes}</p>
+                  <div 
+                    className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: viewingProperty.developerNotes }}
+                  />
                 </div>
               )}
 
@@ -1463,12 +1508,10 @@ export default function AdminDashboard() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-description">Description *</Label>
-              <Textarea
-                id="edit-description"
-                value={propertyForm.description}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, description: e.target.value }))}
-                rows={4}
-                required
+              <RichTextEditor
+                content={propertyForm.description}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
+                placeholder="Describe the property, amenities, and investment opportunity..."
               />
             </div>
 
@@ -1576,23 +1619,19 @@ export default function AdminDashboard() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-developerNotes">Developer Notes</Label>
-              <Textarea
-                id="edit-developerNotes"
-                value={propertyForm.developerNotes}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, developerNotes: e.target.value }))}
+              <RichTextEditor
+                content={propertyForm.developerNotes}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
                 placeholder="Internal notes about the developer or partnership..."
-                rows={3}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="edit-investmentDetails">Investment Details</Label>
-              <Textarea
-                id="edit-investmentDetails"
-                value={propertyForm.investmentDetails}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, investmentDetails: e.target.value }))}
+              <RichTextEditor
+                content={propertyForm.investmentDetails}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
                 placeholder="Detailed investment information for potential investors..."
-                rows={4}
               />
             </div>
 
