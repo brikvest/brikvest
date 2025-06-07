@@ -142,6 +142,10 @@ export class DatabaseStorage implements IStorage {
       .insert(investmentReservations)
       .values(reservation)
       .returning();
+
+    // Update property slots and funding progress
+    await this.updatePropertySlots(reservation.propertyId, reservation.units);
+    
     return newReservation;
   }
 
