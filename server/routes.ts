@@ -47,6 +47,18 @@ function requireAdminAuth(req: any, res: any, next: any) {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
+
+  // User auth routes
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
   // Admin authentication routes
   app.post("/api/admin/login", async (req, res) => {
     try {
@@ -59,7 +71,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { username, password } = result.data;
-      const user = await storage.getUserByUsername(username);
+      const user = await storage.getAdminUserByUsername(username);
 
       if (!user || user.password !== password || !user.isActive) {
         return res.status(401).json({ message: "Invalid credentials" });
@@ -70,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update last login
-      await storage.updateUserLastLogin(user.id);
+      await storage.updateAdminUserLastLogin(user.id);
 
       // Create session
       const sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
