@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, hashPassword } from "./auth";
+import passport from "passport";
+import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
@@ -12,6 +14,10 @@ import {
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
   loginSchema,
+  loginUserSchema,
+  registerUserSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   type Property,
   type InvestmentReservation,
   type DeveloperBid,
@@ -44,26 +50,81 @@ function requireAdminAuth(req: any, res: any, next: any) {
   next();
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Setup Replit Auth
-  await setupAuth(app);
+// Authentication middleware
+function requireAuth(req: any, res: any, next: any) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Authentication required" });
+}
 
-  // User auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup email/password authentication
+  setupAuth(app);
+
+  // User authentication routes
+  app.post('/api/register', async (req, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
+      const result = registerUserSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid registration data", 
+          details: result.error.errors 
+        });
+      }
+
+      const { email, password, firstName, lastName, phone } = result.data;
+      
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ message: "User already exists with this email" });
+      }
+
+      // Hash password and create user
+      const hashedPassword = await hashPassword(password);
+      const user = await storage.createUser({
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        phone,
+        emailVerified: true, // Auto-verify for now
+      });
+
+      // Auto-login after registration
+      req.login(user, (err: any) => {
+        if (err) return res.status(500).json({ message: "Registration successful but login failed" });
+        const { password: _, ...userWithoutPassword } = user;
+        res.status(201).json(userWithoutPassword);
+      });
     } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
+      console.error("Registration error:", error);
+      res.status(500).json({ message: "Registration failed" });
     }
   });
 
+  app.post('/api/login', passport.authenticate('local'), (req, res) => {
+    const { password: _, ...userWithoutPassword } = req.user as any;
+    res.json(userWithoutPassword);
+  });
+
+  app.post('/api/logout', (req, res) => {
+    req.logout((err) => {
+      if (err) return res.status(500).json({ message: "Logout failed" });
+      res.json({ message: "Logged out successfully" });
+    });
+  });
+
+  app.get('/api/auth/user', requireAuth, (req, res) => {
+    const { password: _, ...userWithoutPassword } = req.user as any;
+    res.json(userWithoutPassword);
+  });
+
   // User-specific investment data
-  app.get('/api/user/investments', isAuthenticated, async (req: any, res) => {
+  app.get('/api/user/investments', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const investments = await storage.getReservationsByUserId(userId);
       res.json(investments);
     } catch (error) {
@@ -72,9 +133,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/user/stats', isAuthenticated, async (req: any, res) => {
+  app.get('/api/user/stats', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const investments = await storage.getReservationsByUserId(userId);
       
       const totalInvested = investments.reduce((sum: number, inv: any) => sum + (inv.units * 32353), 0);
@@ -89,6 +150,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user stats:", error);
       res.status(500).json({ message: "Failed to fetch user statistics" });
+    }
+  });
+
+  // Password reset routes
+  app.post('/api/forgot-password', async (req, res) => {
+    try {
+      const result = forgotPasswordSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid email", 
+          details: result.error.errors 
+        });
+      }
+
+      const { email } = result.data;
+      const user = await storage.getUserByEmail(email);
+      
+      if (!user) {
+        // Don't reveal if email exists for security
+        return res.json({ message: "If the email exists, a reset link has been sent" });
+      }
+
+      // Generate reset token
+      const resetToken = randomBytes(32).toString('hex');
+      const expiry = new Date(Date.now() + 3600000); // 1 hour from now
+      
+      await storage.setPasswordResetToken(email, resetToken, expiry);
+
+      // Send reset email
+      const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${resetToken}`;
+      await sendEmail({
+        to: email,
+        subject: "Password Reset - Brikvest",
+        html: `
+          <h2>Password Reset Request</h2>
+          <p>Click the link below to reset your password:</p>
+          <p><a href="${resetLink}">${resetLink}</a></p>
+          <p>This link will expire in 1 hour.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        `
+      });
+
+      res.json({ message: "If the email exists, a reset link has been sent" });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Failed to process request" });
+    }
+  });
+
+  app.post('/api/reset-password', async (req, res) => {
+    try {
+      const result = resetPasswordSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ 
+          error: "Invalid reset data", 
+          details: result.error.errors 
+        });
+      }
+
+      const { token, password } = result.data;
+      const user = await storage.getUserByResetToken(token);
+      
+      if (!user || !user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
+      // Update password and clear reset token
+      const hashedPassword = await hashPassword(password);
+      await storage.updateUserPassword(user.id, hashedPassword);
+      await storage.updateUser(user.id, { resetToken: null, resetTokenExpiry: null });
+
+      res.json({ message: "Password reset successfully" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Failed to reset password" });
     }
   });
   // Admin authentication routes

@@ -7,7 +7,7 @@ import {
   investmentGroups,
   groupMemberships,
   type User, 
-  type UpsertUser,
+  type InsertUser,
   type AdminUser,
   type InsertAdminUser,
   type Property,
@@ -52,7 +52,7 @@ export interface IStorage {
   // Investment reservation methods
   createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
-  getReservationsByUserId(userId: string): Promise<InvestmentReservation[]>;
+  getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
   
@@ -76,25 +76,51 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User methods (Replit Auth)
-  async getUser(id: string): Promise<User | undefined> {
+  // User methods (Email/Password Auth)
+  async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(userData).returning();
+    return user;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
       .returning();
     return user;
+  }
+
+  async updateUserPassword(id: number, password: string): Promise<void> {
+    await db.update(users)
+      .set({ password, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void> {
+    await db.update(users)
+      .set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(users.email, email));
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.resetToken, token));
+    return user;
+  }
+
+  async updateUserLastLogin(id: number): Promise<void> {
+    await db.update(users)
+      .set({ lastLogin: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
   }
 
   // Admin user methods
@@ -188,7 +214,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(investmentReservations.createdAt));
   }
 
-  async getReservationsByUserId(userId: string): Promise<InvestmentReservation[]> {
+  async getReservationsByUserId(userId: number): Promise<InvestmentReservation[]> {
     return await db
       .select()
       .from(investmentReservations)
