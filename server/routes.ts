@@ -373,42 +373,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertInvestmentReservationSchema.parse(req.body);
       
+      // Add userId if user is authenticated
+      let reservationData = validatedData;
+      if (req.isAuthenticated() && req.user) {
+        reservationData = {
+          ...validatedData,
+          userId: (req.user as any).id
+        };
+      }
+      
       // Check if property exists
-      const property = await storage.getProperty(validatedData.propertyId);
+      const property = await storage.getProperty(reservationData.propertyId);
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
 
       // Check if there are available slots
-      if (property.availableSlots < validatedData.units) {
+      if (property.availableSlots < reservationData.units) {
         return res.status(400).json({ message: "Not enough available slots" });
       }
 
-      const reservation = await storage.createInvestmentReservation(validatedData);
+      const reservation = await storage.createInvestmentReservation(reservationData);
       
       // Update property available slots
-      await storage.updatePropertySlots(validatedData.propertyId, validatedData.units);
+      await storage.updatePropertySlots(reservationData.propertyId, reservationData.units);
 
       // Generate referral code for the user
       const referralCode = `REF${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       
       // Send confirmation email
       try {
-        const investmentAmount = validatedData.units * property.minInvestment;
+        const investmentAmount = reservationData.units * property.minInvestment;
         const emailTemplate = investmentEmailTemplate({
-          fullName: validatedData.fullName,
+          fullName: reservationData.fullName,
           propertyName: property.name,
           amount: investmentAmount,
           referralCode: referralCode
         });
         
         await sendEmail({
-          to: validatedData.email,
+          to: reservationData.email,
           subject: emailTemplate.subject,
           html: emailTemplate.html
         });
         
-        console.log(`Investment confirmation email sent to ${validatedData.email}`);
+        console.log(`Investment confirmation email sent to ${reservationData.email}`);
       } catch (emailError) {
         console.error("Failed to send investment confirmation email:", emailError);
         // Don't fail the request if email fails
