@@ -34,6 +34,26 @@ export default function Home() {
     referralCode: ""
   });
 
+  // Prefill form when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const userData = user as any;
+      setInvestmentForm(prev => ({
+        ...prev,
+        fullName: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(),
+        email: userData.email || '',
+        phone: userData.phone || ''
+      }));
+      
+      setDeveloperForm(prev => ({
+        ...prev,
+        developerName: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(),
+        email: userData.email || '',
+        phone: userData.phone || ''
+      }));
+    }
+  }, [isAuthenticated, user]);
+
   const [developerForm, setDeveloperForm] = useState({
     developerName: "",
     companyName: "",

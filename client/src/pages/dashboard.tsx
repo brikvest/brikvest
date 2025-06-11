@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Building, DollarSign, Calendar, MapPin, User, LogOut } from "lucide-react";
 import { useLocation } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 import { useEffect } from "react";
 import type { InvestmentReservation } from "@shared/schema";
 
