@@ -1,18 +1,43 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
+// Session storage table for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+// Updated users table for Replit Auth
 export const users = pgTable("users", {
+  id: varchar("id").primaryKey().notNull(), // Replit user ID
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  phone: text("phone"),
+  referralCode: text("referral_code"),
+  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Keep admin users separate for admin authentication
+export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull().default("temp_password"),
   email: text("email").unique(),
   firstName: text("first_name"),
   lastName: text("last_name"),
-  phone: text("phone"),
-  referralCode: text("referral_code"),
-  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  role: text("role").notNull().default("admin"), // 'admin', 'super_admin'
   isActive: boolean("is_active").notNull().default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -43,6 +68,7 @@ export const properties = pgTable("properties", {
 export const investmentReservations = pgTable("investment_reservations", {
   id: serial("id").primaryKey(),
   propertyId: integer("property_id").notNull().references(() => properties.id),
+  userId: varchar("user_id").references(() => users.id), // Link to authenticated user
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
@@ -97,6 +123,10 @@ export const groupMemberships = pgTable("group_memberships", {
 });
 
 // Relations
+export const usersRelations = relations(users, ({ many }) => ({
+  reservations: many(investmentReservations),
+}));
+
 export const propertiesRelations = relations(properties, ({ many }) => ({
   reservations: many(investmentReservations),
   groups: many(investmentGroups),
@@ -106,6 +136,10 @@ export const investmentReservationsRelations = relations(investmentReservations,
   property: one(properties, {
     fields: [investmentReservations.propertyId],
     references: [properties.id],
+  }),
+  user: one(users, {
+    fields: [investmentReservations.userId],
+    references: [users.id],
   }),
 }));
 
@@ -125,7 +159,9 @@ export const groupMembershipsRelations = relations(groupMemberships, ({ one }) =
 }));
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).pick({
+export const upsertUserSchema = createInsertSchema(users);
+
+export const insertAdminUserSchema = createInsertSchema(adminUsers).pick({
   username: true,
   password: true,
   role: true,
@@ -167,8 +203,10 @@ export const insertGroupMembershipSchema = createInsertSchema(groupMemberships).
 });
 
 // Types
-export type InsertUser = z.infer<typeof insertUserSchema>;
+export type UpsertUser = z.infer<typeof upsertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
+export type AdminUser = typeof adminUsers.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
 
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
