@@ -240,7 +240,11 @@ export default function Home() {
                 <a href="#properties" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   Properties
                 </a>
-
+                {isAuthenticated && (
+                  <a href="/dashboard" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                    My Dashboard
+                  </a>
+                )}
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
                 </a>

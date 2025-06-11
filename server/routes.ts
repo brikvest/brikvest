@@ -59,6 +59,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
+
+  // User-specific investment data
+  app.get('/api/user/investments', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const investments = await storage.getReservationsByUserId(userId);
+      res.json(investments);
+    } catch (error) {
+      console.error("Error fetching user investments:", error);
+      res.status(500).json({ message: "Failed to fetch investments" });
+    }
+  });
+
+  app.get('/api/user/stats', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const investments = await storage.getReservationsByUserId(userId);
+      
+      const totalInvested = investments.reduce((sum: number, inv: any) => sum + (inv.units * 32353), 0);
+      const activeInvestments = investments.length;
+      const expectedReturns = totalInvested * 0.15; // 15% expected annual return
+      
+      res.json({
+        totalInvested,
+        activeInvestments,
+        expectedReturns
+      });
+    } catch (error) {
+      console.error("Error fetching user stats:", error);
+      res.status(500).json({ message: "Failed to fetch user statistics" });
+    }
+  });
   // Admin authentication routes
   app.post("/api/admin/login", async (req, res) => {
     try {

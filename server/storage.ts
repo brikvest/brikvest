@@ -46,6 +46,7 @@ export interface IStorage {
   // Investment reservation methods
   createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
+  getReservationsByUserId(userId: string): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
   
@@ -178,6 +179,14 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(investmentReservations)
       .where(eq(investmentReservations.email, email))
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getReservationsByUserId(userId: string): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.userId, userId))
       .orderBy(desc(investmentReservations.createdAt));
   }
 
