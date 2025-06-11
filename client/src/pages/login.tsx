@@ -46,11 +46,17 @@ export default function Login() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginUser) => {
-      return await apiRequest("/api/login", {
+      const response = await fetch("/api/login", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-        headers: { "Content-Type": "application/json" }
+        credentials: "include"
       });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Login failed");
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
@@ -71,11 +77,17 @@ export default function Login() {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterUser) => {
-      return await apiRequest("/api/register", {
+      const response = await fetch("/api/register", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-        headers: { "Content-Type": "application/json" }
+        credentials: "include"
       });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Registration failed");
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
