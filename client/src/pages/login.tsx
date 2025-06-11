@@ -17,6 +17,8 @@ export default function Login() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -106,6 +108,37 @@ export default function Login() {
     },
   });
 
+  const forgotPasswordMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const response = await fetch("/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+        credentials: "include"
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Failed to send reset email");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Reset email sent",
+        description: "If the email exists, a password reset link has been sent to your inbox.",
+      });
+      setShowForgotPassword(false);
+      setForgotPasswordEmail("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send reset email",
+        variant: "destructive",
+      });
+    },
+  });
+
   const onLoginSubmit = (data: LoginUser) => {
     loginMutation.mutate(data);
   };
@@ -140,7 +173,37 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isRegistering ? (
+          {showForgotPassword ? (
+            // Forgot Password Form
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="forgotEmail">Enter your email address</Label>
+                <Input
+                  id="forgotEmail"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={forgotPasswordEmail}
+                  onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                />
+              </div>
+
+              <Button 
+                onClick={() => forgotPasswordMutation.mutate(forgotPasswordEmail)}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={forgotPasswordMutation.isPending || !forgotPasswordEmail}
+              >
+                {forgotPasswordMutation.isPending ? "Sending..." : "Send Reset Link"}
+              </Button>
+
+              <Button
+                variant="ghost"
+                onClick={() => setShowForgotPassword(false)}
+                className="w-full text-sm text-blue-600 hover:text-blue-700"
+              >
+                Back to Sign In
+              </Button>
+            </div>
+          ) : !isRegistering ? (
             // Login Form
             <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
               <div className="space-y-2">
@@ -176,6 +239,17 @@ export default function Login() {
               >
                 {loginMutation.isPending ? "Signing in..." : "Sign In"}
               </Button>
+
+              <div className="text-center">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowForgotPassword(true)}
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  type="button"
+                >
+                  Forgot your password?
+                </Button>
+              </div>
             </form>
           ) : (
             // Registration Form
