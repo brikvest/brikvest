@@ -1,5 +1,6 @@
 import { 
   users, 
+  adminUsers,
   properties,
   investmentReservations,
   developerBids,
@@ -7,6 +8,8 @@ import {
   groupMemberships,
   type User, 
   type InsertUser,
+  type AdminUser,
+  type InsertAdminUser,
   type Property,
   type InsertProperty,
   type InvestmentReservation,
@@ -22,11 +25,21 @@ import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  // User methods
+  // User methods (Email/Password Auth)
   getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, updates: Partial<User>): Promise<User>;
+  updateUserPassword(id: number, password: string): Promise<void>;
+  setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
   updateUserLastLogin(id: number): Promise<void>;
+  
+  // Admin user methods
+  getAdminUser(id: number): Promise<AdminUser | undefined>;
+  getAdminUserByUsername(username: string): Promise<AdminUser | undefined>;
+  createAdminUser(user: InsertAdminUser): Promise<AdminUser>;
+  updateAdminUserLastLogin(id: number): Promise<void>;
   
   // Property methods
   getProperties(): Promise<Property[]>;
@@ -39,6 +52,7 @@ export interface IStorage {
   // Investment reservation methods
   createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
+  getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
   
@@ -62,30 +76,73 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User methods
+  // User methods (Email/Password Auth)
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    return user;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(insertUser)
+  async createUser(userData: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(userData).returning();
+    return user;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
       .returning();
     return user;
   }
 
-  async updateUserLastLogin(id: number): Promise<void> {
-    await db
-      .update(users)
-      .set({ lastLogin: new Date() })
+  async updateUserPassword(id: number, password: string): Promise<void> {
+    await db.update(users)
+      .set({ password, updatedAt: new Date() })
       .where(eq(users.id, id));
+  }
+
+  async setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void> {
+    await db.update(users)
+      .set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(users.email, email));
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.resetToken, token));
+    return user;
+  }
+
+  async updateUserLastLogin(id: number): Promise<void> {
+    await db.update(users)
+      .set({ lastLogin: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  // Admin user methods
+  async getAdminUser(id: number): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
+    return user;
+  }
+
+  async getAdminUserByUsername(username: string): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    return user;
+  }
+
+  async createAdminUser(insertUser: InsertAdminUser): Promise<AdminUser> {
+    const [user] = await db.insert(adminUsers).values(insertUser).returning();
+    return user;
+  }
+
+  async updateAdminUserLastLogin(id: number): Promise<void> {
+    await db.update(adminUsers).set({
+      lastLogin: new Date(),
+    }).where(eq(adminUsers.id, id));
   }
 
   // Property methods
@@ -154,6 +211,14 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(investmentReservations)
       .where(eq(investmentReservations.email, email))
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getReservationsByUserId(userId: number): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.userId, userId))
       .orderBy(desc(investmentReservations.createdAt));
   }
 
