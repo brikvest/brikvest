@@ -263,7 +263,18 @@ export default function Home() {
                     </span>
                   </div>
                   <Button
-                    onClick={() => window.location.href = '/api/logout'}
+                    onClick={async () => {
+                      try {
+                        await fetch('/api/logout', { 
+                          method: 'POST',
+                          credentials: 'include'
+                        });
+                        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+                        window.location.reload();
+                      } catch (error) {
+                        console.error('Logout error:', error);
+                      }
+                    }}
                     variant="outline"
                     size="sm"
                     className="flex items-center space-x-1"
