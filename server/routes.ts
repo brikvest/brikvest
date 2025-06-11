@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
@@ -44,6 +45,8 @@ function requireAdminAuth(req: any, res: any, next: any) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup Replit Auth
+  await setupAuth(app);
   // Admin authentication routes
   app.post("/api/admin/login", async (req, res) => {
     try {

@@ -1,12 +1,15 @@
 import { 
   users, 
+  adminUsers,
   properties,
   investmentReservations,
   developerBids,
   investmentGroups,
   groupMemberships,
   type User, 
-  type InsertUser,
+  type UpsertUser,
+  type AdminUser,
+  type InsertAdminUser,
   type Property,
   type InsertProperty,
   type InvestmentReservation,
@@ -22,11 +25,15 @@ import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  // User methods
-  getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  updateUserLastLogin(id: number): Promise<void>;
+  // User methods (Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+  
+  // Admin user methods
+  getAdminUser(id: number): Promise<AdminUser | undefined>;
+  getAdminUserByUsername(username: string): Promise<AdminUser | undefined>;
+  createAdminUser(user: InsertAdminUser): Promise<AdminUser>;
+  updateAdminUserLastLogin(id: number): Promise<void>;
   
   // Property methods
   getProperties(): Promise<Property[]>;
@@ -62,30 +69,47 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User methods
-  async getUser(id: number): Promise<User | undefined> {
+  // User methods (Replit Auth)
+  async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    return user;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async upsertUser(userData: UpsertUser): Promise<User> {
     const [user] = await db
       .insert(users)
-      .values(insertUser)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
       .returning();
     return user;
   }
 
-  async updateUserLastLogin(id: number): Promise<void> {
-    await db
-      .update(users)
-      .set({ lastLogin: new Date() })
-      .where(eq(users.id, id));
+  // Admin user methods
+  async getAdminUser(id: number): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
+    return user;
+  }
+
+  async getAdminUserByUsername(username: string): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    return user;
+  }
+
+  async createAdminUser(insertUser: InsertAdminUser): Promise<AdminUser> {
+    const [user] = await db.insert(adminUsers).values(insertUser).returning();
+    return user;
+  }
+
+  async updateAdminUserLastLogin(id: number): Promise<void> {
+    await db.update(adminUsers).set({
+      lastLogin: new Date(),
+    }).where(eq(adminUsers.id, id));
   }
 
   // Property methods
