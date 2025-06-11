@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,12 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X } from "lucide-react";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function Home() {
   const { toast } = useToast();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [developerModalOpen, setDeveloperModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
@@ -47,7 +49,7 @@ export default function Home() {
   });
 
   // Fetch properties
-  const { data: properties = [], isLoading } = useQuery<Property[]>({
+  const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
   });
 
@@ -63,16 +65,19 @@ export default function Home() {
 
   // Seed properties on first load if none exist
   useEffect(() => {
-    if (properties.length === 0 && !isLoading) {
-      apiRequest("POST", "/api/seed-properties").catch(console.error);
+    if (properties.length === 0 && !propertiesLoading) {
+      apiRequest("/api/seed-properties", { method: "POST" }).catch(console.error);
     }
-  }, [properties.length, isLoading]);
+  }, [properties.length, propertiesLoading]);
 
   // Investment reservation mutation
   const investmentMutation = useMutation({
     mutationFn: async (data: InsertInvestmentReservation) => {
-      const response = await apiRequest("POST", "/api/reservations", data);
-      return response.json();
+      return await apiRequest("/api/reservations", {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" }
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
@@ -100,8 +105,11 @@ export default function Home() {
   // Developer bid mutation
   const developerMutation = useMutation({
     mutationFn: async (data: InsertDeveloperBid) => {
-      const response = await apiRequest("POST", "/api/developer-bids", data);
-      return response.json();
+      return await apiRequest("/api/developer-bids", {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" }
+      });
     },
     onSuccess: () => {
       setDeveloperModalOpen(false);
@@ -241,13 +249,33 @@ export default function Home() {
                 </a>
               </div>
             </nav>
-            <div className="hidden md:block">
-              <Button 
-                onClick={() => document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' })}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Get Started
-              </Button>
+            <div className="hidden md:flex items-center space-x-4">
+              {isAuthenticated ? (
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <User className="h-4 w-4 text-gray-600" />
+                    <span className="text-sm text-gray-700">
+                      {(user as any)?.firstName || (user as any)?.email || 'User'}
+                    </span>
+                  </div>
+                  <Button
+                    onClick={() => window.location.href = '/api/logout'}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center space-x-1"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Logout</span>
+                  </Button>
+                </div>
+              ) : (
+                <Button 
+                  onClick={() => window.location.href = '/api/login'}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Sign In
+                </Button>
+              )}
             </div>
             
             {/* Mobile menu button */}
@@ -418,7 +446,7 @@ export default function Home() {
             </p>
           </div>
 
-          {isLoading ? (
+          {propertiesLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {[...Array(6)].map((_, i) => (
                 <Card key={i} className="animate-pulse">
