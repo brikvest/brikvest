@@ -14,17 +14,21 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// Updated users table for Replit Auth
+// Users table for email/password authentication
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().notNull(), // Replit user ID
-  email: varchar("email").unique(),
+  id: serial("id").primaryKey(),
+  email: varchar("email").unique().notNull(),
+  password: text("password").notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
   phone: text("phone"),
   referralCode: text("referral_code"),
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
   isActive: boolean("is_active").notNull().default(true),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
+  lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -68,7 +72,7 @@ export const properties = pgTable("properties", {
 export const investmentReservations = pgTable("investment_reservations", {
   id: serial("id").primaryKey(),
   propertyId: integer("property_id").notNull().references(() => properties.id),
-  userId: varchar("user_id").references(() => users.id), // Link to authenticated user
+  userId: integer("user_id").references(() => users.id), // Link to authenticated user
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
@@ -159,7 +163,36 @@ export const groupMembershipsRelations = relations(groupMemberships, ({ one }) =
 }));
 
 // Insert schemas
-export const upsertUserSchema = createInsertSchema(users);
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastLogin: true,
+  resetToken: true,
+  resetTokenExpiry: true,
+});
+
+export const registerUserSchema = insertUserSchema.pick({
+  email: true,
+  password: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+});
+
+export const loginUserSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Valid email is required"),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
 
 export const insertAdminUserSchema = createInsertSchema(adminUsers).pick({
   username: true,
@@ -203,7 +236,11 @@ export const insertGroupMembershipSchema = createInsertSchema(groupMemberships).
 });
 
 // Types
-export type UpsertUser = z.infer<typeof upsertUserSchema>;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type RegisterUser = z.infer<typeof registerUserSchema>;
+export type LoginUser = z.infer<typeof loginUserSchema>;
+export type ForgotPassword = z.infer<typeof forgotPasswordSchema>;
+export type ResetPassword = z.infer<typeof resetPasswordSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
 export type AdminUser = typeof adminUsers.$inferSelect;

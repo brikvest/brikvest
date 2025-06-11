@@ -25,9 +25,15 @@ import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  // User methods (Replit Auth)
-  getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  // User methods (Email/Password Auth)
+  getUser(id: number): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, updates: Partial<User>): Promise<User>;
+  updateUserPassword(id: number, password: string): Promise<void>;
+  setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
+  updateUserLastLogin(id: number): Promise<void>;
   
   // Admin user methods
   getAdminUser(id: number): Promise<AdminUser | undefined>;
