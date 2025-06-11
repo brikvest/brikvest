@@ -1,18 +1,47 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
+// Session storage table for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+// Users table for email/password authentication
 export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: varchar("email").unique().notNull(),
+  password: text("password").notNull(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  phone: text("phone"),
+  referralCode: text("referral_code"),
+  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  isActive: boolean("is_active").notNull().default(true),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
+  lastLogin: timestamp("last_login"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Keep admin users separate for admin authentication
+export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull().default("temp_password"),
   email: text("email").unique(),
   firstName: text("first_name"),
   lastName: text("last_name"),
-  phone: text("phone"),
-  referralCode: text("referral_code"),
-  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  role: text("role").notNull().default("admin"), // 'admin', 'super_admin'
   isActive: boolean("is_active").notNull().default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -43,6 +72,7 @@ export const properties = pgTable("properties", {
 export const investmentReservations = pgTable("investment_reservations", {
   id: serial("id").primaryKey(),
   propertyId: integer("property_id").notNull().references(() => properties.id),
+  userId: integer("user_id").references(() => users.id), // Link to authenticated user
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
@@ -97,6 +127,10 @@ export const groupMemberships = pgTable("group_memberships", {
 });
 
 // Relations
+export const usersRelations = relations(users, ({ many }) => ({
+  reservations: many(investmentReservations),
+}));
+
 export const propertiesRelations = relations(properties, ({ many }) => ({
   reservations: many(investmentReservations),
   groups: many(investmentGroups),
@@ -106,6 +140,10 @@ export const investmentReservationsRelations = relations(investmentReservations,
   property: one(properties, {
     fields: [investmentReservations.propertyId],
     references: [properties.id],
+  }),
+  user: one(users, {
+    fields: [investmentReservations.userId],
+    references: [users.id],
   }),
 }));
 
@@ -125,7 +163,38 @@ export const groupMembershipsRelations = relations(groupMemberships, ({ one }) =
 }));
 
 // Insert schemas
-export const insertUserSchema = createInsertSchema(users).pick({
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastLogin: true,
+  resetToken: true,
+  resetTokenExpiry: true,
+});
+
+export const registerUserSchema = insertUserSchema.pick({
+  email: true,
+  password: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+});
+
+export const loginUserSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Valid email is required"),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const insertAdminUserSchema = createInsertSchema(adminUsers).pick({
   username: true,
   password: true,
   role: true,
@@ -168,7 +237,13 @@ export const insertGroupMembershipSchema = createInsertSchema(groupMemberships).
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type RegisterUser = z.infer<typeof registerUserSchema>;
+export type LoginUser = z.infer<typeof loginUserSchema>;
+export type ForgotPassword = z.infer<typeof forgotPasswordSchema>;
+export type ResetPassword = z.infer<typeof resetPasswordSchema>;
 export type User = typeof users.$inferSelect;
+export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
+export type AdminUser = typeof adminUsers.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
 
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
