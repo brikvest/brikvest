@@ -179,16 +179,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.setPasswordResetToken(email, resetToken, expiry);
 
       // Send reset email
-      const resetLink = `${req.protocol}://${req.get('host')}/reset-password?token=${resetToken}`;
+      const resetLink = `https://www.brikvest.net/reset-password?token=${resetToken}`;
       await sendEmail({
         to: email,
         subject: "Password Reset - Brikvest",
         html: `
-          <h2>Password Reset Request</h2>
-          <p>Click the link below to reset your password:</p>
-          <p><a href="${resetLink}">${resetLink}</a></p>
-          <p>This link will expire in 1 hour.</p>
-          <p>If you didn't request this, please ignore this email.</p>
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background-color: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 24px;">Brikvest Password Reset</h1>
+            </div>
+            <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+              <h2 style="color: #374151; margin-bottom: 20px;">Reset Your Password</h2>
+              <p style="color: #6b7280; margin-bottom: 20px;">
+                We received a request to reset your password for your Brikvest account. 
+                Click the button below to set a new password:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetLink}" style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  Reset My Password
+                </a>
+              </div>
+              <p style="color: #6b7280; font-size: 14px; margin-bottom: 10px;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="color: #3b82f6; font-size: 14px; word-break: break-all; margin-bottom: 20px;">
+                ${resetLink}
+              </p>
+              <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
+                <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                  This link will expire in 1 hour for security reasons.<br>
+                  If you didn't request this password reset, please ignore this email.
+                </p>
+              </div>
+            </div>
+          </div>
         `
       });
 
