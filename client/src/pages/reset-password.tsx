@@ -32,25 +32,35 @@ export default function ResetPassword() {
     setToken(resetToken);
   }, [setLocation, toast]);
 
-  const form = useForm<ResetPassword>({
-    resolver: zodResolver(resetPasswordSchema),
+  const form = useForm({
     defaultValues: {
-      token: "",
       password: "",
     },
   });
 
   const resetMutation = useMutation({
-    mutationFn: async (data: ResetPassword) => {
+    mutationFn: async (data: any) => {
+      if (!data.password || data.password.length < 6) {
+        throw new Error("Password must be at least 6 characters long");
+      }
+      
       const response = await fetch("/api/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, token }),
+        body: JSON.stringify({ token, password: data.password }),
         credentials: "include"
       });
+      
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || "Password reset failed");
+        const errorText = await response.text();
+        let errorMessage = "Password reset failed";
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
       return response.json();
     },
@@ -70,7 +80,7 @@ export default function ResetPassword() {
     },
   });
 
-  const onSubmit = (data: ResetPassword) => {
+  const onSubmit = (data: any) => {
     resetMutation.mutate(data);
   };
 
