@@ -18,25 +18,32 @@ async function createAdminUsers() {
     // Clear existing admin users
     await db.delete(adminUsers);
     
-    const adminPassword = await hashPassword("admin123");
-    const superAdminPassword = await hashPassword("superadmin123");
+    const charlesPassword = await hashPassword("charles123");
+    const dejPassword = await hashPassword("dej123");
+    const samPassword = await hashPassword("sam123");
     
     const newAdmins = await db.insert(adminUsers).values([
       {
-        username: "admin",
-        password: adminPassword,
+        username: "charles",
+        password: charlesPassword,
         role: "admin"
       },
       {
-        username: "superadmin", 
-        password: superAdminPassword,
-        role: "super_admin"
+        username: "dej", 
+        password: dejPassword,
+        role: "admin"
+      },
+      {
+        username: "sam",
+        password: samPassword,
+        role: "admin"
       }
     ]).returning();
     
     console.log("Admin users created successfully:");
-    console.log("- Username: admin, Password: admin123");
-    console.log("- Username: superadmin, Password: superadmin123");
+    console.log("- Username: charles, Password: charles123");
+    console.log("- Username: dej, Password: dej123");
+    console.log("- Username: sam, Password: sam123");
     
     process.exit(0);
   } catch (error) {
