@@ -16,13 +16,13 @@ declare global {
 
 const scryptAsync = promisify(scrypt);
 
-async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
-async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
+export async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
   const [hashed, salt] = stored.split(".");
   const hashedBuf = Buffer.from(hashed, "hex");
   const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
@@ -87,4 +87,3 @@ export function setupAuth(app: Express) {
   });
 }
 
-export { hashPassword, comparePasswords };
