@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, hashPassword } from "./auth";
+import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
@@ -265,7 +265,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { username, password } = result.data;
       const user = await storage.getAdminUserByUsername(username);
 
-      if (!user || user.password !== password || !user.isActive) {
+      if (!user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const isValidPassword = await comparePasswords(password, user.password);
+      if (!isValidPassword) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 

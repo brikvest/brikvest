@@ -88,6 +88,9 @@ The deployment uses autoscale deployment target with proper build and start comm
 ```
 Changelog:
 - June 15, 2025. Initial setup
+- June 16, 2025. Fixed admin authentication system - created admin accounts for Charles, Dej, and Sam with secure password hashing
+- June 16, 2025. Enhanced password reset page with working update button and password visibility toggle
+- June 16, 2025. Updated test user credentials to dejalltime@gmail.com for production testing
 ```
 
 ## User Preferences
