@@ -18,11 +18,11 @@ export function PropertyMediaCarousel({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
-  // Combine all media items
+  // Combine all media items, only include items that have valid URLs
   const mediaItems = [
-    { type: 'image', url: mainImage, label: 'Main Image' },
-    ...(videoUrl ? [{ type: 'video', url: videoUrl, label: 'Property Video' }] : []),
-    ...(gallery || []).map((url, index) => ({ 
+    ...(mainImage && mainImage.trim() ? [{ type: 'image', url: mainImage, label: 'Main Image' }] : []),
+    ...(videoUrl && videoUrl.trim() ? [{ type: 'video', url: videoUrl, label: 'Property Video' }] : []),
+    ...(gallery || []).filter(url => url && url.trim()).map((url, index) => ({ 
       type: 'image', 
       url, 
       label: `Gallery ${index + 1}` 
