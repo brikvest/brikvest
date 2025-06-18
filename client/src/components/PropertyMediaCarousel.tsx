@@ -100,20 +100,9 @@ export function PropertyMediaCarousel({
             className="w-full h-full object-cover"
             onError={(e) => {
               const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              const parent = target.parentElement;
-              if (parent) {
-                parent.innerHTML = `
-                  <div class="w-full h-full bg-slate-200 flex items-center justify-center">
-                    <div class="text-center text-slate-500">
-                      <svg class="h-12 w-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                      </svg>
-                      <span class="text-sm">Image not available</span>
-                    </div>
-                  </div>
-                `;
-              }
+              target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgMTZMOC41ODU3OSAxMS40MTQyQzguOTc2MzEgMTEuMDIzNyA5LjYwOTQ4IDExLjAyMzcgMTAgMTEuNDE0MkwxNiAxNk0xNCAxNEwxNS41ODU4IDEyLjQxNDJDMTUuOTc2MyAxMi4wMjM3IDE2LjYwOTUgMTIuMDIzNyAxNyAxMi40MTQyTDIwIDE2TTZIMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkg2QzQuODk1NDMgNiA0IDYuODk1NDMgNCA4VjE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThaIiBzdHJva2U9IiNBMUE1QjAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=';
+              target.alt = 'Image not available';
+              target.className = 'w-full h-full object-contain bg-slate-200 p-8';
             }}
           />
         )}
@@ -187,17 +176,9 @@ export function PropertyMediaCarousel({
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const parent = target.parentElement;
-                    if (parent) {
-                      parent.innerHTML = `
-                        <div class="w-full h-full bg-slate-300 flex items-center justify-center">
-                          <svg class="h-3 w-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                          </svg>
-                        </div>
-                      `;
-                    }
+                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgMTZMOC41ODU3OSAxMS40MTQyQzguOTc2MzEgMTEuMDIzNyA5LjYwOTQ4IDExLjAyMzcgMTAgMTEuNDE0MkwxNiAxNk0xNCAxNEwxNS41ODU4IDEyLjQxNDJDMTUuOTc2MyAxMi4wMjM3IDE2LjYwOTUgMTIuMDIzNyAxNyAxMi40MTQyTDIwIDE2TTZIMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkg2QzQuODk1NDMgNiA0IDYuODk1NDMgNCA4VjE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThaIiBzdHJva2U9IiNBMUE1QjAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=';
+                    target.alt = 'Thumbnail not available';
+                    target.className = 'w-full h-full object-contain bg-slate-300 p-2';
                   }}
                 />
               )}
