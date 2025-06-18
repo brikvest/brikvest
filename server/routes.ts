@@ -381,20 +381,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new property (Admin only)
   app.post("/api/properties", requireAdminAuth, async (req, res) => {
     try {
-      console.log("Property creation request body:", JSON.stringify(req.body, null, 2));
-      
       const result = insertPropertySchema.safeParse(req.body);
       if (!result.success) {
-        console.log("Schema validation failed:", result.error.errors);
         return res.status(400).json({ 
           error: "Invalid property data", 
           details: result.error.errors 
         });
       }
 
-      console.log("Validated property data:", JSON.stringify(result.data, null, 2));
       const property = await storage.createProperty(result.data);
-      console.log("Created property:", JSON.stringify(property, null, 2));
       res.status(201).json(property);
     } catch (error) {
       console.error("Error creating property:", error);
