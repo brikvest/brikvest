@@ -91,6 +91,10 @@ Changelog:
 - June 16, 2025. Fixed admin authentication system - created admin accounts for Charles, Dej, and Sam with secure password hashing
 - June 16, 2025. Enhanced password reset page with working update button and password visibility toggle
 - June 16, 2025. Updated test user credentials to dejalltime@gmail.com for production testing
+- June 18, 2025. Fixed property creation system to use admin's actual input for description, developer notes, and investment details instead of defaults
+- June 18, 2025. Implemented automatic minimum investment calculation (Total Value ÷ Total Slots) with real-time display
+- June 18, 2025. Enhanced property thumbnail system with smart fallback: main image → first gallery photo → placeholder
+- June 18, 2025. Added content validation requiring minimum 50 characters for description, 30 for developer notes and investment details
 ```
 
 ## User Preferences

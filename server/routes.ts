@@ -718,6 +718,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // File upload endpoint for property videos
+  app.post("/api/upload/video", upload.single('video'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      // Check if it's actually a video file
+      if (!req.file.mimetype.startsWith('video/')) {
+        return res.status(400).json({ error: "Invalid file type. Please upload a video file." });
+      }
+
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        req.file.originalname,
+        'brikvest/videos'
+      );
+
+      res.json({
+        url: result.url,
+        publicId: result.publicId,
+        originalName: req.file.originalname
+      });
+    } catch (error) {
+      console.error("Error uploading video:", error);
+      res.status(500).json({ error: "Failed to upload video" });
+    }
+  });
+
   // Investment Group Routes
   
   // Create investment group

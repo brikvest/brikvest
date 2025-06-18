@@ -17,6 +17,7 @@ import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 
 export default function AdminDashboard() {
@@ -34,6 +35,9 @@ export default function AdminDashboard() {
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
   const [isDeveloperBidViewOpen, setIsDeveloperBidViewOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
 
   const [propertyForm, setPropertyForm] = useState({
     name: "",
@@ -46,11 +50,14 @@ export default function AdminDashboard() {
     availableSlots: "",
     imageUrl: "",
     propertyType: "land",
-    badge: "none",
+    badge: "none" as string | null,
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
     developerNotes: "",
-    investmentDetails: ""
+    investmentDetails: "",
+    videoUrl: "",
+    gallery: [] as string[],
+    status: "active"
   });
 
   // Fetch properties
@@ -90,22 +97,7 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       toast({ title: "Property created successfully" });
-      setPropertyForm({
-        name: "",
-        location: "",
-        description: "",
-        totalValue: "",
-        minInvestment: "",
-        projectedReturn: "",
-        totalSlots: "",
-        availableSlots: "",
-        imageUrl: "",
-        badge: "none",
-        partnershipDocumentName: "",
-        partnershipDocumentUrl: "",
-        developerNotes: "",
-        investmentDetails: ""
-      });
+      resetPropertyForm();
     },
     onError: (error) => {
       toast({ title: "Error creating property", description: error.message, variant: "destructive" });
@@ -196,34 +188,79 @@ export default function AdminDashboard() {
       availableSlots: "",
       imageUrl: "",
       propertyType: "land",
-      badge: "none",
+      badge: "none" as string | null,
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
       developerNotes: "",
-      investmentDetails: ""
+      investmentDetails: "",
+      videoUrl: "",
+      gallery: [] as string[],
+      status: "active"
     });
+  };
+
+  const openDeleteConfirmation = (property: Property) => {
+    setDeletingProperty(property);
+    setDeleteConfirmationText("");
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteProperty = () => {
+    if (deletingProperty && deleteConfirmationText === deletingProperty.name) {
+      deletePropertyMutation.mutate(deletingProperty.id);
+      setIsDeleteDialogOpen(false);
+      setDeletingProperty(null);
+      setDeleteConfirmationText("");
+    }
   };
 
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate minimum content requirements
+    const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
+    
+    if (stripHtml(propertyForm.description).length < 50) {
+      toast({ title: "Description too short", description: "Please provide at least 50 characters for the description", variant: "destructive" });
+      return;
+    }
+    
+    if (stripHtml(propertyForm.developerNotes).length < 30) {
+      toast({ title: "Developer notes too short", description: "Please provide at least 30 characters for developer notes", variant: "destructive" });
+      return;
+    }
+    
+    if (stripHtml(propertyForm.investmentDetails).length < 30) {
+      toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
+      return;
+    }
+
+    // Calculate minimum investment automatically based on total value and slots
+    const totalValue = parseInt(propertyForm.totalValue);
+    const totalSlots = parseInt(propertyForm.totalSlots);
+    const calculatedMinInvestment = Math.floor(totalValue / totalSlots);
+
     const propertyData: InsertProperty = {
       name: propertyForm.name,
       location: propertyForm.location,
-      description: propertyForm.description,
-      totalValue: parseInt(propertyForm.totalValue),
-      minInvestment: parseInt(propertyForm.minInvestment),
+      description: propertyForm.description, // Use admin's actual input
+      totalValue: totalValue,
+      minInvestment: calculatedMinInvestment, // Calculated automatically
       projectedReturn: propertyForm.projectedReturn,
-      totalSlots: parseInt(propertyForm.totalSlots),
+      totalSlots: totalSlots,
       availableSlots: parseInt(propertyForm.availableSlots),
-      imageUrl: propertyForm.imageUrl || null,
+      imageUrl: propertyForm.imageUrl || "",
+      videoUrl: propertyForm.videoUrl || null,
+      gallery: propertyForm.gallery.length > 0 ? propertyForm.gallery : null,
       propertyType: propertyForm.propertyType,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
-      developerNotes: propertyForm.developerNotes || null,
-      investmentDetails: propertyForm.investmentDetails || null,
+      developerNotes: propertyForm.developerNotes, // Use admin's actual input  
+      investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
     };
+
+
 
     if (editingProperty) {
       updatePropertyMutation.mutate({ id: editingProperty.id, data: propertyData });
@@ -578,17 +615,29 @@ export default function AdminDashboard() {
                                             totalSlots: property.totalSlots.toString(),
                                             availableSlots: property.availableSlots.toString(),
                                             imageUrl: property.imageUrl || "",
+                                            videoUrl: property.videoUrl || "",
+                                            gallery: property.gallery || [],
+                                            propertyType: property.propertyType || "land",
                                             badge: property.badge || "none",
                                             partnershipDocumentName: property.partnershipDocumentName || "",
                                             partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                             developerNotes: property.developerNotes || "",
-                                            investmentDetails: property.investmentDetails || ""
+                                            investmentDetails: property.investmentDetails || "",
+                                            status: property.status
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
                                         className="h-9 w-9 p-0 hover:bg-slate-100"
                                       >
                                         <Edit className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openDeleteConfirmation(property)}
+                                        className="h-9 w-9 p-0 hover:bg-red-100 text-red-600"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
                                       </Button>
                                     </div>
                                   </TableCell>
@@ -650,11 +699,15 @@ export default function AdminDashboard() {
                                         totalSlots: property.totalSlots.toString(),
                                         availableSlots: property.availableSlots.toString(),
                                         imageUrl: property.imageUrl || "",
+                                        videoUrl: property.videoUrl || "",
+                                        gallery: property.gallery || [],
+                                        propertyType: property.propertyType || "land",
                                         badge: property.badge || "none",
                                         partnershipDocumentName: property.partnershipDocumentName || "",
                                         partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                         developerNotes: property.developerNotes || "",
-                                        investmentDetails: property.investmentDetails || ""
+                                        investmentDetails: property.investmentDetails || "",
+                                        status: property.status
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -886,6 +939,7 @@ export default function AdminDashboard() {
                     <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
+
                     <form onSubmit={handlePropertySubmit} className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
@@ -947,15 +1001,16 @@ export default function AdminDashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="minInvestment">Minimum Investment (₦) *</Label>
-                          <Input
-                            id="minInvestment"
-                            type="number"
-                            value={propertyForm.minInvestment}
-                            onChange={(e) => setPropertyForm(prev => ({ ...prev, minInvestment: e.target.value }))}
-                            placeholder="e.g., 1000000"
-                            required
-                          />
+                          <Label>Minimum Investment (₦)</Label>
+                          <div className="p-3 bg-slate-50 border rounded-md">
+                            <span className="text-slate-900 font-medium">
+                              {propertyForm.totalValue && propertyForm.totalSlots ? 
+                                `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                                : 'Enter total value and slots first'
+                              }
+                            </span>
+                            <p className="text-xs text-slate-500 mt-1">Calculated automatically</p>
+                          </div>
                         </div>
                       </div>
 
@@ -1011,17 +1066,73 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Property Image</Label>
+                        <Label>Main Property Image</Label>
                         <FileUpload
                           onUploadSuccess={(url, fileName) => {
                             setPropertyForm(prev => ({ ...prev, imageUrl: url }));
                           }}
                           accept="image/*"
                           uploadType="image"
-                          label="Upload property image"
+                          label="Upload main property image"
                           currentFile={propertyForm.imageUrl}
                           disabled={createPropertyMutation.isPending}
                         />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Property Video</Label>
+                        <FileUpload
+                          onUploadSuccess={(url, fileName) => {
+                            setPropertyForm(prev => ({ ...prev, videoUrl: url }));
+                          }}
+                          accept="video/*"
+                          uploadType="video"
+                          label="Upload property video (1 video maximum)"
+                          currentFile={propertyForm.videoUrl}
+                          disabled={createPropertyMutation.isPending}
+                        />
+                        <p className="text-xs text-slate-500">Upload a video showcasing the property. Maximum 1 video allowed.</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Property Gallery</Label>
+                        <div className="space-y-3">
+                          {propertyForm.gallery.map((photoUrl, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                              <img src={photoUrl} alt={`Gallery ${index + 1}`} className="w-16 h-16 object-cover rounded" />
+                              <span className="flex-1 text-sm text-slate-700">Photo {index + 1}</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setPropertyForm(prev => ({
+                                    ...prev,
+                                    gallery: prev.gallery.filter((_, i) => i !== index)
+                                  }));
+                                }}
+                                disabled={createPropertyMutation.isPending}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          {propertyForm.gallery.length < 10 && (
+                            <FileUpload
+                              onUploadSuccess={(url, fileName) => {
+                                setPropertyForm(prev => ({
+                                  ...prev,
+                                  gallery: [...prev.gallery, url]
+                                }));
+                              }}
+                              accept="image/*"
+                              uploadType="image"
+                              label={`Upload photo ${propertyForm.gallery.length + 1} (${10 - propertyForm.gallery.length} remaining)`}
+                              disabled={createPropertyMutation.isPending}
+                            />
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">Upload up to 10 additional photos of the property. JPG, PNG formats accepted.</p>
                       </div>
 
                       <div className="space-y-2">
@@ -1302,11 +1413,15 @@ export default function AdminDashboard() {
                         totalSlots: viewingProperty.totalSlots.toString(),
                         availableSlots: viewingProperty.availableSlots.toString(),
                         imageUrl: viewingProperty.imageUrl || "",
+                        videoUrl: viewingProperty.videoUrl || "",
+                        gallery: viewingProperty.gallery || [],
+                        propertyType: viewingProperty.propertyType || "land",
                         badge: viewingProperty.badge || "none",
                         partnershipDocumentName: viewingProperty.partnershipDocumentName || "",
                         partnershipDocumentUrl: viewingProperty.partnershipDocumentUrl || "",
                         developerNotes: viewingProperty.developerNotes || "",
-                        investmentDetails: viewingProperty.investmentDetails || ""
+                        investmentDetails: viewingProperty.investmentDetails || "",
+                        status: viewingProperty.status
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -1352,16 +1467,15 @@ export default function AdminDashboard() {
 
           {viewingProperty && (
             <div className="space-y-6">
-              {/* Property Image */}
-              {viewingProperty.imageUrl && (
-                <div className="w-full h-64 bg-slate-100 rounded-lg overflow-hidden">
-                  <img 
-                    src={viewingProperty.imageUrl} 
-                    alt={viewingProperty.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
+              {/* Property Media Carousel */}
+              <div className="w-full">
+                <PropertyMediaCarousel
+                  mainImage={viewingProperty.imageUrl}
+                  videoUrl={viewingProperty.videoUrl}
+                  gallery={viewingProperty.gallery}
+                  propertyName={viewingProperty.name}
+                />
+              </div>
 
               {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1485,6 +1599,7 @@ export default function AdminDashboard() {
           </DialogHeader>
 
           <form onSubmit={handlePropertySubmit} className="space-y-6">
+            {/* Basic Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-name">Property Name *</Label>
@@ -1506,15 +1621,49 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="edit-propertyType">Property Type *</Label>
+                <Select value={propertyForm.propertyType} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, propertyType: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select property type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="residential">Residential</SelectItem>
+                    <SelectItem value="commercial">Commercial</SelectItem>
+                    <SelectItem value="land">Land</SelectItem>
+                    <SelectItem value="mixed-use">Mixed Use</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Status *</Label>
+                <Select value={propertyForm.status} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, status: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="sold_out">Sold Out</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Property Description */}
             <div className="space-y-2">
-              <Label htmlFor="edit-description">Description *</Label>
+              <Label htmlFor="edit-description">Property Description *</Label>
               <RichTextEditor
                 content={propertyForm.description}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
-                placeholder="Describe the property, amenities, and investment opportunity..."
+                placeholder="Describe the property, amenities, and investment opportunity... (minimum 50 characters)"
+                className="min-h-[200px]"
               />
             </div>
 
+            {/* Financial Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-totalValue">Total Property Value (₦) *</Label>
@@ -1523,28 +1672,34 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.totalValue}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: e.target.value }))}
+                  placeholder="e.g., 50000000"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-minInvestment">Minimum Investment (₦) *</Label>
-                <Input
-                  id="edit-minInvestment"
-                  type="number"
-                  value={propertyForm.minInvestment}
-                  onChange={(e) => setPropertyForm(prev => ({ ...prev, minInvestment: e.target.value }))}
-                  required
-                />
+                <Label>Minimum Investment (₦)</Label>
+                <div className="p-3 bg-slate-50 border rounded-md">
+                  <span className="text-slate-900 font-medium">
+                    {propertyForm.totalValue && propertyForm.totalSlots ? 
+                      `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                      : 'Enter total value and slots first'
+                    }
+                  </span>
+                  <p className="text-xs text-slate-500 mt-1">Calculated automatically</p>
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-projectedReturn">Projected Return *</Label>
+                <Label htmlFor="edit-projectedReturn">Expected Annual ROI (%) *</Label>
                 <Input
                   id="edit-projectedReturn"
+                  type="number"
+                  step="0.1"
                   value={propertyForm.projectedReturn}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
+                  placeholder="e.g., 15.5"
                   required
                 />
               </div>
@@ -1555,6 +1710,7 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.totalSlots}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, totalSlots: e.target.value }))}
+                  placeholder="e.g., 100"
                   required
                 />
               </div>
@@ -1565,73 +1721,128 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.availableSlots}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, availableSlots: e.target.value }))}
+                  placeholder="e.g., 85"
                   required
                 />
               </div>
             </div>
 
+            {/* Property Badge */}
             <div className="space-y-2">
-              <Label htmlFor="edit-badge">Property Status</Label>
-              <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
+              <Label htmlFor="edit-badge">Property Badge</Label>
+              <Select value={propertyForm.badge || 'none'} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value === 'none' ? null : value }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
+                  <SelectValue placeholder="Select badge" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Available</SelectItem>
+                  <SelectItem value="none">No Badge</SelectItem>
                   <SelectItem value="partnered">Partnered</SelectItem>
                   <SelectItem value="premium">Premium</SelectItem>
                   <SelectItem value="featured">Featured</SelectItem>
+                  <SelectItem value="land">Land</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Property Image</Label>
-              <FileUpload
-                onUploadSuccess={(url, fileName) => {
-                  setPropertyForm(prev => ({ ...prev, imageUrl: url }));
-                }}
-                accept="image/*"
-                uploadType="image"
-                label="Upload property image"
-                currentFile={propertyForm.imageUrl}
-                disabled={updatePropertyMutation.isPending}
-              />
+            {/* Media Upload */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Property Media</h3>
+              
+              <div className="space-y-2">
+                <Label>Main Property Image *</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ ...prev, imageUrl: url }));
+                  }}
+                  accept="image/*"
+                  uploadType="image"
+                  label="Upload main property image"
+                  currentFile={propertyForm.imageUrl}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Property Video (Optional)</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ ...prev, videoUrl: url }));
+                  }}
+                  accept="video/*"
+                  uploadType="video"
+                  label="Upload property video"
+                  currentFile={propertyForm.videoUrl}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Property Gallery (Optional)</Label>
+                <p className="text-sm text-slate-600">Upload up to 10 additional images for the property gallery</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 10 }).map((_, index) => (
+                    <div key={index} className="space-y-2">
+                      <Label>Image {index + 1}</Label>
+                      <FileUpload
+                        onUploadSuccess={(url, fileName) => {
+                          setPropertyForm(prev => {
+                            const newGallery = [...(prev.gallery || [])];
+                            newGallery[index] = url;
+                            return { ...prev, gallery: newGallery };
+                          });
+                        }}
+                        accept="image/*"
+                        uploadType="image"
+                        label={`Upload image ${index + 1}`}
+                        currentFile={propertyForm.gallery?.[index]}
+                        disabled={updatePropertyMutation.isPending}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Partnership Document</Label>
-              <FileUpload
-                onUploadSuccess={(url, fileName) => {
-                  setPropertyForm(prev => ({ 
-                    ...prev, 
-                    partnershipDocumentUrl: url,
-                    partnershipDocumentName: fileName
-                  }));
-                }}
-                accept=".pdf,.doc,.docx"
-                uploadType="document"
-                label="Upload partnership document"
-                currentFile={propertyForm.partnershipDocumentName}
-                disabled={updatePropertyMutation.isPending}
-              />
-            </div>
+            {/* Partnership Document */}
+            {propertyForm.badge === 'partnered' && (
+              <div className="space-y-2">
+                <Label>Partnership Document *</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ 
+                      ...prev, 
+                      partnershipDocumentUrl: url,
+                      partnershipDocumentName: fileName
+                    }));
+                  }}
+                  accept=".pdf,.doc,.docx"
+                  uploadType="document"
+                  label="Upload partnership document"
+                  currentFile={propertyForm.partnershipDocumentName}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
+            )}
 
+            {/* Developer Notes */}
             <div className="space-y-2">
               <Label htmlFor="edit-developerNotes">Developer Notes</Label>
               <RichTextEditor
                 content={propertyForm.developerNotes}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
-                placeholder="Internal notes about the developer or partnership..."
+                placeholder="Internal notes about the developer or partnership... (minimum 30 characters)"
+                className="min-h-[150px]"
               />
             </div>
 
+            {/* Investment Details */}
             <div className="space-y-2">
               <Label htmlFor="edit-investmentDetails">Investment Details</Label>
               <RichTextEditor
                 content={propertyForm.investmentDetails}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
-                placeholder="Detailed investment information for potential investors..."
+                placeholder="Detailed investment information for potential investors... (minimum 30 characters)"
+                className="min-h-[150px]"
               />
             </div>
 
@@ -1828,7 +2039,11 @@ export default function AdminDashboard() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(viewingDeveloperBid.pastProjectLink, '_blank')}
+                          onClick={() => {
+                            if (viewingDeveloperBid.pastProjectLink) {
+                              window.open(viewingDeveloperBid.pastProjectLink, '_blank');
+                            }
+                          }}
                           className="flex items-center space-x-2"
                         >
                           <ExternalLink className="h-4 w-4" />
@@ -1876,6 +2091,50 @@ export default function AdminDashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Property Confirmation Modal */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the property "{deletingProperty?.name}" and all its associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="confirmText">To confirm, type the property name exactly as shown:</Label>
+              <div className="text-sm font-mono bg-slate-100 p-2 rounded border">
+                {deletingProperty?.name}
+              </div>
+              <Input
+                id="confirmText"
+                value={deleteConfirmationText}
+                onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                placeholder="Type the property name here"
+                className="font-mono"
+              />
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setDeleteConfirmationText("");
+              setDeletingProperty(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProperty}
+              disabled={deleteConfirmationText !== deletingProperty?.name || deletePropertyMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deletePropertyMutation.isPending ? "Deleting..." : "Delete Property"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
