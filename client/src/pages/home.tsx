@@ -1005,9 +1005,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Investment Details */}
+                {/* Basic Investment Summary */}
                 <div>
-                  <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                  <h3 className="text-xl font-semibold mb-4">Investment Summary</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-3">
                       <div>
@@ -1015,11 +1015,11 @@ export default function Home() {
                         <div className="font-semibold">{selectedProperty.location}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Land Size:</span>
-                        <div className="font-semibold">1,700 sqm</div>
+                        <span className="text-slate-600">Property Type:</span>
+                        <div className="font-semibold capitalize">{selectedProperty.propertyType}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Funding Target:</span>
+                        <span className="text-slate-600">Total Property Value:</span>
                         <div className="font-semibold">{formatCurrency(selectedProperty.totalValue)}</div>
                       </div>
                       <div>
@@ -1035,16 +1035,16 @@ export default function Home() {
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Maturity Date:</span>
-                        <div className="font-semibold">5/6/2033</div>
+                        <span className="text-slate-600">Available Slots:</span>
+                        <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>
                       </div>
                       <div>
                         <span className="text-slate-600">Expected Annual ROI:</span>
                         <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Exit Strategy:</span>
-                        <div className="font-semibold">7-year exit with ongoing rental income and resale flexibility</div>
+                        <span className="text-slate-600">Status:</span>
+                        <div className="font-semibold capitalize">{selectedProperty.status}</div>
                       </div>
                     </div>
                   </div>
