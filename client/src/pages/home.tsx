@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 
 export default function Home() {
   const { toast } = useToast();
@@ -983,12 +984,13 @@ export default function Home() {
               </DialogHeader>
 
               <div className="space-y-8">
-                {/* Property Image */}
+                {/* Property Media Carousel */}
                 <div className="relative">
-                  <img 
-                    src={selectedProperty.imageUrl} 
-                    alt={selectedProperty.name}
-                    className="w-full h-64 object-cover rounded-lg"
+                  <PropertyMediaCarousel
+                    mainImage={selectedProperty.imageUrl}
+                    videoUrl={selectedProperty.videoUrl}
+                    gallery={selectedProperty.gallery}
+                    propertyName={selectedProperty.name}
                   />
                   <div className="absolute top-4 right-4">
                     <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
