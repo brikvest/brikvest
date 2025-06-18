@@ -1775,6 +1775,32 @@ export default function AdminDashboard() {
                   disabled={updatePropertyMutation.isPending}
                 />
               </div>
+
+              <div className="space-y-2">
+                <Label>Property Gallery (Optional)</Label>
+                <p className="text-sm text-slate-600">Upload up to 10 additional images for the property gallery</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 10 }).map((_, index) => (
+                    <div key={index} className="space-y-2">
+                      <Label>Image {index + 1}</Label>
+                      <FileUpload
+                        onUploadSuccess={(url, fileName) => {
+                          setPropertyForm(prev => {
+                            const newGallery = [...(prev.gallery || [])];
+                            newGallery[index] = url;
+                            return { ...prev, gallery: newGallery };
+                          });
+                        }}
+                        accept="image/*"
+                        uploadType="image"
+                        label={`Upload image ${index + 1}`}
+                        currentFile={propertyForm.gallery?.[index]}
+                        disabled={updatePropertyMutation.isPending}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Partnership Document */}
