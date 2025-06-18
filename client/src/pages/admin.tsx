@@ -92,22 +92,7 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       toast({ title: "Property created successfully" });
-      setPropertyForm({
-        name: "",
-        location: "",
-        description: "",
-        totalValue: "",
-        minInvestment: "",
-        projectedReturn: "",
-        totalSlots: "",
-        availableSlots: "",
-        imageUrl: "",
-        badge: "none",
-        partnershipDocumentName: "",
-        partnershipDocumentUrl: "",
-        developerNotes: "",
-        investmentDetails: ""
-      });
+      resetPropertyForm();
     },
     onError: (error) => {
       toast({ title: "Error creating property", description: error.message, variant: "destructive" });
@@ -220,7 +205,9 @@ export default function AdminDashboard() {
       projectedReturn: propertyForm.projectedReturn,
       totalSlots: parseInt(propertyForm.totalSlots),
       availableSlots: parseInt(propertyForm.availableSlots),
-      imageUrl: propertyForm.imageUrl || null,
+      imageUrl: propertyForm.imageUrl || "",
+      videoUrl: propertyForm.videoUrl || null,
+      gallery: propertyForm.gallery.length > 0 ? propertyForm.gallery : null,
       propertyType: propertyForm.propertyType,
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
@@ -582,6 +569,9 @@ export default function AdminDashboard() {
                                             totalSlots: property.totalSlots.toString(),
                                             availableSlots: property.availableSlots.toString(),
                                             imageUrl: property.imageUrl || "",
+                                            videoUrl: property.videoUrl || "",
+                                            gallery: property.gallery || [],
+                                            propertyType: property.propertyType || "land",
                                             badge: property.badge || "none",
                                             partnershipDocumentName: property.partnershipDocumentName || "",
                                             partnershipDocumentUrl: property.partnershipDocumentUrl || "",
@@ -654,6 +644,9 @@ export default function AdminDashboard() {
                                         totalSlots: property.totalSlots.toString(),
                                         availableSlots: property.availableSlots.toString(),
                                         imageUrl: property.imageUrl || "",
+                                        videoUrl: property.videoUrl || "",
+                                        gallery: property.gallery || [],
+                                        propertyType: property.propertyType || "land",
                                         badge: property.badge || "none",
                                         partnershipDocumentName: property.partnershipDocumentName || "",
                                         partnershipDocumentUrl: property.partnershipDocumentUrl || "",
@@ -1362,6 +1355,9 @@ export default function AdminDashboard() {
                         totalSlots: viewingProperty.totalSlots.toString(),
                         availableSlots: viewingProperty.availableSlots.toString(),
                         imageUrl: viewingProperty.imageUrl || "",
+                        videoUrl: viewingProperty.videoUrl || "",
+                        gallery: viewingProperty.gallery || [],
+                        propertyType: viewingProperty.propertyType || "land",
                         badge: viewingProperty.badge || "none",
                         partnershipDocumentName: viewingProperty.partnershipDocumentName || "",
                         partnershipDocumentUrl: viewingProperty.partnershipDocumentUrl || "",
