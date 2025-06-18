@@ -197,6 +197,24 @@ export default function AdminDashboard() {
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate minimum content requirements
+    const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
+    
+    if (stripHtml(propertyForm.description).length < 50) {
+      toast({ title: "Description too short", description: "Please provide at least 50 characters for the description", variant: "destructive" });
+      return;
+    }
+    
+    if (stripHtml(propertyForm.developerNotes).length < 30) {
+      toast({ title: "Developer notes too short", description: "Please provide at least 30 characters for developer notes", variant: "destructive" });
+      return;
+    }
+    
+    if (stripHtml(propertyForm.investmentDetails).length < 30) {
+      toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
+      return;
+    }
+
     // Calculate minimum investment automatically based on total value and slots
     const totalValue = parseInt(propertyForm.totalValue);
     const totalSlots = parseInt(propertyForm.totalSlots);
@@ -891,66 +909,7 @@ export default function AdminDashboard() {
                     <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
-                    <div className="mb-4">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => {
-                          setPropertyForm(prev => ({
-                            ...prev,
-                            description: `<p>We are excited to offer investors a unique opportunity to co-invest in a high-value residential development located in Guzape, one of Abuja's most prestigious and secure neighborhoods.</p>
 
-<p>📍 <strong>Strategic Location Highlights:</strong><br>
-• 35-minute drive from Nnamdi Azikiwe International Airport<br>
-• 10-minute drive from the Central Business District<br>
-• 5-minute proximity to premium supermarkets and shopping centers<br>
-• Situated in a neighborhood known for security and infrastructure, with an average of 20 hours of power supply daily</p>
-
-<p>Investors may exit early by reselling their shares to other users on the platform.</p>
-
-<p>Before development begins, all investors will vote to select the preferred real estate developer, based on submitted proposals via the platform.</p>
-
-<p>This is an opportunity to participate in a professionally managed, income-generating real estate project in a high-demand location—while retaining flexibility and collective decision-making power.</p>
-
-<p>👉 If you're interested in investing, please sign up to express your interest and you will be informed of the next steps.</p>`,
-                            developerNotes: `<p>We are inviting bids from real estate developers to design and execute a high-income-generating project on the 1,700 sqm land at Eko Atlantic City, Lagos.</p>
-
-<p><strong>Key Requirements:</strong><br>
-• <strong>Development Type:</strong> Multi-unit residential apartments are strongly preferred. Ideal configurations: Studio, 1-bedroom, 2-bedroom, and 3-bedroom units.<br>
-• <strong>Occupancy Goal:</strong> Minimum capacity to serve 50 tenants or more.<br>
-• <strong>Alternative Consideration:</strong> Villas may be considered, but only if the proposed development demonstrates very high income-generating potential.<br>
-• <strong>Exit Plan:</strong> The exit timeline is 7 years from project commencement.</p>
-
-<p>Developers are expected to:</p>
-<ul>
-<li>Generate rental income during this period</li>
-<li>Strategically sell all units before the 7-year timeline</li>
-</ul>
-
-<p><strong>Application Process:</strong><br>
-• Click the "Bid to Develop" button and submit a proposal including approximate financial projections and target unit mix.<br>
-• Share your track record and past completed projects to strengthen your application.<br>
-• Successful applicants from this first stage will be contacted for a due diligence phase, where we will assess project feasibility and your capacity to deliver.</p>`,
-                            investmentDetails: `<p><strong>Investment Overview:</strong></p>
-<p>This property offers a unique opportunity for fractional real estate investment in one of Abuja's most prestigious locations. Each investment unit represents a share in the overall property development and future returns.</p>
-
-<p><strong>Financial Projections:</strong></p>
-<ul>
-<li>Expected annual rental yield: 12-15%</li>
-<li>Capital appreciation potential: 8-12% annually</li>
-<li>Exit strategy timeline: 7 years maximum</li>
-<li>Minimum investment threshold ensures accessibility for diverse investors</li>
-</ul>
-
-<p><strong>Risk Management:</strong></p>
-<p>All investments are backed by comprehensive due diligence, legal documentation, and professional property management to minimize risk and maximize returns for our investors.</p>`
-                          }));
-                        }}
-                        className="mb-4"
-                      >
-                        Fill Sample Content
-                      </Button>
-                    </div>
                     <form onSubmit={handlePropertySubmit} className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
