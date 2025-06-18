@@ -197,14 +197,19 @@ export default function AdminDashboard() {
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Calculate minimum investment automatically based on total value and slots
+    const totalValue = parseInt(propertyForm.totalValue);
+    const totalSlots = parseInt(propertyForm.totalSlots);
+    const calculatedMinInvestment = Math.floor(totalValue / totalSlots);
+
     const propertyData: InsertProperty = {
       name: propertyForm.name,
       location: propertyForm.location,
-      description: propertyForm.description,
-      totalValue: parseInt(propertyForm.totalValue),
-      minInvestment: parseInt(propertyForm.minInvestment),
+      description: propertyForm.description, // Use admin's actual input
+      totalValue: totalValue,
+      minInvestment: calculatedMinInvestment, // Calculated automatically
       projectedReturn: propertyForm.projectedReturn,
-      totalSlots: parseInt(propertyForm.totalSlots),
+      totalSlots: totalSlots,
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || "",
       videoUrl: propertyForm.videoUrl || null,
@@ -213,8 +218,8 @@ export default function AdminDashboard() {
       badge: propertyForm.badge === "none" ? null : propertyForm.badge,
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
-      developerNotes: propertyForm.developerNotes || null,
-      investmentDetails: propertyForm.investmentDetails || null,
+      developerNotes: propertyForm.developerNotes, // Use admin's actual input  
+      investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
     };
 
     if (editingProperty) {
@@ -945,15 +950,16 @@ export default function AdminDashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="minInvestment">Minimum Investment (₦) *</Label>
-                          <Input
-                            id="minInvestment"
-                            type="number"
-                            value={propertyForm.minInvestment}
-                            onChange={(e) => setPropertyForm(prev => ({ ...prev, minInvestment: e.target.value }))}
-                            placeholder="e.g., 1000000"
-                            required
-                          />
+                          <Label>Minimum Investment (₦)</Label>
+                          <div className="p-3 bg-slate-50 border rounded-md">
+                            <span className="text-slate-900 font-medium">
+                              {propertyForm.totalValue && propertyForm.totalSlots ? 
+                                `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                                : 'Enter total value and slots first'
+                              }
+                            </span>
+                            <p className="text-xs text-slate-500 mt-1">Calculated automatically</p>
+                          </div>
                         </div>
                       </div>
 
@@ -1583,14 +1589,16 @@ export default function AdminDashboard() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-minInvestment">Minimum Investment (₦) *</Label>
-                <Input
-                  id="edit-minInvestment"
-                  type="number"
-                  value={propertyForm.minInvestment}
-                  onChange={(e) => setPropertyForm(prev => ({ ...prev, minInvestment: e.target.value }))}
-                  required
-                />
+                <Label>Minimum Investment (₦)</Label>
+                <div className="p-3 bg-slate-50 border rounded-md">
+                  <span className="text-slate-900 font-medium">
+                    {propertyForm.totalValue && propertyForm.totalSlots ? 
+                      `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                      : 'Enter total value and slots first'
+                    }
+                  </span>
+                  <p className="text-xs text-slate-500 mt-1">Calculated automatically</p>
+                </div>
               </div>
             </div>
 
