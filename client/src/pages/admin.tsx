@@ -1029,7 +1029,7 @@ export default function AdminDashboard() {
                             setPropertyForm(prev => ({ ...prev, videoUrl: url }));
                           }}
                           accept="video/*"
-                          uploadType="image"
+                          uploadType="video"
                           label="Upload property video (1 video maximum)"
                           currentFile={propertyForm.videoUrl}
                           disabled={createPropertyMutation.isPending}
