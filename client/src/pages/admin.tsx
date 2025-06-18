@@ -35,6 +35,9 @@ export default function AdminDashboard() {
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
   const [isDeveloperBidViewOpen, setIsDeveloperBidViewOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
 
   const [propertyForm, setPropertyForm] = useState({
     name: "",
@@ -47,13 +50,14 @@ export default function AdminDashboard() {
     availableSlots: "",
     imageUrl: "",
     propertyType: "land",
-    badge: "none",
+    badge: "none" as string | null,
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
     developerNotes: "",
     investmentDetails: "",
     videoUrl: "",
-    gallery: [] as string[]
+    gallery: [] as string[],
+    status: "active"
   });
 
   // Fetch properties
@@ -184,14 +188,30 @@ export default function AdminDashboard() {
       availableSlots: "",
       imageUrl: "",
       propertyType: "land",
-      badge: "none",
+      badge: "none" as string | null,
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
       developerNotes: "",
       investmentDetails: "",
       videoUrl: "",
-      gallery: []
+      gallery: [] as string[],
+      status: "active"
     });
+  };
+
+  const openDeleteConfirmation = (property: Property) => {
+    setDeletingProperty(property);
+    setDeleteConfirmationText("");
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteProperty = () => {
+    if (deletingProperty && deleteConfirmationText === deletingProperty.name) {
+      deletePropertyMutation.mutate(deletingProperty.id);
+      setIsDeleteDialogOpen(false);
+      setDeletingProperty(null);
+      setDeleteConfirmationText("");
+    }
   };
 
   const handlePropertySubmit = async (e: React.FormEvent) => {
@@ -602,7 +622,8 @@ export default function AdminDashboard() {
                                             partnershipDocumentName: property.partnershipDocumentName || "",
                                             partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                             developerNotes: property.developerNotes || "",
-                                            investmentDetails: property.investmentDetails || ""
+                                            investmentDetails: property.investmentDetails || "",
+                                            status: property.status
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -1568,6 +1589,7 @@ export default function AdminDashboard() {
           </DialogHeader>
 
           <form onSubmit={handlePropertySubmit} className="space-y-6">
+            {/* Basic Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-name">Property Name *</Label>
@@ -1589,15 +1611,49 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="edit-propertyType">Property Type *</Label>
+                <Select value={propertyForm.propertyType} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, propertyType: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select property type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="residential">Residential</SelectItem>
+                    <SelectItem value="commercial">Commercial</SelectItem>
+                    <SelectItem value="land">Land</SelectItem>
+                    <SelectItem value="mixed-use">Mixed Use</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Status *</Label>
+                <Select value={propertyForm.status} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, status: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="sold_out">Sold Out</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Property Description */}
             <div className="space-y-2">
-              <Label htmlFor="edit-description">Description *</Label>
+              <Label htmlFor="edit-description">Property Description *</Label>
               <RichTextEditor
                 content={propertyForm.description}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, description: content }))}
-                placeholder="Describe the property, amenities, and investment opportunity..."
+                placeholder="Describe the property, amenities, and investment opportunity... (minimum 50 characters)"
+                className="min-h-[200px]"
               />
             </div>
 
+            {/* Financial Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-totalValue">Total Property Value (₦) *</Label>
@@ -1606,6 +1662,7 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.totalValue}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: e.target.value }))}
+                  placeholder="e.g., 50000000"
                   required
                 />
               </div>
@@ -1625,11 +1682,14 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-projectedReturn">Projected Return *</Label>
+                <Label htmlFor="edit-projectedReturn">Expected Annual ROI (%) *</Label>
                 <Input
                   id="edit-projectedReturn"
+                  type="number"
+                  step="0.1"
                   value={propertyForm.projectedReturn}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
+                  placeholder="e.g., 15.5"
                   required
                 />
               </div>
@@ -1640,6 +1700,7 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.totalSlots}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, totalSlots: e.target.value }))}
+                  placeholder="e.g., 100"
                   required
                 />
               </div>
@@ -1650,73 +1711,102 @@ export default function AdminDashboard() {
                   type="number"
                   value={propertyForm.availableSlots}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, availableSlots: e.target.value }))}
+                  placeholder="e.g., 85"
                   required
                 />
               </div>
             </div>
 
+            {/* Property Badge */}
             <div className="space-y-2">
-              <Label htmlFor="edit-badge">Property Status</Label>
-              <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
+              <Label htmlFor="edit-badge">Property Badge</Label>
+              <Select value={propertyForm.badge || 'none'} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value === 'none' ? null : value }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
+                  <SelectValue placeholder="Select badge" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Available</SelectItem>
+                  <SelectItem value="none">No Badge</SelectItem>
                   <SelectItem value="partnered">Partnered</SelectItem>
                   <SelectItem value="premium">Premium</SelectItem>
                   <SelectItem value="featured">Featured</SelectItem>
+                  <SelectItem value="land">Land</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Property Image</Label>
-              <FileUpload
-                onUploadSuccess={(url, fileName) => {
-                  setPropertyForm(prev => ({ ...prev, imageUrl: url }));
-                }}
-                accept="image/*"
-                uploadType="image"
-                label="Upload property image"
-                currentFile={propertyForm.imageUrl}
-                disabled={updatePropertyMutation.isPending}
-              />
+            {/* Media Upload */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Property Media</h3>
+              
+              <div className="space-y-2">
+                <Label>Main Property Image *</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ ...prev, imageUrl: url }));
+                  }}
+                  accept="image/*"
+                  uploadType="image"
+                  label="Upload main property image"
+                  currentFile={propertyForm.imageUrl}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Property Video (Optional)</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ ...prev, videoUrl: url }));
+                  }}
+                  accept="video/*"
+                  uploadType="video"
+                  label="Upload property video"
+                  currentFile={propertyForm.videoUrl}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Partnership Document</Label>
-              <FileUpload
-                onUploadSuccess={(url, fileName) => {
-                  setPropertyForm(prev => ({ 
-                    ...prev, 
-                    partnershipDocumentUrl: url,
-                    partnershipDocumentName: fileName
-                  }));
-                }}
-                accept=".pdf,.doc,.docx"
-                uploadType="document"
-                label="Upload partnership document"
-                currentFile={propertyForm.partnershipDocumentName}
-                disabled={updatePropertyMutation.isPending}
-              />
-            </div>
+            {/* Partnership Document */}
+            {propertyForm.badge === 'partnered' && (
+              <div className="space-y-2">
+                <Label>Partnership Document *</Label>
+                <FileUpload
+                  onUploadSuccess={(url, fileName) => {
+                    setPropertyForm(prev => ({ 
+                      ...prev, 
+                      partnershipDocumentUrl: url,
+                      partnershipDocumentName: fileName
+                    }));
+                  }}
+                  accept=".pdf,.doc,.docx"
+                  uploadType="document"
+                  label="Upload partnership document"
+                  currentFile={propertyForm.partnershipDocumentName}
+                  disabled={updatePropertyMutation.isPending}
+                />
+              </div>
+            )}
 
+            {/* Developer Notes */}
             <div className="space-y-2">
               <Label htmlFor="edit-developerNotes">Developer Notes</Label>
               <RichTextEditor
                 content={propertyForm.developerNotes}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
-                placeholder="Internal notes about the developer or partnership..."
+                placeholder="Internal notes about the developer or partnership... (minimum 30 characters)"
+                className="min-h-[150px]"
               />
             </div>
 
+            {/* Investment Details */}
             <div className="space-y-2">
               <Label htmlFor="edit-investmentDetails">Investment Details</Label>
               <RichTextEditor
                 content={propertyForm.investmentDetails}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
-                placeholder="Detailed investment information for potential investors..."
+                placeholder="Detailed investment information for potential investors... (minimum 30 characters)"
+                className="min-h-[150px]"
               />
             </div>
 
