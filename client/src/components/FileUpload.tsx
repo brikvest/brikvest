@@ -3,12 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, X, FileText, Image } from "lucide-react";
+import { Upload, X, FileText, Image, Video } from "lucide-react";
 
 interface FileUploadProps {
   onUploadSuccess: (url: string, fileName: string) => void;
   accept: string;
-  uploadType: 'document' | 'image';
+  uploadType: 'document' | 'image' | 'video';
   label: string;
   currentFile?: string;
   disabled?: boolean;
@@ -33,7 +33,8 @@ export function FileUpload({
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append(uploadType === 'document' ? 'document' : 'image', file);
+      const fieldName = uploadType === 'document' ? 'document' : uploadType === 'video' ? 'video' : 'image';
+      formData.append(fieldName, file);
 
       const response = await fetch(`/api/upload/${uploadType}`, {
         method: 'POST',
@@ -41,7 +42,8 @@ export function FileUpload({
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const result = await response.json();
@@ -49,13 +51,13 @@ export function FileUpload({
       
       toast({
         title: "Success",
-        description: `${uploadType === 'document' ? 'Document' : 'Image'} uploaded successfully`
+        description: `${uploadType === 'document' ? 'Document' : uploadType === 'video' ? 'Video' : 'Image'} uploaded successfully`
       });
     } catch (error) {
       console.error('Upload error:', error);
       toast({
         title: "Error",
-        description: "Failed to upload file",
+        description: error instanceof Error ? error.message : "Failed to upload file",
         variant: "destructive"
       });
     } finally {
@@ -105,6 +107,8 @@ export function FileUpload({
         <div className="flex items-center space-x-2 p-3 border rounded-lg bg-slate-50">
           {uploadType === 'document' ? (
             <FileText className="w-4 h-4 text-blue-600" />
+          ) : uploadType === 'video' ? (
+            <Video className="w-4 h-4 text-purple-600" />
           ) : (
             <Image className="w-4 h-4 text-green-600" />
           )}
@@ -139,7 +143,12 @@ export function FileUpload({
             }
           </p>
           <p className="text-xs text-slate-500">
-            {uploadType === 'document' ? 'PDF, DOC, DOCX' : 'JPG, PNG, WEBP'} up to 10MB
+            {uploadType === 'document' 
+              ? 'PDF, DOC, DOCX up to 10MB' 
+              : uploadType === 'video' 
+                ? 'MP4, MOV, AVI up to 50MB' 
+                : 'JPG, PNG, WEBP up to 10MB'
+            }
           </p>
         </div>
       )}

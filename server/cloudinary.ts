@@ -12,14 +12,19 @@ cloudinary.config({
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 50 * 1024 * 1024, // 50MB limit for videos
   },
   fileFilter: (req, file, cb) => {
-    // Allow images and documents
+    // Allow images, videos, and documents
     const allowedTypes = [
       'image/jpeg',
       'image/png',
       'image/webp',
+      'video/mp4',
+      'video/mpeg',
+      'video/quicktime',
+      'video/x-msvideo',
+      'video/webm',
       'application/pdf',
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -28,7 +33,8 @@ export const upload = multer({
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type'), false);
+      const error = new Error('Invalid file type') as any;
+      cb(error, false);
     }
   }
 });

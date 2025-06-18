@@ -59,6 +59,8 @@ export const properties = pgTable("properties", {
   totalSlots: integer("total_slots").notNull(),
   fundingProgress: integer("funding_progress").notNull().default(0),
   imageUrl: text("image_url").notNull(),
+  videoUrl: text("video_url"), // Property video URL
+  gallery: text("gallery").array(), // Array of gallery image URLs
   status: text("status").notNull().default("active"),
   propertyType: text("property_type").default("land"),
   badge: text("badge"), // e.g., 'partnered', 'verified', etc.

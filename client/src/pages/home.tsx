@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 
 export default function Home() {
   const { toast } = useToast();
@@ -507,9 +508,15 @@ export default function Home() {
                   <div onClick={() => openPropertyDetailModal(property)}>
                     <div className="relative">
                       <img 
-                        src={property.imageUrl} 
+                        src={property.imageUrl || (property.gallery && property.gallery.length > 0 ? property.gallery[0] : '')} 
                         alt={property.name}
                         className="w-full h-48 object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgMTZMOC41ODU3OSAxMS40MTQyQzguOTc2MzEgMTEuMDIzNyA5LjYwOTQ4IDExLjAyMzcgMTAgMTEuNDE0MkwxNiAxNk0xNCAxNEwxNS41ODU4IDEyLjQxNDJDMTUuOTc2MyAxMi4wMjM3IDE2LjQwOTUgMTIuMDIzNyAxNyAxMi40MTQyTDIwIDE2TTZIMThDMTkuMTA0NiAxOCAyMCAxNy4xMDQ2IDIwIDE2VjhDMjAgNi44OTU0MyAxOS4xMDQ2IDYgMTggNkg2QzQuODk1NDMgNiA0IDYuODk1NDMgNCA4VjE2QzQgMTcuMTA0NiA0Ljg5NTQzIDE4IDYgMThaIiBzdHJva2U9IiNBMUE1QjAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=';
+                          target.alt = 'No image available';
+                          target.className = 'w-full h-48 object-contain bg-slate-200 p-8';
+                        }}
                       />
                       {property.badge && (() => {
                         const badgeInfo = getBadgeInfo(property.badge);
@@ -983,12 +990,13 @@ export default function Home() {
               </DialogHeader>
 
               <div className="space-y-8">
-                {/* Property Image */}
+                {/* Property Media Carousel */}
                 <div className="relative">
-                  <img 
-                    src={selectedProperty.imageUrl} 
-                    alt={selectedProperty.name}
-                    className="w-full h-64 object-cover rounded-lg"
+                  <PropertyMediaCarousel
+                    mainImage={selectedProperty.imageUrl}
+                    videoUrl={selectedProperty.videoUrl}
+                    gallery={selectedProperty.gallery}
+                    propertyName={selectedProperty.name}
                   />
                   <div className="absolute top-4 right-4">
                     <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
@@ -997,9 +1005,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Investment Details */}
+                {/* Basic Investment Summary */}
                 <div>
-                  <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                  <h3 className="text-xl font-semibold mb-4">Investment Summary</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-3">
                       <div>
@@ -1007,11 +1015,11 @@ export default function Home() {
                         <div className="font-semibold">{selectedProperty.location}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Land Size:</span>
-                        <div className="font-semibold">1,700 sqm</div>
+                        <span className="text-slate-600">Property Type:</span>
+                        <div className="font-semibold capitalize">{selectedProperty.propertyType}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Funding Target:</span>
+                        <span className="text-slate-600">Total Property Value:</span>
                         <div className="font-semibold">{formatCurrency(selectedProperty.totalValue)}</div>
                       </div>
                       <div>
@@ -1027,16 +1035,16 @@ export default function Home() {
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Maturity Date:</span>
-                        <div className="font-semibold">5/6/2033</div>
+                        <span className="text-slate-600">Available Slots:</span>
+                        <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>
                       </div>
                       <div>
                         <span className="text-slate-600">Expected Annual ROI:</span>
                         <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Exit Strategy:</span>
-                        <div className="font-semibold">7-year exit with ongoing rental income and resale flexibility</div>
+                        <span className="text-slate-600">Status:</span>
+                        <div className="font-semibold capitalize">{selectedProperty.status}</div>
                       </div>
                     </div>
                   </div>
@@ -1109,75 +1117,33 @@ export default function Home() {
                 {/* Description */}
                 <div>
                   <h3 className="text-xl font-semibold mb-4">Description</h3>
-                  <div className="prose prose-slate max-w-none">
-                    <p className="mb-4">
-                      We are excited to offer investors a unique opportunity to co-invest in a high-value residential development located in Guzape, one of Abuja's most prestigious and secure neighborhoods.
-                    </p>
-
-                    <div className="mb-4">
-                      <h4 className="font-semibold mb-2">📍 Strategic Location Highlights:</h4>
-                      <ul className="list-disc ml-6 space-y-1">
-                        <li>35-minute drive from Nnamdi Azikiwe International Airport</li>
-                        <li>10-minute drive from the Central Business District</li>
-                        <li>5-minute proximity to premium supermarkets and shopping centers</li>
-                        <li>Situated in a neighborhood known for security and infrastructure, with an average of 20 hours of power supply daily</li>
-                      </ul>
-                    </div>
-
-                    <p className="mb-4">
-                      Investors may exit early by reselling their shares to other users on the platform.
-                    </p>
-
-                    <p className="mb-4">
-                      Before development begins, all investors will vote to select the preferred real estate developer, based on submitted proposals via the platform.
-                    </p>
-
-                    <p className="mb-4">
-                      This is an opportunity to participate in a professionally managed, income-generating real estate project in a high-demand location—while retaining flexibility and collective decision-making power.
-                    </p>
-
-                    <p className="font-medium">
-                      👉 If you're interested in investing, please sign up to express your interest and you will be informed of the next steps.
-                    </p>
-                  </div>
+                  <div 
+                    className="prose prose-slate max-w-none text-slate-700"
+                    dangerouslySetInnerHTML={{ __html: selectedProperty.description }}
+                  />
                 </div>
 
                 {/* Developer Notes */}
-                <div>
-                  <h3 className="text-xl font-semibold mb-4">Developer Notes</h3>
-                  <div className="space-y-4">
-                    <p>
-                      We are inviting bids from real estate developers to design and execute a high-income-generating project on the 1,700 sqm land at {selectedProperty.location}.
-                    </p>
-
-                    <div>
-                      <h4 className="font-semibold mb-2">Key Requirements:</h4>
-                      <ul className="list-disc ml-6 space-y-2 text-slate-700">
-                        <li><strong>Development Type:</strong> Multi-unit residential apartments are strongly preferred. Ideal configurations: Studio, 1-bedroom, 2-bedroom, and 3-bedroom units.</li>
-                        <li><strong>Occupancy Goal:</strong> Minimum capacity to serve 50 tenants or more.</li>
-                        <li><strong>Alternative Consideration:</strong> Villas may be considered, but only if the proposed development demonstrates very high income-generating potential.</li>
-                        <li><strong>Exit Plan:</strong> The exit timeline is 7 years from project commencement.</li>
-                      </ul>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold mb-2">Developers are expected to:</p>
-                      <ul className="list-disc ml-6 space-y-1 text-slate-700">
-                        <li>Generate rental income during this period</li>
-                        <li>Strategically sell all units before the 7-year timeline</li>
-                      </ul>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold mb-2">Application Process:</h4>
-                      <ul className="list-disc ml-6 space-y-2 text-slate-700">
-                        <li>Click the "Bid to Develop" button and submit a proposal including approximate financial projections and target unit mix.</li>
-                        <li>Share your track record and past completed projects to strengthen your application.</li>
-                        <li>Successful applicants from this first stage will be contacted for a due diligence phase, where we will assess project feasibility and your capacity to deliver.</li>
-                      </ul>
-                    </div>
+                {selectedProperty.developerNotes && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-4">Developer Notes</h3>
+                    <div 
+                      className="prose prose-slate max-w-none text-slate-700"
+                      dangerouslySetInnerHTML={{ __html: selectedProperty.developerNotes }}
+                    />
                   </div>
-                </div>
+                )}
+
+                {/* Investment Details */}
+                {selectedProperty.investmentDetails && (
+                  <div>
+                    <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                    <div 
+                      className="prose prose-slate max-w-none text-slate-700"
+                      dangerouslySetInnerHTML={{ __html: selectedProperty.investmentDetails }}
+                    />
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div className="flex gap-4 pt-6 border-t border-slate-200">
