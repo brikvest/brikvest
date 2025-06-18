@@ -631,6 +631,14 @@ export default function AdminDashboard() {
                                       >
                                         <Edit className="h-4 w-4" />
                                       </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => openDeleteConfirmation(property)}
+                                        className="h-9 w-9 p-0 hover:bg-red-100 text-red-600"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
                                     </div>
                                   </TableCell>
                                 </TableRow>
@@ -698,7 +706,8 @@ export default function AdminDashboard() {
                                         partnershipDocumentName: property.partnershipDocumentName || "",
                                         partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                         developerNotes: property.developerNotes || "",
-                                        investmentDetails: property.investmentDetails || ""
+                                        investmentDetails: property.investmentDetails || "",
+                                        status: property.status
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -1411,7 +1420,8 @@ export default function AdminDashboard() {
                         partnershipDocumentName: viewingProperty.partnershipDocumentName || "",
                         partnershipDocumentUrl: viewingProperty.partnershipDocumentUrl || "",
                         developerNotes: viewingProperty.developerNotes || "",
-                        investmentDetails: viewingProperty.investmentDetails || ""
+                        investmentDetails: viewingProperty.investmentDetails || "",
+                        status: viewingProperty.status
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -2055,6 +2065,50 @@ export default function AdminDashboard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Property Confirmation Modal */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the property "{deletingProperty?.name}" and all its associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="confirmText">To confirm, type the property name exactly as shown:</Label>
+              <div className="text-sm font-mono bg-slate-100 p-2 rounded border">
+                {deletingProperty?.name}
+              </div>
+              <Input
+                id="confirmText"
+                value={deleteConfirmationText}
+                onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                placeholder="Type the property name here"
+                className="font-mono"
+              />
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setDeleteConfirmationText("");
+              setDeletingProperty(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProperty}
+              disabled={deleteConfirmationText !== deletingProperty?.name || deletePropertyMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deletePropertyMutation.isPending ? "Deleting..." : "Delete Property"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
