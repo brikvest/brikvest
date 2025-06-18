@@ -222,6 +222,14 @@ export default function AdminDashboard() {
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
     };
 
+    console.log("Frontend form data before sending:", JSON.stringify({
+      description: propertyForm.description,
+      developerNotes: propertyForm.developerNotes,
+      investmentDetails: propertyForm.investmentDetails
+    }, null, 2));
+    
+    console.log("Property data being sent to server:", JSON.stringify(propertyData, null, 2));
+
     if (editingProperty) {
       updatePropertyMutation.mutate({ id: editingProperty.id, data: propertyData });
     } else {
