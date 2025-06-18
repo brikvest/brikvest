@@ -17,6 +17,7 @@ import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
 
 export default function AdminDashboard() {
@@ -1408,16 +1409,15 @@ export default function AdminDashboard() {
 
           {viewingProperty && (
             <div className="space-y-6">
-              {/* Property Image */}
-              {viewingProperty.imageUrl && (
-                <div className="w-full h-64 bg-slate-100 rounded-lg overflow-hidden">
-                  <img 
-                    src={viewingProperty.imageUrl} 
-                    alt={viewingProperty.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
+              {/* Property Media Carousel */}
+              <div className="w-full">
+                <PropertyMediaCarousel
+                  mainImage={viewingProperty.imageUrl}
+                  videoUrl={viewingProperty.videoUrl}
+                  gallery={viewingProperty.gallery}
+                  propertyName={viewingProperty.name}
+                />
+              </div>
 
               {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1884,7 +1884,11 @@ export default function AdminDashboard() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(viewingDeveloperBid.pastProjectLink, '_blank')}
+                          onClick={() => {
+                            if (viewingDeveloperBid.pastProjectLink) {
+                              window.open(viewingDeveloperBid.pastProjectLink, '_blank');
+                            }
+                          }}
                           className="flex items-center space-x-2"
                         >
                           <ExternalLink className="h-4 w-4" />
