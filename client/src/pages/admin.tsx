@@ -50,7 +50,9 @@ export default function AdminDashboard() {
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
     developerNotes: "",
-    investmentDetails: ""
+    investmentDetails: "",
+    videoUrl: "",
+    gallery: [] as string[]
   });
 
   // Fetch properties
@@ -200,7 +202,9 @@ export default function AdminDashboard() {
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
       developerNotes: "",
-      investmentDetails: ""
+      investmentDetails: "",
+      videoUrl: "",
+      gallery: []
     });
   };
 
@@ -1011,17 +1015,73 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Property Image</Label>
+                        <Label>Main Property Image</Label>
                         <FileUpload
                           onUploadSuccess={(url, fileName) => {
                             setPropertyForm(prev => ({ ...prev, imageUrl: url }));
                           }}
                           accept="image/*"
                           uploadType="image"
-                          label="Upload property image"
+                          label="Upload main property image"
                           currentFile={propertyForm.imageUrl}
                           disabled={createPropertyMutation.isPending}
                         />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Property Video</Label>
+                        <FileUpload
+                          onUploadSuccess={(url, fileName) => {
+                            setPropertyForm(prev => ({ ...prev, videoUrl: url }));
+                          }}
+                          accept="video/*"
+                          uploadType="image"
+                          label="Upload property video (1 video maximum)"
+                          currentFile={propertyForm.videoUrl}
+                          disabled={createPropertyMutation.isPending}
+                        />
+                        <p className="text-xs text-slate-500">Upload a video showcasing the property. Maximum 1 video allowed.</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Property Gallery</Label>
+                        <div className="space-y-3">
+                          {propertyForm.gallery.map((photoUrl, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                              <img src={photoUrl} alt={`Gallery ${index + 1}`} className="w-16 h-16 object-cover rounded" />
+                              <span className="flex-1 text-sm text-slate-700">Photo {index + 1}</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setPropertyForm(prev => ({
+                                    ...prev,
+                                    gallery: prev.gallery.filter((_, i) => i !== index)
+                                  }));
+                                }}
+                                disabled={createPropertyMutation.isPending}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          {propertyForm.gallery.length < 10 && (
+                            <FileUpload
+                              onUploadSuccess={(url, fileName) => {
+                                setPropertyForm(prev => ({
+                                  ...prev,
+                                  gallery: [...prev.gallery, url]
+                                }));
+                              }}
+                              accept="image/*"
+                              uploadType="image"
+                              label={`Upload photo ${propertyForm.gallery.length + 1} (${10 - propertyForm.gallery.length} remaining)`}
+                              disabled={createPropertyMutation.isPending}
+                            />
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">Upload up to 10 additional photos of the property. JPG, PNG formats accepted.</p>
                       </div>
 
                       <div className="space-y-2">
