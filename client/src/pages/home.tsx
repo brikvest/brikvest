@@ -558,18 +558,7 @@ export default function Home() {
                           <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
                         </div>
                       </div>
-                      <div className="mb-4">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm text-slate-600">Funding Progress</span>
-                          <span className="text-sm font-medium">{property.fundingProgress}%</span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-2">
-                          <div 
-                            className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                            style={{ width: `${property.fundingProgress}%` }}
-                          />
-                        </div>
-                      </div>
+
                     </CardContent>
                   </div>
                   <CardContent className="px-6 pb-6">
@@ -1049,19 +1038,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Funding Progress */}
-                  <div className="mt-6">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-medium">Funding Progress</span>
-                      <span className="font-semibold">{selectedProperty.fundingProgress}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 rounded-full h-3">
-                      <div 
-                        className="bg-green-600 h-3 rounded-full transition-all duration-300" 
-                        style={{ width: `${selectedProperty.fundingProgress}%` }}
-                      />
-                    </div>
-                  </div>
                 </div>
 
                 {/* Partnership Verification */}
