@@ -225,10 +225,7 @@ export default function AdminDashboard() {
       return;
     }
     
-    if (stripHtml(propertyForm.developerNotes).length < 30) {
-      toast({ title: "Developer notes too short", description: "Please provide at least 30 characters for developer notes", variant: "destructive" });
-      return;
-    }
+    // Developer notes are optional - no minimum length required
     
     if (stripHtml(propertyForm.investmentDetails).length < 30) {
       toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
@@ -1154,7 +1151,7 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="developerNotes">Developer Notes</Label>
+                        <Label htmlFor="developerNotes">Developer Notes (Optional)</Label>
                         <RichTextEditor
                           content={propertyForm.developerNotes}
                           onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
@@ -1826,11 +1823,11 @@ export default function AdminDashboard() {
 
             {/* Developer Notes */}
             <div className="space-y-2">
-              <Label htmlFor="edit-developerNotes">Developer Notes</Label>
+              <Label htmlFor="edit-developerNotes">Developer Notes (Optional)</Label>
               <RichTextEditor
                 content={propertyForm.developerNotes}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, developerNotes: content }))}
-                placeholder="Internal notes about the developer or partnership... (minimum 30 characters)"
+                placeholder="Internal notes about the developer or partnership..."
                 className="min-h-[150px]"
               />
             </div>
