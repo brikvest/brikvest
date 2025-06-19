@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [isDraftSaved, setIsDraftSaved] = useState(false);
 
   const [propertyForm, setPropertyForm] = useState({
     name: "",
@@ -97,6 +98,7 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       toast({ title: "Property created successfully" });
+      clearDraft(); // Clear draft on successful creation
       resetPropertyForm();
     },
     onError: (error) => {
@@ -197,6 +199,8 @@ export default function AdminDashboard() {
       gallery: [] as string[],
       status: "active"
     });
+    clearDraft(); // Clear draft when form is reset
+    setIsDraftSaved(false);
   };
 
   const openDeleteConfirmation = (property: Property) => {
@@ -213,6 +217,92 @@ export default function AdminDashboard() {
       setDeleteConfirmationText("");
     }
   };
+
+  // Draft functionality
+  const DRAFT_KEY = 'property_draft';
+
+  const saveToDraft = () => {
+    const draftData = {
+      ...propertyForm,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
+    setIsDraftSaved(true);
+    toast({ title: "Draft saved", description: "Your property data has been saved locally" });
+  };
+
+  const loadFromDraft = () => {
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    if (savedDraft) {
+      try {
+        const draftData = JSON.parse(savedDraft);
+        delete draftData.timestamp; // Remove timestamp before setting form
+        setPropertyForm(draftData);
+        setIsDraftSaved(true);
+        toast({ title: "Draft loaded", description: "Your saved property data has been restored" });
+      } catch (error) {
+        console.error('Error loading draft:', error);
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setIsDraftSaved(false);
+  };
+
+  const hasUnsavedChanges = () => {
+    const currentForm = JSON.stringify(propertyForm);
+    const emptyForm = JSON.stringify({
+      name: "",
+      location: "",
+      description: "",
+      totalValue: "",
+      minInvestment: "",
+      projectedReturn: "",
+      totalSlots: "",
+      availableSlots: "",
+      imageUrl: "",
+      propertyType: "land",
+      badge: "none",
+      partnershipDocumentName: "",
+      partnershipDocumentUrl: "",
+      developerNotes: "",
+      investmentDetails: "",
+      videoUrl: "",
+      gallery: [],
+      status: "active"
+    });
+    return currentForm !== emptyForm;
+  };
+
+  // Load draft on component mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    if (savedDraft) {
+      const shouldLoad = window.confirm(
+        "You have a saved draft. Would you like to restore your previous property data?"
+      );
+      if (shouldLoad) {
+        loadFromDraft();
+      }
+    }
+  }, []);
+
+  // Warn before page refresh if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges() && !isDraftSaved) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return 'You have unsaved changes. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [propertyForm, isDraftSaved]);
 
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -933,7 +1023,14 @@ export default function AdminDashboard() {
                 {/* Add Property Form */}
                 <Card className="border-slate-200 shadow-sm max-w-5xl mx-auto">
                   <CardHeader className="pb-4">
-                    <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
+                      {isDraftSaved && (
+                        <Badge variant="secondary" className="bg-green-100 text-green-700">
+                          Draft Saved
+                        </Badge>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent className="pt-0">
 
@@ -1168,7 +1265,7 @@ export default function AdminDashboard() {
                         />
                       </div>
 
-                      <div className="flex gap-4 pt-6">
+                      <div className="flex gap-3 pt-6">
                         <Button 
                           type="button" 
                           variant="outline" 
@@ -1176,6 +1273,15 @@ export default function AdminDashboard() {
                           className="flex-1"
                         >
                           Cancel
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant="secondary" 
+                          onClick={saveToDraft}
+                          disabled={!hasUnsavedChanges()}
+                          className="flex-1"
+                        >
+                          {isDraftSaved ? "Draft Saved ✓" : "Save to Draft"}
                         </Button>
                         <Button 
                           type="submit" 
