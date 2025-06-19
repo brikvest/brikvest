@@ -554,7 +554,7 @@ export default function Home() {
                           <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
                         </div>
                         <div>
-                          <span className="text-slate-600">Available Slots:</span>
+                          <span className="text-slate-600">Available Units:</span>
                           <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
                         </div>
                       </div>
@@ -1024,7 +1024,7 @@ export default function Home() {
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Available Slots:</span>
+                        <span className="text-slate-600">Available Units:</span>
                         <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>
                       </div>
                       <div>
