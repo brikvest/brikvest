@@ -14,10 +14,13 @@ import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, Fil
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
+import { CurrencySelector } from "@/components/CurrencySelector";
+import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 
 export default function Home() {
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [developerModalOpen, setDeveloperModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
@@ -69,10 +72,8 @@ export default function Home() {
     whySelected: ""
   });
 
-  // Fetch properties
-  const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
-    queryKey: ["/api/properties"],
-  });
+  // Fetch properties with currency conversion
+  const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
 
   // Fetch live statistics
   const { data: stats } = useQuery<{
@@ -205,14 +206,7 @@ export default function Home() {
     setPropertyDetailModalOpen(true);
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  const formatCurrency = formatCurrencyFromHook;
 
   const formatCompactCurrency = (amount: number) => {
     if (amount >= 1000000000) {
@@ -312,6 +306,7 @@ export default function Home() {
                   Sign In
                 </Button>
               )}
+              <CurrencySelector compact />
             </div>
             
             {/* Mobile menu button */}

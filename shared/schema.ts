@@ -29,6 +29,8 @@ export const users = pgTable("users", {
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   lastLogin: timestamp("last_login"),
+  country: varchar("country", { length: 2 }), // ISO country code
+  preferredCurrency: varchar("preferred_currency", { length: 3 }).default("USD"), // ISO currency code
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -95,6 +95,9 @@ Changelog:
 - June 18, 2025. Implemented automatic minimum investment calculation (Total Value ÷ Total Slots) with real-time display
 - June 18, 2025. Enhanced property thumbnail system with smart fallback: main image → first gallery photo → placeholder
 - June 18, 2025. Added content validation requiring minimum 50 characters for description, 30 for developer notes and investment details
+- June 19, 2025. Implemented multi-currency system with real-time exchange rates and automatic currency detection based on user location
+- June 19, 2025. Added currency selector component allowing users to manually choose their preferred currency from 12 popular options
+- June 19, 2025. Properties stored in USD but displayed in user's selected currency with automatic conversion using live exchange rates
 ```
 
 ## User Preferences

@@ -7,6 +7,7 @@ import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
+import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
   insertInvestmentReservationSchema, 
   insertDeveloperBidSchema,
@@ -898,6 +899,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user memberships:", error);
       res.status(500).json({ message: "Failed to fetch memberships" });
+    }
+  });
+
+  // Currency conversion endpoints
+  app.get("/api/exchange-rates", async (req, res) => {
+    try {
+      const rates = await getExchangeRates();
+      res.json({ rates, currencies: CURRENCY_CONFIG });
+    } catch (error) {
+      console.error("Error fetching exchange rates:", error);
+      res.status(500).json({ error: "Failed to fetch exchange rates" });
+    }
+  });
+
+  app.post("/api/convert-currency", async (req, res) => {
+    try {
+      const { amount, fromCurrency, toCurrency } = req.body;
+      
+      if (!amount || !fromCurrency || !toCurrency) {
+        return res.status(400).json({ error: "Missing required parameters" });
+      }
+
+      const rates = await getExchangeRates();
+      const convertedAmount = convertCurrency(amount, fromCurrency, toCurrency, rates);
+      const formattedAmount = formatCurrency(convertedAmount, toCurrency);
+
+      res.json({
+        originalAmount: amount,
+        convertedAmount,
+        formattedAmount,
+        fromCurrency,
+        toCurrency,
+        exchangeRate: rates[toCurrency]
+      });
+    } catch (error) {
+      console.error("Error converting currency:", error);
+      res.status(500).json({ error: "Failed to convert currency" });
+    }
+  });
+
+  app.get("/api/user-currency", async (req, res) => {
+    try {
+      const userCurrency = detectUserCurrency(req);
+      res.json({ currency: userCurrency });
+    } catch (error) {
+      console.error("Error detecting user currency:", error);
+      res.status(500).json({ error: "Failed to detect user currency" });
+    }
+  });
+
+  // Enhanced properties endpoint with currency conversion
+  app.get("/api/properties-converted", async (req, res) => {
+    try {
+      const properties = await storage.getProperties();
+      const userCurrency = req.query.currency as string || detectUserCurrency(req);
+      
+      if (userCurrency === 'USD') {
+        // No conversion needed
+        return res.json(properties);
+      }
+
+      const rates = await getExchangeRates();
+      
+      const convertedProperties = properties.map(property => ({
+        ...property,
+        totalValue: convertCurrency(property.totalValue, 'USD', userCurrency, rates),
+        minInvestment: convertCurrency(property.minInvestment, 'USD', userCurrency, rates),
+        userCurrency
+      }));
+
+      res.json(convertedProperties);
+    } catch (error) {
+      console.error("Error fetching converted properties:", error);
+      res.status(500).json({ error: "Failed to fetch properties with currency conversion" });
     }
   });
 
