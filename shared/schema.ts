@@ -29,6 +29,8 @@ export const users = pgTable("users", {
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   lastLogin: timestamp("last_login"),
+  country: varchar("country", { length: 2 }), // ISO country code
+  preferredCurrency: varchar("preferred_currency", { length: 3 }).default("USD"), // ISO currency code
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -54,7 +56,7 @@ export const properties = pgTable("properties", {
   description: text("description").notNull(),
   totalValue: bigint("total_value", { mode: "number" }).notNull(),
   minInvestment: bigint("min_investment", { mode: "number" }).notNull(),
-  projectedReturn: decimal("projected_return", { precision: 5, scale: 2 }).notNull(),
+
   availableSlots: integer("available_slots").notNull(),
   totalSlots: integer("total_slots").notNull(),
   fundingProgress: integer("funding_progress").notNull().default(0),
@@ -68,6 +70,7 @@ export const properties = pgTable("properties", {
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
+  currency: text("currency").notNull().default("USD"), // Currency for property values
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

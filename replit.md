@@ -95,6 +95,13 @@ Changelog:
 - June 18, 2025. Implemented automatic minimum investment calculation (Total Value ÷ Total Slots) with real-time display
 - June 18, 2025. Enhanced property thumbnail system with smart fallback: main image → first gallery photo → placeholder
 - June 18, 2025. Added content validation requiring minimum 50 characters for description, 30 for developer notes and investment details
+- June 19, 2025. Implemented multi-currency system with real-time exchange rates and automatic currency detection based on user location
+- June 19, 2025. Added currency selector component allowing users to manually choose their preferred currency from 12 popular options
+- July 4, 2025. Enhanced currency system to support properties stored in different currencies - properties now store their native currency (NGN for existing properties)
+- July 4, 2025. Fixed existing properties to display correct Naira values (The Vertex: ₦120,000 minimum, Guzape Heights: ₦32,353 minimum)
+- July 4, 2025. Added currency field to properties schema and updated conversion logic to handle mixed-currency property databases
+- July 4, 2025. Added AED (UAE Dirham) currency support with proper symbol (د.إ) and auto-detection for UAE users
+- July 4, 2025. Removed projected return field from property creation form and database schema to simplify property management
 ```
 
 ## User Preferences

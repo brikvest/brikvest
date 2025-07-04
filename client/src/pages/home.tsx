@@ -14,10 +14,13 @@ import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, Fil
 import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
+import { CurrencySelector } from "@/components/CurrencySelector";
+import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 
 export default function Home() {
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [developerModalOpen, setDeveloperModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
@@ -69,10 +72,9 @@ export default function Home() {
     whySelected: ""
   });
 
-  // Fetch properties
-  const { data: properties = [], isLoading: propertiesLoading } = useQuery<Property[]>({
-    queryKey: ["/api/properties"],
-  });
+  // Fetch properties with currency conversion
+  const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
+  const { formatCurrency: currencyFormatter } = useCurrency();
 
   // Fetch live statistics
   const { data: stats } = useQuery<{
@@ -205,14 +207,7 @@ export default function Home() {
     setPropertyDetailModalOpen(true);
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) => currencyFormatter(amount);
 
   const formatCompactCurrency = (amount: number) => {
     if (amount >= 1000000000) {
@@ -312,6 +307,7 @@ export default function Home() {
                   Sign In
                 </Button>
               )}
+              <CurrencySelector compact />
             </div>
             
             {/* Mobile menu button */}
@@ -353,6 +349,10 @@ export default function Home() {
                 >
                   For Developers
                 </a>
+                
+                <div className="px-3 py-2">
+                  <CurrencySelector />
+                </div>
                 <div className="pt-4">
                   <Button 
                     onClick={() => {
@@ -503,7 +503,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {properties.map((property) => (
+              {properties.map((property: any) => (
                 <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
                   <div onClick={() => openPropertyDetailModal(property)}>
                     <div className="relative">
@@ -549,10 +549,7 @@ export default function Home() {
                           <span className="text-slate-600">Min. Investment:</span>
                           <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
                         </div>
-                        <div>
-                          <span className="text-slate-600">Expected Annual ROI:</span>
-                          <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
-                        </div>
+
                         <div>
                           <span className="text-slate-600">Available Units:</span>
                           <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
@@ -987,11 +984,7 @@ export default function Home() {
                     gallery={selectedProperty.gallery}
                     propertyName={selectedProperty.name}
                   />
-                  <div className="absolute top-4 right-4">
-                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {selectedProperty.projectedReturn}% Expected Annual ROI
-                    </span>
-                  </div>
+
                 </div>
 
                 {/* Basic Investment Summary */}
@@ -1027,10 +1020,7 @@ export default function Home() {
                         <span className="text-slate-600">Available Units:</span>
                         <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>
                       </div>
-                      <div>
-                        <span className="text-slate-600">Expected Annual ROI:</span>
-                        <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
-                      </div>
+
                       <div>
                         <span className="text-slate-600">Status:</span>
                         <div className="font-semibold capitalize">{selectedProperty.status}</div>
