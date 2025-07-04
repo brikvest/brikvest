@@ -103,6 +103,7 @@ Changelog:
 - July 4, 2025. Added AED (UAE Dirham) currency support with proper symbol (د.إ) and auto-detection for UAE users
 - July 4, 2025. Removed projected return field from property creation form and database schema to simplify property management
 - July 4, 2025. Changed terminology from "Investment Details" to "Co-Ownership Details" throughout the admin interface
+- July 4, 2025. Enhanced reservation details to display property names instead of IDs and added "Mark as Paid" functionality with email notifications
 ```
 
 ## User Preferences

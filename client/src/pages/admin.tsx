@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield } from "lucide-react";
+import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -87,6 +87,21 @@ export default function AdminDashboard() {
   });
 
   // Mutations
+  const markAsPaidMutation = useMutation({
+    mutationFn: async (reservationId: number) => {
+      return await authenticatedRequest(`/api/reservations/${reservationId}/mark-paid`, {
+        method: "POST",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      toast({ title: "Success", description: "Payment confirmation sent to investor!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
   const createPropertyMutation = useMutation({
     mutationFn: async (data: InsertProperty) => {
       return await authenticatedRequest("/api/properties", {
@@ -1981,8 +1996,10 @@ export default function AdminDashboard() {
                 <h3 className="text-lg font-semibold text-slate-900 mb-4">Co-Ownership Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-sm font-medium text-slate-600">Property ID</Label>
-                    <p className="text-slate-900 mt-1">#{viewingReservation.propertyId}</p>
+                    <Label className="text-sm font-medium text-slate-600">Property</Label>
+                    <p className="text-slate-900 mt-1 font-semibold">
+                      {properties.find((p: any) => p.id === viewingReservation.propertyId)?.name || `Property #${viewingReservation.propertyId}`}
+                    </p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium text-slate-600">Units Reserved</Label>
@@ -2022,6 +2039,15 @@ export default function AdminDashboard() {
                 >
                   <Phone className="h-4 w-4" />
                   <span>Call Investor</span>
+                </Button>
+                <Button
+                  variant="default"
+                  className="flex-1 flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700"
+                  onClick={() => markAsPaidMutation.mutate(viewingReservation.id)}
+                  disabled={markAsPaidMutation.isPending}
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  <span>{markAsPaidMutation.isPending ? "Sending..." : "Mark as Paid"}</span>
                 </Button>
               </div>
             </div>
