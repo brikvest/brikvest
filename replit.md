@@ -97,7 +97,9 @@ Changelog:
 - June 18, 2025. Added content validation requiring minimum 50 characters for description, 30 for developer notes and investment details
 - June 19, 2025. Implemented multi-currency system with real-time exchange rates and automatic currency detection based on user location
 - June 19, 2025. Added currency selector component allowing users to manually choose their preferred currency from 12 popular options
-- June 19, 2025. Properties stored in USD but displayed in user's selected currency with automatic conversion using live exchange rates
+- July 4, 2025. Enhanced currency system to support properties stored in different currencies - properties now store their native currency (NGN for existing properties)
+- July 4, 2025. Fixed existing properties to display correct Naira values (The Vertex: ₦120,000 minimum, Guzape Heights: ₦32,353 minimum)
+- July 4, 2025. Added currency field to properties schema and updated conversion logic to handle mixed-currency property databases
 ```
 
 ## User Preferences

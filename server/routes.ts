@@ -955,19 +955,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const properties = await storage.getProperties();
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
       
-      if (userCurrency === 'USD') {
-        // No conversion needed
-        return res.json(properties);
-      }
-
       const rates = await getExchangeRates();
       
-      const convertedProperties = properties.map(property => ({
-        ...property,
-        totalValue: convertCurrency(property.totalValue, 'USD', userCurrency, rates),
-        minInvestment: convertCurrency(property.minInvestment, 'USD', userCurrency, rates),
-        userCurrency
-      }));
+      const convertedProperties = properties.map(property => {
+        // Get the property's stored currency (default to USD for old properties without currency field)
+        const storedCurrency = property.currency || 'USD';
+        
+        // If user currency matches stored currency, no conversion needed
+        if (userCurrency === storedCurrency) {
+          return {
+            ...property,
+            userCurrency
+          };
+        }
+
+        // Convert from stored currency to user currency
+        return {
+          ...property,
+          totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
+          minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
+          userCurrency
+        };
+      });
 
       res.json(convertedProperties);
     } catch (error) {

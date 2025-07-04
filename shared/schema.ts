@@ -70,6 +70,7 @@ export const properties = pgTable("properties", {
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
+  currency: text("currency").notNull().default("USD"), // Currency for property values
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
