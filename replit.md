@@ -100,6 +100,8 @@ Changelog:
 - July 4, 2025. Enhanced currency system to support properties stored in different currencies - properties now store their native currency (NGN for existing properties)
 - July 4, 2025. Fixed existing properties to display correct Naira values (The Vertex: ₦120,000 minimum, Guzape Heights: ₦32,353 minimum)
 - July 4, 2025. Added currency field to properties schema and updated conversion logic to handle mixed-currency property databases
+- July 4, 2025. Added AED (UAE Dirham) currency support with proper symbol (د.إ) and auto-detection for UAE users
+- July 4, 2025. Removed projected return field from property creation form and database schema to simplify property management
 ```
 
 ## User Preferences

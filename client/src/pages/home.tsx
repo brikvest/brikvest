@@ -549,10 +549,7 @@ export default function Home() {
                           <span className="text-slate-600">Min. Investment:</span>
                           <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
                         </div>
-                        <div>
-                          <span className="text-slate-600">Expected Annual ROI:</span>
-                          <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
-                        </div>
+
                         <div>
                           <span className="text-slate-600">Available Units:</span>
                           <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
@@ -987,11 +984,7 @@ export default function Home() {
                     gallery={selectedProperty.gallery}
                     propertyName={selectedProperty.name}
                   />
-                  <div className="absolute top-4 right-4">
-                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {selectedProperty.projectedReturn}% Expected Annual ROI
-                    </span>
-                  </div>
+
                 </div>
 
                 {/* Basic Investment Summary */}
@@ -1027,10 +1020,7 @@ export default function Home() {
                         <span className="text-slate-600">Available Units:</span>
                         <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>
                       </div>
-                      <div>
-                        <span className="text-slate-600">Expected Annual ROI:</span>
-                        <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
-                      </div>
+
                       <div>
                         <span className="text-slate-600">Status:</span>
                         <div className="font-semibold capitalize">{selectedProperty.status}</div>

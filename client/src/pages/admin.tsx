@@ -46,7 +46,6 @@ export default function AdminDashboard() {
     description: "",
     totalValue: "",
     minInvestment: "",
-    projectedReturn: "",
     totalSlots: "",
     availableSlots: "",
     imageUrl: "",
@@ -185,7 +184,6 @@ export default function AdminDashboard() {
       description: "",
       totalValue: "",
       minInvestment: "",
-      projectedReturn: "",
       totalSlots: "",
       availableSlots: "",
       imageUrl: "",
@@ -260,7 +258,6 @@ export default function AdminDashboard() {
       description: "",
       totalValue: "",
       minInvestment: "",
-      projectedReturn: "",
       totalSlots: "",
       availableSlots: "",
       imageUrl: "",
@@ -333,7 +330,6 @@ export default function AdminDashboard() {
       description: propertyForm.description, // Use admin's actual input
       totalValue: totalValue,
       minInvestment: calculatedMinInvestment, // Calculated automatically
-      projectedReturn: propertyForm.projectedReturn,
       totalSlots: totalSlots,
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || "",
@@ -698,7 +694,6 @@ export default function AdminDashboard() {
                                             description: property.description,
                                             totalValue: property.totalValue.toString(),
                                             minInvestment: property.minInvestment.toString(),
-                                            projectedReturn: property.projectedReturn,
                                             totalSlots: property.totalSlots.toString(),
                                             availableSlots: property.availableSlots.toString(),
                                             imageUrl: property.imageUrl || "",
@@ -782,7 +777,6 @@ export default function AdminDashboard() {
                                         description: property.description,
                                         totalValue: property.totalValue.toString(),
                                         minInvestment: property.minInvestment.toString(),
-                                        projectedReturn: property.projectedReturn,
                                         totalSlots: property.totalSlots.toString(),
                                         availableSlots: property.availableSlots.toString(),
                                         imageUrl: property.imageUrl || "",
@@ -1108,17 +1102,8 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="space-y-2">
-                          <Label htmlFor="projectedReturn">Projected Return *</Label>
-                          <Input
-                            id="projectedReturn"
-                            value={propertyForm.projectedReturn}
-                            onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
-                            placeholder="e.g., 15% annually"
-                            required
-                          />
-                        </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
                         <div className="space-y-2">
                           <Label htmlFor="totalSlots">Total Investment Slots *</Label>
                           <Input
@@ -1145,7 +1130,7 @@ export default function AdminDashboard() {
 
                       <div className="space-y-2">
                         <Label htmlFor="badge">Partnership Status</Label>
-                        <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
+                        <Select value={propertyForm.badge || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value === "none" ? null : value }))}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select partnership status" />
                           </SelectTrigger>
@@ -1512,7 +1497,6 @@ export default function AdminDashboard() {
                         description: viewingProperty.description,
                         totalValue: viewingProperty.totalValue.toString(),
                         minInvestment: viewingProperty.minInvestment.toString(),
-                        projectedReturn: viewingProperty.projectedReturn,
                         totalSlots: viewingProperty.totalSlots.toString(),
                         availableSlots: viewingProperty.availableSlots.toString(),
                         imageUrl: viewingProperty.imageUrl || "",
@@ -1617,10 +1601,7 @@ export default function AdminDashboard() {
                   <h3 className="font-semibold text-slate-900 mb-2">Min Investment</h3>
                   <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.minInvestment)}</p>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-slate-900 mb-2">Projected Return</h3>
-                  <p className="text-2xl font-bold text-slate-900">{viewingProperty.projectedReturn}</p>
-                </div>
+
               </div>
 
               {/* Slots Progress */}
@@ -1793,19 +1774,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="edit-projectedReturn">Expected Annual ROI (%) *</Label>
-                <Input
-                  id="edit-projectedReturn"
-                  type="number"
-                  step="0.1"
-                  value={propertyForm.projectedReturn}
-                  onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
-                  placeholder="e.g., 15.5"
-                  required
-                />
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-totalSlots">Total Investment Slots *</Label>
                 <Input

@@ -56,7 +56,7 @@ export const properties = pgTable("properties", {
   description: text("description").notNull(),
   totalValue: bigint("total_value", { mode: "number" }).notNull(),
   minInvestment: bigint("min_investment", { mode: "number" }).notNull(),
-  projectedReturn: decimal("projected_return", { precision: 5, scale: 2 }).notNull(),
+
   availableSlots: integer("available_slots").notNull(),
   totalSlots: integer("total_slots").notNull(),
   fundingProgress: integer("funding_progress").notNull().default(0),
