@@ -131,8 +131,10 @@ export function useConvertedProperties() {
   return useQuery({
     queryKey: ['/api/properties-converted', userCurrency],
     queryFn: async () => {
-      const response = await apiRequest(`/api/properties-converted?currency=${userCurrency}`);
-      return response.json();
+      const data = await apiRequest(`/api/properties-converted?currency=${userCurrency}`, {
+        method: 'GET'
+      });
+      return data;
     },
   });
 }
