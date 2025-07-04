@@ -74,6 +74,7 @@ export default function Home() {
 
   // Fetch properties with currency conversion
   const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
+  const { formatCurrency: currencyFormatter } = useCurrency();
 
   // Fetch live statistics
   const { data: stats } = useQuery<{
@@ -206,7 +207,7 @@ export default function Home() {
     setPropertyDetailModalOpen(true);
   };
 
-  const formatCurrency = formatCurrencyFromHook;
+  const formatCurrency = (amount: number) => currencyFormatter(amount);
 
   const formatCompactCurrency = (amount: number) => {
     if (amount >= 1000000000) {
@@ -348,6 +349,10 @@ export default function Home() {
                 >
                   For Developers
                 </a>
+                
+                <div className="px-3 py-2">
+                  <CurrencySelector />
+                </div>
                 <div className="pt-4">
                   <Button 
                     onClick={() => {
@@ -498,7 +503,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {properties.map((property) => (
+              {properties.map((property: any) => (
                 <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
                   <div onClick={() => openPropertyDetailModal(property)}>
                     <div className="relative">
