@@ -315,7 +315,7 @@ export default function AdminDashboard() {
     // Developer notes are optional - no minimum length required
     
     if (stripHtml(propertyForm.investmentDetails).length < 30) {
-      toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
+      toast({ title: "Co-ownership details too short", description: "Please provide at least 30 characters for co-ownership details", variant: "destructive" });
       return;
     }
 
@@ -1242,11 +1242,11 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="investmentDetails">Investment Details</Label>
+                        <Label htmlFor="investmentDetails">Co-Ownership Details</Label>
                         <RichTextEditor
                           content={propertyForm.investmentDetails}
                           onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
-                          placeholder="Detailed investment information for potential investors..."
+                          placeholder="Detailed co-ownership information for potential investors..."
                         />
                       </div>
 
@@ -1591,7 +1591,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Investment Details */}
+              {/* Co-Ownership Details */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-slate-50 rounded-lg p-4">
                   <h3 className="font-semibold text-slate-900 mb-2">Total Value</h3>
@@ -1636,10 +1636,10 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              {/* Investment Details */}
+              {/* Co-Ownership Details */}
               {viewingProperty.investmentDetails && (
                 <div>
-                  <h3 className="font-semibold text-slate-900 mb-2">Investment Details</h3>
+                  <h3 className="font-semibold text-slate-900 mb-2">Co-Ownership Details</h3>
                   <div 
                     className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
                     dangerouslySetInnerHTML={{ __html: viewingProperty.investmentDetails }}
@@ -1907,13 +1907,13 @@ export default function AdminDashboard() {
               />
             </div>
 
-            {/* Investment Details */}
+            {/* Co-Ownership Details */}
             <div className="space-y-2">
-              <Label htmlFor="edit-investmentDetails">Investment Details</Label>
+              <Label htmlFor="edit-investmentDetails">Co-Ownership Details</Label>
               <RichTextEditor
                 content={propertyForm.investmentDetails}
                 onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
-                placeholder="Detailed investment information for potential investors... (minimum 30 characters)"
+                placeholder="Detailed co-ownership information for potential investors... (minimum 30 characters)"
                 className="min-h-[150px]"
               />
             </div>
@@ -1976,9 +1976,9 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Investment Details */}
+              {/* Co-Ownership Details */}
               <div className="bg-blue-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Investment Details</h3>
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Co-Ownership Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-sm font-medium text-slate-600">Property ID</Label>
