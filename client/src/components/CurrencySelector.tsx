@@ -5,6 +5,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 const POPULAR_CURRENCIES = [
   { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸' },
   { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', flag: '🇳🇬' },
+  { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', flag: '🇦🇪' },
   { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', flag: '🇰🇪' },
   { code: 'ZAR', name: 'South African Rand', symbol: 'R', flag: '🇿🇦' },
   { code: 'GHS', name: 'Ghanaian Cedi', symbol: '₵', flag: '🇬🇭' },

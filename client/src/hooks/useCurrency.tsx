@@ -29,6 +29,7 @@ const CURRENCY_SYMBOLS = {
   EUR: '€',
   GBP: '£',
   NGN: '₦',
+  AED: 'د.إ',
   KES: 'KSh',
   ZAR: 'R',
   GHS: '₵',

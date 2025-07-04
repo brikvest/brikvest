@@ -22,6 +22,7 @@ export const CURRENCY_CONFIG = {
   EUR: { symbol: '€', name: 'Euro' },
   GBP: { symbol: '£', name: 'British Pound' },
   NGN: { symbol: '₦', name: 'Nigerian Naira' },
+  AED: { symbol: 'د.إ', name: 'UAE Dirham' },
   KES: { symbol: 'KSh', name: 'Kenyan Shilling' },
   ZAR: { symbol: 'R', name: 'South African Rand' },
   GHS: { symbol: '₵', name: 'Ghanaian Cedi' },
@@ -36,6 +37,7 @@ export const CURRENCY_CONFIG = {
 export const COUNTRY_CURRENCY_MAP = {
   US: 'USD',
   NG: 'NGN',
+  AE: 'AED', // United Arab Emirates
   KE: 'KES',
   ZA: 'ZAR',
   GH: 'GHS',
