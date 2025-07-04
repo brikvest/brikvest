@@ -1100,10 +1100,10 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Investment Details */}
+                {/* Co-Ownership Details */}
                 {selectedProperty.investmentDetails && (
                   <div>
-                    <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                    <h3 className="text-xl font-semibold mb-4">Co-Ownership Details</h3>
                     <div 
                       className="prose prose-slate max-w-none text-slate-700"
                       dangerouslySetInnerHTML={{ __html: selectedProperty.investmentDetails }}

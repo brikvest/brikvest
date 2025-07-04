@@ -315,7 +315,7 @@ export default function AdminDashboard() {
     // Developer notes are optional - no minimum length required
     
     if (stripHtml(propertyForm.investmentDetails).length < 30) {
-      toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
+      toast({ title: "Co-ownership details too short", description: "Please provide at least 30 characters for co-ownership details", variant: "destructive" });
       return;
     }
 
