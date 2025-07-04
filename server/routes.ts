@@ -491,6 +491,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mark reservation as paid (Admin only)
+  app.post("/api/reservations/:id/mark-paid", requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+      
+      // Get reservation details
+      const reservations = await storage.getAllReservations();
+      const reservation = reservations.find(r => r.id === reservationId);
+      
+      if (!reservation) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+
+      // Get property details
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
+      // Send payment confirmation email
+      const investmentAmount = reservation.units * property.minInvestment;
+      await sendEmail({
+        to: reservation.email,
+        subject: "Payment Confirmed - Brikvest Investment",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background-color: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 24px;">Payment Confirmed</h1>
+            </div>
+            <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+              <h2 style="color: #374151; margin-bottom: 20px;">Thank you for your investment!</h2>
+              <p style="color: #6b7280; margin-bottom: 20px;">
+                We've received and confirmed your payment for your investment in <strong>${property.name}</strong>.
+              </p>
+              <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
+                <h3 style="color: #374151; margin: 0 0 15px 0;">Investment Details:</h3>
+                <p style="color: #6b7280; margin: 5px 0;"><strong>Property:</strong> ${property.name}</p>
+                <p style="color: #6b7280; margin: 5px 0;"><strong>Units:</strong> ${reservation.units}</p>
+                <p style="color: #6b7280; margin: 5px 0;"><strong>Amount:</strong> ₦${investmentAmount.toLocaleString()}</p>
+                <p style="color: #6b7280; margin: 5px 0;"><strong>Referral Code:</strong> ${reservation.referralCode || 'None'}</p>
+              </div>
+              <p style="color: #6b7280; margin-bottom: 20px;">
+                Your investment is now active and you'll receive updates on the property development progress.
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="https://www.brikvest.net" style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  View Dashboard
+                </a>
+              </div>
+              <p style="color: #9ca3af; font-size: 14px; margin-top: 30px;">
+                Thank you for choosing Brikvest for your real estate investment needs.
+              </p>
+            </div>
+          </div>
+        `
+      });
+
+      res.json({ message: "Payment confirmation sent successfully" });
+    } catch (error) {
+      console.error("Error marking reservation as paid:", error);
+      res.status(500).json({ message: "Failed to send payment confirmation" });
+    }
+  });
+
   // Create developer bid
   app.post("/api/developer-bids", async (req, res) => {
     try {
