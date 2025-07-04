@@ -46,7 +46,6 @@ export default function AdminDashboard() {
     description: "",
     totalValue: "",
     minInvestment: "",
-    projectedReturn: "",
     totalSlots: "",
     availableSlots: "",
     imageUrl: "",
@@ -55,7 +54,7 @@ export default function AdminDashboard() {
     partnershipDocumentName: "",
     partnershipDocumentUrl: "",
     developerNotes: "",
-    investmentDetails: "",
+    coOwnershipDetails: "",
     videoUrl: "",
     gallery: [] as string[],
     status: "active"
@@ -185,7 +184,6 @@ export default function AdminDashboard() {
       description: "",
       totalValue: "",
       minInvestment: "",
-      projectedReturn: "",
       totalSlots: "",
       availableSlots: "",
       imageUrl: "",
@@ -194,7 +192,7 @@ export default function AdminDashboard() {
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
       developerNotes: "",
-      investmentDetails: "",
+      coOwnershipDetails: "",
       videoUrl: "",
       gallery: [] as string[],
       status: "active"
@@ -260,7 +258,6 @@ export default function AdminDashboard() {
       description: "",
       totalValue: "",
       minInvestment: "",
-      projectedReturn: "",
       totalSlots: "",
       availableSlots: "",
       imageUrl: "",
@@ -269,7 +266,7 @@ export default function AdminDashboard() {
       partnershipDocumentName: "",
       partnershipDocumentUrl: "",
       developerNotes: "",
-      investmentDetails: "",
+      coOwnershipDetails: "",
       videoUrl: "",
       gallery: [],
       status: "active"
@@ -317,7 +314,7 @@ export default function AdminDashboard() {
     
     // Developer notes are optional - no minimum length required
     
-    if (stripHtml(propertyForm.investmentDetails).length < 30) {
+    if (stripHtml(propertyForm.coOwnershipDetails).length < 30) {
       toast({ title: "Investment details too short", description: "Please provide at least 30 characters for investment details", variant: "destructive" });
       return;
     }
@@ -333,7 +330,6 @@ export default function AdminDashboard() {
       description: propertyForm.description, // Use admin's actual input
       totalValue: totalValue,
       minInvestment: calculatedMinInvestment, // Calculated automatically
-      projectedReturn: propertyForm.projectedReturn,
       totalSlots: totalSlots,
       availableSlots: parseInt(propertyForm.availableSlots),
       imageUrl: propertyForm.imageUrl || "",
@@ -344,7 +340,7 @@ export default function AdminDashboard() {
       partnershipDocumentName: propertyForm.partnershipDocumentName || null,
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
       developerNotes: propertyForm.developerNotes, // Use admin's actual input  
-      investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
+      coOwnershipDetails: propertyForm.coOwnershipDetails, // Use admin's actual input
     };
 
 
@@ -698,7 +694,6 @@ export default function AdminDashboard() {
                                             description: property.description,
                                             totalValue: property.totalValue.toString(),
                                             minInvestment: property.minInvestment.toString(),
-                                            projectedReturn: property.projectedReturn,
                                             totalSlots: property.totalSlots.toString(),
                                             availableSlots: property.availableSlots.toString(),
                                             imageUrl: property.imageUrl || "",
@@ -709,7 +704,7 @@ export default function AdminDashboard() {
                                             partnershipDocumentName: property.partnershipDocumentName || "",
                                             partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                             developerNotes: property.developerNotes || "",
-                                            investmentDetails: property.investmentDetails || "",
+                                            coOwnershipDetails: property.coOwnershipDetails || "",
                                             status: property.status
                                           });
                                           setIsEditDialogOpen(true);
@@ -782,7 +777,6 @@ export default function AdminDashboard() {
                                         description: property.description,
                                         totalValue: property.totalValue.toString(),
                                         minInvestment: property.minInvestment.toString(),
-                                        projectedReturn: property.projectedReturn,
                                         totalSlots: property.totalSlots.toString(),
                                         availableSlots: property.availableSlots.toString(),
                                         imageUrl: property.imageUrl || "",
@@ -793,7 +787,7 @@ export default function AdminDashboard() {
                                         partnershipDocumentName: property.partnershipDocumentName || "",
                                         partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                         developerNotes: property.developerNotes || "",
-                                        investmentDetails: property.investmentDetails || "",
+                                        coOwnershipDetails: property.coOwnershipDetails || "",
                                         status: property.status
                                       });
                                       setIsEditDialogOpen(true);
@@ -1108,17 +1102,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="space-y-2">
-                          <Label htmlFor="projectedReturn">Projected Return *</Label>
-                          <Input
-                            id="projectedReturn"
-                            value={propertyForm.projectedReturn}
-                            onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
-                            placeholder="e.g., 15% annually"
-                            required
-                          />
-                        </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <Label htmlFor="totalSlots">Total Investment Slots *</Label>
                           <Input
@@ -1145,7 +1129,7 @@ export default function AdminDashboard() {
 
                       <div className="space-y-2">
                         <Label htmlFor="badge">Partnership Status</Label>
-                        <Select value={propertyForm.badge} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value }))}>
+                        <Select value={propertyForm.badge || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value === "none" ? null : value }))}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select partnership status" />
                           </SelectTrigger>
@@ -1257,11 +1241,11 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="investmentDetails">Investment Details</Label>
+                        <Label htmlFor="coOwnershipDetails">Co-Ownership Details</Label>
                         <RichTextEditor
-                          content={propertyForm.investmentDetails}
-                          onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
-                          placeholder="Detailed investment information for potential investors..."
+                          content={propertyForm.coOwnershipDetails}
+                          onChange={(content) => setPropertyForm(prev => ({ ...prev, coOwnershipDetails: content }))}
+                          placeholder="Detailed co-ownership information for potential investors..."
                         />
                       </div>
 
@@ -1512,7 +1496,6 @@ export default function AdminDashboard() {
                         description: viewingProperty.description,
                         totalValue: viewingProperty.totalValue.toString(),
                         minInvestment: viewingProperty.minInvestment.toString(),
-                        projectedReturn: viewingProperty.projectedReturn,
                         totalSlots: viewingProperty.totalSlots.toString(),
                         availableSlots: viewingProperty.availableSlots.toString(),
                         imageUrl: viewingProperty.imageUrl || "",
@@ -1523,7 +1506,7 @@ export default function AdminDashboard() {
                         partnershipDocumentName: viewingProperty.partnershipDocumentName || "",
                         partnershipDocumentUrl: viewingProperty.partnershipDocumentUrl || "",
                         developerNotes: viewingProperty.developerNotes || "",
-                        investmentDetails: viewingProperty.investmentDetails || "",
+                        coOwnershipDetails: viewingProperty.coOwnershipDetails || "",
                         status: viewingProperty.status
                       });
                       setIsViewDialogOpen(false);
@@ -1618,8 +1601,8 @@ export default function AdminDashboard() {
                   <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.minInvestment)}</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-4">
-                  <h3 className="font-semibold text-slate-900 mb-2">Projected Return</h3>
-                  <p className="text-2xl font-bold text-slate-900">{viewingProperty.projectedReturn}</p>
+                  <h3 className="font-semibold text-slate-900 mb-2">Co-Ownership Details</h3>
+                  <p className="text-sm text-slate-600">Structure varies by property</p>
                 </div>
               </div>
 
@@ -1656,12 +1639,12 @@ export default function AdminDashboard() {
               </div>
 
               {/* Investment Details */}
-              {viewingProperty.investmentDetails && (
+              {viewingProperty.coOwnershipDetails && (
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-2">Investment Details</h3>
                   <div 
                     className="text-slate-600 leading-relaxed prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: viewingProperty.investmentDetails }}
+                    dangerouslySetInnerHTML={{ __html: viewingProperty.coOwnershipDetails }}
                   />
                 </div>
               )}
@@ -1794,18 +1777,7 @@ export default function AdminDashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="edit-projectedReturn">Expected Annual ROI (%) *</Label>
-                <Input
-                  id="edit-projectedReturn"
-                  type="number"
-                  step="0.1"
-                  value={propertyForm.projectedReturn}
-                  onChange={(e) => setPropertyForm(prev => ({ ...prev, projectedReturn: e.target.value }))}
-                  placeholder="e.g., 15.5"
-                  required
-                />
-              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="edit-totalSlots">Total Investment Slots *</Label>
                 <Input
@@ -1940,10 +1912,10 @@ export default function AdminDashboard() {
 
             {/* Investment Details */}
             <div className="space-y-2">
-              <Label htmlFor="edit-investmentDetails">Investment Details</Label>
+              <Label htmlFor="edit-coOwnershipDetails">Investment Details</Label>
               <RichTextEditor
-                content={propertyForm.investmentDetails}
-                onChange={(content) => setPropertyForm(prev => ({ ...prev, investmentDetails: content }))}
+                content={propertyForm.coOwnershipDetails}
+                onChange={(content) => setPropertyForm(prev => ({ ...prev, coOwnershipDetails: content }))}
                 placeholder="Detailed investment information for potential investors... (minimum 30 characters)"
                 className="min-h-[150px]"
               />

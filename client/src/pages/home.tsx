@@ -551,7 +551,7 @@ export default function Home() {
                         </div>
                         <div>
                           <span className="text-slate-600">Expected Annual ROI:</span>
-                          <div className="font-semibold text-green-600">{property.projectedReturn}%</div>
+                          <div className="font-semibold text-green-600">{property.coOwnershipDetails}%</div>
                         </div>
                         <div>
                           <span className="text-slate-600">Available Units:</span>
@@ -987,11 +987,7 @@ export default function Home() {
                     gallery={selectedProperty.gallery}
                     propertyName={selectedProperty.name}
                   />
-                  <div className="absolute top-4 right-4">
-                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {selectedProperty.projectedReturn}% Expected Annual ROI
-                    </span>
-                  </div>
+
                 </div>
 
                 {/* Basic Investment Summary */}
@@ -1029,7 +1025,7 @@ export default function Home() {
                       </div>
                       <div>
                         <span className="text-slate-600">Expected Annual ROI:</span>
-                        <div className="font-semibold text-green-600">{selectedProperty.projectedReturn}%</div>
+                        <div className="font-semibold text-green-600">{selectedProperty.coOwnershipDetails}%</div>
                       </div>
                       <div>
                         <span className="text-slate-600">Status:</span>
@@ -1111,12 +1107,12 @@ export default function Home() {
                 )}
 
                 {/* Investment Details */}
-                {selectedProperty.investmentDetails && (
+                {selectedProperty.coOwnershipDetails && (
                   <div>
-                    <h3 className="text-xl font-semibold mb-4">Investment Details</h3>
+                    <h3 className="text-xl font-semibold mb-4">Co-Ownership Details</h3>
                     <div 
                       className="prose prose-slate max-w-none text-slate-700"
-                      dangerouslySetInnerHTML={{ __html: selectedProperty.investmentDetails }}
+                      dangerouslySetInnerHTML={{ __html: selectedProperty.coOwnershipDetails }}
                     />
                   </div>
                 )}
