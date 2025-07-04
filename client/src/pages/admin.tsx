@@ -1093,7 +1093,7 @@ export default function AdminDashboard() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <Label htmlFor="totalValue">Total Property Value (₦) *</Label>
+                          <Label htmlFor="totalValue">Total Property Value ($) *</Label>
                           <Input
                             id="totalValue"
                             type="number"
@@ -1104,11 +1104,11 @@ export default function AdminDashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Minimum Investment (₦)</Label>
+                          <Label>Minimum Investment ($)</Label>
                           <div className="p-3 bg-slate-50 border rounded-md">
                             <span className="text-slate-900 font-medium">
                               {propertyForm.totalValue && propertyForm.totalSlots ? 
-                                `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                                `$${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
                                 : 'Enter total value and slots first'
                               }
                             </span>
@@ -1765,7 +1765,7 @@ export default function AdminDashboard() {
             {/* Financial Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-totalValue">Total Property Value (₦) *</Label>
+                <Label htmlFor="edit-totalValue">Total Property Value ($) *</Label>
                 <Input
                   id="edit-totalValue"
                   type="number"
@@ -1776,11 +1776,11 @@ export default function AdminDashboard() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Minimum Investment (₦)</Label>
+                <Label>Minimum Investment ($)</Label>
                 <div className="p-3 bg-slate-50 border rounded-md">
                   <span className="text-slate-900 font-medium">
                     {propertyForm.totalValue && propertyForm.totalSlots ? 
-                      `₦${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                      `$${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
                       : 'Enter total value and slots first'
                     }
                   </span>
