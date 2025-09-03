@@ -959,11 +959,11 @@ export default function Home() {
 
       {/* Property Detail Modal */}
       <Dialog open={propertyDetailModalOpen} onOpenChange={setPropertyDetailModalOpen}>
-        <DialogContent className="w-[100vw] h-[100vh] sm:w-[95vw] sm:h-auto sm:max-w-4xl sm:max-h-[90vh] overflow-y-auto overflow-x-hidden p-3 sm:p-6 sm:rounded-lg rounded-none">
+        <DialogContent className="w-[100vw] h-[100vh] sm:w-[95vw] sm:h-auto sm:max-w-4xl sm:max-h-[90vh] overflow-y-auto p-3 sm:p-6 sm:rounded-lg rounded-none">
           {selectedProperty && (
             <>
               <DialogHeader>
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between flex-wrap gap-2">
                   <div>
                     <DialogTitle className="text-lg sm:text-2xl font-bold">{selectedProperty.name}</DialogTitle>
                     <DialogDescription className="flex items-center text-base">
