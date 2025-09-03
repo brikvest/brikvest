@@ -14,6 +14,8 @@ import {
   insertPropertySchema,
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
+  insertPropertyVerificationChecklistSchema,
+  insertVerificationStepCompletionSchema,
   loginSchema,
   loginUserSchema,
   registerUserSchema,
@@ -23,8 +25,12 @@ import {
   type InvestmentReservation,
   type DeveloperBid,
   type InvestmentGroup,
-  type GroupMembership 
+  type GroupMembership,
+  type VerificationStep,
+  type PropertyVerificationChecklist,
+  type VerificationStepCompletion
 } from "@shared/schema";
+import { ObjectStorageService } from "./objectStorage";
 
 // Simple session store for admin authentication
 const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
@@ -1046,6 +1052,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching converted properties:", error);
       res.status(500).json({ error: "Failed to fetch properties with currency conversion" });
+    }
+  });
+
+  // Verification routes
+  // Get all verification steps
+  app.get("/api/verification-steps", async (req, res) => {
+    try {
+      const steps = await storage.getVerificationSteps();
+      res.json(steps);
+    } catch (error) {
+      console.error("Error fetching verification steps:", error);
+      res.status(500).json({ message: "Failed to fetch verification steps" });
+    }
+  });
+
+  // Get verification checklist for a property
+  app.get("/api/properties/:id/verification", async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const checklist = await storage.getPropertyVerificationChecklist(propertyId);
+      res.json(checklist);
+    } catch (error) {
+      console.error("Error fetching property verification checklist:", error);
+      res.status(500).json({ message: "Failed to fetch verification checklist" });
+    }
+  });
+
+  // Update verification checklist for a property (Admin only)
+  app.post("/api/properties/:id/verification", requireAdminAuth, async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const { enabledSteps } = req.body; // Array of verification step IDs
+
+      if (!Array.isArray(enabledSteps)) {
+        return res.status(400).json({ message: "enabledSteps must be an array" });
+      }
+
+      await storage.updatePropertyVerificationChecklist(propertyId, enabledSteps);
+      res.json({ message: "Verification checklist updated successfully" });
+    } catch (error) {
+      console.error("Error updating property verification checklist:", error);
+      res.status(500).json({ message: "Failed to update verification checklist" });
+    }
+  });
+
+  // Update verification step completion (Admin only)
+  app.put("/api/properties/:propertyId/verification/:stepId", requireAdminAuth, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.propertyId);
+      const stepId = parseInt(req.params.stepId);
+      const { isCompleted, notes, proofPhotos } = req.body;
+
+      const adminId = req.user.userId;
+      const completionData = {
+        propertyId,
+        verificationStepId: stepId,
+        isCompleted: isCompleted || false,
+        completedAt: isCompleted ? new Date() : null,
+        completedBy: isCompleted ? adminId : null,
+        proofPhotos: proofPhotos || [],
+        notes: notes || null
+      };
+
+      await storage.updateVerificationStepCompletion(completionData);
+      res.json({ message: "Verification step updated successfully" });
+    } catch (error) {
+      console.error("Error updating verification step completion:", error);
+      res.status(500).json({ message: "Failed to update verification step" });
+    }
+  });
+
+  // Get upload URL for verification photos (Admin only)
+  app.post("/api/verification/upload-url", requireAdminAuth, async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ message: "Failed to get upload URL" });
+    }
+  });
+
+  // Set verification photo ACL after upload (Admin only)
+  app.post("/api/verification/set-photo-acl", requireAdminAuth, async (req: any, res) => {
+    try {
+      const { photoURL } = req.body;
+      const adminId = req.user.userId.toString();
+
+      if (!photoURL) {
+        return res.status(400).json({ error: "photoURL is required" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        photoURL,
+        {
+          owner: adminId,
+          visibility: "public", // Make verification photos public for transparency
+        }
+      );
+
+      res.json({ objectPath });
+    } catch (error) {
+      console.error("Error setting photo ACL:", error);
+      res.status(500).json({ error: "Failed to set photo ACL" });
+    }
+  });
+
+  // Serve verification photos (public access)
+  app.get("/verification-photos/:objectPath(*)", async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(`/objects/${req.params.objectPath}`);
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error: any) {
+      console.error("Error serving verification photo:", error);
+      if (error?.name === 'ObjectNotFoundError') {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      return res.status(500).json({ error: "Failed to serve photo" });
     }
   });
 

@@ -131,6 +131,38 @@ export const groupMemberships = pgTable("group_memberships", {
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
 });
 
+// Verification steps - the 9 types of verification steps
+export const verificationSteps = pgTable("verification_steps", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  order: integer("order").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Property verification checklists - which steps are enabled for each property
+export const propertyVerificationChecklists = pgTable("property_verification_checklists", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  verificationStepId: integer("verification_step_id").notNull().references(() => verificationSteps.id),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Verification step completions - tracks completion status and photos
+export const verificationStepCompletions = pgTable("verification_step_completions", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  verificationStepId: integer("verification_step_id").notNull().references(() => verificationSteps.id),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  completedBy: integer("completed_by").references(() => adminUsers.id),
+  proofPhotos: text("proof_photos").array(), // Array of photo URLs
+  notes: text("notes"), // Optional notes from admin
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   reservations: many(investmentReservations),
@@ -139,6 +171,8 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const propertiesRelations = relations(properties, ({ many }) => ({
   reservations: many(investmentReservations),
   groups: many(investmentGroups),
+  verificationChecklists: many(propertyVerificationChecklists),
+  verificationCompletions: many(verificationStepCompletions),
 }));
 
 export const investmentReservationsRelations = relations(investmentReservations, ({ one }) => ({
@@ -164,6 +198,37 @@ export const groupMembershipsRelations = relations(groupMemberships, ({ one }) =
   group: one(investmentGroups, {
     fields: [groupMemberships.groupId],
     references: [investmentGroups.id],
+  }),
+}));
+
+export const verificationStepsRelations = relations(verificationSteps, ({ many }) => ({
+  checklists: many(propertyVerificationChecklists),
+  completions: many(verificationStepCompletions),
+}));
+
+export const propertyVerificationChecklistsRelations = relations(propertyVerificationChecklists, ({ one }) => ({
+  property: one(properties, {
+    fields: [propertyVerificationChecklists.propertyId],
+    references: [properties.id],
+  }),
+  verificationStep: one(verificationSteps, {
+    fields: [propertyVerificationChecklists.verificationStepId],
+    references: [verificationSteps.id],
+  }),
+}));
+
+export const verificationStepCompletionsRelations = relations(verificationStepCompletions, ({ one }) => ({
+  property: one(properties, {
+    fields: [verificationStepCompletions.propertyId],
+    references: [properties.id],
+  }),
+  verificationStep: one(verificationSteps, {
+    fields: [verificationStepCompletions.verificationStepId],
+    references: [verificationSteps.id],
+  }),
+  completedByAdmin: one(adminUsers, {
+    fields: [verificationStepCompletions.completedBy],
+    references: [adminUsers.id],
   }),
 }));
 
@@ -240,6 +305,22 @@ export const insertGroupMembershipSchema = createInsertSchema(groupMemberships).
   status: true,
 });
 
+export const insertVerificationStepSchema = createInsertSchema(verificationSteps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPropertyVerificationChecklistSchema = createInsertSchema(propertyVerificationChecklists).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertVerificationStepCompletionSchema = createInsertSchema(verificationStepCompletions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -265,3 +346,12 @@ export type InvestmentGroup = typeof investmentGroups.$inferSelect;
 
 export type InsertGroupMembership = z.infer<typeof insertGroupMembershipSchema>;
 export type GroupMembership = typeof groupMemberships.$inferSelect;
+
+export type InsertVerificationStep = z.infer<typeof insertVerificationStepSchema>;
+export type VerificationStep = typeof verificationSteps.$inferSelect;
+
+export type InsertPropertyVerificationChecklist = z.infer<typeof insertPropertyVerificationChecklistSchema>;
+export type PropertyVerificationChecklist = typeof propertyVerificationChecklists.$inferSelect;
+
+export type InsertVerificationStepCompletion = z.infer<typeof insertVerificationStepCompletionSchema>;
+export type VerificationStepCompletion = typeof verificationStepCompletions.$inferSelect;
