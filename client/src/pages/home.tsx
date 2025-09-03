@@ -959,7 +959,7 @@ export default function Home() {
 
       {/* Property Detail Modal */}
       <Dialog open={propertyDetailModalOpen} onOpenChange={setPropertyDetailModalOpen}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto mx-auto">
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           {selectedProperty && (
             <>
               <DialogHeader>
@@ -1002,7 +1002,7 @@ export default function Home() {
                 {/* Basic Investment Summary */}
                 <div>
                   <h3 className="text-xl font-semibold mb-4">Investment Summary</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                     <div className="space-y-3">
                       <div>
                         <span className="text-slate-600">Location:</span>
@@ -1057,7 +1057,7 @@ export default function Home() {
                             This property has been verified with a signed partnership agreement between Brikvest and the land owner. 
                             You can view and download the official documentation below for transparency and peace of mind.
                           </p>
-                          <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="flex flex-col gap-3">
                             <Button
                               onClick={() => selectedProperty.partnershipDocumentUrl && window.open(selectedProperty.partnershipDocumentUrl, '_blank')}
                               variant="outline"
