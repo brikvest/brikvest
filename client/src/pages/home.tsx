@@ -464,18 +464,18 @@ export default function Home() {
               <div className="bg-green-600 text-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl font-bold">
                 2
               </div>
-              <h3 className="text-xl font-semibold mb-4">Reserve Your Slot</h3>
+              <h3 className="text-xl font-semibold mb-4">Acquire a Fraction</h3>
               <p className="text-slate-600">
-                Secure your investment slot by choosing the number of units and providing your details. No payment required to reserve.
+                Purchase fractional ownership of premium real estate properties starting from ₦30,000. Own a piece of high-value real estate.
               </p>
             </div>
             <div className="text-center">
               <div className="bg-yellow-500 text-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl font-bold">
                 3
               </div>
-              <h3 className="text-xl font-semibold mb-4">Earn Returns</h3>
+              <h3 className="text-xl font-semibold mb-4">Start Trading (coming soon)</h3>
               <p className="text-slate-600">
-                Receive regular distributions and watch your investment grow through property appreciation and rental income.
+                Trade your property fractions on our secondary marketplace. Buy and sell ownership stakes with other investors for liquidity.
               </p>
             </div>
           </div>
