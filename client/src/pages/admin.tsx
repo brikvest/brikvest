@@ -18,7 +18,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
-import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
+import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep } from "@shared/schema";
+import { ObjectUploader } from "@/components/ObjectUploader";
 
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
@@ -39,6 +40,12 @@ export default function AdminDashboard() {
   const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isDraftSaved, setIsDraftSaved] = useState(false);
+  
+  // Verification state
+  const [selectedPropertyForVerification, setSelectedPropertyForVerification] = useState<Property | null>(null);
+  const [verificationStepBeingEdited, setVerificationStepBeingEdited] = useState<any>(null);
+  const [isVerificationDialogOpen, setIsVerificationDialogOpen] = useState(false);
+  const [uploadingVerificationPhoto, setUploadingVerificationPhoto] = useState(false);
 
   const [propertyForm, setPropertyForm] = useState({
     name: "",
@@ -84,6 +91,28 @@ export default function AdminDashboard() {
       if (!response.ok) return [];
       return response.json();
     }
+  });
+
+  // Fetch verification steps
+  const { data: verificationSteps = [] } = useQuery({
+    queryKey: ["/api/verification-steps"],
+    queryFn: async () => {
+      const response = await fetch("/api/verification-steps");
+      if (!response.ok) return [];
+      return response.json();
+    }
+  });
+
+  // Fetch verification checklist for selected property
+  const { data: propertyVerificationData = [], refetch: refetchVerification } = useQuery({
+    queryKey: ["/api/properties", selectedPropertyForVerification?.id, "verification"],
+    queryFn: async () => {
+      if (!selectedPropertyForVerification) return [];
+      const response = await fetch(`/api/properties/${selectedPropertyForVerification.id}/verification`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!selectedPropertyForVerification
   });
 
   // Mutations
@@ -150,6 +179,41 @@ export default function AdminDashboard() {
     },
     onError: (error) => {
       toast({ title: "Error deleting property", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Verification mutations
+  const updateVerificationChecklistMutation = useMutation({
+    mutationFn: async ({ propertyId, enabledSteps }: { propertyId: number; enabledSteps: number[] }) => {
+      return await authenticatedRequest(`/api/properties/${propertyId}/verification`, {
+        method: "POST",
+        body: JSON.stringify({ enabledSteps }),
+      });
+    },
+    onSuccess: () => {
+      refetchVerification();
+      toast({ title: "Verification checklist updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating checklist", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const updateVerificationStepMutation = useMutation({
+    mutationFn: async ({ propertyId, stepId, data }: { propertyId: number; stepId: number; data: any }) => {
+      return await authenticatedRequest(`/api/properties/${propertyId}/verification/${stepId}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      refetchVerification();
+      toast({ title: "Verification step updated successfully" });
+      setIsVerificationDialogOpen(false);
+      setVerificationStepBeingEdited(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating verification step", description: error.message, variant: "destructive" });
     }
   });
 
@@ -409,6 +473,14 @@ export default function AdminDashboard() {
               >
                 <Plus className="mr-3 h-4 w-4" />
                 Add Property
+              </Button>
+              <Button
+                variant={selectedTab === "verification" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("verification")}
+              >
+                <CheckCircle className="mr-3 h-4 w-4" />
+                Verification
               </Button>
               <Button
                 variant={selectedTab === "reservations" ? "secondary" : "ghost"}
@@ -1007,6 +1079,143 @@ export default function AdminDashboard() {
                     </CardContent>
                   </Card>
                 </div>
+              </div>
+            )}
+
+            {/* Verification */}
+            {selectedTab === "verification" && (
+              <div className="space-y-6 mt-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h1 className="text-2xl lg:text-3xl font-bold text-slate-900">Due Diligence Verification</h1>
+                    <p className="text-slate-600 mt-1 text-base">Manage property verification checklists and proof uploads</p>
+                  </div>
+                </div>
+
+                {/* Property Selection */}
+                <Card className="border-slate-200 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <CheckCircle className="h-5 w-5 mr-2 text-blue-600" />
+                      Property Verification Management
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {properties.map((property: Property) => (
+                        <div key={property.id} className="p-4 border border-slate-200 rounded-lg">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-slate-900">{property.name}</h3>
+                              <p className="text-sm text-slate-600">{property.location}</p>
+                              
+                              {/* Verification Progress */}
+                              {selectedPropertyForVerification?.id === property.id && propertyVerificationData.length > 0 && (
+                                <div className="mt-3">
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <div className="w-full bg-slate-200 rounded-full h-2">
+                                      <div 
+                                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                        style={{
+                                          width: `${(propertyVerificationData.filter((step: any) => step.isCompleted && step.isEnabled).length / propertyVerificationData.filter((step: any) => step.isEnabled).length) * 100 || 0}%`
+                                        }}
+                                      ></div>
+                                    </div>
+                                    <span className="text-sm text-slate-600 whitespace-nowrap">
+                                      {propertyVerificationData.filter((step: any) => step.isCompleted && step.isEnabled).length} / {propertyVerificationData.filter((step: any) => step.isEnabled).length} Complete
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <Button
+                              onClick={() => {
+                                setSelectedPropertyForVerification(property);
+                              }}
+                              variant={selectedPropertyForVerification?.id === property.id ? "default" : "outline"}
+                              size="sm"
+                            >
+                              {selectedPropertyForVerification?.id === property.id ? "Selected" : "Manage Verification"}
+                            </Button>
+                          </div>
+
+                          {/* Verification Steps */}
+                          {selectedPropertyForVerification?.id === property.id && propertyVerificationData.length > 0 && (
+                            <div className="mt-4 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="font-medium text-slate-900">Verification Checklist</h4>
+                                <Button
+                                  onClick={() => {
+                                    // Toggle checklist configuration logic here
+                                    const enabledSteps = propertyVerificationData
+                                      .filter((step: any) => step.isEnabled)
+                                      .map((step: any) => step.id);
+                                    
+                                    // For now, enable all steps if none are enabled
+                                    if (enabledSteps.length === 0) {
+                                      updateVerificationChecklistMutation.mutate({
+                                        propertyId: property.id,
+                                        enabledSteps: verificationSteps.map((step: VerificationStep) => step.id)
+                                      });
+                                    }
+                                  }}
+                                  variant="outline"
+                                  size="sm"
+                                >
+                                  Configure Steps
+                                </Button>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {propertyVerificationData
+                                  .filter((step: any) => step.isEnabled)
+                                  .map((step: any) => (
+                                  <div key={step.id} className={`p-3 rounded-lg border-2 transition-colors ${
+                                    step.isCompleted 
+                                      ? 'border-green-200 bg-green-50' 
+                                      : 'border-slate-200 bg-white hover:border-slate-300'
+                                  }`}>
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="flex items-center space-x-2 mb-1">
+                                          <CheckCircle className={`h-4 w-4 ${
+                                            step.isCompleted ? 'text-green-600' : 'text-slate-400'
+                                          }`} />
+                                          <span className="text-sm font-medium text-slate-900">{step.name}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-600">{step.description}</p>
+                                        {step.proofPhotos?.length > 0 && (
+                                          <div className="mt-2">
+                                            <Badge variant="secondary" className="text-xs">
+                                              {step.proofPhotos.length} photo{step.proofPhotos.length > 1 ? 's' : ''}
+                                            </Badge>
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <Button
+                                        onClick={() => {
+                                          setVerificationStepBeingEdited(step);
+                                          setIsVerificationDialogOpen(true);
+                                        }}
+                                        variant="ghost"
+                                        size="sm"
+                                        className="ml-2"
+                                      >
+                                        <Edit className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             )}
 
@@ -2233,6 +2442,184 @@ export default function AdminDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Verification Step Edit Dialog */}
+      <Dialog open={isVerificationDialogOpen} onOpenChange={setIsVerificationDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {verificationStepBeingEdited?.name || "Edit Verification Step"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {verificationStepBeingEdited && (
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm text-slate-600 mb-4">
+                  {verificationStepBeingEdited.description}
+                </p>
+                
+                {/* Completion Status */}
+                <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="completed"
+                    checked={verificationStepBeingEdited.isCompleted || false}
+                    onChange={(e) => {
+                      setVerificationStepBeingEdited(prev => ({
+                        ...prev,
+                        isCompleted: e.target.checked
+                      }));
+                    }}
+                    className="w-4 h-4 text-green-600 rounded"
+                  />
+                  <Label htmlFor="completed" className="text-sm font-medium">
+                    Mark as completed
+                  </Label>
+                </div>
+              </div>
+
+              {/* Notes Section */}
+              <div className="space-y-2">
+                <Label htmlFor="verification-notes">Notes (Optional)</Label>
+                <Textarea
+                  id="verification-notes"
+                  placeholder="Add any notes about this verification step..."
+                  value={verificationStepBeingEdited.notes || ""}
+                  onChange={(e) => {
+                    setVerificationStepBeingEdited(prev => ({
+                      ...prev,
+                      notes: e.target.value
+                    }));
+                  }}
+                  rows={3}
+                />
+              </div>
+
+              {/* Photo Upload Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label>Proof Photos (Optional)</Label>
+                  <ObjectUploader
+                    maxNumberOfFiles={5}
+                    maxFileSize={10485760} // 10MB
+                    onGetUploadParameters={async () => {
+                      try {
+                        const response = await authenticatedRequest("/api/verification/upload-url", {
+                          method: "POST",
+                        });
+                        const data = await response.json();
+                        return {
+                          method: "PUT" as const,
+                          url: data.uploadURL,
+                        };
+                      } catch (error) {
+                        throw new Error("Failed to get upload URL");
+                      }
+                    }}
+                    onComplete={async (result) => {
+                      try {
+                        setUploadingVerificationPhoto(true);
+                        
+                        // Process each uploaded file
+                        for (const file of result.successful) {
+                          if (file.uploadURL) {
+                            // Set ACL for the uploaded photo
+                            await authenticatedRequest("/api/verification/set-photo-acl", {
+                              method: "POST",
+                              body: JSON.stringify({ photoURL: file.uploadURL }),
+                            });
+                            
+                            // Add to current photos
+                            const currentPhotos = verificationStepBeingEdited.proofPhotos || [];
+                            setVerificationStepBeingEdited(prev => ({
+                              ...prev,
+                              proofPhotos: [...currentPhotos, file.uploadURL]
+                            }));
+                          }
+                        }
+                        
+                        toast({ title: "Photos uploaded successfully" });
+                      } catch (error) {
+                        console.error("Upload error:", error);
+                        toast({ 
+                          title: "Upload failed", 
+                          description: "Failed to upload proof photos",
+                          variant: "destructive" 
+                        });
+                      } finally {
+                        setUploadingVerificationPhoto(false);
+                      }
+                    }}
+                    buttonClassName="w-auto"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Photos
+                  </ObjectUploader>
+                </div>
+
+                {/* Display current photos */}
+                {verificationStepBeingEdited.proofPhotos && verificationStepBeingEdited.proofPhotos.length > 0 && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {verificationStepBeingEdited.proofPhotos.map((photo: string, index: number) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={photo.startsWith('/') ? photo : `/verification-photos/${photo.split('/').pop()}`}
+                          alt={`Proof ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg border border-slate-200"
+                        />
+                        <button
+                          onClick={() => {
+                            const updatedPhotos = verificationStepBeingEdited.proofPhotos.filter((_: string, i: number) => i !== index);
+                            setVerificationStepBeingEdited(prev => ({
+                              ...prev,
+                              proofPhotos: updatedPhotos
+                            }));
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end space-x-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsVerificationDialogOpen(false);
+                    setVerificationStepBeingEdited(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (selectedPropertyForVerification && verificationStepBeingEdited) {
+                      updateVerificationStepMutation.mutate({
+                        propertyId: selectedPropertyForVerification.id,
+                        stepId: verificationStepBeingEdited.id,
+                        data: {
+                          isCompleted: verificationStepBeingEdited.isCompleted,
+                          notes: verificationStepBeingEdited.notes,
+                          proofPhotos: verificationStepBeingEdited.proofPhotos || []
+                        }
+                      });
+                    }
+                  }}
+                  disabled={updateVerificationStepMutation.isPending || uploadingVerificationPhoto}
+                >
+                  {updateVerificationStepMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

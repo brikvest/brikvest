@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
-import type { Property, InsertInvestmentReservation, InsertDeveloperBid } from "@shared/schema";
+import type { Property, InsertInvestmentReservation, InsertDeveloperBid, VerificationStep } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { CurrencySelector } from "@/components/CurrencySelector";
@@ -84,6 +84,18 @@ export default function Home() {
   }>({
     queryKey: ["/api/statistics"],
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Fetch verification data for selected property
+  const { data: selectedPropertyVerification = [] } = useQuery({
+    queryKey: ["/api/properties", selectedProperty?.id, "verification"],
+    queryFn: async () => {
+      if (!selectedProperty) return [];
+      const response = await fetch(`/api/properties/${selectedProperty.id}/verification`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!selectedProperty && propertyDetailModalOpen
   });
 
   // Seed properties on first load if none exist
@@ -1079,6 +1091,108 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                {/* Due Diligence Verification */}
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">Due Diligence Verification</h3>
+                  <div className="border border-slate-200 bg-slate-50 rounded-lg p-6">
+                    <div className="mb-6">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Shield className="w-6 h-6 text-blue-600" />
+                        <h4 className="font-semibold text-slate-800">Property Verification Checklist</h4>
+                      </div>
+                      <p className="text-slate-600 text-sm mb-4">
+                        We conduct comprehensive due diligence on every property to ensure transparency and safety for our investors.
+                      </p>
+                      
+                      {/* Progress Bar */}
+                      {(() => {
+                        const enabledSteps = selectedPropertyVerification.filter((step: any) => step.isEnabled);
+                        const completedSteps = enabledSteps.filter((step: any) => step.isCompleted);
+                        const progressPercentage = enabledSteps.length > 0 ? (completedSteps.length / enabledSteps.length) * 100 : 0;
+                        
+                        return (
+                          <div className="mb-6">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-sm font-medium text-slate-700">Verification Progress</span>
+                              <span className="text-sm text-slate-600">{completedSteps.length} of {enabledSteps.length} completed</span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-2">
+                              <div 
+                                className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${progressPercentage}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Verification Steps */}
+                    <div className="space-y-4">
+                      {selectedPropertyVerification
+                        .filter((step: any) => step.isEnabled)
+                        .map((step: any) => (
+                          <div key={step.id} className="border border-slate-200 bg-white rounded-lg p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start space-x-3 flex-1">
+                                <div className="flex-shrink-0 mt-1">
+                                  {step.isCompleted ? (
+                                    <CheckCircle className="w-5 h-5 text-green-600" />
+                                  ) : (
+                                    <div className="w-5 h-5 border-2 border-slate-300 rounded-full"></div>
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <h5 className="font-medium text-slate-800 mb-1">{step.name}</h5>
+                                  <p className="text-sm text-slate-600 mb-2">{step.description}</p>
+                                  
+                                  {/* Status Badge */}
+                                  <div className="flex items-center space-x-2 mb-3">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                      step.isCompleted 
+                                        ? 'bg-green-100 text-green-800' 
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {step.isCompleted ? 'Verified' : 'In Progress'}
+                                    </span>
+                                    {step.completedAt && (
+                                      <span className="text-xs text-slate-500">
+                                        Completed {new Date(step.completedAt).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Proof Photo */}
+                                  {step.proofPhotoUrl && (
+                                    <div className="mt-3">
+                                      <p className="text-xs text-slate-600 mb-2">Verification Photo:</p>
+                                      <div className="border border-slate-200 rounded-lg overflow-hidden inline-block">
+                                        <img 
+                                          src={step.proofPhotoUrl} 
+                                          alt={`Verification proof for ${step.name}`}
+                                          className="w-24 h-24 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                                          onClick={() => window.open(step.proofPhotoUrl, '_blank')}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+
+                    {/* No Active Verifications Message */}
+                    {selectedPropertyVerification.filter((step: any) => step.isEnabled).length === 0 && (
+                      <div className="text-center py-8">
+                        <Clock className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                        <p className="text-slate-600">Verification checklist is being configured for this property.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 {/* Description */}
                 <div>
