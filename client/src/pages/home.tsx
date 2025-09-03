@@ -959,13 +959,13 @@ export default function Home() {
 
       {/* Property Detail Modal */}
       <Dialog open={propertyDetailModalOpen} onOpenChange={setPropertyDetailModalOpen}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[100vw] h-[100vh] sm:w-[95vw] sm:h-auto sm:max-w-4xl sm:max-h-[90vh] overflow-y-auto p-3 sm:p-6 sm:rounded-lg rounded-none">
           {selectedProperty && (
             <>
               <DialogHeader>
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between flex-wrap gap-2">
                   <div>
-                    <DialogTitle className="text-2xl font-bold">{selectedProperty.name}</DialogTitle>
+                    <DialogTitle className="text-lg sm:text-2xl font-bold">{selectedProperty.name}</DialogTitle>
                     <DialogDescription className="flex items-center text-base">
                       <MapPin className="w-4 h-4 mr-1" />
                       {selectedProperty.location}
@@ -987,7 +987,7 @@ export default function Home() {
                 </div>
               </DialogHeader>
 
-              <div className="space-y-8">
+              <div className="space-y-4 sm:space-y-8">
                 {/* Property Media Carousel */}
                 <div className="relative">
                   <PropertyMediaCarousel
@@ -1001,8 +1001,8 @@ export default function Home() {
 
                 {/* Basic Investment Summary */}
                 <div>
-                  <h3 className="text-xl font-semibold mb-4">Investment Summary</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Investment Summary</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                     <div className="space-y-3">
                       <div>
                         <span className="text-slate-600">Location:</span>
@@ -1045,7 +1045,7 @@ export default function Home() {
                 {/* Partnership Verification */}
                 {selectedProperty.badge === 'partnered' && selectedProperty.partnershipDocumentUrl && (
                   <div>
-                    <h3 className="text-xl font-semibold mb-4">Partnership Verification</h3>
+                    <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Partnership Verification</h3>
                     <div className="border border-green-200 bg-green-50 rounded-lg p-6">
                       <div className="flex items-start space-x-4">
                         <div className="flex-shrink-0">
@@ -1057,7 +1057,7 @@ export default function Home() {
                             This property has been verified with a signed partnership agreement between Brikvest and the land owner. 
                             You can view and download the official documentation below for transparency and peace of mind.
                           </p>
-                          <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="flex flex-col gap-3">
                             <Button
                               onClick={() => selectedProperty.partnershipDocumentUrl && window.open(selectedProperty.partnershipDocumentUrl, '_blank')}
                               variant="outline"
@@ -1094,7 +1094,7 @@ export default function Home() {
 
                 {/* Due Diligence Verification */}
                 <div>
-                  <h3 className="text-xl font-semibold mb-4">Due Diligence Verification</h3>
+                  <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Due Diligence Verification</h3>
                   <div className="border border-slate-200 bg-slate-50 rounded-lg p-6">
                     <div className="mb-6">
                       <div className="flex items-center space-x-2 mb-2">
