@@ -657,7 +657,7 @@ export default function Home() {
             </div>
           </div>
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
-            <p className="text-slate-400">&copy; 2024 Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
+            <p className="text-slate-400">&copy; {new Date().getFullYear()} Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
           </div>
         </div>
       </footer>
