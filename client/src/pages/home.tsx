@@ -276,9 +276,6 @@ export default function Home() {
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
                 </a>
-                <a href="#developers" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                  For Developers
-                </a>
               </div>
             </nav>
             <div className="hidden md:flex items-center space-x-4">
@@ -354,13 +351,6 @@ export default function Home() {
                 >
                   How It Works
                 </a>
-                <a 
-                  href="#developers" 
-                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  For Developers
-                </a>
                 
                 <div className="px-3 py-2">
                   <CurrencySelector />
@@ -388,11 +378,11 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
-                Invest in Premium Real Estate with{" "}
-                <span className="text-blue-600">Fractional Ownership</span>
+                Co-own land with{" "}
+                <span className="text-blue-600">fractional ownership.</span>
               </h1>
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
-                Start building your real estate portfolio with as little as ₦30,000. Access premium Nigerian properties and earn passive income through our curated investment opportunities.
+                Co-own verified land, grow your real estate portfolio, and trade seamlessly in our peer-to-peer marketplace
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
@@ -590,86 +580,42 @@ export default function Home() {
 
 
 
-      {/* Developer Section */}
-      <section id="developers" className="py-20 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <img 
-                src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
-                alt="Construction site with modern building development and cranes" 
-                className="rounded-2xl shadow-lg w-full h-auto"
-              />
-            </div>
-            <div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-6">For Developers</h2>
-              <p className="text-xl text-slate-600 mb-8">
-                Join our network of trusted developers and bid on exciting new projects. Access capital from our investor community and bring your vision to life.
-              </p>
-              <div className="space-y-4 mb-8">
-                <div className="flex items-center">
-                  <CheckCircle className="text-green-600 w-5 h-5 mr-4" />
-                  <span className="text-slate-700">Access to vetted investor network</span>
-                </div>
-                <div className="flex items-center">
-                  <CheckCircle className="text-green-600 w-5 h-5 mr-4" />
-                  <span className="text-slate-700">Competitive bidding platform</span>
-                </div>
-                <div className="flex items-center">
-                  <CheckCircle className="text-green-600 w-5 h-5 mr-4" />
-                  <span className="text-slate-700">Project management support</span>
-                </div>
-                <div className="flex items-center">
-                  <CheckCircle className="text-green-600 w-5 h-5 mr-4" />
-                  <span className="text-slate-700">Transparent evaluation process</span>
-                </div>
-              </div>
-              <Button 
-                onClick={() => setDeveloperModalOpen(true)}
-                className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 text-lg font-semibold"
-              >
-                Submit Development Bid
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Trust & Security Section */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Trusted by Thousands</h2>
-            <p className="text-xl text-slate-600 max-w-3xl mx-auto">Your investment security is our top priority</p>
+            <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Rigorous Due Diligence & Verification</h2>
+            <p className="text-xl text-slate-600 max-w-3xl mx-auto">Every property undergoes comprehensive verification to ensure your investment security</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="text-center">
               <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="text-blue-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">Transparent Operations</h3>
-              <p className="text-slate-600 text-sm">Full transparency in all our investment processes and operations</p>
+              <h3 className="font-semibold mb-2">Ownership Verification</h3>
+              <p className="text-slate-600 text-sm">We verify all land ownership documents and legal titles before listing</p>
             </div>
             <div className="text-center">
               <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Lock className="text-green-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">Bank-Level Security</h3>
-              <p className="text-slate-600 text-sm">256-bit SSL encryption protects your data</p>
+              <h3 className="font-semibold mb-2">Land Survey & Inspection</h3>
+              <p className="text-slate-600 text-sm">Professional surveys and physical inspections with photographic evidence</p>
             </div>
             <div className="text-center">
               <div className="bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <TrendingUp className="text-yellow-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">No Payment Required</h3>
-              <p className="text-slate-600 text-sm">Reserve investment slots without payment - we contact you when ready</p>
+              <h3 className="font-semibold mb-2">9-Point Verification</h3>
+              <p className="text-slate-600 text-sm">Comprehensive checklist covering zoning, infrastructure, payments & legal compliance</p>
             </div>
             <div className="text-center">
               <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Users className="text-blue-600 w-8 h-8" />
               </div>
-              <h3 className="font-semibold mb-2">Expert Nigerian Team</h3>
-              <p className="text-slate-600 text-sm">Local real estate professionals with deep market knowledge</p>
+              <h3 className="font-semibold mb-2">Complete Transparency</h3>
+              <p className="text-slate-600 text-sm">View verification progress, photos, and documentation for every property</p>
             </div>
           </div>
         </div>
