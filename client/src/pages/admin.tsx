@@ -432,6 +432,7 @@ export default function AdminDashboard() {
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
       developerNotes: propertyForm.developerNotes, // Use admin's actual input  
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
+      status: propertyForm.status, // Include the status field
       currency: propertyForm.currency,
     };
 
