@@ -388,11 +388,11 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
-                Invest in Premium Real Estate with{" "}
-                <span className="text-blue-600">Fractional Ownership</span>
+                Co-own land with{" "}
+                <span className="text-blue-600">fractional ownership.</span>
               </h1>
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
-                Start building your real estate portfolio with as little as ₦30,000. Access premium Nigerian properties and earn passive income through our curated investment opportunities.
+                Co-own verified land, grow your real estate portfolio, and trade seamlessly in our peer-to-peer marketplace
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
