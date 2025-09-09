@@ -1019,10 +1019,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Enhanced properties endpoint with currency conversion
+  // Enhanced properties endpoint with currency conversion (for buyers - excludes archived)
   app.get("/api/properties-converted", async (req, res) => {
     try {
-      const properties = await storage.getProperties();
+      const properties = await storage.getPublicProperties(); // Only show public properties to buyers
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
       
       const rates = await getExchangeRates();

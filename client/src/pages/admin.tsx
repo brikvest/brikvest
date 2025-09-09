@@ -1303,6 +1303,21 @@ export default function AdminDashboard() {
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="status">Listing Status *</Label>
+                          <Select value={propertyForm.status} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, status: value }))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">🟢 Active (Public)</SelectItem>
+                              <SelectItem value="pending">🟡 Pending Review</SelectItem>
+                              <SelectItem value="sold_out">🔴 Sold Out</SelectItem>
+                              <SelectItem value="completed">✅ Completed</SelectItem>
+                              <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -1980,10 +1995,11 @@ export default function AdminDashboard() {
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="sold_out">Sold Out</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="active">🟢 Active (Public)</SelectItem>
+                    <SelectItem value="pending">🟡 Pending Review</SelectItem>
+                    <SelectItem value="sold_out">🔴 Sold Out</SelectItem>
+                    <SelectItem value="completed">✅ Completed</SelectItem>
+                    <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
