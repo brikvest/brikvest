@@ -21,6 +21,15 @@ import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep } from "@shared/schema";
 import { ObjectUploader } from "@/components/ObjectUploader";
 
+// Helper function to get currency symbol
+const getCurrencySymbol = (currency: string) => {
+  switch (currency) {
+    case 'NGN': return '₦';
+    case 'USD': return '$';
+    default: return currency;
+  }
+};
+
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
   const { toast } = useToast();
@@ -64,7 +73,8 @@ export default function AdminDashboard() {
     investmentDetails: "",
     videoUrl: "",
     gallery: [] as string[],
-    status: "active"
+    status: "active",
+    currency: "NGN"
   });
 
   // Fetch properties
@@ -274,7 +284,8 @@ export default function AdminDashboard() {
       investmentDetails: "",
       videoUrl: "",
       gallery: [] as string[],
-      status: "active"
+      status: "active",
+      currency: "NGN"
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -348,7 +359,8 @@ export default function AdminDashboard() {
       investmentDetails: "",
       videoUrl: "",
       gallery: [],
-      status: "active"
+      status: "active",
+      currency: "NGN"
     });
     return currentForm !== emptyForm;
   };
@@ -420,6 +432,8 @@ export default function AdminDashboard() {
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
       developerNotes: propertyForm.developerNotes, // Use admin's actual input  
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
+      status: propertyForm.status, // Include the status field
+      currency: propertyForm.currency,
     };
 
 
@@ -792,7 +806,8 @@ export default function AdminDashboard() {
                                             partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                             developerNotes: property.developerNotes || "",
                                             investmentDetails: property.investmentDetails || "",
-                                            status: property.status
+                                            status: property.status,
+                                            currency: property.currency || "NGN"
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -1289,6 +1304,21 @@ export default function AdminDashboard() {
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="status">Listing Status *</Label>
+                          <Select value={propertyForm.status} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, status: value }))}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">🟢 Active (Public)</SelectItem>
+                              <SelectItem value="pending">🟡 Pending Review</SelectItem>
+                              <SelectItem value="sold_out">🔴 Sold Out</SelectItem>
+                              <SelectItem value="completed">✅ Completed</SelectItem>
+                              <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -1300,24 +1330,38 @@ export default function AdminDashboard() {
                         />
                       </div>
 
+                      {/* Currency Selector */}
+                      <div className="space-y-2">
+                        <Label htmlFor="currency">Property Currency *</Label>
+                        <Select value={propertyForm.currency} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, currency: value }))}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NGN">₦ Nigerian Naira (NGN)</SelectItem>
+                            <SelectItem value="USD">$ US Dollars (USD)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <Label htmlFor="totalValue">Total Property Value ($) *</Label>
+                          <Label htmlFor="totalValue">Total Property Value ({getCurrencySymbol(propertyForm.currency)}) *</Label>
                           <Input
                             id="totalValue"
                             type="number"
                             value={propertyForm.totalValue}
                             onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: e.target.value }))}
-                            placeholder="e.g., 50000000"
+                            placeholder={propertyForm.currency === 'NGN' ? 'e.g., 2000000000' : 'e.g., 50000000'}
                             required
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Minimum Investment ($)</Label>
+                          <Label>Minimum Investment ({getCurrencySymbol(propertyForm.currency)})</Label>
                           <div className="p-3 bg-slate-50 border rounded-md">
                             <span className="text-slate-900 font-medium">
                               {propertyForm.totalValue && propertyForm.totalSlots ? 
-                                `$${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                                `${getCurrencySymbol(propertyForm.currency)}${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
                                 : 'Enter total value and slots first'
                               }
                             </span>
@@ -1732,7 +1776,8 @@ export default function AdminDashboard() {
                         partnershipDocumentUrl: viewingProperty.partnershipDocumentUrl || "",
                         developerNotes: viewingProperty.developerNotes || "",
                         investmentDetails: viewingProperty.investmentDetails || "",
-                        status: viewingProperty.status
+                        status: viewingProperty.status,
+                        currency: viewingProperty.currency || "NGN"
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -1951,10 +1996,11 @@ export default function AdminDashboard() {
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="sold_out">Sold Out</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="active">🟢 Active (Public)</SelectItem>
+                    <SelectItem value="pending">🟡 Pending Review</SelectItem>
+                    <SelectItem value="sold_out">🔴 Sold Out</SelectItem>
+                    <SelectItem value="completed">✅ Completed</SelectItem>
+                    <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1971,25 +2017,39 @@ export default function AdminDashboard() {
               />
             </div>
 
+            {/* Currency Selector */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-currency">Property Currency *</Label>
+              <Select value={propertyForm.currency} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, currency: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select currency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NGN">₦ Nigerian Naira (NGN)</SelectItem>
+                  <SelectItem value="USD">$ US Dollars (USD)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Financial Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-totalValue">Total Property Value ($) *</Label>
+                <Label htmlFor="edit-totalValue">Total Property Value ({getCurrencySymbol(propertyForm.currency)}) *</Label>
                 <Input
                   id="edit-totalValue"
                   type="number"
                   value={propertyForm.totalValue}
                   onChange={(e) => setPropertyForm(prev => ({ ...prev, totalValue: e.target.value }))}
-                  placeholder="e.g., 50000000"
+                  placeholder={propertyForm.currency === 'NGN' ? 'e.g., 2000000000' : 'e.g., 50000000'}
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label>Minimum Investment ($)</Label>
+                <Label>Minimum Investment ({getCurrencySymbol(propertyForm.currency)})</Label>
                 <div className="p-3 bg-slate-50 border rounded-md">
                   <span className="text-slate-900 font-medium">
                     {propertyForm.totalValue && propertyForm.totalSlots ? 
-                      `$${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
+                      `${getCurrencySymbol(propertyForm.currency)}${Math.floor(parseInt(propertyForm.totalValue) / parseInt(propertyForm.totalSlots)).toLocaleString()}` 
                       : 'Enter total value and slots first'
                     }
                   </span>

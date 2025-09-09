@@ -29,7 +29,7 @@ import {
   type InsertVerificationStepCompletion
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, ne } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -49,7 +49,8 @@ export interface IStorage {
   updateAdminUserLastLogin(id: number): Promise<void>;
   
   // Property methods
-  getProperties(): Promise<Property[]>;
+  getProperties(): Promise<Property[]>; // All properties (admin use)
+  getPublicProperties(): Promise<Property[]>; // Only non-archived properties (buyer use)
   getProperty(id: number): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
   updateProperty(id: number, property: InsertProperty): Promise<Property>;
@@ -158,9 +159,16 @@ export class DatabaseStorage implements IStorage {
     }).where(eq(adminUsers.id, id));
   }
 
-  // Property methods
+  // Property methods - All properties (admin use)
   async getProperties(): Promise<Property[]> {
     return await db.select().from(properties).orderBy(desc(properties.createdAt));
+  }
+
+  // Public properties only (buyer use) - excludes archived properties
+  async getPublicProperties(): Promise<Property[]> {
+    return await db.select().from(properties)
+      .where(ne(properties.status, 'archived'))
+      .orderBy(desc(properties.createdAt));
   }
 
   async getProperty(id: number): Promise<Property | undefined> {
