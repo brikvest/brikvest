@@ -368,13 +368,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get property by ID
+  // Get property by ID (excludes archived properties for non-admin users)
   app.get("/api/properties/:id", async (req, res) => {
     try {
       const propertyId = parseInt(req.params.id);
       const property = await storage.getProperty(propertyId);
       
       if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      
+      // Hide archived properties from non-admin users
+      const sessionId = req.headers.authorization?.replace('Bearer ', '');
+      const isAdmin = sessionId && adminSessions.has(sessionId);
+      if (property.status === 'archived' && !isAdmin) {
         return res.status(404).json({ message: "Property not found" });
       }
       
