@@ -890,7 +890,8 @@ export default function AdminDashboard() {
                                         partnershipDocumentUrl: property.partnershipDocumentUrl || "",
                                         developerNotes: property.developerNotes || "",
                                         investmentDetails: property.investmentDetails || "",
-                                        status: property.status
+                                        status: property.status,
+                                        currency: property.currency || "USD"
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -2526,7 +2527,7 @@ export default function AdminDashboard() {
                     id="completed"
                     checked={verificationStepBeingEdited.isCompleted || false}
                     onChange={(e) => {
-                      setVerificationStepBeingEdited(prev => ({
+                      setVerificationStepBeingEdited((prev: any) => ({
                         ...prev,
                         isCompleted: e.target.checked
                       }));
@@ -2547,7 +2548,7 @@ export default function AdminDashboard() {
                   placeholder="Add any notes about this verification step..."
                   value={verificationStepBeingEdited.notes || ""}
                   onChange={(e) => {
-                    setVerificationStepBeingEdited(prev => ({
+                    setVerificationStepBeingEdited((prev: any) => ({
                       ...prev,
                       notes: e.target.value
                     }));
@@ -2582,7 +2583,8 @@ export default function AdminDashboard() {
                         setUploadingVerificationPhoto(true);
                         
                         // Process each uploaded file
-                        for (const file of result.successful) {
+                        if (result.successful) {
+                          for (const file of result.successful) {
                           if (file.uploadURL) {
                             // Set ACL for the uploaded photo
                             await authenticatedRequest("/api/verification/set-photo-acl", {
@@ -2590,12 +2592,12 @@ export default function AdminDashboard() {
                               body: JSON.stringify({ photoURL: file.uploadURL }),
                             });
                             
-                            // Add to current photos
-                            const currentPhotos = verificationStepBeingEdited.proofPhotos || [];
-                            setVerificationStepBeingEdited(prev => ({
+                            // Add to current photos using previous state
+                            setVerificationStepBeingEdited((prev: any) => ({
                               ...prev,
-                              proofPhotos: [...currentPhotos, file.uploadURL]
+                              proofPhotos: [...(prev?.proofPhotos || []), file.uploadURL]
                             }));
+                          }
                           }
                         }
                         
@@ -2631,7 +2633,7 @@ export default function AdminDashboard() {
                         <button
                           onClick={() => {
                             const updatedPhotos = verificationStepBeingEdited.proofPhotos.filter((_: string, i: number) => i !== index);
-                            setVerificationStepBeingEdited(prev => ({
+                            setVerificationStepBeingEdited((prev: any) => ({
                               ...prev,
                               proofPhotos: updatedPhotos
                             }));
