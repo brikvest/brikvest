@@ -2569,51 +2569,27 @@ export default function AdminDashboard() {
                     try {
                       setUploadingVerificationPhoto(true);
                       
-                      // Process each file
+                      // Process each file using the working Cloudinary upload system
                       for (const file of files) {
-                        // Get upload URL
-                        const response = await authenticatedRequest("/api/verification/upload-url", {
-                          method: "POST",
+                        const formData = new FormData();
+                        formData.append('image', file);
+
+                        const response = await fetch('/api/upload/image', {
+                          method: 'POST',
+                          body: formData,
                         });
-                        
+
                         if (!response.ok) {
-                          throw new Error(`Failed to get upload URL: ${response.status}`);
+                          const errorData = await response.json();
+                          throw new Error(errorData.error || 'Upload failed');
                         }
+
+                        const result = await response.json();
                         
-                        const data = await response.json();
-                        
-                        // Upload file to cloud storage
-                        const uploadResponse = await fetch(data.uploadURL, {
-                          method: "PUT",
-                          body: file,
-                          headers: {
-                            'Content-Type': file.type,
-                          },
-                        });
-                        
-                        if (!uploadResponse.ok) {
-                          throw new Error(`Failed to upload file: ${uploadResponse.status}`);
-                        }
-                        
-                        // Extract the base URL without query parameters for ACL setting
-                        const baseURL = data.uploadURL.split('?')[0];
-                        
-                        // Set ACL for the uploaded photo
-                        const aclResponse = await authenticatedRequest("/api/verification/set-photo-acl", {
-                          method: "POST",
-                          body: JSON.stringify({ photoURL: baseURL }),
-                        });
-                        
-                        if (!aclResponse.ok) {
-                          throw new Error(`Failed to set photo ACL: ${aclResponse.status}`);
-                        }
-                        
-                        const aclData = await aclResponse.json();
-                        
-                        // Add to current photos using the normalized object path
+                        // Add to current photos using the Cloudinary URL
                         setVerificationStepBeingEdited((prev: any) => ({
                           ...prev,
-                          proofPhotos: [...(prev?.proofPhotos || []), aclData.objectPath]
+                          proofPhotos: [...(prev?.proofPhotos || []), result.url]
                         }));
                       }
                       
