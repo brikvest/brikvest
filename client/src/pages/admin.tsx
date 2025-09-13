@@ -2575,10 +2575,15 @@ export default function AdminDashboard() {
                         const response = await authenticatedRequest("/api/verification/upload-url", {
                           method: "POST",
                         });
+                        
+                        if (!response.ok) {
+                          throw new Error(`Failed to get upload URL: ${response.status}`);
+                        }
+                        
                         const data = await response.json();
                         
                         // Upload file to cloud storage
-                        await fetch(data.uploadURL, {
+                        const uploadResponse = await fetch(data.uploadURL, {
                           method: "PUT",
                           body: file,
                           headers: {
@@ -2586,16 +2591,29 @@ export default function AdminDashboard() {
                           },
                         });
                         
+                        if (!uploadResponse.ok) {
+                          throw new Error(`Failed to upload file: ${uploadResponse.status}`);
+                        }
+                        
+                        // Extract the base URL without query parameters for ACL setting
+                        const baseURL = data.uploadURL.split('?')[0];
+                        
                         // Set ACL for the uploaded photo
-                        await authenticatedRequest("/api/verification/set-photo-acl", {
+                        const aclResponse = await authenticatedRequest("/api/verification/set-photo-acl", {
                           method: "POST",
-                          body: JSON.stringify({ photoURL: data.uploadURL }),
+                          body: JSON.stringify({ photoURL: baseURL }),
                         });
                         
-                        // Add to current photos
+                        if (!aclResponse.ok) {
+                          throw new Error(`Failed to set photo ACL: ${aclResponse.status}`);
+                        }
+                        
+                        const aclData = await aclResponse.json();
+                        
+                        // Add to current photos using the normalized object path
                         setVerificationStepBeingEdited((prev: any) => ({
                           ...prev,
-                          proofPhotos: [...(prev?.proofPhotos || []), data.uploadURL]
+                          proofPhotos: [...(prev?.proofPhotos || []), aclData.objectPath]
                         }));
                       }
                       
@@ -2604,7 +2622,7 @@ export default function AdminDashboard() {
                       console.error("Upload error:", error);
                       toast({ 
                         title: "Upload failed", 
-                        description: "Failed to upload proof photos",
+                        description: error instanceof Error ? error.message : "Failed to upload proof photos",
                         variant: "destructive" 
                       });
                     } finally {
