@@ -2569,33 +2569,27 @@ export default function AdminDashboard() {
                     try {
                       setUploadingVerificationPhoto(true);
                       
-                      // Process each file
+                      // Process each file using the working Cloudinary upload system
                       for (const file of files) {
-                        // Get upload URL
-                        const response = await authenticatedRequest("/api/verification/upload-url", {
-                          method: "POST",
+                        const formData = new FormData();
+                        formData.append('image', file);
+
+                        const response = await fetch('/api/upload/image', {
+                          method: 'POST',
+                          body: formData,
                         });
-                        const data = await response.json();
+
+                        if (!response.ok) {
+                          const errorData = await response.json();
+                          throw new Error(errorData.error || 'Upload failed');
+                        }
+
+                        const result = await response.json();
                         
-                        // Upload file to cloud storage
-                        await fetch(data.uploadURL, {
-                          method: "PUT",
-                          body: file,
-                          headers: {
-                            'Content-Type': file.type,
-                          },
-                        });
-                        
-                        // Set ACL for the uploaded photo
-                        await authenticatedRequest("/api/verification/set-photo-acl", {
-                          method: "POST",
-                          body: JSON.stringify({ photoURL: data.uploadURL }),
-                        });
-                        
-                        // Add to current photos
+                        // Add to current photos using the Cloudinary URL
                         setVerificationStepBeingEdited((prev: any) => ({
                           ...prev,
-                          proofPhotos: [...(prev?.proofPhotos || []), data.uploadURL]
+                          proofPhotos: [...(prev?.proofPhotos || []), result.url]
                         }));
                       }
                       
@@ -2604,7 +2598,7 @@ export default function AdminDashboard() {
                       console.error("Upload error:", error);
                       toast({ 
                         title: "Upload failed", 
-                        description: "Failed to upload proof photos",
+                        description: error instanceof Error ? error.message : "Failed to upload proof photos",
                         variant: "destructive" 
                       });
                     } finally {
@@ -2622,7 +2616,7 @@ export default function AdminDashboard() {
                     {verificationStepBeingEdited.proofPhotos.map((photo: string, index: number) => (
                       <div key={index} className="relative group">
                         <img
-                          src={photo.startsWith('/') ? photo : `/verification-photos/${photo.split('/').pop()}`}
+                          src={photo.startsWith('https://') ? photo : `/verification-photos/${photo.split('/').pop()}`}
                           alt={`Proof ${index + 1}`}
                           className="w-full h-24 object-cover rounded-lg border border-slate-200"
                         />
