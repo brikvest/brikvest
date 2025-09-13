@@ -2616,7 +2616,7 @@ export default function AdminDashboard() {
                     {verificationStepBeingEdited.proofPhotos.map((photo: string, index: number) => (
                       <div key={index} className="relative group">
                         <img
-                          src={photo.startsWith('/') ? photo : `/verification-photos/${photo.split('/').pop()}`}
+                          src={photo.startsWith('https://') ? photo : `/verification-photos/${photo.split('/').pop()}`}
                           alt={`Proof ${index + 1}`}
                           className="w-full h-24 object-cover rounded-lg border border-slate-200"
                         />
