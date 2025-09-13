@@ -19,7 +19,7 @@ import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep } from "@shared/schema";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { FileUploader } from "@/components/FileUploader";
 
 // Helper function to get currency symbol
 const getCurrencySymbol = (currency: string) => {
@@ -2559,69 +2559,65 @@ export default function AdminDashboard() {
 
               {/* Photo Upload Section */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label>Proof Photos (Optional)</Label>
-                  <ObjectUploader
-                    maxNumberOfFiles={5}
-                    maxFileSize={10485760} // 10MB
-                    onGetUploadParameters={async () => {
-                      try {
+                <Label>Proof Photos (Optional)</Label>
+                <FileUploader
+                  maxFiles={5}
+                  maxFileSize={10485760} // 10MB
+                  accept="image/*"
+                  disabled={uploadingVerificationPhoto}
+                  onUpload={async (files: File[]) => {
+                    try {
+                      setUploadingVerificationPhoto(true);
+                      
+                      // Process each file
+                      for (const file of files) {
+                        // Get upload URL
                         const response = await authenticatedRequest("/api/verification/upload-url", {
                           method: "POST",
                         });
                         const data = await response.json();
-                        return {
-                          method: "PUT" as const,
-                          url: data.uploadURL,
-                        };
-                      } catch (error) {
-                        throw new Error("Failed to get upload URL");
-                      }
-                    }}
-                    onComplete={async (result) => {
-                      try {
-                        setUploadingVerificationPhoto(true);
                         
-                        // Process each uploaded file
-                        if (result.successful) {
-                          for (const file of result.successful) {
-                          if (file.uploadURL) {
-                            // Set ACL for the uploaded photo
-                            await authenticatedRequest("/api/verification/set-photo-acl", {
-                              method: "POST",
-                              body: JSON.stringify({ photoURL: file.uploadURL }),
-                            });
-                            
-                            // Add to current photos using previous state
-                            setVerificationStepBeingEdited((prev: any) => ({
-                              ...prev,
-                              proofPhotos: [...(prev?.proofPhotos || []), file.uploadURL]
-                            }));
-                          }
-                          }
-                        }
-                        
-                        toast({ title: "Photos uploaded successfully" });
-                      } catch (error) {
-                        console.error("Upload error:", error);
-                        toast({ 
-                          title: "Upload failed", 
-                          description: "Failed to upload proof photos",
-                          variant: "destructive" 
+                        // Upload file to cloud storage
+                        await fetch(data.uploadURL, {
+                          method: "PUT",
+                          body: file,
+                          headers: {
+                            'Content-Type': file.type,
+                          },
                         });
-                      } finally {
-                        setUploadingVerificationPhoto(false);
+                        
+                        // Set ACL for the uploaded photo
+                        await authenticatedRequest("/api/verification/set-photo-acl", {
+                          method: "POST",
+                          body: JSON.stringify({ photoURL: data.uploadURL }),
+                        });
+                        
+                        // Add to current photos
+                        setVerificationStepBeingEdited((prev: any) => ({
+                          ...prev,
+                          proofPhotos: [...(prev?.proofPhotos || []), data.uploadURL]
+                        }));
                       }
-                    }}
-                    buttonClassName="w-auto"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload Photos
-                  </ObjectUploader>
-                </div>
+                      
+                      toast({ title: "Photos uploaded successfully" });
+                    } catch (error) {
+                      console.error("Upload error:", error);
+                      toast({ 
+                        title: "Upload failed", 
+                        description: "Failed to upload proof photos",
+                        variant: "destructive" 
+                      });
+                    } finally {
+                      setUploadingVerificationPhoto(false);
+                    }
+                  }}
+                />
+              </div>
 
-                {/* Display current photos */}
-                {verificationStepBeingEdited.proofPhotos && verificationStepBeingEdited.proofPhotos.length > 0 && (
+              {/* Display current photos */}
+              {verificationStepBeingEdited.proofPhotos && verificationStepBeingEdited.proofPhotos.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Current Photos</Label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {verificationStepBeingEdited.proofPhotos.map((photo: string, index: number) => (
                       <div key={index} className="relative group">
@@ -2645,8 +2641,8 @@ export default function AdminDashboard() {
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Save Button */}
               <div className="flex justify-end space-x-3 pt-4 border-t">
