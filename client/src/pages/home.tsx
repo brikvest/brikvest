@@ -118,7 +118,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
       setInvestmentModalOpen(false);
-      setSuccessMessage("Your investment slot has been reserved successfully! We'll contact you soon with next steps.");
+      setSuccessMessage("Your ownership slot has been reserved successfully! We'll contact you soon with next steps.");
       setSuccessModalOpen(true);
       setInvestmentForm({
         fullName: "",
@@ -131,7 +131,7 @@ export default function Home() {
     onError: (error) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to reserve investment slot",
+        description: error.message || "Failed to reserve ownership slot",
         variant: "destructive",
       });
     },
@@ -568,7 +568,7 @@ export default function Home() {
                       }}
                       className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                     >
-                      Reserve Investment Slot
+                      Reserve Ownership Slot
                     </Button>
                   </CardContent>
                 </Card>
@@ -657,7 +657,7 @@ export default function Home() {
             </div>
           </div>
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
-            <p className="text-slate-400">&copy; 2024 Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
+            <p className="text-slate-400">&copy; {new Date().getFullYear()} Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
           </div>
         </div>
       </footer>
@@ -666,9 +666,9 @@ export default function Home() {
       <Dialog open={investmentModalOpen} onOpenChange={setInvestmentModalOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Reserve Investment Slot</DialogTitle>
+            <DialogTitle>Reserve Ownership Slot</DialogTitle>
             <DialogDescription>
-              Fill out the form below to reserve your investment slot. No payment required at this time.
+              Fill out the form below to reserve your ownership slot. No payment required at this time.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInvestmentSubmit} className="space-y-6">
@@ -1189,7 +1189,7 @@ export default function Home() {
                     }}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    Reserve Investment Slot
+                    Reserve Ownership Slot
                   </Button>
                 </div>
               </div>

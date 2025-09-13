@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
-// CSS imports removed - using default styling
 import AwsS3 from "@uppy/aws-s3";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
