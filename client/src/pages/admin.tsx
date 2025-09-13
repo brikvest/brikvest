@@ -1373,7 +1373,7 @@ export default function AdminDashboard() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                         <div className="space-y-2">
-                          <Label htmlFor="totalSlots">Total Investment Slots *</Label>
+                          <Label htmlFor="totalSlots">Total Ownership Slots *</Label>
                           <Input
                             id="totalSlots"
                             type="number"
@@ -2060,7 +2060,7 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="edit-totalSlots">Total Investment Slots *</Label>
+                <Label htmlFor="edit-totalSlots">Total Ownership Slots *</Label>
                 <Input
                   id="edit-totalSlots"
                   type="number"
