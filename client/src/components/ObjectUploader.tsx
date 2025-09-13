@@ -76,51 +76,16 @@ export function ObjectUploader({
 
   return (
     <div>
-      <Button 
-        onClick={() => {
-          console.log('Upload button clicked!');
-          console.log('Current showModal state:', showModal);
-          setShowModal(true);
-          console.log('Setting showModal to true');
-        }} 
-        className={buttonClassName}
-      >
+      <Button onClick={() => setShowModal(true)} className={buttonClassName}>
         {children}
       </Button>
 
-      {showModal && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          right: 0, 
-          bottom: 0, 
-          backgroundColor: 'rgba(0,0,0,0.5)', 
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <div style={{ 
-            backgroundColor: 'white', 
-            padding: '20px', 
-            borderRadius: '8px',
-            maxWidth: '90%',
-            maxHeight: '90%',
-            overflow: 'auto'
-          }}>
-            <DashboardModal
-              uppy={uppy}
-              open={showModal}
-              onRequestClose={() => {
-                console.log('Closing modal');
-                setShowModal(false);
-              }}
-              proudlyDisplayPoweredByUppy={false}
-            />
-          </div>
-        </div>
-      )}
+      <DashboardModal
+        uppy={uppy}
+        open={showModal}
+        onRequestClose={() => setShowModal(false)}
+        proudlyDisplayPoweredByUppy={false}
+      />
     </div>
   );
 }
