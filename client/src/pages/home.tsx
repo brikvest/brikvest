@@ -412,12 +412,6 @@ export default function Home() {
                   </div>
                   <div className="text-slate-500 text-sm">Active Investors</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">
-                    {stats ? `${stats.avgReturn}%` : "15.2%"}
-                  </div>
-                  <div className="text-slate-500 text-sm">Avg. Expected Annual Return</div>
-                </div>
               </div>
             </div>
             <div className="lg:text-right">
