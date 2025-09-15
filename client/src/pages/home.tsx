@@ -1103,17 +1103,23 @@ export default function Home() {
                                     )}
                                   </div>
 
-                                  {/* Proof Photo */}
-                                  {step.proofPhotoUrl && (
+                                  {/* Proof Photos */}
+                                  {step.proofPhotos && step.proofPhotos.length > 0 && (
                                     <div className="mt-3">
-                                      <p className="text-xs text-slate-600 mb-2">Verification Photo:</p>
-                                      <div className="border border-slate-200 rounded-lg overflow-hidden inline-block">
-                                        <img 
-                                          src={step.proofPhotoUrl} 
-                                          alt={`Verification proof for ${step.name}`}
-                                          className="w-24 h-24 object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                                          onClick={() => window.open(step.proofPhotoUrl, '_blank')}
-                                        />
+                                      <p className="text-xs text-slate-600 mb-2">
+                                        Verification Photo{step.proofPhotos.length > 1 ? 's' : ''}:
+                                      </p>
+                                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {step.proofPhotos.map((photoUrl: string, index: number) => (
+                                          <div key={index} className="border border-slate-200 rounded-lg overflow-hidden">
+                                            <img 
+                                              src={photoUrl.startsWith('https://') ? photoUrl : `/verification-photos/${photoUrl.split('/').pop()}`}
+                                              alt={`Verification proof ${index + 1} for ${step.name}`}
+                                              className="w-full h-20 object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                                              onClick={() => window.open(photoUrl.startsWith('https://') ? photoUrl : `/verification-photos/${photoUrl.split('/').pop()}`, '_blank')}
+                                            />
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
                                   )}
