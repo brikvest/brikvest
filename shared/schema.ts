@@ -163,6 +163,25 @@ export const verificationStepCompletions = pgTable("verification_step_completion
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Market Insights - scraped property data from external sources
+export const marketInsights = pgTable("market_insights", {
+  id: serial("id").primaryKey(),
+  source: text("source").notNull(), // e.g., 'propertypro.ng'
+  location: text("location").notNull(), // e.g., 'Abuja', 'Lagos'
+  propertyTitle: text("property_title").notNull(),
+  propertyType: text("property_type"), // e.g., 'Land', 'House', 'Commercial'
+  price: bigint("price", { mode: "number" }), // Price in local currency
+  pricePerSqm: decimal("price_per_sqm"), // Price per square meter if available
+  size: text("size"), // Property size (e.g., "500 sqm", "2 hectares")
+  bedrooms: integer("bedrooms"), // For houses/apartments
+  bathrooms: integer("bathrooms"), // For houses/apartments
+  url: text("url"), // Link to original listing
+  imageUrl: text("image_url"), // Main image from listing
+  description: text("description"), // Property description
+  scrapedAt: timestamp("scraped_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   reservations: many(investmentReservations),
@@ -321,6 +340,12 @@ export const insertVerificationStepCompletionSchema = createInsertSchema(verific
   updatedAt: true,
 });
 
+export const insertMarketInsightSchema = createInsertSchema(marketInsights).omit({
+  id: true,
+  createdAt: true,
+  scrapedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -355,3 +380,6 @@ export type PropertyVerificationChecklist = typeof propertyVerificationChecklist
 
 export type InsertVerificationStepCompletion = z.infer<typeof insertVerificationStepCompletionSchema>;
 export type VerificationStepCompletion = typeof verificationStepCompletions.$inferSelect;
+
+export type InsertMarketInsight = z.infer<typeof insertMarketInsightSchema>;
+export type MarketInsight = typeof marketInsights.$inferSelect;
