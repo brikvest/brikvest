@@ -105,6 +105,11 @@ Changelog:
 - July 4, 2025. Changed terminology from "Investment Details" to "Co-Ownership Details" throughout the admin interface
 - July 4, 2025. Enhanced reservation details to display property names instead of IDs and added "Mark as Paid" functionality with email notifications
 - July 4, 2025. Fixed property creation form to display USD ($) currency symbols instead of Naira (₦) since all properties are uploaded in dollars
+- October 14, 2025. Implemented Market Insights feature - admins can scrape PropertyPro.ng for Abuja market data analysis
+- October 14, 2025. Added cheerio library for web scraping with rate limiting (1 second between requests) and error handling
+- October 14, 2025. Created Market Insights tab in admin dashboard displaying competitive property data with statistics and property cards
+- October 14, 2025. Added market_insights database table to store scraped property data (title, price, size, location, type, images)
+- October 14, 2025. Fixed admin authentication to use Bearer token sessions for all admin-only endpoints
 ```
 
 ## User Preferences
