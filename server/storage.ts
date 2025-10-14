@@ -10,6 +10,7 @@ import {
   propertyVerificationChecklists,
   verificationStepCompletions,
   marketInsights,
+  guzapeListings,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -29,10 +30,12 @@ import {
   type VerificationStepCompletion,
   type InsertVerificationStepCompletion,
   type MarketInsight,
-  type InsertMarketInsight
+  type InsertMarketInsight,
+  type GuzapeListing,
+  type InsertGuzapeListing
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne } from "drizzle-orm";
+import { eq, desc, and, ne, sql } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -95,6 +98,10 @@ export interface IStorage {
   createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]>;
   getMarketInsights(location?: string): Promise<MarketInsight[]>;
   deleteOldInsights(daysOld: number): Promise<void>;
+  
+  // Guzape listings methods
+  saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]>;
+  getGuzapeListings(limit?: number): Promise<GuzapeListing[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -480,6 +487,47 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(marketInsights)
       .where(eq(marketInsights.scrapedAt, cutoffDate));
+  }
+
+  // Guzape listings methods
+  async saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]> {
+    if (listings.length === 0) return [];
+    
+    const result = await db
+      .insert(guzapeListings)
+      .values(listings)
+      .onConflictDoUpdate({
+        target: guzapeListings.listingId,
+        set: {
+          title: sql`excluded.title`,
+          priceNgnRaw: sql`excluded.price_ngn_raw`,
+          priceNgn: sql`excluded.price_ngn`,
+          city: sql`excluded.city`,
+          area: sql`excluded.area`,
+          beds: sql`excluded.beds`,
+          baths: sql`excluded.baths`,
+          toilets: sql`excluded.toilets`,
+          image: sql`excluded.image`,
+          detailUrl: sql`excluded.detail_url`,
+          scrapedAt: sql`excluded.scraped_at`,
+        }
+      })
+      .returning();
+    
+    return result;
+  }
+
+  async getGuzapeListings(limit?: number): Promise<GuzapeListing[]> {
+    const query = db
+      .select()
+      .from(guzapeListings)
+      .orderBy(desc(guzapeListings.scrapedAt));
+    
+    if (limit) {
+      return query.limit(limit);
+    }
+    
+    return query;
   }
 }
 
