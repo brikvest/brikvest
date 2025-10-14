@@ -450,9 +450,14 @@ export default function AdminDashboard() {
     const { data: insights = [], isLoading } = useQuery<MarketInsight[]>({
       queryKey: ['/api/market-insights'],
       queryFn: async () => {
-        const response = await fetch('/api/market-insights');
-        if (!response.ok) return [];
-        return response.json();
+        try {
+          return await authenticatedRequest('/api/market-insights', {
+            method: 'GET'
+          });
+        } catch (error) {
+          console.error('Failed to fetch market insights:', error);
+          return [];
+        }
       }
     });
 
@@ -1925,25 +1930,22 @@ export default function AdminDashboard() {
                   <Button
                     onClick={async () => {
                       try {
-                        const response = await fetch('/api/market-insights/scrape', {
+                        const result = await authenticatedRequest('/api/market-insights/scrape', {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ location: 'abuja' })
                         });
                         
-                        if (!response.ok) throw new Error('Scraping failed');
-                        
-                        const result = await response.json();
                         toast({
                           title: "Success",
                           description: `Scraped ${result.count} properties from ${result.location}`,
                         });
                         
                         queryClient.invalidateQueries({ queryKey: ['/api/market-insights'] });
-                      } catch (error) {
+                      } catch (error: any) {
+                        const errorMessage = error?.message || error?.error || "Failed to scrape market data";
                         toast({
                           title: "Error",
-                          description: "Failed to scrape market data",
+                          description: errorMessage,
                           variant: "destructive",
                         });
                       }
