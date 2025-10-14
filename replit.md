@@ -110,6 +110,10 @@ Changelog:
 - October 14, 2025. Created Market Insights tab in admin dashboard displaying competitive property data with statistics and property cards
 - October 14, 2025. Added market_insights database table to store scraped property data (title, price, size, location, type, images)
 - October 14, 2025. Fixed admin authentication to use Bearer token sessions for all admin-only endpoints
+- October 14, 2025. Built Guzape scraper module (server/scrape/guzape.ts) with TypeScript, Express, Cheerio stack
+- October 14, 2025. Created guzape_listings database table for storing PropertyPro.ng Guzape area listings
+- October 14, 2025. Added GET /api/scrape/guzape endpoint with persist and limit query parameters
+- October 14, 2025. Discovered PropertyPro.ng limitation: site loads listings via JavaScript, static HTML parsing with Cheerio cannot access property data
 ```
 
 ## User Preferences

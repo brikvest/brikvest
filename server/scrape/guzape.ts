@@ -1,6 +1,23 @@
 import * as cheerio from 'cheerio';
 import type { InsertGuzapeListing } from '@shared/schema';
 
+/**
+ * LIMITATION: PropertyPro.ng loads property listings dynamically via JavaScript.
+ * This Cheerio-based scraper can only parse static HTML, which means it cannot
+ * access the actual property data. The fetched HTML only contains navigation/menu
+ * items, not real property listings.
+ * 
+ * Evidence:
+ * - Scraper returns menu items like "Buy", "Flats & Apartments For Sale" instead of properties
+ * - No price, beds, baths, or property details are present in static HTML
+ * - Same limitation exists in the existing market insights scraper (server/scraper.ts)
+ * 
+ * Solutions:
+ * 1. Find an alternative data source that provides server-rendered HTML or JSON
+ * 2. Use PropertyPro.ng API if available
+ * 3. Request approval for headless browser solution if PropertyPro.ng data is mandatory
+ */
+
 // Centralized selectors at the top for easy maintenance
 const SELECTORS = {
   // More specific: only match property URLs with numeric IDs (e.g., /property-for-sale/12345-slug)
