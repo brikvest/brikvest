@@ -3,7 +3,8 @@ import type { InsertGuzapeListing } from '@shared/schema';
 
 // Centralized selectors at the top for easy maintenance
 const SELECTORS = {
-  propertyLink: 'a[href*="/property"]',
+  // More specific: only match property URLs with numeric IDs (e.g., /property-for-sale/12345-slug)
+  propertyLink: 'a[href*="/property-for-sale/"]',
   cardContainer: 'article, .property, .listing, li, .col, .prop, div',
   price: '[class*="price" i], .price',
   area: '[class*="loc" i], [class*="area" i]',
@@ -174,6 +175,10 @@ export function scrapeGuzapeListings(html: string, limit?: number): InsertGuzape
   // Find all property links
   $(SELECTORS.propertyLink).each((_, linkEl) => {
     const $link = $(linkEl);
+    const href = $link.attr('href');
+    
+    // Skip links without href or without numeric IDs (e.g., /property-for-sale/12345-slug)
+    if (!href || !href.match(/property-for-sale\/\d+[-_]/)) return;
     
     // Find the card container that wraps this link
     const $container = $link.closest(SELECTORS.cardContainer);
