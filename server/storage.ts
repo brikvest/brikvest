@@ -9,6 +9,7 @@ import {
   verificationSteps,
   propertyVerificationChecklists,
   verificationStepCompletions,
+  marketInsights,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -26,7 +27,9 @@ import {
   type VerificationStep,
   type PropertyVerificationChecklist,
   type VerificationStepCompletion,
-  type InsertVerificationStepCompletion
+  type InsertVerificationStepCompletion,
+  type MarketInsight,
+  type InsertMarketInsight
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne } from "drizzle-orm";
@@ -87,6 +90,11 @@ export interface IStorage {
   getPropertyVerificationChecklist(propertyId: number): Promise<any[]>;
   updatePropertyVerificationChecklist(propertyId: number, enabledSteps: number[]): Promise<void>;
   updateVerificationStepCompletion(data: InsertVerificationStepCompletion): Promise<void>;
+  
+  // Market insights methods
+  createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]>;
+  getMarketInsights(location?: string): Promise<MarketInsight[]>;
+  deleteOldInsights(daysOld: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -436,6 +444,42 @@ export class DatabaseStorage implements IStorage {
         .insert(verificationStepCompletions)
         .values(data);
     }
+  }
+
+  // Market insights methods
+  async createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]> {
+    if (insights.length === 0) return [];
+    
+    const result = await db
+      .insert(marketInsights)
+      .values(insights)
+      .returning();
+    
+    return result;
+  }
+
+  async getMarketInsights(location?: string): Promise<MarketInsight[]> {
+    if (location) {
+      return db
+        .select()
+        .from(marketInsights)
+        .where(eq(marketInsights.location, location))
+        .orderBy(desc(marketInsights.scrapedAt));
+    }
+    
+    return db
+      .select()
+      .from(marketInsights)
+      .orderBy(desc(marketInsights.scrapedAt));
+  }
+
+  async deleteOldInsights(daysOld: number): Promise<void> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    await db
+      .delete(marketInsights)
+      .where(eq(marketInsights.scrapedAt, cutoffDate));
   }
 }
 
