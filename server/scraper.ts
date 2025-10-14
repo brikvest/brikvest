@@ -15,7 +15,7 @@ interface ScrapedProperty {
 
 export async function scrapePropertyProAbuja(location: string = 'abuja'): Promise<InsertMarketInsight[]> {
   try {
-    const url = `https://propertypro.ng/index/sale/all/${location.toLowerCase()}`;
+    const url = `https://propertypro.ng/index/sale/house/${location.toLowerCase()}`;
     console.log(`Scraping PropertyPro.ng for ${location}...`);
     console.log(`URL: ${url}`);
 
@@ -34,6 +34,22 @@ export async function scrapePropertyProAbuja(location: string = 'abuja'): Promis
     const html = await response.text();
     const $ = cheerio.load(html);
     const properties: InsertMarketInsight[] = [];
+    
+    // Debug: Log page structure
+    console.log('Page title:', $('title').text());
+    console.log('Body classes:', $('body').attr('class'));
+    console.log('Number of divs with "property" class:', $('div[class*="property"]').length);
+    console.log('Number of divs with "listing" class:', $('div[class*="listing"]').length);
+    console.log('Number of articles:', $('article').length);
+    
+    // Log first few elements that might be properties
+    const potentialItems = $('div[class*="property"], div[class*="listing"], article');
+    console.log(`Found ${potentialItems.length} potential property elements`);
+    potentialItems.slice(0, 3).each((i, el) => {
+      console.log(`Element ${i} classes:`, $(el).attr('class'));
+      console.log(`Element ${i} first link:`, $(el).find('a').first().attr('href'));
+      console.log(`Element ${i} text preview:`, $(el).text().substring(0, 100));
+    });
 
     // Find property listings - PropertyPro.ng uses specific class names
     // We'll look for common property listing selectors
