@@ -1186,7 +1186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Market Insights - Debug what scraper sees (Admin only)
   app.get("/api/market-insights/debug", requireAdminAuth, async (req, res) => {
     try {
-      const url = 'https://propertypro.ng/index/sale/house/abuja';
+      const url = 'https://propertypro.ng/index/sale/all/abuja/guzape';
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -1213,7 +1213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sampleText: [] as string[],
         scriptTags: $('script[src]').map((_, el) => $(el).attr('src')).get().slice(0, 10),
         dataAttributes: [] as string[],
-        htmlPreview: html.substring(0, 2000)
+        propertyElements: [] as any[]
       };
 
       // Get sample element classes
@@ -1232,6 +1232,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       $('[data-property], [data-listing], [data-id]').slice(0, 10).each((_, el) => {
         const attrs = Object.keys(el.attribs || {}).filter(a => a.startsWith('data-'));
         debug.dataAttributes.push(...attrs);
+      });
+
+      // Extract property elements with their structure
+      $('div, article').each((i, el) => {
+        const $el = $(el);
+        const text = $el.text().trim();
+        const hasPrice = text.includes('₦');
+        const hasLink = $el.find('a').length > 0;
+        
+        if (hasPrice && hasLink && text.length > 50 && text.length < 500) {
+          debug.propertyElements.push({
+            tag: el.name,
+            class: $el.attr('class'),
+            id: $el.attr('id'),
+            text: text.substring(0, 300),
+            linkHref: $el.find('a').first().attr('href'),
+            imageCount: $el.find('img').length,
+            imageSrc: $el.find('img').first().attr('src')
+          });
+        }
       });
 
       res.json(debug);

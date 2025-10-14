@@ -15,8 +15,8 @@ interface ScrapedProperty {
 
 export async function scrapePropertyProAbuja(location: string = 'abuja'): Promise<InsertMarketInsight[]> {
   try {
-    const url = `https://propertypro.ng/index/sale/house/${location.toLowerCase()}`;
-    console.log(`Scraping PropertyPro.ng for ${location}...`);
+    const url = `https://propertypro.ng/index/sale/all/abuja/guzape`;
+    console.log(`Scraping PropertyPro.ng from Guzape, Abuja...`);
     console.log(`URL: ${url}`);
 
     const response = await fetch(url, {
