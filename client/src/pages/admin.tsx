@@ -512,6 +512,14 @@ export default function AdminDashboard() {
                 <FileText className="mr-3 h-4 w-4" />
                 Developer Bids
               </Button>
+              <Button
+                variant={selectedTab === "insights" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("insights")}
+              >
+                <TrendingUp className="mr-3 h-4 w-4" />
+                Market Insights
+              </Button>
             </div>
           </nav>
         </div>
