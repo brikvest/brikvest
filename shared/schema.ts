@@ -182,6 +182,24 @@ export const marketInsights = pgTable("market_insights", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Guzape listings from PropertyPro.ng scraper
+export const guzapeListings = pgTable("guzape_listings", {
+  id: serial("id").primaryKey(),
+  listingId: text("listing_id").notNull().unique(), // Last slug from detail URL
+  title: text("title").notNull(),
+  priceNgnRaw: text("price_ngn_raw"), // Raw price string with ₦ symbol
+  priceNgn: bigint("price_ngn", { mode: "number" }), // Digits only price
+  city: text("city").notNull().default("Abuja"),
+  area: text("area"), // Neighborhood/area
+  beds: integer("beds"),
+  baths: integer("baths"),
+  toilets: integer("toilets"),
+  image: text("image"), // Main listing image
+  detailUrl: text("detail_url").notNull(), // Absolute URL to property
+  scrapedAt: timestamp("scraped_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   reservations: many(investmentReservations),
@@ -346,6 +364,12 @@ export const insertMarketInsightSchema = createInsertSchema(marketInsights).omit
   scrapedAt: true,
 });
 
+export const insertGuzapeListingSchema = createInsertSchema(guzapeListings).omit({
+  id: true,
+  createdAt: true,
+  scrapedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -383,3 +407,5 @@ export type VerificationStepCompletion = typeof verificationStepCompletions.$inf
 
 export type InsertMarketInsight = z.infer<typeof insertMarketInsightSchema>;
 export type MarketInsight = typeof marketInsights.$inferSelect;
+export type InsertGuzapeListing = z.infer<typeof insertGuzapeListingSchema>;
+export type GuzapeListing = typeof guzapeListings.$inferSelect;
