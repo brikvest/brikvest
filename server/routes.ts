@@ -1183,6 +1183,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Market Insights - Debug what scraper sees (Admin only)
+  app.get("/api/market-insights/debug", requireAdminAuth, async (req, res) => {
+    try {
+      const url = 'https://propertypro.ng/index/sale/house/abuja';
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+
+      const html = await response.text();
+      const cheerio = await import('cheerio');
+      const $ = cheerio.load(html);
+
+      const debug = {
+        url,
+        status: response.status,
+        pageTitle: $('title').text(),
+        bodyClasses: $('body').attr('class') || 'none',
+        totalDivs: $('div').length,
+        divsWithPropertyClass: $('div[class*="property"]').length,
+        divsWithListingClass: $('div[class*="listing"]').length,
+        totalArticles: $('article').length,
+        totalLinks: $('a').length,
+        hasNairaSymbol: html.includes('₦'),
+        nairaOccurrences: (html.match(/₦/g) || []).length,
+        sampleClasses: [] as string[],
+        sampleText: [] as string[],
+        scriptTags: $('script[src]').map((_, el) => $(el).attr('src')).get().slice(0, 10),
+        dataAttributes: [] as string[],
+        htmlPreview: html.substring(0, 2000)
+      };
+
+      // Get sample element classes
+      $('div, article').slice(0, 20).each((i, el) => {
+        const className = $(el).attr('class');
+        if (className) debug.sampleClasses.push(className);
+      });
+
+      // Look for elements that might contain property data
+      const potentialContainers = $('[id*="property"], [id*="listing"], [class*="card"], [class*="item"]');
+      debug.sampleText = potentialContainers.slice(0, 5).map((_, el) => {
+        return $(el).text().trim().substring(0, 200);
+      }).get();
+
+      // Check for data attributes
+      $('[data-property], [data-listing], [data-id]').slice(0, 10).each((_, el) => {
+        const attrs = Object.keys(el.attribs || {}).filter(a => a.startsWith('data-'));
+        debug.dataAttributes.push(...attrs);
+      });
+
+      res.json(debug);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Market Insights - Scrape PropertyPro.ng data (Admin only)
   app.post("/api/market-insights/scrape", requireAdminAuth, async (req, res) => {
     try {
