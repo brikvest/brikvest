@@ -18,7 +18,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
-import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep } from "@shared/schema";
+import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep, MarketInsight } from "@shared/schema";
 import { FileUploader } from "@/components/FileUploader";
 
 // Helper function to get currency symbol
@@ -443,6 +443,167 @@ export default function AdminDashboard() {
     } else {
       createPropertyMutation.mutate(propertyData);
     }
+  };
+
+  // Market Insights Content Component
+  function MarketInsightsContent() {
+    const { data: insights = [], isLoading } = useQuery<MarketInsight[]>({
+      queryKey: ['/api/market-insights'],
+      queryFn: async () => {
+        const response = await fetch('/api/market-insights');
+        if (!response.ok) return [];
+        return response.json();
+      }
+    });
+
+    const formatPrice = (price: number | null) => {
+      if (!price) return 'N/A';
+      return `₦${price.toLocaleString()}`;
+    };
+
+    if (isLoading) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Card key={i} className="border-slate-200">
+              <CardContent className="p-6">
+                <div className="animate-pulse space-y-3">
+                  <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                  <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+                  <div className="h-4 bg-slate-200 rounded w-2/3"></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+
+    if (insights.length === 0) {
+      return (
+        <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl border border-slate-200 p-12 lg:p-16">
+          <div className="text-center max-w-lg mx-auto">
+            <div className="w-20 h-20 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-8">
+              <TrendingUp className="h-10 w-10 text-slate-400" />
+            </div>
+            <h3 className="text-2xl font-semibold text-slate-900 mb-4">No market data yet</h3>
+            <p className="text-slate-600 mb-8 text-lg">
+              Click "Scrape Abuja Properties" to fetch competitive market data from PropertyPro.ng
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // Calculate statistics
+    const avgPrice = insights.reduce((sum, i) => sum + (i.price || 0), 0) / insights.filter(i => i.price).length;
+    const landListings = insights.filter(i => i.propertyType === 'Land').length;
+    const houseListings = insights.filter(i => i.propertyType === 'House').length;
+
+    return (
+      <div className="space-y-6">
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="border-slate-200">
+            <CardContent className="p-6">
+              <div className="text-sm text-slate-600 mb-1">Total Properties</div>
+              <div className="text-3xl font-bold text-slate-900">{insights.length}</div>
+              <div className="text-xs text-slate-500 mt-1">From PropertyPro.ng</div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200">
+            <CardContent className="p-6">
+              <div className="text-sm text-slate-600 mb-1">Average Price</div>
+              <div className="text-3xl font-bold text-slate-900">{formatPrice(avgPrice)}</div>
+              <div className="text-xs text-slate-500 mt-1">Across all listings</div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200">
+            <CardContent className="p-6">
+              <div className="text-sm text-slate-600 mb-1">Property Types</div>
+              <div className="text-xl font-bold text-slate-900">
+                {landListings} Land, {houseListings} Houses
+              </div>
+              <div className="text-xs text-slate-500 mt-1">Type distribution</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Property Listings */}
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900 mb-4">Property Listings</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {insights.map((insight) => (
+              <Card key={insight.id} className="border-slate-200 hover:shadow-lg transition-shadow" data-testid={`card-insight-${insight.id}`}>
+                <CardContent className="p-0">
+                  {insight.imageUrl && (
+                    <div className="relative h-48 bg-slate-100">
+                      <img 
+                        src={insight.imageUrl} 
+                        alt={insight.propertyTitle}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <h3 className="font-semibold text-slate-900 line-clamp-2 mb-1" data-testid={`text-title-${insight.id}`}>
+                        {insight.propertyTitle}
+                      </h3>
+                      {insight.propertyType && (
+                        <Badge variant="outline" className="text-xs">
+                          {insight.propertyType}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {insight.price && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-600">Price:</span>
+                          <span className="font-semibold text-slate-900" data-testid={`text-price-${insight.id}`}>
+                            {formatPrice(insight.price)}
+                          </span>
+                        </div>
+                      )}
+                      {insight.size && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-600">Size:</span>
+                          <span className="text-sm text-slate-900">{insight.size}</span>
+                        </div>
+                      )}
+                      {(insight.bedrooms || insight.bathrooms) && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-slate-600">Beds/Baths:</span>
+                          <span className="text-sm text-slate-900">
+                            {insight.bedrooms || 0} / {insight.bathrooms || 0}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {insight.url && (
+                      <a 
+                        href={insight.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center text-sm text-blue-600 hover:text-blue-700"
+                        data-testid={`link-property-${insight.id}`}
+                      >
+                        <ExternalLink className="w-4 h-4 mr-1" />
+                        View on PropertyPro.ng
+                      </a>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1749,6 +1910,54 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Market Insights Tab */}
+            {selectedTab === "insights" && (
+              <div className="space-y-8 mt-6">
+                {/* Header Section */}
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Market Insights</h1>
+                    <p className="text-slate-600 mt-2 text-lg">Competitive property data from PropertyPro.ng</p>
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/market-insights/scrape', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ location: 'abuja' })
+                        });
+                        
+                        if (!response.ok) throw new Error('Scraping failed');
+                        
+                        const result = await response.json();
+                        toast({
+                          title: "Success",
+                          description: `Scraped ${result.count} properties from ${result.location}`,
+                        });
+                        
+                        queryClient.invalidateQueries({ queryKey: ['/api/market-insights'] });
+                      } catch (error) {
+                        toast({
+                          title: "Error",
+                          description: "Failed to scrape market data",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-scrape-insights"
+                  >
+                    <TrendingUp className="mr-2 h-4 w-4" />
+                    Scrape Abuja Properties
+                  </Button>
+                </div>
+
+                {/* Market Insights Content */}
+                <MarketInsightsContent />
               </div>
             )}
           </div>
