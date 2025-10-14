@@ -1320,6 +1320,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scrape Guzape listings from PropertyPro.ng
+  app.get("/api/scrape/guzape", async (req, res) => {
+    try {
+      const persist = req.query.persist === '1';
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      
+      // Import scraper functions
+      const { fetchGuzapePage, scrapeGuzapeListings } = await import('./scrape/guzape');
+      
+      // Fetch HTML from PropertyPro.ng
+      const html = await fetchGuzapePage();
+      
+      // Scrape listings from HTML
+      const listings = scrapeGuzapeListings(html, limit);
+      
+      let persisted = 0;
+      if (persist && listings.length > 0) {
+        // Save to database
+        const saved = await storage.saveGuzapeListings(listings);
+        persisted = saved.length;
+      }
+      
+      // Success response
+      res.status(200).json({
+        sourceUrl: 'https://propertypro.ng/index/sale/all/abuja/guzape',
+        count: listings.length,
+        persisted,
+        listings
+      });
+    } catch (error: any) {
+      console.error('Error in Guzape scraper:', error);
+      
+      // Handle different error types
+      if (error.message?.includes('timeout')) {
+        return res.status(503).json({
+          error: 'Request timeout while fetching PropertyPro.ng',
+          hint: 'The external site took too long to respond. Try again later.'
+        });
+      }
+      
+      if (error.message?.includes('429') || error.message?.includes('503')) {
+        return res.status(503).json({
+          error: 'External site unavailable or rate limited',
+          hint: 'PropertyPro.ng returned an error. Please try again in a few minutes.'
+        });
+      }
+      
+      // Generic error
+      res.status(503).json({
+        error: error.message || 'Failed to scrape Guzape listings',
+        hint: 'Check server logs for details or try again later.'
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
