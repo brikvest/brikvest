@@ -29,7 +29,7 @@ const SELECTORS = {
 
 // Regex patterns for extraction
 const PATTERNS = {
-  price: /₦[\s\d,.,]+/i,
+  price: /(?:₦|NGN)[\s\d,.,]+/i, // Match both ₦ symbol and NGN currency code
   beds: /(\d+)\s*(?:bed|beds|bedroom)/i,
   baths: /(\d+)\s*(?:bath|baths|bathroom)/i,
   toilets: /(\d+)\s*(?:toilet|toilets)/i,
