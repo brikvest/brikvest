@@ -1183,6 +1183,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Market Insights - Scrape PropertyPro.ng data (Admin only)
+  app.post("/api/market-insights/scrape", requireAdminAuth, async (req, res) => {
+    try {
+      const { location = 'abuja' } = req.body;
+      
+      console.log(`Starting scrape for ${location}...`);
+      const { scrapePropertyProAbuja } = await import('./scraper');
+      const scrapedData = await scrapePropertyProAbuja(location);
+      
+      if (scrapedData.length === 0) {
+        return res.status(404).json({ 
+          message: "No properties found or unable to scrape data",
+          count: 0 
+        });
+      }
+      
+      // Save scraped data to database
+      const savedInsights = await storage.createMarketInsights(scrapedData);
+      
+      res.json({ 
+        message: `Successfully scraped ${savedInsights.length} properties`,
+        count: savedInsights.length,
+        location,
+        data: savedInsights
+      });
+    } catch (error) {
+      console.error("Error scraping market insights:", error);
+      res.status(500).json({ 
+        message: "Failed to scrape market insights",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get market insights (Admin only)
+  app.get("/api/market-insights", requireAdminAuth, async (req, res) => {
+    try {
+      const location = req.query.location as string | undefined;
+      const insights = await storage.getMarketInsights(location);
+      
+      res.json(insights);
+    } catch (error) {
+      console.error("Error fetching market insights:", error);
+      res.status(500).json({ message: "Failed to fetch market insights" });
+    }
+  });
+
+  // Clean up old insights (Admin only)
+  app.delete("/api/market-insights/cleanup", requireAdminAuth, async (req, res) => {
+    try {
+      const daysOld = parseInt(req.query.days as string) || 30;
+      await storage.deleteOldInsights(daysOld);
+      
+      res.json({ message: `Deleted insights older than ${daysOld} days` });
+    } catch (error) {
+      console.error("Error cleaning up market insights:", error);
+      res.status(500).json({ message: "Failed to clean up insights" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
