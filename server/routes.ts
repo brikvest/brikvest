@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
+import path from "path";
 import { storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
@@ -1180,6 +1182,288 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Photo not found" });
       }
       return res.status(500).json({ error: "Failed to serve photo" });
+    }
+  });
+
+  // Market Insights - Debug what scraper sees (Admin only)
+  app.get("/api/market-insights/debug", requireAdminAuth, async (req, res) => {
+    try {
+      const url = 'https://propertypro.ng/index/sale/all/abuja/guzape';
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+
+      const html = await response.text();
+      const cheerio = await import('cheerio');
+      const $ = cheerio.load(html);
+
+      const debug = {
+        url,
+        status: response.status,
+        pageTitle: $('title').text(),
+        bodyClasses: $('body').attr('class') || 'none',
+        totalDivs: $('div').length,
+        divsWithPropertyClass: $('div[class*="property"]').length,
+        divsWithListingClass: $('div[class*="listing"]').length,
+        totalArticles: $('article').length,
+        totalLinks: $('a').length,
+        hasNairaSymbol: html.includes('₦'),
+        nairaOccurrences: (html.match(/₦/g) || []).length,
+        sampleClasses: [] as string[],
+        sampleText: [] as string[],
+        scriptTags: $('script[src]').map((_, el) => $(el).attr('src')).get().slice(0, 10),
+        dataAttributes: [] as string[],
+        propertyElements: [] as any[]
+      };
+
+      // Get sample element classes
+      $('div, article').slice(0, 20).each((i, el) => {
+        const className = $(el).attr('class');
+        if (className) debug.sampleClasses.push(className);
+      });
+
+      // Look for elements that might contain property data
+      const potentialContainers = $('[id*="property"], [id*="listing"], [class*="card"], [class*="item"]');
+      debug.sampleText = potentialContainers.slice(0, 5).map((_, el) => {
+        return $(el).text().trim().substring(0, 200);
+      }).get();
+
+      // Check for data attributes
+      $('[data-property], [data-listing], [data-id]').slice(0, 10).each((_, el) => {
+        const attrs = Object.keys(el.attribs || {}).filter(a => a.startsWith('data-'));
+        debug.dataAttributes.push(...attrs);
+      });
+
+      // Extract property elements with their structure
+      $('div, article').each((i, el) => {
+        const $el = $(el);
+        const text = $el.text().trim();
+        const hasPrice = text.includes('₦');
+        const hasLink = $el.find('a').length > 0;
+        
+        if (hasPrice && hasLink && text.length > 50 && text.length < 500) {
+          debug.propertyElements.push({
+            tag: el.name,
+            class: $el.attr('class'),
+            id: $el.attr('id'),
+            text: text.substring(0, 300),
+            linkHref: $el.find('a').first().attr('href'),
+            imageCount: $el.find('img').length,
+            imageSrc: $el.find('img').first().attr('src')
+          });
+        }
+      });
+
+      res.json(debug);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Market Insights - Scrape PropertyPro.ng data (Admin only)
+  app.post("/api/market-insights/scrape", requireAdminAuth, async (req, res) => {
+    try {
+      const { location = 'abuja' } = req.body;
+      
+      console.log(`Starting scrape for ${location}...`);
+      const { scrapePropertyProAbuja } = await import('./scraper');
+      const scrapedData = await scrapePropertyProAbuja(location);
+      
+      if (scrapedData.length === 0) {
+        return res.status(404).json({ 
+          message: "No properties found or unable to scrape data",
+          count: 0 
+        });
+      }
+      
+      // Save scraped data to database
+      const savedInsights = await storage.createMarketInsights(scrapedData);
+      
+      res.json({ 
+        message: `Successfully scraped ${savedInsights.length} properties`,
+        count: savedInsights.length,
+        location,
+        data: savedInsights
+      });
+    } catch (error) {
+      console.error("Error scraping market insights:", error);
+      res.status(500).json({ 
+        message: "Failed to scrape market insights",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get market insights (Admin only)
+  app.get("/api/market-insights", requireAdminAuth, async (req, res) => {
+    try {
+      const location = req.query.location as string | undefined;
+      const insights = await storage.getMarketInsights(location);
+      
+      res.json(insights);
+    } catch (error) {
+      console.error("Error fetching market insights:", error);
+      res.status(500).json({ message: "Failed to fetch market insights" });
+    }
+  });
+
+  // Clean up old insights (Admin only)
+  app.delete("/api/market-insights/cleanup", requireAdminAuth, async (req, res) => {
+    try {
+      const daysOld = parseInt(req.query.days as string) || 30;
+      await storage.deleteOldInsights(daysOld);
+      
+      res.json({ message: `Deleted insights older than ${daysOld} days` });
+    } catch (error) {
+      console.error("Error cleaning up market insights:", error);
+      res.status(500).json({ message: "Failed to clean up insights" });
+    }
+  });
+
+  // Get raw HTML content from PropertyPro.ng page
+  app.get("/api/scrape/guzape/raw", async (req, res) => {
+    try {
+      const url = 'https://propertypro.ng/index/sale/all/abuja/guzape';
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `HTTP ${response.status}`,
+          message: response.statusText 
+        });
+      }
+      
+      const html = await response.text();
+      
+      res.json({
+        url,
+        status: response.status,
+        contentLength: html.length,
+        content: html
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: error.message || 'Failed to fetch page',
+      });
+    }
+  });
+
+  // Scrape Guzape listings from PropertyPro.ng
+  app.get("/api/scrape/guzape", async (req, res) => {
+    try {
+      const persist = req.query.persist === '1';
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      
+      // Import scraper functions
+      const { fetchGuzapePage, scrapeGuzapeListings } = await import('./scrape/guzape');
+      
+      // Fetch HTML from PropertyPro.ng
+      const html = await fetchGuzapePage();
+      
+      // Scrape listings from HTML
+      const listings = scrapeGuzapeListings(html, limit);
+      
+      let persisted = 0;
+      if (persist && listings.length > 0) {
+        // Save to database
+        const saved = await storage.saveGuzapeListings(listings);
+        persisted = saved.length;
+      }
+      
+      // Success response
+      res.status(200).json({
+        sourceUrl: 'https://propertypro.ng/index/sale/all/abuja/guzape',
+        count: listings.length,
+        persisted,
+        listings
+      });
+    } catch (error: any) {
+      console.error('Error in Guzape scraper:', error);
+      
+      // Handle different error types
+      if (error.message?.includes('timeout')) {
+        return res.status(503).json({
+          error: 'Request timeout while fetching PropertyPro.ng',
+          hint: 'The external site took too long to respond. Try again later.'
+        });
+      }
+      
+      if (error.message?.includes('429') || error.message?.includes('503')) {
+        return res.status(503).json({
+          error: 'External site unavailable or rate limited',
+          hint: 'PropertyPro.ng returned an error. Please try again in a few minutes.'
+        });
+      }
+      
+      // Generic error
+      res.status(503).json({
+        error: error.message || 'Failed to scrape Guzape listings',
+        hint: 'Check server logs for details or try again later.'
+      });
+    }
+  });
+
+  // Serve guzape.html from public directory
+  app.get("/guzape.html", (req, res) => {
+    const filePath = path.resolve(process.cwd(), 'public', 'guzape.html');
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).send('File not found. Run the scraper first.');
+    }
+  });
+
+  // Scrape Guzape HTML and optionally persist to public/guzape.html
+  app.get("/api/scrape/guzape-html", async (req, res) => {
+    try {
+      const persist = req.query.persist === '1';
+      const { fetchGuzapeRawHtml, persistGuzapeHtml } = await import('./scrape/guzapeHtml');
+      
+      const html = await fetchGuzapeRawHtml();
+      
+      if (persist) {
+        await persistGuzapeHtml(html);
+      }
+      
+      res.type('text/html').status(200).send(html);
+    } catch (err: any) {
+      res.status(503).json({ 
+        error: err?.message || 'scrape failed', 
+        hint: 'network/selectors/robots' 
+      });
+    }
+  });
+
+  // Extract graph data from scraped Guzape HTML
+  app.get("/api/scrape/guzape-graphs", async (req, res) => {
+    try {
+      const { getGraphDataFromFile } = await import('./scrape/guzapeGraphs');
+      const graphData = await getGraphDataFromFile();
+      res.json(graphData);
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to extract graph data';
+      
+      // Distinguish between missing file (404) and parse errors (500)
+      if (errorMessage.includes('not found')) {
+        return res.status(404).json({ 
+          error: errorMessage,
+          hint: 'Run the scraper first: /api/scrape/guzape-html?persist=1' 
+        });
+      }
+      
+      // Parse or other errors
+      res.status(500).json({ 
+        error: errorMessage,
+        hint: 'Check server logs for details. The HTML structure may have changed.' 
+      });
     }
   });
 

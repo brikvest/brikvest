@@ -47,6 +47,9 @@ app.use((req, res, next) => {
     throw err;
   });
 
+  // Serve static files from public directory (guzape.html, etc.)
+  app.use(express.static('public'));
+
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes

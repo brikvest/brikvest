@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -268,10 +269,13 @@ export default function Home() {
                 <a href="#properties" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   Properties
                 </a>
+                <Link href="/insights" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  Insights
+                </Link>
                 {isAuthenticated && (
-                  <a href="/dashboard" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  <Link href="/dashboard" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                     My Dashboard
-                  </a>
+                  </Link>
                 )}
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
@@ -343,6 +347,14 @@ export default function Home() {
                 >
                   Properties
                 </a>
+
+                <Link 
+                  href="/insights" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Insights
+                </Link>
 
                 <a 
                   href="#how-it-works" 
