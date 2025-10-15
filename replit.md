@@ -138,6 +138,8 @@ Changelog:
 - October 15, 2025. Enhanced card styling with hover effects (hover:shadow-xl transitions) for interactive feel
 - October 15, 2025. Added PropertyPro.ng attribution section with external link (opens in new tab) and ExternalLink icon for data transparency
 - October 15, 2025. Updated guzapeGraphs.ts module to extract and parse historical price data from scraped HTML
+- October 15, 2025. Implemented Refresh Data button on Insights page - re-scrapes PropertyPro.ng for latest market data with loading states and toast notifications
+- October 15, 2025. Refresh button features: spinning icon during load, "Refreshing..." text state, success/error toast notifications, automatic cache invalidation
 - October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 

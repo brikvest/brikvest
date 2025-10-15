@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,6 +8,7 @@ import { TrendingUp, MapPin, RefreshCw, BarChart3, ArrowLeft, ExternalLink } fro
 import { queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChartData {
   labels: number[];
@@ -41,6 +42,7 @@ interface GuzapeGraphData {
 
 export default function Insights() {
   const [selectedCity, setSelectedCity] = useState("guzape");
+  const { toast } = useToast();
 
   // Fetch Guzape graph data
   const { data: graphData, isLoading } = useQuery<GuzapeGraphData>({
@@ -48,12 +50,35 @@ export default function Insights() {
     enabled: selectedCity === "guzape",
   });
 
-  const handleRefreshData = async () => {
-    // Re-scrape the HTML first
-    await fetch('/api/scrape/guzape-html?persist=1');
-    // Then invalidate the cache
-    queryClient.invalidateQueries({ queryKey: ['/api/scrape/guzape-graphs'] });
-  };
+  // Mutation for refreshing market data
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      // Re-scrape the HTML first
+      const response = await fetch('/api/scrape/guzape-html?persist=1');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to refresh data');
+      }
+      // Wait for the response to complete
+      await response.text();
+      return { success: true };
+    },
+    onSuccess: () => {
+      // Invalidate the cache to refetch
+      queryClient.invalidateQueries({ queryKey: ['/api/scrape/guzape-graphs'] });
+      toast({
+        title: "Data refreshed",
+        description: "Market insights have been updated with the latest data from PropertyPro.ng",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Refresh failed",
+        description: error.message || "Could not fetch the latest market data. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -118,9 +143,13 @@ export default function Insights() {
               <p className="text-slate-600 mb-8">
                 Market insights for {selectedCity} are currently unavailable.
               </p>
-              <Button onClick={handleRefreshData} data-testid="button-load-insights">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Load Market Data
+              <Button 
+                onClick={() => refreshMutation.mutate()} 
+                disabled={refreshMutation.isPending}
+                data-testid="button-load-insights"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+                {refreshMutation.isPending ? 'Loading...' : 'Load Market Data'}
               </Button>
             </CardContent>
           </Card>
@@ -198,8 +227,20 @@ export default function Insights() {
               </SelectContent>
             </Select>
           </div>
-          <div className="text-sm text-slate-500">
-            Last updated: {new Date(graphData.scrapedAt).toLocaleDateString()}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-slate-500">
+              Last updated: {new Date(graphData.scrapedAt).toLocaleDateString()}
+            </div>
+            <Button 
+              onClick={() => refreshMutation.mutate()} 
+              disabled={refreshMutation.isPending}
+              variant="outline"
+              size="sm"
+              data-testid="button-refresh-data"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+              {refreshMutation.isPending ? 'Refreshing...' : 'Refresh Data'}
+            </Button>
           </div>
         </div>
 
