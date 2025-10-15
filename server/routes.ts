@@ -1320,6 +1320,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get raw HTML content from PropertyPro.ng page
+  app.get("/api/scrape/guzape/raw", async (req, res) => {
+    try {
+      const url = 'https://propertypro.ng/index/sale/all/abuja/guzape';
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `HTTP ${response.status}`,
+          message: response.statusText 
+        });
+      }
+      
+      const html = await response.text();
+      
+      res.json({
+        url,
+        status: response.status,
+        contentLength: html.length,
+        content: html
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: error.message || 'Failed to fetch page',
+      });
+    }
+  });
+
   // Scrape Guzape listings from PropertyPro.ng
   app.get("/api/scrape/guzape", async (req, res) => {
     try {

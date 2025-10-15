@@ -461,6 +461,24 @@ export default function AdminDashboard() {
       }
     });
 
+    // Fetch raw HTML content automatically  
+    const { data: rawContent, isLoading: rawLoading } = useQuery({
+      queryKey: ['/api/scrape/guzape/raw'],
+      queryFn: async () => {
+        try {
+          const response = await fetch('/api/scrape/guzape/raw');
+          if (!response.ok) {
+            console.error('Failed to fetch:', response.status);
+            return null;
+          }
+          return await response.json();
+        } catch (error) {
+          console.error('Failed to fetch raw content:', error);
+          return null;
+        }
+      }
+    });
+
     const formatPrice = (price: number | null) => {
       if (!price) return 'N/A';
       return `₦${price.toLocaleString()}`;
@@ -507,6 +525,38 @@ export default function AdminDashboard() {
 
     return (
       <div className="space-y-6">
+        {/* Raw HTML Content Display */}
+        {rawContent && (
+          <Card className="border-slate-200">
+            <CardHeader>
+              <CardTitle className="text-lg">PropertyPro.ng Page Content (Raw HTML)</CardTitle>
+              <p className="text-sm text-slate-600">
+                Source: <a href={rawContent.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{rawContent.url}</a>
+                {' '} | Size: {(rawContent.contentLength / 1024).toFixed(1)} KB
+              </p>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                readOnly
+                value={rawContent.content || ''}
+                className="w-full h-96 p-4 font-mono text-xs border border-slate-300 rounded-lg bg-slate-50"
+                placeholder="Loading HTML content..."
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {rawLoading && (
+          <Card className="border-slate-200">
+            <CardContent className="p-6">
+              <div className="animate-pulse space-y-3">
+                <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+                <div className="h-96 bg-slate-100 rounded"></div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-slate-200">
