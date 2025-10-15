@@ -126,6 +126,11 @@ Changelog:
 - October 15, 2025. Added navigation links between /guzape (HTML view) and /guzape-graphs (charts view) for easy switching
 - October 15, 2025. Integrated Guzape market analysis into admin dashboard Market Insights tab with historical price charts and growth metrics
 - October 15, 2025. Admin Market Insights now displays: Current Average Price (₦500M), Price Growth (+567%), Market Trend, and two interactive charts
+- October 15, 2025. Created public Insights page at /insights with beautiful gradient design and city selector for market analysis
+- October 15, 2025. Added "Insights" link to header navigation (desktop and mobile) for easy access to market data
+- October 15, 2025. Public Insights displays key metrics (Average Price, Price Growth, Market Status) with interactive recharts visualizations
+- October 15, 2025. Implemented city selector component (Guzape default, other cities coming soon) for multi-location market insights
+- October 15, 2025. Added Key Investment Insights section with bullet points explaining market trends and growth potential
 - October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 
