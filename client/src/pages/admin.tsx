@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle } from "lucide-react";
+import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -20,6 +20,7 @@ import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep, MarketInsight } from "@shared/schema";
 import { FileUploader } from "@/components/FileUploader";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 // Helper function to get currency symbol
 const getCurrencySymbol = (currency: string) => {
@@ -447,62 +448,60 @@ export default function AdminDashboard() {
 
   // Market Insights Content Component
   function MarketInsightsContent() {
-    const { data: insights = [], isLoading } = useQuery<MarketInsight[]>({
-      queryKey: ['/api/market-insights'],
+    const { toast } = useToast();
+    
+    // Fetch Guzape graph data
+    const { data: graphData, isLoading: graphLoading } = useQuery({
+      queryKey: ['/api/scrape/guzape-graphs'],
       queryFn: async () => {
         try {
-          return await authenticatedRequest('/api/market-insights', {
-            method: 'GET'
-          });
-        } catch (error) {
-          console.error('Failed to fetch market insights:', error);
-          return [];
-        }
-      }
-    });
-
-    // Fetch raw HTML content automatically  
-    const { data: rawContent, isLoading: rawLoading } = useQuery({
-      queryKey: ['/api/scrape/guzape/raw'],
-      queryFn: async () => {
-        try {
-          const response = await fetch('/api/scrape/guzape/raw');
+          const response = await fetch('/api/scrape/guzape-graphs');
           if (!response.ok) {
-            console.error('Failed to fetch:', response.status);
             return null;
           }
           return await response.json();
         } catch (error) {
-          console.error('Failed to fetch raw content:', error);
+          console.error('Failed to fetch graph data:', error);
           return null;
         }
       }
     });
 
-    const formatPrice = (price: number | null) => {
-      if (!price) return 'N/A';
-      return `₦${price.toLocaleString()}`;
+    const handleRefreshData = async () => {
+      try {
+        // Re-scrape the HTML first
+        await fetch('/api/scrape/guzape-html?persist=1');
+        // Then invalidate the cache to fetch new graph data
+        queryClient.invalidateQueries({ queryKey: ['/api/scrape/guzape-graphs'] });
+        toast({
+          title: "Data refreshed",
+          description: "Market data has been updated from PropertyPro.ng",
+        });
+      } catch (error) {
+        toast({
+          title: "Refresh failed",
+          description: "Could not refresh market data. Please try again.",
+          variant: "destructive",
+        });
+      }
     };
 
-    if (isLoading) {
+    if (graphLoading) {
       return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Card key={i} className="border-slate-200">
-              <CardContent className="p-6">
-                <div className="animate-pulse space-y-3">
-                  <div className="h-4 bg-slate-200 rounded w-3/4"></div>
-                  <div className="h-4 bg-slate-200 rounded w-1/2"></div>
-                  <div className="h-4 bg-slate-200 rounded w-2/3"></div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-6">
+          <Card className="border-slate-200">
+            <CardContent className="p-6">
+              <div className="animate-pulse space-y-4">
+                <div className="h-6 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-64 bg-slate-100 rounded"></div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       );
     }
 
-    if (insights.length === 0) {
+    if (!graphData) {
       return (
         <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl border border-slate-200 p-12 lg:p-16">
           <div className="text-center max-w-lg mx-auto">
@@ -511,152 +510,180 @@ export default function AdminDashboard() {
             </div>
             <h3 className="text-2xl font-semibold text-slate-900 mb-4">No market data yet</h3>
             <p className="text-slate-600 mb-8 text-lg">
-              Click "Scrape Abuja Properties" to fetch competitive market data from PropertyPro.ng
+              Click "Load Market Data" to fetch Guzape market insights from PropertyPro.ng
             </p>
+            <Button onClick={handleRefreshData} size="lg" data-testid="button-load-data">
+              <RefreshCw className="h-5 w-5 mr-2" />
+              Load Market Data
+            </Button>
           </div>
         </div>
       );
     }
 
-    // Calculate statistics
-    const avgPrice = insights.reduce((sum, i) => sum + (i.price || 0), 0) / insights.filter(i => i.price).length;
-    const landListings = insights.filter(i => i.propertyType === 'Land').length;
-    const houseListings = insights.filter(i => i.propertyType === 'House').length;
+    // Transform data for recharts
+    const priceChartData = graphData.priceChart.labels.map((year: number, index: number) => ({
+      year: year.toString(),
+      price: graphData.priceChart.values[index],
+    }));
+
+    const indexChartData = graphData.indexChart.labels.map((year: number, index: number) => ({
+      year: year.toString(),
+      index: graphData.indexChart.values[index],
+    }));
+
+    // Format currency
+    const formatPrice = (value: number) => {
+      if (value >= 1e9) return `₦${(value / 1e9).toFixed(1)}B`;
+      if (value >= 1e6) return `₦${(value / 1e6).toFixed(0)}M`;
+      return `₦${value.toLocaleString()}`;
+    };
+
+    const currentPrice = graphData.priceChart.values[graphData.priceChart.values.length - 1];
+    const priceGrowth = graphData.indexChart.values[graphData.indexChart.values.length - 1];
 
     return (
       <div className="space-y-6">
-        {/* Raw HTML Content Display */}
-        {rawContent && (
-          <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle className="text-lg">PropertyPro.ng Page Content (Raw HTML)</CardTitle>
-              <p className="text-sm text-slate-600">
-                Source: <a href={rawContent.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{rawContent.url}</a>
-                {' '} | Size: {(rawContent.contentLength / 1024).toFixed(1)} KB
-              </p>
-            </CardHeader>
-            <CardContent>
-              <textarea
-                readOnly
-                value={rawContent.content || ''}
-                className="w-full h-96 p-4 font-mono text-xs border border-slate-300 rounded-lg bg-slate-50"
-                placeholder="Loading HTML content..."
-              />
-            </CardContent>
-          </Card>
-        )}
+        {/* Header with Refresh Button */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Guzape Market Analysis</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              Last updated: {new Date(graphData.scrapedAt).toLocaleString()}
+            </p>
+          </div>
+          <Button onClick={handleRefreshData} variant="outline" data-testid="button-refresh-data">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Data
+          </Button>
+        </div>
 
-        {rawLoading && (
-          <Card className="border-slate-200">
-            <CardContent className="p-6">
-              <div className="animate-pulse space-y-3">
-                <div className="h-4 bg-slate-200 rounded w-1/4"></div>
-                <div className="h-96 bg-slate-100 rounded"></div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Statistics Cards */}
+        {/* Key Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-slate-200">
             <CardContent className="p-6">
-              <div className="text-sm text-slate-600 mb-1">Total Properties</div>
-              <div className="text-3xl font-bold text-slate-900">{insights.length}</div>
-              <div className="text-xs text-slate-500 mt-1">From PropertyPro.ng</div>
+              <div className="text-sm text-slate-600 mb-1">Current Average Price</div>
+              <div className="text-3xl font-bold text-slate-900">{formatPrice(currentPrice)}</div>
+              <div className="text-xs text-slate-500 mt-1">Guzape, Abuja (2025)</div>
             </CardContent>
           </Card>
           <Card className="border-slate-200">
             <CardContent className="p-6">
-              <div className="text-sm text-slate-600 mb-1">Average Price</div>
-              <div className="text-3xl font-bold text-slate-900">{formatPrice(avgPrice)}</div>
-              <div className="text-xs text-slate-500 mt-1">Across all listings</div>
+              <div className="text-sm text-slate-600 mb-1">Price Growth</div>
+              <div className="text-3xl font-bold text-green-600">+{priceGrowth.toFixed(0)}%</div>
+              <div className="text-xs text-slate-500 mt-1">Since 2019 baseline</div>
             </CardContent>
           </Card>
           <Card className="border-slate-200">
             <CardContent className="p-6">
-              <div className="text-sm text-slate-600 mb-1">Property Types</div>
-              <div className="text-xl font-bold text-slate-900">
-                {landListings} Land, {houseListings} Houses
+              <div className="text-sm text-slate-600 mb-1">Market Trend</div>
+              <div className="flex items-center">
+                <TrendingUp className="h-6 w-6 text-green-600 mr-2" />
+                <div className="text-xl font-bold text-slate-900">Strong Growth</div>
               </div>
-              <div className="text-xs text-slate-500 mt-1">Type distribution</div>
+              <div className="text-xs text-slate-500 mt-1">Upward trajectory</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Property Listings */}
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900 mb-4">Property Listings</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {insights.map((insight) => (
-              <Card key={insight.id} className="border-slate-200 hover:shadow-lg transition-shadow" data-testid={`card-insight-${insight.id}`}>
-                <CardContent className="p-0">
-                  {insight.imageUrl && (
-                    <div className="relative h-48 bg-slate-100">
-                      <img 
-                        src={insight.imageUrl} 
-                        alt={insight.propertyTitle}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
-                  <div className="p-4 space-y-3">
-                    <div>
-                      <h3 className="font-semibold text-slate-900 line-clamp-2 mb-1" data-testid={`text-title-${insight.id}`}>
-                        {insight.propertyTitle}
-                      </h3>
-                      {insight.propertyType && (
-                        <Badge variant="outline" className="text-xs">
-                          {insight.propertyType}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      {insight.price && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-slate-600">Price:</span>
-                          <span className="font-semibold text-slate-900" data-testid={`text-price-${insight.id}`}>
-                            {formatPrice(insight.price)}
-                          </span>
-                        </div>
-                      )}
-                      {insight.size && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-slate-600">Size:</span>
-                          <span className="text-sm text-slate-900">{insight.size}</span>
-                        </div>
-                      )}
-                      {(insight.bedrooms || insight.bathrooms) && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-slate-600">Beds/Baths:</span>
-                          <span className="text-sm text-slate-900">
-                            {insight.bedrooms || 0} / {insight.bathrooms || 0}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {insight.url && (
-                      <a 
-                        href={insight.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="flex items-center text-sm text-blue-600 hover:text-blue-700"
-                        data-testid={`link-property-${insight.id}`}
-                      >
-                        <ExternalLink className="w-4 h-4 mr-1" />
-                        View on PropertyPro.ng
-                      </a>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
+        {/* Average Price Historical Chart */}
+        <Card className="border-slate-200" data-testid="card-price-chart">
+          <CardHeader>
+            <CardTitle className="text-lg">Average Price History (Guzape, Abuja)</CardTitle>
+            <p className="text-sm text-slate-600">Historical property prices from 2019 to 2025</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={priceChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="year" 
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  tickFormatter={formatPrice}
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <Tooltip 
+                  formatter={(value: number) => formatPrice(value)}
+                  labelFormatter={(label) => `Year ${label}`}
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="price" 
+                  stroke="#0f172a" 
+                  strokeWidth={3}
+                  name="Average Price"
+                  dot={{ fill: "#0f172a", r: 5 }}
+                  activeDot={{ r: 7 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Price Index Growth Chart */}
+        <Card className="border-slate-200" data-testid="card-index-chart">
+          <CardHeader>
+            <CardTitle className="text-lg">Price Index Growth</CardTitle>
+            <p className="text-sm text-slate-600">Percentage change from 2019 baseline</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={indexChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="year"
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  tickFormatter={(value) => `${value}%`}
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <Tooltip 
+                  formatter={(value: number) => `${value.toFixed(1)}%`}
+                  labelFormatter={(label) => `Year ${label}`}
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="index" 
+                  stroke="#16a34a" 
+                  strokeWidth={3}
+                  name="Price Index"
+                  dot={{ fill: "#16a34a", r: 5 }}
+                  activeDot={{ r: 7 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Key Insights */}
+            <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <h4 className="font-semibold text-slate-900 mb-2">Key Insights:</h4>
+              <ul className="space-y-1 text-sm text-slate-700">
+                <li>• {((priceGrowth) / 100).toFixed(1)}x price increase since 2019</li>
+                <li>• Average price reached {formatPrice(currentPrice)} in 2025</li>
+                <li>• Strong upward trend indicating growing demand in Guzape area</li>
+                <li>• Data sourced from PropertyPro.ng market analysis</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   };
