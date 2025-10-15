@@ -6,9 +6,28 @@ export interface ChartData {
   values: number[];
 }
 
+export interface HistoricalPricePoint {
+  period: string;
+  price: string;
+  priceValue: number;
+  change: string;
+  changeValue: number;
+}
+
 export interface GuzapeGraphData {
   priceChart: ChartData;
   indexChart: ChartData;
+  historicalPrices: {
+    lastMonth: {
+      price: string;
+      priceValue: number;
+      change: string;
+      changeValue: number;
+    };
+    sixMonths: HistoricalPricePoint;
+    oneYear: HistoricalPricePoint;
+    twoYears: HistoricalPricePoint;
+  };
   scrapedAt: string;
 }
 
@@ -59,6 +78,9 @@ export async function extractGraphDataFromHtml(html: string): Promise<GuzapeGrap
   const indexLabels = parseArray(indexMatch[1]);
   const indexValues = parseArray(indexMatch[2]);
   
+  // Extract historical price data
+  const historicalPrices = extractHistoricalPrices(html);
+  
   return {
     priceChart: {
       labels: priceLabels,
@@ -68,7 +90,59 @@ export async function extractGraphDataFromHtml(html: string): Promise<GuzapeGrap
       labels: indexLabels,
       values: indexValues
     },
+    historicalPrices,
     scrapedAt: new Date().toISOString()
+  };
+}
+
+function extractHistoricalPrices(html: string) {
+  // Extract last month average price
+  const lastMonthPriceRegex = /Average Price last month[\s\S]*?<h2>NGN\s*<b>([\d.]+)<\/b><\/h2>/i;
+  const lastMonthChangeRegex = /Price Change in last mouth[\s\S]*?<h3>NGN\s*<b>([\d.]+)<\/b><\/h3>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
+  
+  // Extract 6 months ago data
+  const sixMonthsRegex = /6 Months Ago[\s\S]*?<h5><span>NGN<\/span>\s*([\d.]+\s*million)<\/h5>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
+  
+  // Extract 1 year ago data
+  const oneYearRegex = /1 year ago[\s\S]*?<h5><span>NGN<\/span>\s*([\d.]+\s*million)<\/h5>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
+  
+  // Extract 2 years ago data
+  const twoYearsRegex = /2 Years Ago[\s\S]*?<h5><span>NGN<\/span>\s*([\d.]+\s*million)<\/h5>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
+  
+  const lastMonthPriceMatch = html.match(lastMonthPriceRegex);
+  const lastMonthChangeMatch = html.match(lastMonthChangeRegex);
+  const sixMonthsMatch = html.match(sixMonthsRegex);
+  const oneYearMatch = html.match(oneYearRegex);
+  const twoYearsMatch = html.match(twoYearsRegex);
+  
+  return {
+    lastMonth: {
+      price: lastMonthPriceMatch ? `NGN ${lastMonthPriceMatch[1]}` : "NGN 0.0",
+      priceValue: lastMonthPriceMatch ? parseFloat(lastMonthPriceMatch[1]) : 0,
+      change: lastMonthChangeMatch ? `NGN ${lastMonthChangeMatch[1]}` : "NGN 0.00",
+      changeValue: lastMonthChangeMatch ? parseFloat(lastMonthChangeMatch[2]) : 0
+    },
+    sixMonths: {
+      period: "6 Months Ago",
+      price: sixMonthsMatch ? `NGN ${sixMonthsMatch[1]}` : "NGN 0",
+      priceValue: sixMonthsMatch ? parseFloat(sixMonthsMatch[1].replace(/[^\d.]/g, '')) : 0,
+      change: sixMonthsMatch ? `${sixMonthsMatch[2]}%` : "0%",
+      changeValue: sixMonthsMatch ? parseFloat(sixMonthsMatch[2]) : 0
+    },
+    oneYear: {
+      period: "1 Year Ago",
+      price: oneYearMatch ? `NGN ${oneYearMatch[1]}` : "NGN 0",
+      priceValue: oneYearMatch ? parseFloat(oneYearMatch[1].replace(/[^\d.]/g, '')) : 0,
+      change: oneYearMatch ? `${oneYearMatch[2]}%` : "0%",
+      changeValue: oneYearMatch ? parseFloat(oneYearMatch[2]) : 0
+    },
+    twoYears: {
+      period: "2 Years Ago",
+      price: twoYearsMatch ? `NGN ${twoYearsMatch[1]}` : "NGN 0",
+      priceValue: twoYearsMatch ? parseFloat(twoYearsMatch[1].replace(/[^\d.]/g, '')) : 0,
+      change: twoYearsMatch ? `${twoYearsMatch[2]}%` : "0%",
+      changeValue: twoYearsMatch ? parseFloat(twoYearsMatch[2]) : 0
+    }
   };
 }
 
