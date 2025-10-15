@@ -96,9 +96,10 @@ export async function extractGraphDataFromHtml(html: string): Promise<GuzapeGrap
 }
 
 function extractHistoricalPrices(html: string) {
-  // Extract last month average price
-  const lastMonthPriceRegex = /Average Price last month[\s\S]*?<h2>NGN\s*<b>([\d.]+)<\/b><\/h2>/i;
-  const lastMonthChangeRegex = /Price Change in last mouth[\s\S]*?<h3>NGN\s*<b>([\d.]+)<\/b><\/h3>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
+  // Extract last month average price (handle commas in numbers)
+  const lastMonthPriceRegex = /Average Price last month[\s\S]*?<h2>NGN\s*<b>([\d.,]+)<\/b><\/h2>/i;
+  // Note: PropertyPro has a typo "mouth" instead of "month" on their site
+  const lastMonthChangeRegex = /Price Change in last mouth[\s\S]*?<h2[^>]*>[\s\S]*?NGN\s*<b>([\d.,]+)<\/b>[\s\S]*?<span[^>]*>([\d.,]+)\s*%/i;
   
   // Extract 6 months ago data
   const sixMonthsRegex = /6 Months Ago[\s\S]*?<h5><span>NGN<\/span>\s*([\d.]+\s*million)<\/h5>[\s\S]*?<span[^>]*>([\d.]+)\s*%/i;
@@ -118,9 +119,9 @@ function extractHistoricalPrices(html: string) {
   return {
     lastMonth: {
       price: lastMonthPriceMatch ? `NGN ${lastMonthPriceMatch[1]}` : "NGN 0.0",
-      priceValue: lastMonthPriceMatch ? parseFloat(lastMonthPriceMatch[1]) : 0,
+      priceValue: lastMonthPriceMatch ? parseFloat(lastMonthPriceMatch[1].replace(/,/g, '')) : 0,
       change: lastMonthChangeMatch ? `NGN ${lastMonthChangeMatch[1]}` : "NGN 0.00",
-      changeValue: lastMonthChangeMatch ? parseFloat(lastMonthChangeMatch[2]) : 0
+      changeValue: lastMonthChangeMatch ? parseFloat(lastMonthChangeMatch[2].replace(/,/g, '')) : 0
     },
     sixMonths: {
       period: "6 Months Ago",
