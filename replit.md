@@ -142,6 +142,8 @@ Changelog:
 - October 15, 2025. Refresh button features: spinning icon during load, "Refreshing..." text state, success/error toast notifications, automatic cache invalidation
 - October 15, 2025. Removed /guzape and /guzape-graphs routes and pages - consolidated market insights functionality into single public /insights page
 - October 15, 2025. Removed Market Insights tab from admin dashboard - market data now accessible only through public /insights page
+- October 15, 2025. Implemented slide-in sidebar for mobile navigation - burger menu now opens right-side drawer with smooth animation and overlay backdrop
+- October 15, 2025. Enhanced mobile menu with user profile section, currency selector, and sign in/out buttons for improved mobile UX
 - October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 
