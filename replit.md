@@ -119,6 +119,11 @@ Changelog:
 - October 15, 2025. Added script `tsx scripts/scrape-guzape-html.ts` to manually scrape and persist HTML for analysis
 - October 15, 2025. Installed `got` package for reliable HTTP requests with timeout and retry logic
 - October 15, 2025. Fixed relative asset URLs in scraped HTML - converts /assets/* to https://propertypro.ng/assets/* for proper image loading
+- October 15, 2025. Implemented graph data extraction from PropertyPro.ng - extracts Price Change and Index Change chart data from JavaScript
+- October 15, 2025. Created /guzape-graphs route with recharts visualization showing price trends (2019-2025) and index growth
+- October 15, 2025. Added GET /api/scrape/guzape-graphs endpoint to serve extracted chart data from scraped HTML
+- October 15, 2025. Built server/scrape/guzapeGraphs.ts module to parse renderGlobalChart() calls and extract data arrays
+- October 15, 2025. Added navigation links between /guzape (HTML view) and /guzape-graphs (charts view) for easy switching
 ```
 
 ## User Preferences

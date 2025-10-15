@@ -1442,6 +1442,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Extract graph data from scraped Guzape HTML
+  app.get("/api/scrape/guzape-graphs", async (req, res) => {
+    try {
+      const { getGraphDataFromFile } = await import('./scrape/guzapeGraphs');
+      const graphData = await getGraphDataFromFile();
+      res.json(graphData);
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to extract graph data';
+      
+      // Distinguish between missing file (404) and parse errors (500)
+      if (errorMessage.includes('not found')) {
+        return res.status(404).json({ 
+          error: errorMessage,
+          hint: 'Run the scraper first: /api/scrape/guzape-html?persist=1' 
+        });
+      }
+      
+      // Parse or other errors
+      res.status(500).json({ 
+        error: errorMessage,
+        hint: 'Check server logs for details. The HTML structure may have changed.' 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

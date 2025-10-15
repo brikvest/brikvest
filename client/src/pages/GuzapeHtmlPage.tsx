@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
+import { Link } from 'wouter';
+import { BarChart3 } from 'lucide-react';
 
 export default function GuzapeHtmlPage() {
   const [src, setSrc] = useState('/guzape.html'); // served from /public by default
@@ -32,14 +34,25 @@ export default function GuzapeHtmlPage() {
     <div className="max-w-7xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Guzape (Raw HTML)</h1>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          className="px-4 py-2 rounded-lg bg-black text-white disabled:opacity-50"
-          data-testid="button-refresh"
-        >
-          {loading ? 'Refreshing…' : 'Refresh from Source'}
-        </button>
+        <div className="flex gap-2">
+          <Link href="/guzape-graphs">
+            <button
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground flex items-center gap-2"
+              data-testid="button-view-graphs"
+            >
+              <BarChart3 className="h-4 w-4" />
+              View Graphs
+            </button>
+          </Link>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg bg-black text-white disabled:opacity-50"
+            data-testid="button-refresh"
+          >
+            {loading ? 'Refreshing…' : 'Refresh from Source'}
+          </button>
+        </div>
       </div>
       <iframe ref={iframeRef} title="Guzape HTML" src={src} data-testid="iframe-guzape" />
     </div>
