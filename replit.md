@@ -131,6 +131,10 @@ Changelog:
 - October 15, 2025. Public Insights displays key metrics (Average Price, Price Growth, Market Status) with interactive recharts visualizations
 - October 15, 2025. Implemented city selector component (Guzape default, other cities coming soon) for multi-location market insights
 - October 15, 2025. Added Key Investment Insights section with bullet points explaining market trends and growth potential
+- October 15, 2025. Enhanced Insights page with historical price data from PropertyPro.ng scraping
+- October 15, 2025. Displays 4 time periods: Last Month, 6 Months Ago (₦470M), 1 Year Ago (₦435M, +17.50%), 2 Years Ago (₦396.67M, +78.57%)
+- October 15, 2025. Historical price cards feature gradient backgrounds (blue, emerald, purple, orange) with responsive grid layout
+- October 15, 2025. Updated guzapeGraphs.ts module to extract and parse historical price data from scraped HTML
 - October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 
