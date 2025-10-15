@@ -105,6 +105,44 @@ Changelog:
 - July 4, 2025. Changed terminology from "Investment Details" to "Co-Ownership Details" throughout the admin interface
 - July 4, 2025. Enhanced reservation details to display property names instead of IDs and added "Mark as Paid" functionality with email notifications
 - July 4, 2025. Fixed property creation form to display USD ($) currency symbols instead of Naira (₦) since all properties are uploaded in dollars
+- October 14, 2025. Implemented Market Insights feature - admins can scrape PropertyPro.ng for Abuja market data analysis
+- October 14, 2025. Added cheerio library for web scraping with rate limiting (1 second between requests) and error handling
+- October 14, 2025. Created Market Insights tab in admin dashboard displaying competitive property data with statistics and property cards
+- October 14, 2025. Added market_insights database table to store scraped property data (title, price, size, location, type, images)
+- October 14, 2025. Fixed admin authentication to use Bearer token sessions for all admin-only endpoints
+- October 14, 2025. Built Guzape scraper module (server/scrape/guzape.ts) with TypeScript, Express, Cheerio stack
+- October 14, 2025. Created guzape_listings database table for storing PropertyPro.ng Guzape area listings
+- October 14, 2025. Added GET /api/scrape/guzape endpoint with persist and limit query parameters
+- October 14, 2025. Discovered PropertyPro.ng limitation: site loads listings via JavaScript, static HTML parsing with Cheerio cannot access property data
+- October 15, 2025. Implemented raw HTML scraper flow: GET /api/scrape/guzape-html fetches and optionally persists HTML to public/guzape.html
+- October 15, 2025. Created /guzape React route with iframe display of scraped HTML, includes Refresh button for re-scraping
+- October 15, 2025. Added script `tsx scripts/scrape-guzape-html.ts` to manually scrape and persist HTML for analysis
+- October 15, 2025. Installed `got` package for reliable HTTP requests with timeout and retry logic
+- October 15, 2025. Fixed relative asset URLs in scraped HTML - converts /assets/* to https://propertypro.ng/assets/* for proper image loading
+- October 15, 2025. Implemented graph data extraction from PropertyPro.ng - extracts Price Change and Index Change chart data from JavaScript
+- October 15, 2025. Created /guzape-graphs route with recharts visualization showing price trends (2019-2025) and index growth
+- October 15, 2025. Added GET /api/scrape/guzape-graphs endpoint to serve extracted chart data from scraped HTML
+- October 15, 2025. Built server/scrape/guzapeGraphs.ts module to parse renderGlobalChart() calls and extract data arrays
+- October 15, 2025. Added navigation links between /guzape (HTML view) and /guzape-graphs (charts view) for easy switching
+- October 15, 2025. Integrated Guzape market analysis into admin dashboard Market Insights tab with historical price charts and growth metrics
+- October 15, 2025. Admin Market Insights now displays: Current Average Price (₦500M), Price Growth (+567%), Market Trend, and two interactive charts
+- October 15, 2025. Created public Insights page at /insights with beautiful gradient design and city selector for market analysis
+- October 15, 2025. Added "Insights" link to header navigation (desktop and mobile) for easy access to market data
+- October 15, 2025. Public Insights displays key metrics (Average Price, Price Growth, Market Status) with interactive recharts visualizations
+- October 15, 2025. Implemented city selector component (Guzape default, other cities coming soon) for multi-location market insights
+- October 15, 2025. Added Key Investment Insights section with bullet points explaining market trends and growth potential
+- October 15, 2025. Enhanced Insights page with historical price data from PropertyPro.ng scraping
+- October 15, 2025. Displays 4 time periods: Last Month, 6 Months Ago (₦470M), 1 Year Ago (₦435M, +17.50%), 2 Years Ago (₦396.67M, +78.57%)
+- October 15, 2025. Historical price cards feature gradient backgrounds (blue, emerald, purple, orange) with responsive grid layout
+- October 15, 2025. Redesigned Insights page with modern borderless aesthetic - removed borders from all cards and added shadow effects (shadow-lg, shadow-md)
+- October 15, 2025. Enhanced card styling with hover effects (hover:shadow-xl transitions) for interactive feel
+- October 15, 2025. Added PropertyPro.ng attribution section with external link (opens in new tab) and ExternalLink icon for data transparency
+- October 15, 2025. Updated guzapeGraphs.ts module to extract and parse historical price data from scraped HTML
+- October 15, 2025. Implemented Refresh Data button on Insights page - re-scrapes PropertyPro.ng for latest market data with loading states and toast notifications
+- October 15, 2025. Refresh button features: spinning icon during load, "Refreshing..." text state, success/error toast notifications, automatic cache invalidation
+- October 15, 2025. Removed /guzape and /guzape-graphs routes and pages - consolidated market insights functionality into single public /insights page
+- October 15, 2025. Removed Market Insights tab from admin dashboard - market data now accessible only through public /insights page
+- October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 
 ## User Preferences

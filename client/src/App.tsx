@@ -9,6 +9,7 @@ import Login from "@/pages/login";
 import ResetPassword from "@/pages/reset-password";
 import Dashboard from "@/pages/dashboard";
 import AdminProtected from "@/pages/admin-protected";
+import Insights from "@/pages/insights";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/admin" component={AdminProtected} />
+      <Route path="/insights" component={Insights} />
       <Route component={NotFound} />
     </Switch>
   );
