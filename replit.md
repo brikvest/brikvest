@@ -118,6 +118,7 @@ Changelog:
 - October 15, 2025. Created /guzape React route with iframe display of scraped HTML, includes Refresh button for re-scraping
 - October 15, 2025. Added script `tsx scripts/scrape-guzape-html.ts` to manually scrape and persist HTML for analysis
 - October 15, 2025. Installed `got` package for reliable HTTP requests with timeout and retry logic
+- October 15, 2025. Fixed relative asset URLs in scraped HTML - converts /assets/* to https://propertypro.ng/assets/* for proper image loading
 ```
 
 ## User Preferences

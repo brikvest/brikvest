@@ -7,11 +7,19 @@ const UA  = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML
 
 export async function fetchGuzapeRawHtml(): Promise<string> {
   await new Promise(r => setTimeout(r, 800 + Math.random()*400)); // small politeness delay
-  return got(SRC, {
+  let html = await got(SRC, {
     headers: { 'user-agent': UA, 'accept': 'text/html,*/*' },
     timeout: { request: 15000 },
     retry: { limit: 1 }
   }).text();
+  
+  // Fix relative URLs to absolute URLs for images, CSS, and JS
+  html = html.replace(/src="\/assets\//g, 'src="https://propertypro.ng/assets/');
+  html = html.replace(/href="\/assets\//g, 'href="https://propertypro.ng/assets/');
+  html = html.replace(/src='\/assets\//g, "src='https://propertypro.ng/assets/");
+  html = html.replace(/href='\/assets\//g, "href='https://propertypro.ng/assets/");
+  
+  return html;
 }
 
 export async function persistGuzapeHtml(html: string) {
