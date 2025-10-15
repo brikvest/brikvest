@@ -114,6 +114,10 @@ Changelog:
 - October 14, 2025. Created guzape_listings database table for storing PropertyPro.ng Guzape area listings
 - October 14, 2025. Added GET /api/scrape/guzape endpoint with persist and limit query parameters
 - October 14, 2025. Discovered PropertyPro.ng limitation: site loads listings via JavaScript, static HTML parsing with Cheerio cannot access property data
+- October 15, 2025. Implemented raw HTML scraper flow: GET /api/scrape/guzape-html fetches and optionally persists HTML to public/guzape.html
+- October 15, 2025. Created /guzape React route with iframe display of scraped HTML, includes Refresh button for re-scraping
+- October 15, 2025. Added script `tsx scripts/scrape-guzape-html.ts` to manually scrape and persist HTML for analysis
+- October 15, 2025. Installed `got` package for reliable HTTP requests with timeout and retry logic
 ```
 
 ## User Preferences

@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
+import path from "path";
 import { storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
@@ -1405,6 +1407,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(503).json({
         error: error.message || 'Failed to scrape Guzape listings',
         hint: 'Check server logs for details or try again later.'
+      });
+    }
+  });
+
+  // Serve guzape.html from public directory
+  app.get("/guzape.html", (req, res) => {
+    const filePath = path.resolve(process.cwd(), 'public', 'guzape.html');
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).send('File not found. Run the scraper first.');
+    }
+  });
+
+  // Scrape Guzape HTML and optionally persist to public/guzape.html
+  app.get("/api/scrape/guzape-html", async (req, res) => {
+    try {
+      const persist = req.query.persist === '1';
+      const { fetchGuzapeRawHtml, persistGuzapeHtml } = await import('./scrape/guzapeHtml');
+      
+      const html = await fetchGuzapeRawHtml();
+      
+      if (persist) {
+        await persistGuzapeHtml(html);
+      }
+      
+      res.type('text/html').status(200).send(html);
+    } catch (err: any) {
+      res.status(503).json({ 
+        error: err?.message || 'scrape failed', 
+        hint: 'network/selectors/robots' 
       });
     }
   });
