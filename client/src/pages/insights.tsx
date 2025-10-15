@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { TrendingUp, MapPin, RefreshCw, BarChart3, ArrowLeft } from "lucide-react";
+import { TrendingUp, MapPin, RefreshCw, BarChart3, ArrowLeft, ExternalLink } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import brikvest_logo from "@/assets/brikvest-logo.png";
@@ -205,7 +205,7 @@ export default function Insights() {
 
         {/* Key Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+          <Card className="border-0 bg-white shadow-lg hover:shadow-xl transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-medium text-slate-600">Average Price</div>
@@ -218,7 +218,7 @@ export default function Insights() {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+          <Card className="border-0 bg-white shadow-lg hover:shadow-xl transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-medium text-slate-600">Price Growth</div>
@@ -231,7 +231,7 @@ export default function Insights() {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+          <Card className="border-0 bg-white shadow-lg hover:shadow-xl transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-medium text-slate-600">Market Status</div>
@@ -246,7 +246,7 @@ export default function Insights() {
         </div>
 
         {/* Historical Price Data from PropertyPro */}
-        <Card className="border-slate-200 bg-white/80 backdrop-blur mb-8" data-testid="card-historical-prices">
+        <Card className="border-0 bg-white shadow-lg mb-8" data-testid="card-historical-prices">
           <CardHeader>
             <CardTitle className="text-xl">Historical Price Data</CardTitle>
             <p className="text-sm text-slate-600">Market price trends from PropertyPro.ng</p>
@@ -254,7 +254,7 @@ export default function Insights() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Last Month */}
-              <div className="p-4 bg-gradient-to-br from-blue-50 to-slate-50 rounded-lg border border-blue-100">
+              <div className="p-5 bg-gradient-to-br from-blue-50 to-slate-50 rounded-xl shadow-md hover:shadow-lg transition-shadow">
                 <p className="text-xs font-medium text-slate-600 mb-2">Average Price Last Month</p>
                 <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.lastMonth.price}</h3>
                 <div className="flex items-center gap-2 text-sm">
@@ -267,7 +267,7 @@ export default function Insights() {
               </div>
 
               {/* 6 Months Ago */}
-              <div className="p-4 bg-gradient-to-br from-emerald-50 to-slate-50 rounded-lg border border-emerald-100">
+              <div className="p-5 bg-gradient-to-br from-emerald-50 to-slate-50 rounded-xl shadow-md hover:shadow-lg transition-shadow">
                 <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.sixMonths.period}</p>
                 <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.sixMonths.price}</h3>
                 <div className="flex items-center gap-2 text-sm">
@@ -278,7 +278,7 @@ export default function Insights() {
               </div>
 
               {/* 1 Year Ago */}
-              <div className="p-4 bg-gradient-to-br from-purple-50 to-slate-50 rounded-lg border border-purple-100">
+              <div className="p-5 bg-gradient-to-br from-purple-50 to-slate-50 rounded-xl shadow-md hover:shadow-lg transition-shadow">
                 <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.oneYear.period}</p>
                 <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.oneYear.price}</h3>
                 <div className="flex items-center gap-2 text-sm">
@@ -289,7 +289,7 @@ export default function Insights() {
               </div>
 
               {/* 2 Years Ago */}
-              <div className="p-4 bg-gradient-to-br from-orange-50 to-slate-50 rounded-lg border border-orange-100">
+              <div className="p-5 bg-gradient-to-br from-orange-50 to-slate-50 rounded-xl shadow-md hover:shadow-lg transition-shadow">
                 <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.twoYears.period}</p>
                 <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.twoYears.price}</h3>
                 <div className="flex items-center gap-2 text-sm">
@@ -303,7 +303,7 @@ export default function Insights() {
         </Card>
 
         {/* Price History Chart */}
-        <Card className="border-slate-200 bg-white/80 backdrop-blur mb-8" data-testid="card-price-history">
+        <Card className="border-0 bg-white shadow-lg mb-8" data-testid="card-price-history">
           <CardHeader>
             <CardTitle className="text-xl">Average Price History</CardTitle>
             <p className="text-sm text-slate-600">Property price trends in Guzape, Abuja (2019-2025)</p>
@@ -347,7 +347,7 @@ export default function Insights() {
         </Card>
 
         {/* Index Growth Chart */}
-        <Card className="border-slate-200 bg-white/80 backdrop-blur" data-testid="card-index-growth">
+        <Card className="border-0 bg-white shadow-lg" data-testid="card-index-growth">
           <CardHeader>
             <CardTitle className="text-xl">Price Index Growth</CardTitle>
             <p className="text-sm text-slate-600">Percentage change from 2019 baseline</p>
@@ -389,7 +389,7 @@ export default function Insights() {
             </ResponsiveContainer>
 
             {/* Key Insights */}
-            <div className="mt-6 p-6 bg-gradient-to-br from-blue-50 to-slate-50 rounded-xl border border-slate-200">
+            <div className="mt-6 p-6 bg-gradient-to-br from-blue-50 to-slate-50 rounded-xl shadow-md">
               <h4 className="font-semibold text-slate-900 mb-3 flex items-center">
                 <TrendingUp className="h-5 w-5 mr-2 text-blue-600" />
                 Key Investment Insights
@@ -407,14 +407,27 @@ export default function Insights() {
                   <span className="text-blue-600 mr-2">•</span>
                   <span>Consistent upward trend indicates growing demand in Guzape area</span>
                 </li>
-                <li className="flex items-start">
-                  <span className="text-blue-600 mr-2">•</span>
-                  <span>Data sourced from PropertyPro.ng market analysis</span>
-                </li>
               </ul>
             </div>
           </CardContent>
         </Card>
+
+        {/* PropertyPro Attribution */}
+        <div className="mb-12 text-center">
+          <div className="inline-flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-md">
+            <span className="text-sm text-slate-600">Market data powered by</span>
+            <a 
+              href="https://propertypro.ng/index/sale/all/abuja/guzape" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 font-semibold hover:text-blue-700 flex items-center gap-1 transition-colors"
+              data-testid="link-propertypro"
+            >
+              PropertyPro.ng
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </div>
 
         {/* CTA Section */}
         <div className="mt-12 text-center bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 sm:p-12 text-white">
