@@ -1999,65 +1999,9 @@ export default function AdminDashboard() {
             {selectedTab === "insights" && (
               <div className="space-y-8 mt-6">
                 {/* Header Section */}
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Market Insights</h1>
-                    <p className="text-slate-600 mt-2 text-lg">Competitive property data from PropertyPro.ng</p>
-                  </div>
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={async () => {
-                        try {
-                          const debug = await authenticatedRequest('/api/market-insights/debug', {
-                            method: 'GET'
-                          });
-                          
-                          // Show debug info in console and alert
-                          console.log('Debug Info:', debug);
-                          alert(JSON.stringify(debug, null, 2));
-                        } catch (error: any) {
-                          toast({
-                            title: "Debug Error",
-                            description: error?.message || "Failed to fetch debug info",
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                      variant="outline"
-                      className="border-slate-300 hover:bg-slate-100"
-                    >
-                      Debug Scraper
-                    </Button>
-                    <Button
-                      onClick={async () => {
-                        try {
-                          const result = await authenticatedRequest('/api/market-insights/scrape', {
-                            method: 'POST',
-                            body: JSON.stringify({ location: 'abuja' })
-                          });
-                          
-                          toast({
-                            title: "Success",
-                            description: `Scraped ${result.count} properties from ${result.location}`,
-                          });
-                          
-                          queryClient.invalidateQueries({ queryKey: ['/api/market-insights'] });
-                        } catch (error: any) {
-                          const errorMessage = error?.message || error?.error || "Failed to scrape market data";
-                          toast({
-                            title: "Error",
-                            description: errorMessage,
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                      className="bg-blue-600 hover:bg-blue-700"
-                      data-testid="button-scrape-insights"
-                    >
-                      <TrendingUp className="mr-2 h-4 w-4" />
-                      Scrape Abuja Properties
-                    </Button>
-                  </div>
+                <div>
+                  <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Market Insights</h1>
+                  <p className="text-slate-600 mt-2 text-lg">Competitive property data from PropertyPro.ng</p>
                 </div>
 
                 {/* Market Insights Content */}
