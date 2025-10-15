@@ -124,6 +124,9 @@ Changelog:
 - October 15, 2025. Added GET /api/scrape/guzape-graphs endpoint to serve extracted chart data from scraped HTML
 - October 15, 2025. Built server/scrape/guzapeGraphs.ts module to parse renderGlobalChart() calls and extract data arrays
 - October 15, 2025. Added navigation links between /guzape (HTML view) and /guzape-graphs (charts view) for easy switching
+- October 15, 2025. Integrated Guzape market analysis into admin dashboard Market Insights tab with historical price charts and growth metrics
+- October 15, 2025. Admin Market Insights now displays: Current Average Price (₦500M), Price Growth (+567%), Market Trend, and two interactive charts
+- October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
 ```
 
 ## User Preferences
