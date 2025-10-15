@@ -14,9 +14,28 @@ interface ChartData {
   values: number[];
 }
 
+interface HistoricalPricePoint {
+  period: string;
+  price: string;
+  priceValue: number;
+  change: string;
+  changeValue: number;
+}
+
 interface GuzapeGraphData {
   priceChart: ChartData;
   indexChart: ChartData;
+  historicalPrices: {
+    lastMonth: {
+      price: string;
+      priceValue: number;
+      change: string;
+      changeValue: number;
+    };
+    sixMonths: HistoricalPricePoint;
+    oneYear: HistoricalPricePoint;
+    twoYears: HistoricalPricePoint;
+  };
   scrapedAt: string;
 }
 
@@ -225,6 +244,63 @@ export default function Insights() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Historical Price Data from PropertyPro */}
+        <Card className="border-slate-200 bg-white/80 backdrop-blur mb-8" data-testid="card-historical-prices">
+          <CardHeader>
+            <CardTitle className="text-xl">Historical Price Data</CardTitle>
+            <p className="text-sm text-slate-600">Market price trends from PropertyPro.ng</p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Last Month */}
+              <div className="p-4 bg-gradient-to-br from-blue-50 to-slate-50 rounded-lg border border-blue-100">
+                <p className="text-xs font-medium text-slate-600 mb-2">Average Price Last Month</p>
+                <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.lastMonth.price}</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-slate-600">Change:</span>
+                  <span className="font-medium text-slate-700">{graphData.historicalPrices.lastMonth.change}</span>
+                  <span className={`font-semibold ${graphData.historicalPrices.lastMonth.changeValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {graphData.historicalPrices.lastMonth.changeValue.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* 6 Months Ago */}
+              <div className="p-4 bg-gradient-to-br from-emerald-50 to-slate-50 rounded-lg border border-emerald-100">
+                <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.sixMonths.period}</p>
+                <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.sixMonths.price}</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`font-semibold ${graphData.historicalPrices.sixMonths.changeValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {graphData.historicalPrices.sixMonths.changeValue >= 0 ? '+' : ''}{graphData.historicalPrices.sixMonths.change}
+                  </span>
+                </div>
+              </div>
+
+              {/* 1 Year Ago */}
+              <div className="p-4 bg-gradient-to-br from-purple-50 to-slate-50 rounded-lg border border-purple-100">
+                <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.oneYear.period}</p>
+                <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.oneYear.price}</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`font-semibold ${graphData.historicalPrices.oneYear.changeValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {graphData.historicalPrices.oneYear.changeValue >= 0 ? '+' : ''}{graphData.historicalPrices.oneYear.change}
+                  </span>
+                </div>
+              </div>
+
+              {/* 2 Years Ago */}
+              <div className="p-4 bg-gradient-to-br from-orange-50 to-slate-50 rounded-lg border border-orange-100">
+                <p className="text-xs font-medium text-slate-600 mb-2">{graphData.historicalPrices.twoYears.period}</p>
+                <h3 className="text-2xl font-bold text-slate-900 mb-1">{graphData.historicalPrices.twoYears.price}</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`font-semibold ${graphData.historicalPrices.twoYears.changeValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {graphData.historicalPrices.twoYears.changeValue >= 0 ? '+' : ''}{graphData.historicalPrices.twoYears.change}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Price History Chart */}
         <Card className="border-slate-200 bg-white/80 backdrop-blur mb-8" data-testid="card-price-history">
