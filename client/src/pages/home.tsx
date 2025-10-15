@@ -268,6 +268,9 @@ export default function Home() {
                 <a href="#properties" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   Properties
                 </a>
+                <a href="/insights" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  Insights
+                </a>
                 {isAuthenticated && (
                   <a href="/dashboard" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                     My Dashboard
@@ -342,6 +345,14 @@ export default function Home() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Properties
+                </a>
+
+                <a 
+                  href="/insights" 
+                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Insights
                 </a>
 
                 <a 

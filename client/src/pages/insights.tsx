@@ -1,0 +1,358 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { TrendingUp, MapPin, RefreshCw, BarChart3, ArrowLeft } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
+import { Link } from "wouter";
+import brikvest_logo from "@/assets/brikvest-logo.png";
+
+interface ChartData {
+  labels: number[];
+  values: number[];
+}
+
+interface GuzapeGraphData {
+  priceChart: ChartData;
+  indexChart: ChartData;
+  scrapedAt: string;
+}
+
+export default function Insights() {
+  const [selectedCity, setSelectedCity] = useState("guzape");
+
+  // Fetch Guzape graph data
+  const { data: graphData, isLoading } = useQuery<GuzapeGraphData>({
+    queryKey: ['/api/scrape/guzape-graphs'],
+    enabled: selectedCity === "guzape",
+  });
+
+  const handleRefreshData = async () => {
+    // Re-scrape the HTML first
+    await fetch('/api/scrape/guzape-html?persist=1');
+    // Then invalidate the cache
+    queryClient.invalidateQueries({ queryKey: ['/api/scrape/guzape-graphs'] });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        {/* Header */}
+        <header className="bg-white shadow-sm border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <Link href="/">
+                <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
+              </Link>
+              <Link href="/">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Home
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <Card className="border-slate-200">
+            <CardContent className="p-12">
+              <div className="animate-pulse space-y-6">
+                <div className="h-8 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-64 bg-slate-100 rounded"></div>
+                <div className="h-64 bg-slate-100 rounded"></div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (!graphData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        {/* Header */}
+        <header className="bg-white shadow-sm border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <Link href="/">
+                <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
+              </Link>
+              <Link href="/">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Home
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          <Card className="border-slate-200">
+            <CardContent className="p-16 text-center">
+              <BarChart3 className="h-16 w-16 text-slate-400 mx-auto mb-6" />
+              <h3 className="text-2xl font-semibold text-slate-900 mb-4">No market data available</h3>
+              <p className="text-slate-600 mb-8">
+                Market insights for {selectedCity} are currently unavailable.
+              </p>
+              <Button onClick={handleRefreshData} data-testid="button-load-insights">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Load Market Data
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Transform data for recharts
+  const priceChartData = graphData.priceChart.labels.map((year, index) => ({
+    year: year.toString(),
+    price: graphData.priceChart.values[index],
+  }));
+
+  const indexChartData = graphData.indexChart.labels.map((year, index) => ({
+    year: year.toString(),
+    index: graphData.indexChart.values[index],
+  }));
+
+  // Format currency
+  const formatPrice = (value: number) => {
+    if (value >= 1e9) return `₦${(value / 1e9).toFixed(1)}B`;
+    if (value >= 1e6) return `₦${(value / 1e6).toFixed(0)}M`;
+    return `₦${value.toLocaleString()}`;
+  };
+
+  const currentPrice = graphData.priceChart.values[graphData.priceChart.values.length - 1];
+  const priceGrowth = graphData.indexChart.values[graphData.indexChart.values.length - 1];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <Link href="/">
+              <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
+            </Link>
+            <Link href="/">
+              <Button variant="ghost" size="sm" data-testid="button-back-home">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Home
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        {/* Hero Section */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 mb-4">
+            Market <span className="text-blue-600">Insights</span>
+          </h1>
+          <p className="text-xl text-slate-600 max-w-2xl mx-auto">
+            Real-time property market analysis to help you make informed investment decisions
+          </p>
+        </div>
+
+        {/* City Selector */}
+        <div className="mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <MapPin className="h-5 w-5 text-blue-600" />
+            <span className="text-sm font-medium text-slate-700">Select Location:</span>
+            <Select value={selectedCity} onValueChange={setSelectedCity}>
+              <SelectTrigger className="w-48" data-testid="select-city">
+                <SelectValue placeholder="Select city" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="guzape">Guzape, Abuja</SelectItem>
+                <SelectItem value="maitama" disabled>Maitama, Abuja (Coming Soon)</SelectItem>
+                <SelectItem value="lekki" disabled>Lekki, Lagos (Coming Soon)</SelectItem>
+                <SelectItem value="ikoyi" disabled>Ikoyi, Lagos (Coming Soon)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="text-sm text-slate-500">
+            Last updated: {new Date(graphData.scrapedAt).toLocaleDateString()}
+          </div>
+        </div>
+
+        {/* Key Metrics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-slate-600">Average Price</div>
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <TrendingUp className="h-4 w-4 text-blue-600" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-slate-900">{formatPrice(currentPrice)}</div>
+              <div className="text-xs text-slate-500 mt-1">Guzape, Abuja (2025)</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-slate-600">Price Growth</div>
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-green-600">+{priceGrowth.toFixed(0)}%</div>
+              <div className="text-xs text-slate-500 mt-1">Since 2019</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 bg-white/80 backdrop-blur">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-slate-600">Market Status</div>
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <BarChart3 className="h-4 w-4 text-emerald-600" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-slate-900">Strong Growth</div>
+              <div className="text-xs text-slate-500 mt-1">High demand area</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Price History Chart */}
+        <Card className="border-slate-200 bg-white/80 backdrop-blur mb-8" data-testid="card-price-history">
+          <CardHeader>
+            <CardTitle className="text-xl">Average Price History</CardTitle>
+            <p className="text-sm text-slate-600">Property price trends in Guzape, Abuja (2019-2025)</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={priceChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="year" 
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  tickFormatter={formatPrice}
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <Tooltip 
+                  formatter={(value: number) => [formatPrice(value), "Average Price"]}
+                  labelFormatter={(label) => `Year ${label}`}
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="price" 
+                  stroke="#2563eb" 
+                  strokeWidth={3}
+                  name="Average Price"
+                  dot={{ fill: "#2563eb", r: 5 }}
+                  activeDot={{ r: 7 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Index Growth Chart */}
+        <Card className="border-slate-200 bg-white/80 backdrop-blur" data-testid="card-index-growth">
+          <CardHeader>
+            <CardTitle className="text-xl">Price Index Growth</CardTitle>
+            <p className="text-sm text-slate-600">Percentage change from 2019 baseline</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={indexChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis 
+                  dataKey="year"
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  tickFormatter={(value) => `${value}%`}
+                  stroke="#64748b"
+                  style={{ fontSize: '12px' }}
+                />
+                <Tooltip 
+                  formatter={(value: number) => [`${value.toFixed(1)}%`, "Growth"]}
+                  labelFormatter={(label) => `Year ${label}`}
+                  contentStyle={{ 
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="index" 
+                  stroke="#16a34a" 
+                  strokeWidth={3}
+                  name="Price Index"
+                  dot={{ fill: "#16a34a", r: 5 }}
+                  activeDot={{ r: 7 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Key Insights */}
+            <div className="mt-6 p-6 bg-gradient-to-br from-blue-50 to-slate-50 rounded-xl border border-slate-200">
+              <h4 className="font-semibold text-slate-900 mb-3 flex items-center">
+                <TrendingUp className="h-5 w-5 mr-2 text-blue-600" />
+                Key Investment Insights
+              </h4>
+              <ul className="space-y-2 text-sm text-slate-700">
+                <li className="flex items-start">
+                  <span className="text-blue-600 mr-2">•</span>
+                  <span><strong>{((priceGrowth) / 100).toFixed(1)}x</strong> price increase since 2019 - strong appreciation potential</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="text-blue-600 mr-2">•</span>
+                  <span>Current average: <strong>{formatPrice(currentPrice)}</strong> - premium location pricing</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="text-blue-600 mr-2">•</span>
+                  <span>Consistent upward trend indicates growing demand in Guzape area</span>
+                </li>
+                <li className="flex items-start">
+                  <span className="text-blue-600 mr-2">•</span>
+                  <span>Data sourced from PropertyPro.ng market analysis</span>
+                </li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* CTA Section */}
+        <div className="mt-12 text-center bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 sm:p-12 text-white">
+          <h2 className="text-3xl font-bold mb-4">Ready to Invest?</h2>
+          <p className="text-lg mb-8 text-blue-100 max-w-2xl mx-auto">
+            Start building your real estate portfolio with fractional ownership in verified properties
+          </p>
+          <Link href="/">
+            <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50" data-testid="button-browse-properties">
+              Browse Properties
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
