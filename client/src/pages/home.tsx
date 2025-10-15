@@ -330,57 +330,127 @@ export default function Home() {
                 size="sm"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="text-slate-600 hover:text-blue-600"
+                data-testid="button-mobile-menu"
               >
                 {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
               </Button>
             </div>
           </div>
           
-          {/* Mobile menu */}
+          {/* Mobile menu overlay */}
           {mobileMenuOpen && (
-            <div className="md:hidden">
-              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white border-t border-slate-200">
-                <a 
-                  href="#properties" 
-                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Properties
-                </a>
+            <div 
+              className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden transition-opacity duration-300"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+          )}
 
-                <Link 
-                  href="/insights" 
-                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+          {/* Mobile menu sidebar */}
+          <div className={`fixed inset-y-0 right-0 z-50 w-72 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out md:hidden ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}>
+            <div className="flex flex-col h-full">
+              {/* Sidebar header */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-200">
+                <img src={brikvest_logo} alt="Brikvest" className="h-8" />
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setMobileMenuOpen(false)}
+                  className="text-slate-600 hover:text-blue-600"
+                  data-testid="button-close-mobile-menu"
                 >
-                  Insights
-                </Link>
+                  <X className="h-6 w-6" />
+                </Button>
+              </div>
 
-                <a 
-                  href="#how-it-works" 
-                  className="text-slate-600 hover:text-blue-600 block px-3 py-2 text-base font-medium"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  How It Works
-                </a>
-                
-                <div className="px-3 py-2">
-                  <CurrencySelector />
+              {/* Sidebar content */}
+              <div className="flex-1 overflow-y-auto py-4">
+                <div className="space-y-1 px-3">
+                  <a 
+                    href="#properties" 
+                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-properties"
+                  >
+                    Properties
+                  </a>
+
+                  <Link 
+                    href="/insights" 
+                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-insights"
+                  >
+                    Insights
+                  </Link>
+
+                  <a 
+                    href="#how-it-works" 
+                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-how-it-works"
+                  >
+                    How It Works
+                  </a>
                 </div>
-                <div className="pt-4">
+
+                {/* User section for authenticated users */}
+                {isAuthenticated && user && (
+                  <div className="mt-6 px-3">
+                    <div className="bg-slate-50 rounded-lg p-4 mb-3">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                          <User className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">
+                            {(user as any).firstName} {(user as any).lastName}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {(user as any).email}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="px-3 mt-4">
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Currency</p>
+                    <CurrencySelector />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sidebar footer */}
+              <div className="border-t border-slate-200 p-4">
+                {isAuthenticated ? (
                   <Button 
                     onClick={() => {
-                      document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' });
+                      window.location.href = '/api/auth/logout';
+                    }}
+                    variant="outline"
+                    className="w-full border-slate-300 text-slate-700 hover:bg-slate-50"
+                    data-testid="button-mobile-logout"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Sign Out
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={() => {
+                      window.location.href = '/login';
                       setMobileMenuOpen(false);
                     }}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    data-testid="button-mobile-signin"
                   >
                     Get Started
                   </Button>
-                </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
         </div>
       </header>
 
