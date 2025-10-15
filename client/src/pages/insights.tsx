@@ -413,7 +413,7 @@ export default function Insights() {
         </Card>
 
         {/* PropertyPro Attribution */}
-        <div className="mb-12 text-center">
+        <div className="mt-8 mb-12 text-center">
           <div className="inline-flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-md">
             <span className="text-sm text-slate-600">Market data powered by</span>
             <a 
