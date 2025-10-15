@@ -9,8 +9,6 @@ import Login from "@/pages/login";
 import ResetPassword from "@/pages/reset-password";
 import Dashboard from "@/pages/dashboard";
 import AdminProtected from "@/pages/admin-protected";
-import GuzapeHtmlPage from "@/pages/GuzapeHtmlPage";
-import GuzapeGraphsPage from "@/pages/GuzapeGraphsPage";
 import Insights from "@/pages/insights";
 import NotFound from "@/pages/not-found";
 
@@ -23,8 +21,6 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/admin" component={AdminProtected} />
       <Route path="/insights" component={Insights} />
-      <Route path="/guzape" component={GuzapeHtmlPage} />
-      <Route path="/guzape-graphs" component={GuzapeGraphsPage} />
       <Route component={NotFound} />
     </Switch>
   );
