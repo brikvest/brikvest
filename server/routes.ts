@@ -442,8 +442,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Calculate amount
-      const unitPriceSnapshot = property.unitPrice || 0;
+      // Calculate amount - use unitPrice if available, otherwise use minInvestment
+      const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
       const amount = Math.round(units * unitPriceSnapshot);
 
       // Create reservation

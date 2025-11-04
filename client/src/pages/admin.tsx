@@ -452,7 +452,7 @@ function AdminInvestmentsTab({
                       {properties.map((property) => (
                         <SelectItem key={property.id} value={property.id.toString()}>
                           {property.name} - {getCurrencySymbol(property.currency || 'NGN')}
-                          {property.unitPrice?.toLocaleString()}/unit
+                          {(property.unitPrice || property.minInvestment || 0).toLocaleString()}/unit
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -463,8 +463,8 @@ function AdminInvestmentsTab({
                   <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg space-y-2">
                     <p className="font-medium text-blue-900">{selectedProperty.name}</p>
                     <p className="text-sm text-blue-700">
-                      Unit Price: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
-                      {selectedProperty.unitPrice?.toLocaleString()}
+                      Price per Unit: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
+                      {(selectedProperty.unitPrice || selectedProperty.minInvestment || 0).toLocaleString()}
                     </p>
                     <p className="text-sm text-blue-700">
                       Available Units: {availableUnits.toLocaleString()}
@@ -495,7 +495,7 @@ function AdminInvestmentsTab({
                   />
                   <p className="text-sm text-slate-500 mt-1">
                     Total: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
-                    {(parseFloat(units || "0") * (selectedProperty.unitPrice || 0)).toLocaleString()}
+                    {(parseFloat(units || "0") * (selectedProperty.unitPrice || selectedProperty.minInvestment || 0)).toLocaleString()}
                   </p>
                 </div>
 
