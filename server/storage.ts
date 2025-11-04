@@ -47,6 +47,7 @@ export interface IStorage {
   setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
   getUserByResetToken(token: string): Promise<User | undefined>;
   updateUserLastLogin(id: number): Promise<void>;
+  updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
   
   // Admin user methods
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -149,6 +150,12 @@ export class DatabaseStorage implements IStorage {
   async updateUserLastLogin(id: number): Promise<void> {
     await db.update(users)
       .set({ lastLogin: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async updateUserKyc(id: number, kycData: Partial<User>): Promise<void> {
+    await db.update(users)
+      .set({ ...kycData, updatedAt: new Date() })
       .where(eq(users.id, id));
   }
 

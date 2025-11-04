@@ -185,6 +185,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // KYC submission endpoint
+  app.post('/api/kyc/submit', requireAuth, upload.fields([
+    { name: 'idDocument', maxCount: 1 },
+    { name: 'selfie', maxCount: 1 }
+  ]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { fullName, dateOfBirth, address, idType, idNumber } = req.body;
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      // Validation
+      if (!fullName || !dateOfBirth || !address || !idType || !idNumber) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (!files || !files.idDocument || files.idDocument.length === 0) {
+        return res.status(400).json({ error: "ID document is required" });
+      }
+
+      // Check age (must be 18+)
+      const dob = new Date(dateOfBirth);
+      const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+      if (age < 18) {
+        return res.status(400).json({ error: "You must be 18 years or older" });
+      }
+
+      // Upload ID document to Cloudinary
+      const idDocumentFile = files.idDocument[0];
+      const idDocumentResult = await uploadToCloudinary(
+        idDocumentFile.buffer,
+        idDocumentFile.originalname,
+        'brikvest/kyc/documents'
+      );
+
+      // Upload selfie if provided
+      let selfieUrl = null;
+      if (files.selfie && files.selfie.length > 0) {
+        const selfieFile = files.selfie[0];
+        const selfieResult = await uploadToCloudinary(
+          selfieFile.buffer,
+          selfieFile.originalname,
+          'brikvest/kyc/selfies'
+        );
+        selfieUrl = selfieResult.url;
+      }
+
+      // Update user's KYC information
+      await storage.updateUserKyc(userId, {
+        kycFullName: fullName,
+        kycDateOfBirth: new Date(dateOfBirth),
+        kycAddress: address,
+        kycIdType: idType,
+        kycIdNumber: idNumber,
+        kycIdDocumentUrl: idDocumentResult.url,
+        kycSelfieUrl: selfieUrl,
+        kycStatus: 'submitted',
+        kycSubmittedAt: new Date(),
+      });
+
+      res.json({ 
+        message: "KYC submitted successfully",
+        status: "submitted"
+      });
+    } catch (error) {
+      console.error("Error submitting KYC:", error);
+      res.status(500).json({ error: "Failed to submit KYC verification" });
+    }
+  });
+
   // Password reset routes
   app.post('/api/forgot-password', async (req, res) => {
     try {
