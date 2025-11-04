@@ -12,13 +12,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
-import type { Property, InvestmentReservation, DeveloperBid, InsertProperty, VerificationStep, MarketInsight } from "@shared/schema";
+import type { Property, InvestmentReservation, InsertProperty, VerificationStep, MarketInsight, User as UserType } from "@shared/schema";
 import { FileUploader } from "@/components/FileUploader";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -40,11 +40,9 @@ export default function AdminDashboard() {
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [viewingProperty, setViewingProperty] = useState<Property | null>(null);
   const [viewingReservation, setViewingReservation] = useState<InvestmentReservation | null>(null);
-  const [viewingDeveloperBid, setViewingDeveloperBid] = useState<DeveloperBid | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
-  const [isDeveloperBidViewOpen, setIsDeveloperBidViewOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
@@ -94,11 +92,14 @@ export default function AdminDashboard() {
     }
   });
 
-  // Fetch developer bids
-  const { data: developerBids = [], isLoading: bidsLoading } = useQuery({
-    queryKey: ["/api/developer-bids"],
+  // Fetch KYC submissions
+  const { data: kycSubmissions = [], isLoading: kycLoading } = useQuery<UserType[]>({
+    queryKey: ["/api/admin/kyc/submissions"],
     queryFn: async () => {
-      const response = await fetch("/api/developer-bids");
+      const sessionId = localStorage.getItem("adminSessionId");
+      const response = await fetch("/api/admin/kyc/submissions", {
+        headers: { "Authorization": `Bearer ${sessionId}` }
+      });
       if (!response.ok) return [];
       return response.json();
     }
@@ -228,6 +229,33 @@ export default function AdminDashboard() {
     }
   });
 
+  const updateKycStatusMutation = useMutation({
+    mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
+      const sessionId = localStorage.getItem("adminSessionId");
+      const response = await fetch(`/api/admin/kyc/${userId}/status`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionId}`
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error("Failed to update KYC status");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc/submissions"] });
+      toast({ title: "KYC status updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Error updating KYC status", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    }
+  });
+
   // Helper functions
   const formatCurrency = (amount: number) => {
     if (amount >= 1000000000) {
@@ -260,11 +288,6 @@ export default function AdminDashboard() {
   const openReservationDetailModal = (reservation: InvestmentReservation) => {
     setViewingReservation(reservation);
     setIsReservationViewOpen(true);
-  };
-
-  const openDeveloperBidDetailModal = (bid: DeveloperBid) => {
-    setViewingDeveloperBid(bid);
-    setIsDeveloperBidViewOpen(true);
   };
 
   const resetPropertyForm = () => {
@@ -506,12 +529,12 @@ export default function AdminDashboard() {
                 Reservations
               </Button>
               <Button
-                variant={selectedTab === "developer-bids" ? "secondary" : "ghost"}
+                variant={selectedTab === "kyc-verifications" ? "secondary" : "ghost"}
                 className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("developer-bids")}
+                onClick={() => setSelectedTab("kyc-verifications")}
               >
-                <FileText className="mr-3 h-4 w-4" />
-                Developer Bids
+                <ShieldCheck className="mr-3 h-4 w-4" />
+                KYC Verifications
               </Button>
             </div>
           </nav>
@@ -631,8 +654,8 @@ export default function AdminDashboard() {
                       <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
                         <CardContent className="p-6">
                           <div className="flex items-center">
-                            <div className="p-3 bg-green-100 rounded-xl">
-                              <TrendingUp className="h-6 w-6 text-green-600" />
+                            <div className="p-3 bg-blue-100 rounded-xl">
+                              <TrendingUp className="h-6 w-6 text-blue-600" />
                             </div>
                             <div className="ml-4">
                               <p className="text-sm font-medium text-slate-600">Total Value</p>
@@ -988,8 +1011,8 @@ export default function AdminDashboard() {
                   <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
                     <CardContent className="p-6">
                       <div className="flex items-center">
-                        <div className="p-3 bg-green-100 rounded-xl">
-                          <TrendingUp className="h-6 w-6 text-green-600" />
+                        <div className="p-3 bg-blue-100 rounded-xl">
+                          <TrendingUp className="h-6 w-6 text-blue-600" />
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium text-slate-600">Total Value</p>
@@ -1019,11 +1042,11 @@ export default function AdminDashboard() {
                     <CardContent className="p-6">
                       <div className="flex items-center">
                         <div className="p-3 bg-orange-100 rounded-xl">
-                          <FileText className="h-6 w-6 text-orange-600" />
+                          <ShieldCheck className="h-6 w-6 text-orange-600" />
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium text-slate-600">Developer Bids</p>
-                          <p className="text-3xl font-bold text-slate-900">{developerBids.length}</p>
+                          <p className="text-sm font-medium text-slate-600">KYC Submissions</p>
+                          <p className="text-3xl font-bold text-slate-900">{kycSubmissions.length}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -1067,27 +1090,37 @@ export default function AdminDashboard() {
                   <Card className="border-slate-200 shadow-sm">
                     <CardHeader>
                       <CardTitle className="flex items-center">
-                        <FileText className="h-5 w-5 mr-2 text-green-600" />
-                        Recent Developer Bids
+                        <ShieldCheck className="h-5 w-5 mr-2 text-blue-600" />
+                        Recent KYC Submissions
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {developerBids.length === 0 ? (
+                      {kycSubmissions.length === 0 ? (
                         <div className="text-center py-8">
-                          <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                          <p className="text-slate-500">No developer bids yet</p>
+                          <ShieldCheck className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                          <p className="text-slate-500">No KYC submissions yet</p>
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          {developerBids.slice(0, 5).map((bid: DeveloperBid) => (
-                            <div key={bid.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                          {kycSubmissions.slice(0, 5).map((kyc) => (
+                            <div key={kyc.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                               <div>
-                                <p className="font-medium text-slate-900">{bid.companyName}</p>
-                                <p className="text-sm text-slate-500">{bid.developerName}</p>
+                                <p className="font-medium text-slate-900">{kyc.firstName} {kyc.lastName}</p>
+                                <p className="text-sm text-slate-500">{kyc.email}</p>
                               </div>
                               <div className="text-right">
-                                <p className="font-medium text-slate-900">{formatCurrency(bid.estimatedCost)}</p>
-                                <p className="text-xs text-slate-500">{formatDate(bid.createdAt.toString())}</p>
+                                <Badge 
+                                  variant={
+                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'rejected' ? 'destructive' : 
+                                    'secondary'
+                                  }
+                                >
+                                  {kyc.kycStatus}
+                                </Badge>
+                                {kyc.kycSubmittedAt && (
+                                  <p className="text-xs text-slate-500 mt-1">{formatDate(kyc.kycSubmittedAt.toString())}</p>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1132,7 +1165,7 @@ export default function AdminDashboard() {
                                   <div className="flex items-center space-x-2 mb-2">
                                     <div className="w-full bg-slate-200 rounded-full h-2">
                                       <div 
-                                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                                         style={{
                                           width: `${(propertyVerificationData.filter((step: any) => step.isCompleted && step.isEnabled).length / propertyVerificationData.filter((step: any) => step.isEnabled).length) * 100 || 0}%`
                                         }}
@@ -1190,14 +1223,14 @@ export default function AdminDashboard() {
                                   .map((step: any) => (
                                   <div key={step.id} className={`p-3 rounded-lg border-2 transition-colors ${
                                     step.isCompleted 
-                                      ? 'border-green-200 bg-green-50' 
+                                      ? 'border-blue-200 bg-blue-50' 
                                       : 'border-slate-200 bg-white hover:border-slate-300'
                                   }`}>
                                     <div className="flex items-start justify-between">
                                       <div className="flex-1">
                                         <div className="flex items-center space-x-2 mb-1">
                                           <CheckCircle className={`h-4 w-4 ${
-                                            step.isCompleted ? 'text-green-600' : 'text-slate-400'
+                                            step.isCompleted ? 'text-blue-600' : 'text-slate-400'
                                           }`} />
                                           <span className="text-sm font-medium text-slate-900">{step.name}</span>
                                         </div>
@@ -1261,7 +1294,7 @@ export default function AdminDashboard() {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                       {isDraftSaved && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-700">
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                           Draft Saved
                         </Badge>
                       )}
@@ -1649,98 +1682,139 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Developer Bids */}
-            {selectedTab === "developer-bids" && (
-              <div className="space-y-8 mt-6">
-                {/* Header Section */}
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Developer Bids</h1>
-                    <p className="text-slate-600 mt-2 text-lg">Review and manage developer project proposals</p>
-                  </div>
+            {/* KYC Verifications */}
+            {selectedTab === "kyc-verifications" && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-900">KYC Verifications</h1>
+                  <p className="text-slate-600 mt-2">Review and manage user identity verifications</p>
                 </div>
 
-                {/* Developer Bids Content */}
-                {bidsLoading ? (
-                  <div className="grid grid-cols-1 gap-6">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="bg-white rounded-xl border border-slate-200 p-8">
-                        <div className="animate-pulse">
-                          <div className="h-6 bg-slate-200 rounded w-1/4 mb-4"></div>
-                          <div className="h-4 bg-slate-200 rounded w-1/2 mb-3"></div>
-                          <div className="h-4 bg-slate-200 rounded w-1/3"></div>
-                        </div>
-                      </div>
-                    ))}
+                {kycLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="mt-4 text-slate-600">Loading KYC submissions...</p>
                   </div>
-                ) : developerBids.length === 0 ? (
-                  <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl border border-slate-200 p-12 lg:p-16">
-                    <div className="text-center max-w-lg mx-auto">
-                      <div className="w-20 h-20 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-8">
-                        <FileText className="h-10 w-10 text-slate-400" />
-                      </div>
-                      <h3 className="text-2xl font-semibold text-slate-900 mb-4">No developer bids yet</h3>
-                      <p className="text-slate-600 mb-8 text-lg">Developer project proposals will appear here once developers start submitting bids</p>
-                    </div>
-                  </div>
+                ) : kycSubmissions.length === 0 ? (
+                  <Card>
+                    <CardContent className="p-12 text-center">
+                      <ShieldCheck className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-600">No KYC submissions yet</p>
+                    </CardContent>
+                  </Card>
                 ) : (
-                  <div className="grid gap-6">
-                    {developerBids.map((bid: DeveloperBid) => (
-                      <Card key={bid.id} className="border-slate-200 shadow-sm hover:shadow-md transition-all duration-200">
-                        <CardContent className="p-6">
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2">
-                              <h3 className="text-xl font-semibold text-slate-900 mb-2">{bid.companyName}</h3>
-                              <p className="text-slate-600 mb-4">{bid.description}</p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="flex items-center">
-                                  <Calendar className="h-4 w-4 text-slate-400 mr-2" />
-                                  <span className="text-sm text-slate-600">{bid.timeline} months</span>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>KYC Submissions ({kycSubmissions.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>User</TableHead>
+                            <TableHead>Full Name</TableHead>
+                            <TableHead>Date of Birth</TableHead>
+                            <TableHead>ID Type</TableHead>
+                            <TableHead>Submitted</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Documents</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {kycSubmissions.map((kyc) => (
+                            <TableRow key={kyc.id}>
+                              <TableCell>
+                                <div>
+                                  <div className="font-medium">{kyc.firstName} {kyc.lastName}</div>
+                                  <div className="text-sm text-slate-500">{kyc.email}</div>
                                 </div>
-                                <div className="flex items-center">
-                                  <Mail className="h-4 w-4 text-slate-400 mr-2" />
-                                  <span className="text-sm text-slate-600">{bid.email}</span>
-                                </div>
-                                <div className="flex items-center">
-                                  <Phone className="h-4 w-4 text-slate-400 mr-2" />
-                                  <span className="text-sm text-slate-600">{bid.phone}</span>
-                                </div>
-                                <div className="flex items-center">
-                                  <Calendar className="h-4 w-4 text-slate-400 mr-2" />
-                                  <span className="text-sm text-slate-600">{formatDate(bid.createdAt.toString())}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="lg:col-span-1">
-                              <div className="bg-slate-50 rounded-xl p-4">
-                                <p className="text-sm font-medium text-slate-600 mb-2">Estimated Cost</p>
-                                <p className="text-2xl font-bold text-slate-900 mb-4">
-                                  {formatCurrency(bid.estimatedCost)}
-                                </p>
-                                <div className="space-y-2">
-                                  <Button
-                                    onClick={() => openDeveloperBidDetailModal(bid)}
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full flex items-center justify-center space-x-2"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                    <span>View Details</span>
-                                  </Button>
-                                  {bid.pastProjectFile && (
-                                    <Button variant="outline" size="sm" className="w-full">
-                                      <Download className="h-4 w-4 mr-2" />
-                                      Past Projects
+                              </TableCell>
+                              <TableCell>{kyc.kycFullName || '-'}</TableCell>
+                              <TableCell>
+                                {kyc.kycDateOfBirth 
+                                  ? new Date(kyc.kycDateOfBirth).toLocaleDateString() 
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{kyc.kycIdType || '-'}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                {kyc.kycSubmittedAt 
+                                  ? formatDate(kyc.kycSubmittedAt.toString()) 
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge 
+                                  variant={
+                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'rejected' ? 'destructive' : 
+                                    'secondary'
+                                  }
+                                >
+                                  {kyc.kycStatus}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {kyc.kycIdDocumentUrl && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => window.open(kyc.kycIdDocumentUrl!, '_blank')}
+                                    >
+                                      <ExternalLink className="h-3 w-3 mr-1" />
+                                      ID Doc
+                                    </Button>
+                                  )}
+                                  {kyc.kycSelfieUrl && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => window.open(kyc.kycSelfieUrl!, '_blank')}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      Selfie
                                     </Button>
                                   )}
                                 </div>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                              </TableCell>
+                              <TableCell>
+                                {kyc.kycStatus === 'submitted' && (
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      onClick={() => updateKycStatusMutation.mutate({ 
+                                        userId: kyc.id, 
+                                        status: 'verified' 
+                                      })}
+                                      disabled={updateKycStatusMutation.isPending}
+                                    >
+                                      <CheckCircle className="h-3 w-3 mr-1" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => updateKycStatusMutation.mutate({ 
+                                        userId: kyc.id, 
+                                        status: 'rejected' 
+                                      })}
+                                      disabled={updateKycStatusMutation.isPending}
+                                    >
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             )}
@@ -2313,148 +2387,13 @@ export default function AdminDashboard() {
                 </Button>
                 <Button
                   variant="default"
-                  className="flex-1 flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700"
+                  className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700"
                   onClick={() => markAsPaidMutation.mutate(viewingReservation.id)}
                   disabled={markAsPaidMutation.isPending}
                 >
                   <CheckCircle className="h-4 w-4" />
                   <span>{markAsPaidMutation.isPending ? "Sending..." : "Mark as Paid"}</span>
                 </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Developer Bid Detail Modal */}
-      <Dialog open={isDeveloperBidViewOpen} onOpenChange={setIsDeveloperBidViewOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl">Developer Bid Details</DialogTitle>
-          </DialogHeader>
-
-          {viewingDeveloperBid && (
-            <div className="space-y-6">
-              {/* Developer Information */}
-              <div className="bg-slate-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Developer Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Developer Name</Label>
-                    <p className="text-slate-900 mt-1">{viewingDeveloperBid.developerName}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Company Name</Label>
-                    <p className="text-slate-900 mt-1 font-semibold">{viewingDeveloperBid.companyName}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Email Address</Label>
-                    <p className="text-slate-900 mt-1">{viewingDeveloperBid.email}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Phone Number</Label>
-                    <p className="text-slate-900 mt-1">{viewingDeveloperBid.phone}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Project Details */}
-              <div className="bg-blue-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Project Proposal</h3>
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Project Description</Label>
-                    <p className="text-slate-900 mt-2 leading-relaxed">{viewingDeveloperBid.description}</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium text-slate-600">Estimated Cost</Label>
-                      <p className="text-slate-900 mt-1 text-xl font-bold">
-                        {formatCurrency(viewingDeveloperBid.estimatedCost)}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-600">Timeline</Label>
-                      <p className="text-slate-900 mt-1">{viewingDeveloperBid.timeline} months</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-slate-600">Status</Label>
-                      <Badge 
-                        variant={
-                          viewingDeveloperBid.status === 'approved' ? 'default' :
-                          viewingDeveloperBid.status === 'pending' ? 'secondary' : 'outline'
-                        }
-                        className="mt-1"
-                      >
-                        {viewingDeveloperBid.status}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Experience & Qualifications */}
-              <div className="bg-green-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Experience & Qualifications</h3>
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Why This Developer Should Be Selected</Label>
-                    <p className="text-slate-900 mt-2 leading-relaxed">{viewingDeveloperBid.whySelected}</p>
-                  </div>
-                  {viewingDeveloperBid.pastProjectLink && (
-                    <div>
-                      <Label className="text-sm font-medium text-slate-600">Past Projects Portfolio</Label>
-                      <div className="mt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (viewingDeveloperBid.pastProjectLink) {
-                              window.open(viewingDeveloperBid.pastProjectLink, '_blank');
-                            }
-                          }}
-                          className="flex items-center space-x-2"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                          <span>View Portfolio</span>
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-4">
-                <Button
-                  variant="outline"
-                  className="flex-1 flex items-center justify-center space-x-2"
-                  onClick={() => {
-                    window.location.href = `mailto:${viewingDeveloperBid.email}`;
-                  }}
-                >
-                  <Mail className="h-4 w-4" />
-                  <span>Contact Developer</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 flex items-center justify-center space-x-2"
-                  onClick={() => {
-                    window.location.href = `tel:${viewingDeveloperBid.phone}`;
-                  }}
-                >
-                  <Phone className="h-4 w-4" />
-                  <span>Call Developer</span>
-                </Button>
-                {viewingDeveloperBid.pastProjectFile && (
-                  <Button
-                    variant="outline"
-                    className="flex-1 flex items-center justify-center space-x-2"
-                  >
-                    <Download className="h-4 w-4" />
-                    <span>Download Files</span>
-                  </Button>
-                )}
               </div>
             </div>
           )}
@@ -2533,7 +2472,7 @@ export default function AdminDashboard() {
                         isCompleted: e.target.checked
                       }));
                     }}
-                    className="w-4 h-4 text-green-600 rounded"
+                    className="w-4 h-4 text-blue-600 rounded"
                   />
                   <Label htmlFor="completed" className="text-sm font-medium">
                     Mark as completed

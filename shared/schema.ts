@@ -31,6 +31,19 @@ export const users = pgTable("users", {
   lastLogin: timestamp("last_login"),
   country: varchar("country", { length: 2 }), // ISO country code
   preferredCurrency: varchar("preferred_currency", { length: 3 }).default("USD"), // ISO currency code
+  
+  // KYC (Know Your Customer) verification fields
+  kycStatus: text("kyc_status").notNull().default("pending"), // 'pending', 'submitted', 'verified', 'rejected'
+  kycFullName: text("kyc_full_name"), // Full legal name from government ID
+  kycDateOfBirth: timestamp("kyc_date_of_birth"), // Must be 18+ years old
+  kycAddress: text("kyc_address"), // Residential address
+  kycIdType: text("kyc_id_type"), // 'passport', 'drivers_license', 'national_id'
+  kycIdNumber: text("kyc_id_number"), // ID number
+  kycIdDocumentUrl: text("kyc_id_document_url"), // Cloudinary URL for ID document
+  kycSelfieUrl: text("kyc_selfie_url"), // Optional selfie/liveness check
+  kycSubmittedAt: timestamp("kyc_submitted_at"), // When KYC was submitted
+  kycVerifiedAt: timestamp("kyc_verified_at"), // When KYC was verified by admin
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -299,6 +312,20 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Reset token is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const kycSubmissionSchema = z.object({
+  fullName: z.string().min(2, "Full name must be at least 2 characters"),
+  dateOfBirth: z.string().refine((date) => {
+    const dob = new Date(date);
+    const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    return age >= 18;
+  }, "You must be 18 years or older"),
+  address: z.string().min(10, "Please provide a complete address"),
+  idType: z.enum(['passport', 'drivers_license', 'national_id'], {
+    errorMap: () => ({ message: "Please select a valid ID type" })
+  }),
+  idNumber: z.string().min(5, "ID number must be at least 5 characters"),
 });
 
 export const insertAdminUserSchema = createInsertSchema(adminUsers).pick({

@@ -8,11 +8,10 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
-import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
+import { investmentEmailTemplate } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
   insertInvestmentReservationSchema, 
-  insertDeveloperBidSchema,
   insertPropertySchema,
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
@@ -23,9 +22,9 @@ import {
   registerUserSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  kycSubmissionSchema,
   type Property,
   type InvestmentReservation,
-  type DeveloperBid,
   type InvestmentGroup,
   type GroupMembership,
   type VerificationStep,
@@ -142,6 +141,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/user/reservations', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const reservations = await storage.getReservationsByUserId(userId);
+      
+      // Fetch property details for each reservation
+      const reservationsWithProperties = await Promise.all(
+        reservations.map(async (reservation: any) => {
+          const property = await storage.getProperty(reservation.propertyId);
+          return {
+            ...reservation,
+            property
+          };
+        })
+      );
+      
+      res.json(reservationsWithProperties);
+    } catch (error) {
+      console.error("Error fetching user reservations:", error);
+      res.status(500).json({ message: "Failed to fetch reservations" });
+    }
+  });
+
   app.get('/api/user/stats', requireAuth, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -159,6 +181,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user stats:", error);
       res.status(500).json({ message: "Failed to fetch user statistics" });
+    }
+  });
+
+  // KYC submission endpoint
+  app.post('/api/kyc/submit', requireAuth, upload.fields([
+    { name: 'idDocument', maxCount: 1 },
+    { name: 'selfie', maxCount: 1 }
+  ]), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+      // Validate request body using Zod schema
+      const validationResult = kycSubmissionSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+
+      const { fullName, dateOfBirth, address, idType, idNumber } = validationResult.data;
+
+      // Validate file uploads
+      if (!files || !files.idDocument || files.idDocument.length === 0) {
+        return res.status(400).json({ error: "ID document is required" });
+      }
+
+      // Validate file types (images and PDFs only)
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      const idDocumentFile = files.idDocument[0];
+      
+      if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
+        return res.status(400).json({ 
+          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+        });
+      }
+
+      // Validate file size (max 10MB)
+      const maxFileSize = 10 * 1024 * 1024; // 10MB
+      if (idDocumentFile.size > maxFileSize) {
+        return res.status(400).json({ 
+          error: "ID document file size exceeds 10MB limit." 
+        });
+      }
+
+      // Validate selfie if provided
+      if (files.selfie && files.selfie.length > 0) {
+        const selfieFile = files.selfie[0];
+        if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+          });
+        }
+        if (selfieFile.size > maxFileSize) {
+          return res.status(400).json({ 
+            error: "Selfie file size exceeds 10MB limit." 
+          });
+        }
+      }
+
+      // Upload ID document to Cloudinary
+      const idDocumentResult = await uploadToCloudinary(
+        idDocumentFile.buffer,
+        idDocumentFile.originalname,
+        'brikvest/kyc/documents'
+      );
+
+      // Upload selfie if provided
+      let selfieUrl = null;
+      if (files.selfie && files.selfie.length > 0) {
+        const selfieFile = files.selfie[0];
+        const selfieResult = await uploadToCloudinary(
+          selfieFile.buffer,
+          selfieFile.originalname,
+          'brikvest/kyc/selfies'
+        );
+        selfieUrl = selfieResult.url;
+      }
+
+      // Update user's KYC information
+      await storage.updateUserKyc(userId, {
+        kycFullName: fullName,
+        kycDateOfBirth: new Date(dateOfBirth),
+        kycAddress: address,
+        kycIdType: idType,
+        kycIdNumber: idNumber,
+        kycIdDocumentUrl: idDocumentResult.url,
+        kycSelfieUrl: selfieUrl,
+        kycStatus: 'submitted',
+        kycSubmittedAt: new Date(),
+      });
+
+      res.json({ 
+        message: "KYC submitted successfully",
+        status: "submitted"
+      });
+    } catch (error) {
+      console.error("Error submitting KYC:", error);
+      res.status(500).json({ error: "Failed to submit KYC verification" });
+    }
+  });
+
+  // Admin KYC routes
+  app.get('/api/admin/kyc/submissions', requireAdminAuth, async (req, res) => {
+    try {
+      const submissions = await storage.getAllKycSubmissions();
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching KYC submissions:", error);
+      res.status(500).json({ error: "Failed to fetch KYC submissions" });
+    }
+  });
+
+  app.put('/api/admin/kyc/:userId/status', requireAdminAuth, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { status } = req.body;
+
+      if (!['verified', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'verified' or 'rejected'" });
+      }
+
+      await storage.updateUserKycStatus(userId, status);
+      res.json({ message: `KYC status updated to ${status}` });
+    } catch (error) {
+      console.error("Error updating KYC status:", error);
+      res.status(500).json({ error: "Failed to update KYC status" });
     }
   });
 
@@ -567,52 +717,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error marking reservation as paid:", error);
       res.status(500).json({ message: "Failed to send payment confirmation" });
-    }
-  });
-
-  // Create developer bid
-  app.post("/api/developer-bids", async (req, res) => {
-    try {
-      const validatedData = insertDeveloperBidSchema.parse(req.body);
-      const bid = await storage.createDeveloperBid(validatedData);
-
-      // Send confirmation email to developer
-      try {
-        const emailTemplate = developerBidEmailTemplate({
-          fullName: validatedData.developerName,
-          propertyName: "our available properties" // Generic since bids aren't property-specific
-        });
-        
-        await sendEmail({
-          to: validatedData.email,
-          subject: emailTemplate.subject,
-          html: emailTemplate.html
-        });
-        
-        console.log(`Developer bid confirmation email sent to ${validatedData.email}`);
-      } catch (emailError) {
-        console.error("Failed to send developer bid confirmation email:", emailError);
-        // Don't fail the request if email fails
-      }
-
-      res.status(201).json(bid);
-    } catch (error) {
-      console.error("Error creating developer bid:", error);
-      if (error instanceof Error && error.name === 'ZodError') {
-        return res.status(400).json({ message: "Invalid data provided" });
-      }
-      res.status(500).json({ message: "Failed to create developer bid" });
-    }
-  });
-
-  // Get all developer bids (admin endpoint)
-  app.get("/api/developer-bids", async (req, res) => {
-    try {
-      const bids = await storage.getDeveloperBids();
-      res.json(bids);
-    } catch (error) {
-      console.error("Error fetching developer bids:", error);
-      res.status(500).json({ message: "Failed to fetch developer bids" });
     }
   });
 
