@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import type { InvestmentReservation, Property } from "@shared/schema";
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { formatCurrency, userCurrency } = useCurrency();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [kycModalOpen, setKycModalOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -51,6 +52,7 @@ export default function Dashboard() {
   const totalInvested = reservations.reduce((sum, res) => sum + (res.units * (res.property?.minInvestment || 0)), 0);
   const activeReservations = reservations.filter(r => r.status === "reserved").length;
   const completedInvestments = reservations.filter(r => r.status === "paid").length;
+  const isKycVerified = userData.kycStatus === 'verified';
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -177,16 +179,51 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {/* KYC Verification Banner - Sticky */}
+        {userData.kycStatus !== 'verified' && (
+          <div className="sticky top-[73px] z-20 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg">
+            <div className="px-4 sm:px-6 py-3 sm:py-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6 flex-shrink-0 mt-0.5 sm:mt-0" />
+                  <div>
+                    <h3 className="font-semibold text-sm sm:text-base">
+                      {userData.kycStatus === 'pending' && 'Verify Your Identity'}
+                      {userData.kycStatus === 'submitted' && 'KYC Under Review'}
+                      {userData.kycStatus === 'rejected' && 'KYC Verification Required'}
+                    </h3>
+                    <p className="text-xs sm:text-sm mt-1 opacity-95">
+                      {userData.kycStatus === 'pending' && 'Complete KYC verification to unlock full access to your investment details and withdraw funds.'}
+                      {userData.kycStatus === 'submitted' && 'Your documents are being reviewed. This usually takes 1-2 business days.'}
+                      {userData.kycStatus === 'rejected' && 'Your KYC submission needs attention. Please resubmit your documents.'}
+                    </p>
+                  </div>
+                </div>
+                {userData.kycStatus !== 'submitted' && (
+                  <Button
+                    onClick={() => setKycModalOpen(true)}
+                    className="bg-white text-orange-600 hover:bg-orange-50 font-semibold whitespace-nowrap self-start sm:self-auto"
+                    data-testid="button-verify-kyc"
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-2" />
+                    {userData.kycStatus === 'rejected' ? 'Resubmit KYC' : 'Verify Now'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Dashboard Content */}
         <main className="p-4 sm:p-6 max-w-7xl mx-auto">
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <Card className="shadow-lg hover:shadow-xl transition-shadow" data-testid="card-total-invested">
+            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-total-invested">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs sm:text-sm text-slate-600 mb-1">Total Invested</p>
-                    <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate">
+                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {formatCurrency(totalInvested)}
                     </p>
                   </div>
@@ -194,15 +231,20 @@ export default function Dashboard() {
                     <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
                   </div>
                 </div>
+                {!isKycVerified && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+                    <ShieldCheck className="h-6 w-6 text-slate-400" />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow" data-testid="card-active-reservations">
+            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-active-reservations">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs sm:text-sm text-slate-600 mb-1">Active Reservations</p>
-                    <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900">
+                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {activeReservations}
                     </p>
                   </div>
@@ -210,15 +252,20 @@ export default function Dashboard() {
                     <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                   </div>
                 </div>
+                {!isKycVerified && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+                    <ShieldCheck className="h-6 w-6 text-slate-400" />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1" data-testid="card-completed">
+            <Card className="shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs sm:text-sm text-slate-600 mb-1">Completed</p>
-                    <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900">
+                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {completedInvestments}
                     </p>
                   </div>
@@ -226,6 +273,11 @@ export default function Dashboard() {
                     <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
                   </div>
                 </div>
+                {!isKycVerified && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+                    <ShieldCheck className="h-6 w-6 text-slate-400" />
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
