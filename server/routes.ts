@@ -8,7 +8,14 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
-import { investmentEmailTemplate, kycApprovedEmailTemplate, kycRejectedEmailTemplate } from "./emailTemplates";
+import { 
+  investmentEmailTemplate, 
+  kycApprovedEmailTemplate, 
+  kycRejectedEmailTemplate,
+  investmentCreatedEmailTemplate,
+  paymentReceivedEmailTemplate,
+  investmentConfirmedEmailTemplate
+} from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
   insertInvestmentReservationSchema, 
@@ -344,6 +351,298 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin Investment routes (admin-assisted flow)
+  // Search for user by email
+  app.post('/api/admin/users/search', requireAdminAuth, async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      res.json({ user: user || null });
+    } catch (error) {
+      console.error("Error searching for user:", error);
+      res.status(500).json({ error: "Failed to search for user" });
+    }
+  });
+
+  // Create new user account (admin-assisted)
+  app.post('/api/admin/users/create', requireAdminAuth, async (req, res) => {
+    try {
+      const { email, fullName, phone } = req.body;
+      
+      if (!email || !fullName) {
+        return res.status(400).json({ error: "Email and full name are required" });
+      }
+
+      // Check if user already exists
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(400).json({ error: "User with this email already exists" });
+      }
+
+      // Create user with temporary password
+      const tempPassword = randomBytes(16).toString('hex');
+      const hashedPassword = await hashPassword(tempPassword);
+      
+      const user = await storage.createUser({
+        email,
+        password: hashedPassword,
+        firstName: fullName.split(' ')[0],
+        lastName: fullName.split(' ').slice(1).join(' ') || '',
+        phone: phone || '',
+      });
+
+      res.status(201).json({ user });
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  // Create investment reservation (admin-assisted)
+  app.post('/api/admin/investments/create', requireAdminAuth, async (req, res) => {
+    try {
+      const {
+        userId,
+        propertyId,
+        units,
+        paymentMethod,
+        paymentReference,
+        paymentEvidenceUrl,
+        notes
+      } = req.body;
+
+      if (!userId || !propertyId || !units) {
+        return res.status(400).json({ error: "userId, propertyId, and units are required" });
+      }
+
+      // Get user and property
+      const user = await storage.getUser(userId);
+      const property = await storage.getProperty(propertyId);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      // Calculate available units - use totalSlots/availableSlots if available (legacy system)
+      const availableUnits = (property.totalSlots && property.totalSlots > 0)
+        ? (property.availableSlots || 0)
+        : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+      
+      if (units > availableUnits) {
+        return res.status(400).json({ 
+          error: `Not enough units available. Only ${availableUnits} units remaining.` 
+        });
+      }
+
+      // Calculate amount - use unitPrice if available, otherwise use minInvestment
+      const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
+      const amount = Math.round(units * unitPriceSnapshot);
+
+      // Create reservation
+      const reservation = await storage.createInvestmentReservation({
+        userId,
+        propertyId,
+        fullName: user.kycFullName || `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        phone: user.phone || '',
+        units: units.toString(),
+        amount,
+        currency: property.currency || 'USD',
+        unitPriceSnapshot,
+        status: 'payment_pending',
+        paymentMethod: paymentMethod || null,
+        paymentReference: paymentReference || null,
+        paymentEvidenceUrl: paymentEvidenceUrl || null,
+        createdByAdminId: (req.user as any).userId,
+        notes: notes || null,
+      });
+
+      // Update property reserved units
+      await storage.updatePropertyUnitCounts(propertyId, units, 0);
+
+      // Send email to user
+      try {
+        const emailContent = investmentCreatedEmailTemplate({
+          fullName: reservation.fullName,
+          propertyName: property.name,
+          units,
+          amount,
+          currency: property.currency || 'USD',
+        });
+        await sendEmail({
+          to: user.email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+        });
+      } catch (emailError) {
+        console.error("Error sending investment created email:", emailError);
+      }
+
+      res.status(201).json(reservation);
+    } catch (error) {
+      console.error("Error creating admin investment:", error);
+      res.status(500).json({ error: "Failed to create investment" });
+    }
+  });
+
+  // Mark payment as received
+  app.put('/api/admin/investments/:id/mark-payment-received', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+      const { paymentMethod, paymentReference, paymentEvidenceUrl, amount } = req.body;
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      // Update reservation status
+      await storage.updateReservation(reservationId, {
+        status: 'payment_received',
+        paymentMethod: paymentMethod || reservation.paymentMethod,
+        paymentReference: paymentReference || reservation.paymentReference,
+        paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
+      });
+
+      // Create payment record
+      await storage.createInvestmentPayment({
+        reservationId,
+        amount: amount || reservation.amount,
+        currency: reservation.currency,
+        paymentMethod: paymentMethod || reservation.paymentMethod || 'bank_transfer',
+        paymentReference: paymentReference || reservation.paymentReference,
+        paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
+        recordedByAdminId: (req.user as any).userId,
+        status: 'received',
+      });
+
+      // Get property for email
+      const property = await storage.getProperty(reservation.propertyId);
+      
+      // Send email to user
+      if (property) {
+        try {
+          const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+          const emailContent = paymentReceivedEmailTemplate({
+            fullName: reservation.fullName,
+            propertyName: property.name,
+            units,
+            amount: amount || reservation.amount,
+            currency: reservation.currency,
+            paymentReference: paymentReference || reservation.paymentReference || undefined,
+          });
+          await sendEmail({
+            to: reservation.email,
+            subject: emailContent.subject,
+            html: emailContent.html,
+          });
+        } catch (emailError) {
+          console.error("Error sending payment received email:", emailError);
+        }
+      }
+
+      res.json({ message: "Payment marked as received" });
+    } catch (error) {
+      console.error("Error marking payment as received:", error);
+      res.status(500).json({ error: "Failed to mark payment as received" });
+    }
+  });
+
+  // Confirm investment (validates KYC and moves to confirmed)
+  app.put('/api/admin/investments/:id/confirm', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      // Check KYC status
+      if (reservation.userId) {
+        const user = await storage.getUser(reservation.userId);
+        if (user && user.kycStatus !== 'verified') {
+          return res.status(400).json({ 
+            error: "Cannot confirm investment. User KYC must be verified first." 
+          });
+        }
+      }
+
+      // Update reservation to confirmed
+      await storage.updateReservation(reservationId, {
+        status: 'confirmed'
+      });
+
+      // Move units from reserved to sold
+      const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+      await storage.updatePropertyUnitCounts(reservation.propertyId, -units, units);
+
+      // Get property for email
+      const property = await storage.getProperty(reservation.propertyId);
+      
+      // Send email to user
+      if (property) {
+        try {
+          const emailContent = investmentConfirmedEmailTemplate({
+            fullName: reservation.fullName,
+            propertyName: property.name,
+            units,
+            amount: reservation.amount,
+            currency: reservation.currency,
+          });
+          await sendEmail({
+            to: reservation.email,
+            subject: emailContent.subject,
+            html: emailContent.html,
+          });
+        } catch (emailError) {
+          console.error("Error sending investment confirmed email:", emailError);
+        }
+      }
+
+      res.json({ message: "Investment confirmed successfully" });
+    } catch (error) {
+      console.error("Error confirming investment:", error);
+      res.status(500).json({ error: "Failed to confirm investment" });
+    }
+  });
+
+  // Cancel investment reservation
+  app.put('/api/admin/investments/:id/cancel', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      // Update reservation to cancelled
+      await storage.updateReservation(reservationId, {
+        status: 'cancelled'
+      });
+
+      // If units were reserved, release them
+      if (reservation.status === 'payment_pending' || reservation.status === 'payment_received') {
+        const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+        await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
+      }
+
+      res.json({ message: "Investment cancelled successfully" });
+    } catch (error) {
+      console.error("Error cancelling investment:", error);
+      res.status(500).json({ error: "Failed to cancel investment" });
+    }
+  });
+
   // Password reset routes
   app.post('/api/forgot-password', async (req, res) => {
     try {
@@ -535,7 +834,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate total invested amount
       const totalInvested = reservations.reduce((sum, reservation) => {
         const property = properties.find(p => p.id === reservation.propertyId);
-        return sum + (property ? reservation.units * property.minInvestment : 0);
+        const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+        return sum + (property ? units * property.minInvestment : 0);
       }, 0);
       
       // Count unique investors
@@ -616,21 +916,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if there are available slots
-      if (property.availableSlots < reservationData.units) {
+      const units = typeof reservationData.units === 'string' ? parseFloat(reservationData.units) : reservationData.units;
+      if (property.availableSlots < units) {
         return res.status(400).json({ message: "Not enough available slots" });
       }
 
       const reservation = await storage.createInvestmentReservation(reservationData);
       
       // Update property available slots
-      await storage.updatePropertySlots(reservationData.propertyId, reservationData.units);
+      await storage.updatePropertySlots(reservationData.propertyId, units);
 
       // Generate referral code for the user
       const referralCode = `REF${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       
       // Send confirmation email
       try {
-        const investmentAmount = reservationData.units * property.minInvestment;
+        const investmentAmount = units * property.minInvestment;
         const emailTemplate = investmentEmailTemplate({
           fullName: reservationData.fullName,
           propertyName: property.name,
@@ -708,7 +1009,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Send payment confirmation email
-      const investmentAmount = reservation.units * property.minInvestment;
+      const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+      const investmentAmount = units * property.minInvestment;
       await sendEmail({
         to: reservation.email,
         subject: "Payment Confirmed - Brikvest Investment",
