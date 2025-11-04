@@ -535,7 +535,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate total invested amount
       const totalInvested = reservations.reduce((sum, reservation) => {
         const property = properties.find(p => p.id === reservation.propertyId);
-        return sum + (property ? reservation.units * property.minInvestment : 0);
+        const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+        return sum + (property ? units * property.minInvestment : 0);
       }, 0);
       
       // Count unique investors
@@ -616,21 +617,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if there are available slots
-      if (property.availableSlots < reservationData.units) {
+      const units = typeof reservationData.units === 'string' ? parseFloat(reservationData.units) : reservationData.units;
+      if (property.availableSlots < units) {
         return res.status(400).json({ message: "Not enough available slots" });
       }
 
       const reservation = await storage.createInvestmentReservation(reservationData);
       
       // Update property available slots
-      await storage.updatePropertySlots(reservationData.propertyId, reservationData.units);
+      await storage.updatePropertySlots(reservationData.propertyId, units);
 
       // Generate referral code for the user
       const referralCode = `REF${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       
       // Send confirmation email
       try {
-        const investmentAmount = reservationData.units * property.minInvestment;
+        const investmentAmount = units * property.minInvestment;
         const emailTemplate = investmentEmailTemplate({
           fullName: reservationData.fullName,
           propertyName: property.name,
@@ -708,7 +710,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Send payment confirmation email
-      const investmentAmount = reservation.units * property.minInvestment;
+      const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+      const investmentAmount = units * property.minInvestment;
       await sendEmail({
         to: reservation.email,
         subject: "Payment Confirmed - Brikvest Investment",
