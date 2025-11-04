@@ -654,8 +654,8 @@ export default function AdminDashboard() {
                       <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
                         <CardContent className="p-6">
                           <div className="flex items-center">
-                            <div className="p-3 bg-green-100 rounded-xl">
-                              <TrendingUp className="h-6 w-6 text-green-600" />
+                            <div className="p-3 bg-blue-100 rounded-xl">
+                              <TrendingUp className="h-6 w-6 text-blue-600" />
                             </div>
                             <div className="ml-4">
                               <p className="text-sm font-medium text-slate-600">Total Value</p>
@@ -1011,8 +1011,8 @@ export default function AdminDashboard() {
                   <Card className="border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200">
                     <CardContent className="p-6">
                       <div className="flex items-center">
-                        <div className="p-3 bg-green-100 rounded-xl">
-                          <TrendingUp className="h-6 w-6 text-green-600" />
+                        <div className="p-3 bg-blue-100 rounded-xl">
+                          <TrendingUp className="h-6 w-6 text-blue-600" />
                         </div>
                         <div className="ml-4">
                           <p className="text-sm font-medium text-slate-600">Total Value</p>
@@ -1090,7 +1090,7 @@ export default function AdminDashboard() {
                   <Card className="border-slate-200 shadow-sm">
                     <CardHeader>
                       <CardTitle className="flex items-center">
-                        <ShieldCheck className="h-5 w-5 mr-2 text-green-600" />
+                        <ShieldCheck className="h-5 w-5 mr-2 text-blue-600" />
                         Recent KYC Submissions
                       </CardTitle>
                     </CardHeader>
@@ -1165,7 +1165,7 @@ export default function AdminDashboard() {
                                   <div className="flex items-center space-x-2 mb-2">
                                     <div className="w-full bg-slate-200 rounded-full h-2">
                                       <div 
-                                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                                         style={{
                                           width: `${(propertyVerificationData.filter((step: any) => step.isCompleted && step.isEnabled).length / propertyVerificationData.filter((step: any) => step.isEnabled).length) * 100 || 0}%`
                                         }}
@@ -1223,14 +1223,14 @@ export default function AdminDashboard() {
                                   .map((step: any) => (
                                   <div key={step.id} className={`p-3 rounded-lg border-2 transition-colors ${
                                     step.isCompleted 
-                                      ? 'border-green-200 bg-green-50' 
+                                      ? 'border-blue-200 bg-blue-50' 
                                       : 'border-slate-200 bg-white hover:border-slate-300'
                                   }`}>
                                     <div className="flex items-start justify-between">
                                       <div className="flex-1">
                                         <div className="flex items-center space-x-2 mb-1">
                                           <CheckCircle className={`h-4 w-4 ${
-                                            step.isCompleted ? 'text-green-600' : 'text-slate-400'
+                                            step.isCompleted ? 'text-blue-600' : 'text-slate-400'
                                           }`} />
                                           <span className="text-sm font-medium text-slate-900">{step.name}</span>
                                         </div>
@@ -1294,7 +1294,7 @@ export default function AdminDashboard() {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-xl text-slate-900">Property Details</CardTitle>
                       {isDraftSaved && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-700">
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                           Draft Saved
                         </Badge>
                       )}
@@ -2387,7 +2387,7 @@ export default function AdminDashboard() {
                 </Button>
                 <Button
                   variant="default"
-                  className="flex-1 flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700"
+                  className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700"
                   onClick={() => markAsPaidMutation.mutate(viewingReservation.id)}
                   disabled={markAsPaidMutation.isPending}
                 >
@@ -2472,7 +2472,7 @@ export default function AdminDashboard() {
                         isCompleted: e.target.checked
                       }));
                     }}
-                    className="w-4 h-4 text-green-600 rounded"
+                    className="w-4 h-4 text-blue-600 rounded"
                   />
                   <Label htmlFor="completed" className="text-sm font-medium">
                     Mark as completed
