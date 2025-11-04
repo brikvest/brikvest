@@ -298,7 +298,7 @@ export default function Dashboard() {
                       {userData.kycStatus === 'rejected' && 'KYC Verification Required'}
                     </h3>
                     <p className="text-xs sm:text-sm mt-1 opacity-95">
-                      {userData.kycStatus === 'pending' && 'Complete KYC verification to unlock full access to your investment details and withdraw funds.'}
+                      {userData.kycStatus === 'pending' && 'Complete KYC verification to unlock full access to your investment details.'}
                       {userData.kycStatus === 'submitted' && 'Your documents are being reviewed. This usually takes 1-2 business days.'}
                       {userData.kycStatus === 'rejected' && 'Your KYC submission needs attention. Please resubmit your documents.'}
                     </p>
