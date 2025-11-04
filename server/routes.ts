@@ -8,7 +8,7 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
-import { investmentEmailTemplate } from "./emailTemplates";
+import { investmentEmailTemplate, kycApprovedEmailTemplate, kycRejectedEmailTemplate } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
   insertInvestmentReservationSchema, 
@@ -304,7 +304,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid status. Must be 'verified' or 'rejected'" });
       }
 
+      // Get user info before updating status
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Update KYC status
       await storage.updateUserKycStatus(userId, status);
+
+      // Send appropriate email
+      try {
+        const fullName = user.kycFullName || user.email.split('@')[0];
+        
+        if (status === 'verified') {
+          const emailContent = kycApprovedEmailTemplate({ fullName });
+          await sendEmail({
+            to: user.email,
+            subject: emailContent.subject,
+            html: emailContent.html,
+          });
+        } else if (status === 'rejected') {
+          const emailContent = kycRejectedEmailTemplate({ fullName });
+          await sendEmail({
+            to: user.email,
+            subject: emailContent.subject,
+            html: emailContent.html,
+          });
+        }
+      } catch (emailError) {
+        console.error("Error sending KYC status email:", emailError);
+        // Don't fail the request if email fails
+      }
+
       res.json({ message: `KYC status updated to ${status}` });
     } catch (error) {
       console.error("Error updating KYC status:", error);
