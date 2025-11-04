@@ -94,7 +94,7 @@ export function kycApprovedEmailTemplate({
           </div>
 
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.REPLIT_DEV_DOMAIN || 'https://brikvest.com'}/dashboard" 
+            <a href="https://www.brikvest.net/dashboard" 
                style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
               Go to Dashboard
             </a>
@@ -156,7 +156,7 @@ export function kycRejectedEmailTemplate({
           </p>
 
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.REPLIT_DEV_DOMAIN || 'https://brikvest.com'}/dashboard" 
+            <a href="https://www.brikvest.net/dashboard" 
                style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
               Resubmit KYC
             </a>
