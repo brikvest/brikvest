@@ -23,6 +23,7 @@ import {
   registerUserSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  kycSubmissionSchema,
   type Property,
   type InvestmentReservation,
   type DeveloperBid,
@@ -192,27 +193,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   ]), async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { fullName, dateOfBirth, address, idType, idNumber } = req.body;
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
-      // Validation
-      if (!fullName || !dateOfBirth || !address || !idType || !idNumber) {
-        return res.status(400).json({ error: "Missing required fields" });
+      // Validate request body using Zod schema
+      const validationResult = kycSubmissionSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
       }
 
+      const { fullName, dateOfBirth, address, idType, idNumber } = validationResult.data;
+
+      // Validate file uploads
       if (!files || !files.idDocument || files.idDocument.length === 0) {
         return res.status(400).json({ error: "ID document is required" });
       }
 
-      // Check age (must be 18+)
-      const dob = new Date(dateOfBirth);
-      const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-      if (age < 18) {
-        return res.status(400).json({ error: "You must be 18 years or older" });
+      // Validate file types (images and PDFs only)
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      const idDocumentFile = files.idDocument[0];
+      
+      if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
+        return res.status(400).json({ 
+          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+        });
+      }
+
+      // Validate file size (max 10MB)
+      const maxFileSize = 10 * 1024 * 1024; // 10MB
+      if (idDocumentFile.size > maxFileSize) {
+        return res.status(400).json({ 
+          error: "ID document file size exceeds 10MB limit." 
+        });
+      }
+
+      // Validate selfie if provided
+      if (files.selfie && files.selfie.length > 0) {
+        const selfieFile = files.selfie[0];
+        if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+          });
+        }
+        if (selfieFile.size > maxFileSize) {
+          return res.status(400).json({ 
+            error: "Selfie file size exceeds 10MB limit." 
+          });
+        }
       }
 
       // Upload ID document to Cloudinary
-      const idDocumentFile = files.idDocument[0];
       const idDocumentResult = await uploadToCloudinary(
         idDocumentFile.buffer,
         idDocumentFile.originalname,

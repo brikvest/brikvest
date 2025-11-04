@@ -191,35 +191,32 @@ export default function Dashboard() {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2">
-            <Link href="/dashboard">
-              <a 
-                className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-600 font-medium" 
-                data-testid="nav-dashboard"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <Home className="h-5 w-5" />
-                <span>Dashboard</span>
-              </a>
+            <Link 
+              href="/dashboard"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-600 font-medium" 
+              data-testid="nav-dashboard"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Home className="h-5 w-5" />
+              <span>Dashboard</span>
             </Link>
-            <Link href="/#properties">
-              <a 
-                className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
-                data-testid="nav-properties"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <Building2 className="h-5 w-5" />
-                <span>Browse Properties</span>
-              </a>
+            <Link 
+              href="/#properties"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
+              data-testid="nav-properties"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Building2 className="h-5 w-5" />
+              <span>Browse Properties</span>
             </Link>
-            <Link href="/insights">
-              <a 
-                className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
-                data-testid="nav-insights"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <TrendingUp className="h-5 w-5" />
-                <span>Market Insights</span>
-              </a>
+            <Link 
+              href="/insights"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
+              data-testid="nav-insights"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <TrendingUp className="h-5 w-5" />
+              <span>Market Insights</span>
             </Link>
           </nav>
 

@@ -314,6 +314,20 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
+export const kycSubmissionSchema = z.object({
+  fullName: z.string().min(2, "Full name must be at least 2 characters"),
+  dateOfBirth: z.string().refine((date) => {
+    const dob = new Date(date);
+    const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    return age >= 18;
+  }, "You must be 18 years or older"),
+  address: z.string().min(10, "Please provide a complete address"),
+  idType: z.enum(['passport', 'drivers_license', 'national_id'], {
+    errorMap: () => ({ message: "Please select a valid ID type" })
+  }),
+  idNumber: z.string().min(5, "ID number must be at least 5 characters"),
+});
+
 export const insertAdminUserSchema = createInsertSchema(adminUsers).pick({
   username: true,
   password: true,
