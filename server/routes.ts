@@ -142,6 +142,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/user/reservations', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const reservations = await storage.getReservationsByUserId(userId);
+      
+      // Fetch property details for each reservation
+      const reservationsWithProperties = await Promise.all(
+        reservations.map(async (reservation: any) => {
+          const property = await storage.getProperty(reservation.propertyId);
+          return {
+            ...reservation,
+            property
+          };
+        })
+      );
+      
+      res.json(reservationsWithProperties);
+    } catch (error) {
+      console.error("Error fetching user reservations:", error);
+      res.status(500).json({ message: "Failed to fetch reservations" });
+    }
+  });
+
   app.get('/api/user/stats', requireAuth, async (req: any, res) => {
     try {
       const userId = req.user.id;

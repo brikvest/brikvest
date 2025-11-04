@@ -23,7 +23,7 @@ export default function Login() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      setLocation("/");
+      setLocation("/dashboard");
     }
   }, [isAuthenticated, isLoading, setLocation]);
 
@@ -66,7 +66,7 @@ export default function Login() {
         title: "Welcome back!",
         description: "You have been logged in successfully.",
       });
-      setLocation("/");
+      setLocation("/dashboard");
     },
     onError: (error: any) => {
       toast({
@@ -97,7 +97,7 @@ export default function Login() {
         title: "Welcome to Brikvest!",
         description: "Your account has been created successfully.",
       });
-      setLocation("/");
+      setLocation("/dashboard");
     },
     onError: (error: any) => {
       toast({
