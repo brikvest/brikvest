@@ -200,15 +200,23 @@ export default function Dashboard() {
               <Home className="h-5 w-5" />
               <span>Dashboard</span>
             </Link>
-            <Link 
-              href="/#properties"
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setLocation('/');
+                setTimeout(() => {
+                  const element = document.getElementById('properties');
+                  if (element) {
+                    element.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }, 100);
+              }}
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors w-full text-left" 
               data-testid="nav-properties"
-              onClick={() => setMobileMenuOpen(false)}
             >
               <Building2 className="h-5 w-5" />
               <span>Browse Properties</span>
-            </Link>
+            </button>
             <Link 
               href="/insights"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
@@ -273,7 +281,15 @@ export default function Dashboard() {
 
               {/* New Investment Button */}
               <Button
-                onClick={() => setLocation("/#properties")}
+                onClick={() => {
+                  setLocation('/');
+                  setTimeout(() => {
+                    const element = document.getElementById('properties');
+                    if (element) {
+                      element.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }, 100);
+                }}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm px-3 sm:px-4 whitespace-nowrap"
                 data-testid="button-new-investment"
               >
@@ -395,7 +411,15 @@ export default function Dashboard() {
                 {reservations.length > 0 && (
                   <Button
                     variant="ghost"
-                    onClick={() => setLocation("/#properties")}
+                    onClick={() => {
+                      setLocation('/');
+                      setTimeout(() => {
+                        const element = document.getElementById('properties');
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }, 100);
+                    }}
                     className="text-blue-600 hover:text-blue-700 text-sm self-start sm:self-auto"
                   >
                     View All Properties
@@ -411,7 +435,15 @@ export default function Dashboard() {
                   <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">No investments yet</h3>
                   <p className="text-sm sm:text-base text-slate-600 mb-6">Start building your real estate portfolio today</p>
                   <Button
-                    onClick={() => setLocation("/#properties")}
+                    onClick={() => {
+                      setLocation('/');
+                      setTimeout(() => {
+                        const element = document.getElementById('properties');
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }, 100);
+                    }}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                     data-testid="button-browse-properties"
                   >
