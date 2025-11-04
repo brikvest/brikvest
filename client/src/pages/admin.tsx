@@ -650,7 +650,9 @@ function AdminInvestmentsTab({
                           <div className="text-sm text-slate-500">{reservation.email}</div>
                         </div>
                       </TableCell>
-                      <TableCell>Property #{reservation.propertyId}</TableCell>
+                      <TableCell>
+                        {properties.find(p => p.id === reservation.propertyId)?.name || `Property #${reservation.propertyId}`}
+                      </TableCell>
                       <TableCell>{reservation.units}</TableCell>
                       <TableCell>
                         {getCurrencySymbol(reservation.currency)}{reservation.amount.toLocaleString()}
