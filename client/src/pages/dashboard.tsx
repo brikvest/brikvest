@@ -1,20 +1,38 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import type { InvestmentReservation, Property } from "@shared/schema";
 import { useCurrency } from "@/hooks/useCurrency";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function Dashboard() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const { formatCurrency, userCurrency } = useCurrency();
+  const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [kycModalOpen, setKycModalOpen] = useState(false);
+  const [kycFormData, setKycFormData] = useState({
+    fullName: '',
+    dateOfBirth: '',
+    address: '',
+    idType: '',
+    idNumber: '',
+  });
+  const [idDocumentFile, setIdDocumentFile] = useState<File | null>(null);
+  const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -34,6 +52,96 @@ export default function Dashboard() {
       window.location.href = "/";
     } catch (error) {
       console.error("Logout error:", error);
+    }
+  };
+
+  const handleKycSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validation
+    if (!kycFormData.fullName || !kycFormData.dateOfBirth || !kycFormData.address || !kycFormData.idType || !kycFormData.idNumber) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!idDocumentFile) {
+      toast({
+        title: "ID Document Required",
+        description: "Please upload your government-issued ID document.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check age (must be 18+)
+    const dob = new Date(kycFormData.dateOfBirth);
+    const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    if (age < 18) {
+      toast({
+        title: "Age Requirement",
+        description: "You must be 18 years or older to complete KYC verification.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('fullName', kycFormData.fullName);
+      formData.append('dateOfBirth', kycFormData.dateOfBirth);
+      formData.append('address', kycFormData.address);
+      formData.append('idType', kycFormData.idType);
+      formData.append('idNumber', kycFormData.idNumber);
+      formData.append('idDocument', idDocumentFile);
+      if (selfieFile) {
+        formData.append('selfie', selfieFile);
+      }
+
+      const response = await fetch('/api/kyc/submit', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('KYC submission failed');
+      }
+
+      toast({
+        title: "KYC Submitted Successfully",
+        description: "Your documents are being reviewed. This usually takes 1-2 business days.",
+      });
+
+      // Refresh user data
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      
+      // Close modal and reset form
+      setKycModalOpen(false);
+      setKycFormData({
+        fullName: '',
+        dateOfBirth: '',
+        address: '',
+        idType: '',
+        idNumber: '',
+      });
+      setIdDocumentFile(null);
+      setSelfieFile(null);
+    } catch (error) {
+      console.error('KYC submission error:', error);
+      toast({
+        title: "Submission Failed",
+        description: "There was an error submitting your KYC documents. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -392,6 +500,232 @@ export default function Dashboard() {
           </Card>
         </main>
       </div>
+
+      {/* KYC Verification Modal */}
+      <Dialog open={kycModalOpen} onOpenChange={setKycModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <ShieldCheck className="h-6 w-6 text-blue-600" />
+              KYC Verification
+            </DialogTitle>
+            <DialogDescription>
+              Complete your identity verification to unlock full access to your investment account. All information is encrypted and secure.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleKycSubmit} className="space-y-6 mt-4">
+            {/* Personal Information */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-slate-900">Personal Information</h3>
+              
+              <div>
+                <Label htmlFor="fullName" className="text-sm font-medium">
+                  Full Legal Name <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="fullName"
+                  type="text"
+                  value={kycFormData.fullName}
+                  onChange={(e) => setKycFormData({ ...kycFormData, fullName: e.target.value })}
+                  placeholder="As shown on government-issued ID"
+                  className="mt-1"
+                  required
+                  data-testid="input-kyc-fullname"
+                />
+                <p className="text-xs text-slate-500 mt-1">Must match your government ID exactly</p>
+              </div>
+
+              <div>
+                <Label htmlFor="dateOfBirth" className="text-sm font-medium">
+                  Date of Birth <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="dateOfBirth"
+                  type="date"
+                  value={kycFormData.dateOfBirth}
+                  onChange={(e) => setKycFormData({ ...kycFormData, dateOfBirth: e.target.value })}
+                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
+                  className="mt-1"
+                  required
+                  data-testid="input-kyc-dob"
+                />
+                <p className="text-xs text-slate-500 mt-1">You must be 18 years or older</p>
+              </div>
+
+              <div>
+                <Label htmlFor="address" className="text-sm font-medium">
+                  Residential Address <span className="text-red-500">*</span>
+                </Label>
+                <Textarea
+                  id="address"
+                  value={kycFormData.address}
+                  onChange={(e) => setKycFormData({ ...kycFormData, address: e.target.value })}
+                  placeholder="Street address, city, state/province, postal code, country"
+                  className="mt-1"
+                  rows={3}
+                  required
+                  data-testid="input-kyc-address"
+                />
+              </div>
+            </div>
+
+            {/* Contact Information - Pre-filled */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-slate-900">Contact Information</h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-slate-600">Email</Label>
+                  <Input
+                    value={userData.email}
+                    disabled
+                    className="mt-1 bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-600">Phone</Label>
+                  <Input
+                    value={userData.phone || "Not provided"}
+                    disabled
+                    className="mt-1 bg-slate-50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Government ID */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-slate-900">Government-Issued ID</h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="idType" className="text-sm font-medium">
+                    ID Type <span className="text-red-500">*</span>
+                  </Label>
+                  <Select
+                    value={kycFormData.idType}
+                    onValueChange={(value) => setKycFormData({ ...kycFormData, idType: value })}
+                    required
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-kyc-idtype">
+                      <SelectValue placeholder="Select ID type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="passport">Passport</SelectItem>
+                      <SelectItem value="drivers_license">Driver's License</SelectItem>
+                      <SelectItem value="national_id">National ID Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="idNumber" className="text-sm font-medium">
+                    ID Number <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="idNumber"
+                    type="text"
+                    value={kycFormData.idNumber}
+                    onChange={(e) => setKycFormData({ ...kycFormData, idNumber: e.target.value })}
+                    placeholder="ID number"
+                    className="mt-1"
+                    required
+                    data-testid="input-kyc-idnumber"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="idDocument" className="text-sm font-medium">
+                  Upload ID Document <span className="text-red-500">*</span>
+                </Label>
+                <div className="mt-1">
+                  <Input
+                    id="idDocument"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
+                    className="cursor-pointer"
+                    required
+                    data-testid="input-kyc-document"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Clear photo or scan of your ID (JPG, PNG, or PDF, max 10MB)
+                  </p>
+                  {idDocumentFile && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      {idDocumentFile.name} selected
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Selfie (Optional) */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-slate-900">Selfie Verification (Optional)</h3>
+              
+              <div>
+                <Label htmlFor="selfie" className="text-sm font-medium">
+                  Upload a Selfie
+                </Label>
+                <div className="mt-1">
+                  <Input
+                    id="selfie"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setSelfieFile(e.target.files?.[0] || null)}
+                    className="cursor-pointer"
+                    data-testid="input-kyc-selfie"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    A clear photo of your face for identity verification (Optional)
+                  </p>
+                  {selfieFile && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      {selfieFile.name} selected
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setKycModalOpen(false)}
+                className="flex-1"
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                disabled={submitting}
+                data-testid="button-submit-kyc"
+              >
+                {submitting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Submit for Verification
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
