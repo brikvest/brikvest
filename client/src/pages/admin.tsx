@@ -1105,7 +1105,7 @@ export default function AdminDashboard() {
                           {kycSubmissions.slice(0, 5).map((kyc) => (
                             <div key={kyc.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                               <div>
-                                <p className="font-medium text-slate-900">{kyc.firstName} {kyc.lastName}</p>
+                                <p className="font-medium text-slate-900">{kyc.kycFullName || kyc.email}</p>
                                 <p className="text-sm text-slate-500">{kyc.email}</p>
                               </div>
                               <div className="text-right">
@@ -1726,7 +1726,7 @@ export default function AdminDashboard() {
                             <TableRow key={kyc.id}>
                               <TableCell>
                                 <div>
-                                  <div className="font-medium">{kyc.firstName} {kyc.lastName}</div>
+                                  <div className="font-medium">{kyc.kycFullName || kyc.email}</div>
                                   <div className="text-sm text-slate-500">{kyc.email}</div>
                                 </div>
                               </TableCell>
