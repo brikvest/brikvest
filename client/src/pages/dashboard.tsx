@@ -456,45 +456,6 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-
-          {/* Account Information */}
-          <Card className="shadow-lg">
-            <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
-              <CardTitle className="text-lg sm:text-xl">Account Information</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Full Name</p>
-                  <p className="text-sm sm:text-base font-medium text-slate-900">{userData.firstName} {userData.lastName}</p>
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Email Address</p>
-                  <p className="text-sm sm:text-base font-medium text-slate-900 break-all">{userData.email}</p>
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Phone Number</p>
-                  <p className="text-sm sm:text-base font-medium text-slate-900">{userData.phone || "Not provided"}</p>
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Preferred Currency</p>
-                  <p className="text-sm sm:text-base font-medium text-slate-900">{userCurrency}</p>
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Member Since</p>
-                  <p className="text-sm sm:text-base font-medium text-slate-900">
-                    {new Date(userData.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">Account Status</p>
-                  <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                    Active
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </main>
       </div>
 
