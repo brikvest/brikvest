@@ -365,6 +365,17 @@ export default function Home() {
               {/* Sidebar content */}
               <div className="flex-1 overflow-y-auto py-4">
                 <div className="space-y-1 px-3">
+                  {isAuthenticated && (
+                    <Link 
+                      href="/dashboard" 
+                      className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                      data-testid="link-mobile-dashboard"
+                    >
+                      Dashboard
+                    </Link>
+                  )}
+
                   <a 
                     href="#properties" 
                     className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
