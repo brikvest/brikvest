@@ -1724,7 +1724,7 @@ export default function AdminDashboard() {
                               <TableCell>{kyc.kycFullName || '-'}</TableCell>
                               <TableCell>
                                 {kyc.kycDateOfBirth 
-                                  ? new Date(kyc.kycDateOfBirth).toLocaleDateString() 
+                                  ? new Date(kyc.kycDateOfBirth).toLocaleDateString('en-US', { timeZone: 'UTC' }) 
                                   : '-'}
                               </TableCell>
                               <TableCell>
@@ -2647,7 +2647,8 @@ export default function AdminDashboard() {
                         ? new Date(viewingKyc.kycDateOfBirth).toLocaleDateString('en-US', {
                             year: 'numeric',
                             month: 'long',
-                            day: 'numeric'
+                            day: 'numeric',
+                            timeZone: 'UTC'
                           })
                         : '-'}
                     </p>
