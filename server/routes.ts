@@ -286,6 +286,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin KYC routes
+  app.get('/api/admin/kyc/submissions', requireAdminAuth, async (req, res) => {
+    try {
+      const submissions = await storage.getAllKycSubmissions();
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching KYC submissions:", error);
+      res.status(500).json({ error: "Failed to fetch KYC submissions" });
+    }
+  });
+
+  app.put('/api/admin/kyc/:userId/status', requireAdminAuth, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { status } = req.body;
+
+      if (!['verified', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'verified' or 'rejected'" });
+      }
+
+      await storage.updateUserKycStatus(userId, status);
+      res.json({ message: `KYC status updated to ${status}` });
+    } catch (error) {
+      console.error("Error updating KYC status:", error);
+      res.status(500).json({ error: "Failed to update KYC status" });
+    }
+  });
+
   // Password reset routes
   app.post('/api/forgot-password', async (req, res) => {
     try {
