@@ -1771,47 +1771,17 @@ export default function AdminDashboard() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <div className="flex gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setViewingKyc(kyc);
-                                      setIsKycDetailOpen(true);
-                                    }}
-                                  >
-                                    <Eye className="h-3 w-3 mr-1" />
-                                    Details
-                                  </Button>
-                                  {kyc.kycStatus === 'submitted' && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        variant="default"
-                                        onClick={() => updateKycStatusMutation.mutate({ 
-                                          userId: kyc.id, 
-                                          status: 'verified' 
-                                        })}
-                                        disabled={updateKycStatusMutation.isPending}
-                                      >
-                                        <CheckCircle className="h-3 w-3 mr-1" />
-                                        Approve
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="destructive"
-                                        onClick={() => updateKycStatusMutation.mutate({ 
-                                          userId: kyc.id, 
-                                          status: 'rejected' 
-                                        })}
-                                        disabled={updateKycStatusMutation.isPending}
-                                      >
-                                        <XCircle className="h-3 w-3 mr-1" />
-                                        Reject
-                                      </Button>
-                                    </>
-                                  )}
-                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setViewingKyc(kyc);
+                                    setIsKycDetailOpen(true);
+                                  }}
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View Details
+                                </Button>
                               </TableCell>
                             </TableRow>
                           ))}
