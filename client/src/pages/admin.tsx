@@ -31,6 +31,684 @@ const getCurrencySymbol = (currency: string) => {
   }
 };
 
+// Admin Investments Tab Component
+function AdminInvestmentsTab({ 
+  properties, 
+  reservations,
+  authenticatedRequest,
+  queryClient,
+  toast 
+}: {
+  properties: Property[];
+  reservations: InvestmentReservation[];
+  authenticatedRequest: any;
+  queryClient: any;
+  toast: any;
+}) {
+  const [activeSubTab, setActiveSubTab] = useState<"create" | "manage">("create");
+  const [userEmail, setUserEmail] = useState("");
+  const [searchedUser, setSearchedUser] = useState<UserType | null>(null);
+  const [searchingUser, setSearchingUser] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
+  const [units, setUnits] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentEvidenceFile, setPaymentEvidenceFile] = useState<File | null>(null);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // Filter states for management view
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const searchUserMutation = useMutation({
+    mutationFn: async (email: string) => {
+      return await authenticatedRequest("/api/admin/users/search", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+    },
+    onSuccess: (data) => {
+      if (data.user) {
+        setSearchedUser(data.user);
+        toast({
+          title: "User found",
+          description: `Found ${data.user.email}`,
+        });
+      } else {
+        setSearchedUser(null);
+        toast({
+          title: "User not found",
+          description: "No user with this email exists",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Search failed",
+        description: "Failed to search for user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: async (data: { email: string; fullName: string; phone?: string }) => {
+      return await authenticatedRequest("/api/admin/users/create", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: (data) => {
+      setSearchedUser(data.user);
+      toast({
+        title: "User created",
+        description: `Created account for ${data.user.email}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Creation failed",
+        description: error.message || "Failed to create user",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createInvestmentMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return await authenticatedRequest("/api/admin/investments/create", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Investment created",
+        description: "Investment reservation has been created successfully",
+      });
+      // Reset form
+      setSearchedUser(null);
+      setUserEmail("");
+      setSelectedPropertyId(null);
+      setUnits("");
+      setPaymentMethod("");
+      setPaymentReference("");
+      setPaymentEvidenceFile(null);
+      setNotes("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Creation failed",
+        description: error.message || "Failed to create investment",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const markPaymentReceivedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}/mark-payment-received`, {
+        method: "PUT",
+        body: JSON.stringify({}),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Payment marked",
+        description: "Payment has been marked as received",
+      });
+    },
+  });
+
+  const confirmInvestmentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}/confirm`, {
+        method: "PUT",
+        body: JSON.stringify({}),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Investment confirmed",
+        description: "Investment has been confirmed successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Confirmation failed",
+        description: error.message || "Failed to confirm investment",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const cancelInvestmentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}/cancel`, {
+        method: "PUT",
+        body: JSON.stringify({}),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      toast({
+        title: "Investment cancelled",
+        description: "Investment has been cancelled",
+      });
+    },
+  });
+
+  const handleSearchUser = () => {
+    if (!userEmail.trim()) {
+      toast({
+        title: "Email required",
+        description: "Please enter a user email",
+        variant: "destructive",
+      });
+      return;
+    }
+    searchUserMutation.mutate(userEmail);
+  };
+
+  const handleCreateInvestment = async () => {
+    // Validation
+    if (!searchedUser || !selectedPropertyId || !units) {
+      toast({
+        title: "Missing information",
+        description: "Please complete all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const unitsValue = parseFloat(units);
+    if (isNaN(unitsValue) || unitsValue <= 0) {
+      toast({
+        title: "Invalid units",
+        description: "Units must be a positive number",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (unitsValue > availableUnits) {
+      toast({
+        title: "Not enough units",
+        description: `Only ${availableUnits} units available`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let paymentEvidenceUrl = null;
+
+    // Upload payment evidence if provided
+    if (paymentEvidenceFile) {
+      setUploadingEvidence(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', paymentEvidenceFile);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Upload failed');
+        }
+        
+        const data = await response.json();
+        paymentEvidenceUrl = data.url;
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: "Failed to upload payment evidence",
+          variant: "destructive",
+        });
+        setUploadingEvidence(false);
+        return;
+      } finally {
+        setUploadingEvidence(false);
+      }
+    }
+
+    createInvestmentMutation.mutate({
+      userId: searchedUser.id,
+      propertyId: selectedPropertyId,
+      units: unitsValue,
+      paymentMethod,
+      paymentReference,
+      paymentEvidenceUrl,
+      notes,
+    });
+  };
+
+  const selectedProperty = properties.find(p => p.id === selectedPropertyId);
+  const availableUnits = selectedProperty 
+    ? (selectedProperty.totalSlots && selectedProperty.totalSlots > 0 
+        ? (selectedProperty.availableSlots || 0)
+        : (selectedProperty.totalUnits || 0) - (selectedProperty.reservedUnits || 0) - (selectedProperty.soldUnits || 0))
+    : 0;
+
+  const filteredReservations = reservations.filter((r) => {
+    if (statusFilter === "all") return true;
+    return r.status === statusFilter;
+  });
+
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case "payment_pending": return "bg-yellow-100 text-yellow-800";
+      case "payment_received": return "bg-blue-100 text-blue-800";
+      case "confirmed": return "bg-green-100 text-green-800";
+      case "cancelled": return "bg-red-100 text-red-800";
+      default: return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  return (
+    <div className="space-y-6 mt-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Admin-Assisted Investments</h1>
+        <p className="text-slate-600 mt-2">Create and manage investments on behalf of users</p>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex space-x-2 border-b border-slate-200">
+        <button
+          onClick={() => setActiveSubTab("create")}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeSubTab === "create"
+              ? "border-b-2 border-blue-600 text-blue-600"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          Create Investment
+        </button>
+        <button
+          onClick={() => setActiveSubTab("manage")}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeSubTab === "manage"
+              ? "border-b-2 border-blue-600 text-blue-600"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          Manage Investments
+        </button>
+      </div>
+
+      {/* Create Investment Tab */}
+      {activeSubTab === "create" && (
+        <div className="space-y-6">
+          {/* Step 1: User Lookup */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Step 1: Find or Create User</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>User Email</Label>
+                <div className="flex space-x-2">
+                  <Input
+                    type="email"
+                    value={userEmail}
+                    onChange={(e) => setUserEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    data-testid="input-user-email"
+                  />
+                  <Button 
+                    onClick={handleSearchUser}
+                    disabled={searchUserMutation.isPending}
+                    data-testid="button-search-user"
+                  >
+                    {searchUserMutation.isPending ? "Searching..." : "Search"}
+                  </Button>
+                </div>
+              </div>
+
+              {searchedUser && (
+                <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                  <p className="font-medium text-green-900">User Found</p>
+                  <p className="text-sm text-green-700">Email: {searchedUser.email}</p>
+                  <p className="text-sm text-green-700">
+                    Name: {searchedUser.firstName} {searchedUser.lastName}
+                  </p>
+                  <p className="text-sm text-green-700">KYC Status: {searchedUser.kycStatus || "Not submitted"}</p>
+                </div>
+              )}
+
+              {!searchedUser && userEmail && !searchUserMutation.isPending && (
+                <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg space-y-3">
+                  <p className="font-medium text-yellow-900">User not found. Create a new account?</p>
+                  <div className="space-y-2">
+                    <div>
+                      <Label>Full Name</Label>
+                      <Input
+                        id="new-user-name"
+                        placeholder="John Doe"
+                        data-testid="input-new-user-name"
+                      />
+                    </div>
+                    <div>
+                      <Label>Phone (Optional)</Label>
+                      <Input
+                        id="new-user-phone"
+                        placeholder="+234..."
+                        data-testid="input-new-user-phone"
+                      />
+                    </div>
+                    <Button
+                      onClick={() => {
+                        const fullName = (document.getElementById("new-user-name") as HTMLInputElement).value;
+                        const phone = (document.getElementById("new-user-phone") as HTMLInputElement).value;
+                        if (!fullName) {
+                          toast({
+                            title: "Name required",
+                            description: "Please enter the user's full name",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        createUserMutation.mutate({ email: userEmail, fullName, phone });
+                      }}
+                      disabled={createUserMutation.isPending}
+                      data-testid="button-create-user"
+                    >
+                      {createUserMutation.isPending ? "Creating..." : "Create User"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Step 2: Property Selection */}
+          {searchedUser && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Step 2: Select Property</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label>Property</Label>
+                  <Select
+                    value={selectedPropertyId?.toString() || ""}
+                    onValueChange={(value) => setSelectedPropertyId(parseInt(value))}
+                  >
+                    <SelectTrigger data-testid="select-property">
+                      <SelectValue placeholder="Select a property" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {properties.map((property) => (
+                        <SelectItem key={property.id} value={property.id.toString()}>
+                          {property.name} - {getCurrencySymbol(property.currency || 'NGN')}
+                          {(property.unitPrice || property.minInvestment || 0).toLocaleString()}/unit
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedProperty && (
+                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg space-y-2">
+                    <p className="font-medium text-blue-900">{selectedProperty.name}</p>
+                    <p className="text-sm text-blue-700">
+                      Price per Unit: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
+                      {(selectedProperty.unitPrice || selectedProperty.minInvestment || 0).toLocaleString()}
+                    </p>
+                    <p className="text-sm text-blue-700">
+                      Available Units: {availableUnits.toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 3: Investment Details */}
+          {searchedUser && selectedProperty && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Step 3: Investment Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label>Number of Units</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={units}
+                    onChange={(e) => setUnits(e.target.value)}
+                    placeholder="0.00"
+                    max={availableUnits}
+                    data-testid="input-units"
+                  />
+                  <p className="text-sm text-slate-500 mt-1">
+                    Total: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
+                    {(parseFloat(units || "0") * (selectedProperty.unitPrice || selectedProperty.minInvestment || 0)).toLocaleString()}
+                  </p>
+                </div>
+
+                <div>
+                  <Label>Payment Method (Optional)</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger data-testid="select-payment-method">
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="check">Check</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Payment Reference (Optional)</Label>
+                  <Input
+                    value={paymentReference}
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                    placeholder="Transaction reference"
+                    data-testid="input-payment-reference"
+                  />
+                </div>
+
+                <div>
+                  <Label>Payment Evidence (Optional)</Label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-lg p-4">
+                    {paymentEvidenceFile ? (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Upload className="h-4 w-4 text-green-600" />
+                          <span className="text-sm text-slate-700">{paymentEvidenceFile.name}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPaymentEvidenceFile(null)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <input
+                          type="file"
+                          id="payment-evidence-upload"
+                          className="hidden"
+                          accept="image/*,.pdf"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setPaymentEvidenceFile(file);
+                            }
+                          }}
+                          data-testid="input-payment-evidence"
+                        />
+                        <label htmlFor="payment-evidence-upload" className="cursor-pointer">
+                          <Upload className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm text-slate-600">Click to upload payment proof</p>
+                          <p className="text-xs text-slate-400 mt-1">PDF or image files</p>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Notes (Optional)</Label>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Additional notes about this investment"
+                    data-testid="textarea-notes"
+                  />
+                </div>
+
+                <Button
+                  onClick={handleCreateInvestment}
+                  disabled={createInvestmentMutation.isPending || uploadingEvidence || !units}
+                  className="w-full"
+                  data-testid="button-create-investment"
+                >
+                  {uploadingEvidence ? "Uploading..." : createInvestmentMutation.isPending ? "Creating..." : "Create Investment"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Manage Investments Tab */}
+      {activeSubTab === "manage" && (
+        <div className="space-y-4">
+          <div className="flex space-x-2">
+            <Button
+              variant={statusFilter === "all" ? "default" : "outline"}
+              onClick={() => setStatusFilter("all")}
+              size="sm"
+              data-testid="filter-all"
+            >
+              All ({reservations.length})
+            </Button>
+            <Button
+              variant={statusFilter === "payment_pending" ? "default" : "outline"}
+              onClick={() => setStatusFilter("payment_pending")}
+              size="sm"
+              data-testid="filter-payment-pending"
+            >
+              Payment Pending ({reservations.filter(r => r.status === "payment_pending").length})
+            </Button>
+            <Button
+              variant={statusFilter === "payment_received" ? "default" : "outline"}
+              onClick={() => setStatusFilter("payment_received")}
+              size="sm"
+              data-testid="filter-payment-received"
+            >
+              Payment Received ({reservations.filter(r => r.status === "payment_received").length})
+            </Button>
+            <Button
+              variant={statusFilter === "confirmed" ? "default" : "outline"}
+              onClick={() => setStatusFilter("confirmed")}
+              size="sm"
+              data-testid="filter-confirmed"
+            >
+              Confirmed ({reservations.filter(r => r.status === "confirmed").length})
+            </Button>
+          </div>
+
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Property</TableHead>
+                    <TableHead>Units</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredReservations.map((reservation) => (
+                    <TableRow key={reservation.id}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{reservation.fullName}</div>
+                          <div className="text-sm text-slate-500">{reservation.email}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {properties.find(p => p.id === reservation.propertyId)?.name || `Property #${reservation.propertyId}`}
+                      </TableCell>
+                      <TableCell>{reservation.units}</TableCell>
+                      <TableCell>
+                        {getCurrencySymbol(reservation.currency)}{reservation.amount.toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getStatusBadgeColor(reservation.status)}>
+                          {reservation.status.replace('_', ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          {reservation.status === "payment_pending" && (
+                            <Button
+                              size="sm"
+                              onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
+                              disabled={markPaymentReceivedMutation.isPending}
+                              data-testid={`button-mark-payment-${reservation.id}`}
+                            >
+                              Mark Paid
+                            </Button>
+                          )}
+                          {reservation.status === "payment_received" && (
+                            <Button
+                              size="sm"
+                              onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
+                              disabled={confirmInvestmentMutation.isPending}
+                              data-testid={`button-confirm-${reservation.id}`}
+                            >
+                              Confirm
+                            </Button>
+                          )}
+                          {(reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
+                              disabled={cancelInvestmentMutation.isPending}
+                              data-testid={`button-cancel-${reservation.id}`}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
   const { toast } = useToast();
@@ -518,6 +1196,14 @@ export default function AdminDashboard() {
               >
                 <Users className="mr-3 h-4 w-4" />
                 Reservations
+              </Button>
+              <Button
+                variant={selectedTab === "admin-investments" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("admin-investments")}
+              >
+                <Target className="mr-3 h-4 w-4" />
+                Admin Investments
               </Button>
               <Button
                 variant={selectedTab === "kyc-verifications" ? "secondary" : "ghost"}
@@ -1671,6 +2357,17 @@ export default function AdminDashboard() {
                   </Card>
                 )}
               </div>
+            )}
+
+            {/* Admin-Assisted Investments */}
+            {selectedTab === "admin-investments" && (
+              <AdminInvestmentsTab
+                properties={properties}
+                reservations={reservations}
+                authenticatedRequest={authenticatedRequest}
+                queryClient={queryClient}
+                toast={toast}
+              />
             )}
 
             {/* KYC Verifications */}

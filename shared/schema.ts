@@ -84,6 +84,14 @@ export const properties = pgTable("properties", {
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
   currency: text("currency").notNull().default("USD"), // Currency for property values
+  
+  // Unit-based investment tracking
+  totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
+  reservedUnits: integer("reserved_units").notNull().default(0), // Units soft-locked for payment_pending reservations
+  soldUnits: integer("sold_units").notNull().default(0), // Units confirmed and sold
+  unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
+  unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -94,10 +102,39 @@ export const investmentReservations = pgTable("investment_reservations", {
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
-  units: integer("units").notNull(),
+  units: decimal("units", { precision: 15, scale: 2 }).notNull(), // Number of units being purchased
+  amount: bigint("amount", { mode: "number" }).notNull(), // Total amount (units * unitPriceSnapshot)
+  currency: text("currency").notNull().default("USD"), // Currency for the investment
+  unitPriceSnapshot: bigint("unit_price_snapshot", { mode: "number" }).notNull(), // Price per unit at time of reservation
   referralCode: text("referral_code"),
-  status: text("status").notNull().default("reserved"),
+  status: text("status").notNull().default("payment_pending"), // 'payment_pending', 'payment_received', 'confirmed', 'cancelled'
+  
+  // Payment tracking (admin-assisted)
+  paymentMethod: text("payment_method"), // 'bank_transfer', 'card', 'cash', 'check', etc.
+  paymentReference: text("payment_reference"), // Transaction ID or reference number
+  paymentEvidenceUrl: text("payment_evidence_url"), // Cloudinary URL for payment receipt/proof
+  
+  // Admin tracking
+  createdByAdminId: integer("created_by_admin_id").references(() => adminUsers.id), // Admin who created this reservation
+  notes: text("notes"), // Admin notes about the reservation
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Payment records for investment reservations
+export const investmentPayments = pgTable("investment_payments", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  amount: bigint("amount", { mode: "number" }).notNull(),
+  currency: text("currency").notNull().default("USD"),
+  paymentMethod: text("payment_method").notNull(), // 'bank_transfer', 'card', 'cash', 'check', etc.
+  paymentReference: text("payment_reference"), // Transaction ID or reference number
+  paymentEvidenceUrl: text("payment_evidence_url"), // Cloudinary URL for payment receipt/proof
+  recordedByAdminId: integer("recorded_by_admin_id").notNull().references(() => adminUsers.id),
+  status: text("status").notNull().default("received"), // 'received', 'verified', 'refunded'
+  notes: text("notes"), // Admin notes about the payment
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
 });
 
 export const developerBids = pgTable("developer_bids", {
@@ -225,7 +262,7 @@ export const propertiesRelations = relations(properties, ({ many }) => ({
   verificationCompletions: many(verificationStepCompletions),
 }));
 
-export const investmentReservationsRelations = relations(investmentReservations, ({ one }) => ({
+export const investmentReservationsRelations = relations(investmentReservations, ({ one, many }) => ({
   property: one(properties, {
     fields: [investmentReservations.propertyId],
     references: [properties.id],
@@ -233,6 +270,22 @@ export const investmentReservationsRelations = relations(investmentReservations,
   user: one(users, {
     fields: [investmentReservations.userId],
     references: [users.id],
+  }),
+  createdByAdmin: one(adminUsers, {
+    fields: [investmentReservations.createdByAdminId],
+    references: [adminUsers.id],
+  }),
+  payments: many(investmentPayments),
+}));
+
+export const investmentPaymentsRelations = relations(investmentPayments, ({ one }) => ({
+  reservation: one(investmentReservations, {
+    fields: [investmentPayments.reservationId],
+    references: [investmentReservations.id],
+  }),
+  recordedByAdmin: one(adminUsers, {
+    fields: [investmentPayments.recordedByAdminId],
+    references: [adminUsers.id],
   }),
 }));
 
@@ -347,7 +400,12 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
 export const insertInvestmentReservationSchema = createInsertSchema(investmentReservations).omit({
   id: true,
   createdAt: true,
-  status: true,
+  updatedAt: true,
+});
+
+export const insertInvestmentPaymentSchema = createInsertSchema(investmentPayments).omit({
+  id: true,
+  recordedAt: true,
 });
 
 export const insertDeveloperBidSchema = createInsertSchema(developerBids).omit({
@@ -413,6 +471,9 @@ export type Property = typeof properties.$inferSelect;
 
 export type InsertInvestmentReservation = z.infer<typeof insertInvestmentReservationSchema>;
 export type InvestmentReservation = typeof investmentReservations.$inferSelect;
+
+export type InsertInvestmentPayment = z.infer<typeof insertInvestmentPaymentSchema>;
+export type InvestmentPayment = typeof investmentPayments.$inferSelect;
 
 export type InsertDeveloperBid = z.infer<typeof insertDeveloperBidSchema>;
 export type DeveloperBid = typeof developerBids.$inferSelect;

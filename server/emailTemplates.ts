@@ -178,3 +178,243 @@ export function kycRejectedEmailTemplate({
     `,
   };
 }
+
+export function investmentCreatedEmailTemplate({
+  fullName,
+  propertyName,
+  units,
+  amount,
+  currency,
+}: {
+  fullName: string;
+  propertyName: string;
+  units: number;
+  amount: number;
+  currency: string;
+}) {
+  return {
+    subject: "Investment Reservation Created – Brikvest",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <h2 style="color: #222; text-align: center;">Investment Reservation Created</h2>
+
+          <p style="font-size: 16px; color: #444;">
+            Hello ${fullName},
+          </p>
+
+          <p style="font-size: 16px; color: #444;">
+            An investment reservation has been created for you in <strong>${propertyName}</strong>.
+          </p>
+
+          <div style="background: #f0f9ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Investment Details</h3>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Property:</strong> ${propertyName}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Units:</strong> ${units}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Amount:</strong> ${currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency} ${amount.toLocaleString()}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Status:</strong> Payment Pending
+            </p>
+          </div>
+
+          <p style="font-size: 16px; color: #444;">
+            <strong>Next Steps:</strong><br>
+            Please complete your payment to confirm this investment. Once payment is received and verified, your investment will be confirmed and you'll receive full access to your investment details.
+          </p>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://www.brikvest.net/dashboard" 
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+              View Dashboard
+            </a>
+          </div>
+
+          <p style="margin-top: 40px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          © ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
+
+export function paymentReceivedEmailTemplate({
+  fullName,
+  propertyName,
+  units,
+  amount,
+  currency,
+  paymentReference,
+}: {
+  fullName: string;
+  propertyName: string;
+  units: number;
+  amount: number;
+  currency: string;
+  paymentReference?: string;
+}) {
+  return {
+    subject: "Payment Received – Brikvest",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <div style="width: 80px; height: 80px; background: #10b981; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
+              <span style="color: white; font-size: 48px;">✓</span>
+            </div>
+          </div>
+
+          <h2 style="color: #222; text-align: center;">Payment Received!</h2>
+
+          <p style="font-size: 16px; color: #444;">
+            Hello ${fullName},
+          </p>
+
+          <p style="font-size: 16px; color: #444;">
+            We've received your payment for your investment in <strong>${propertyName}</strong>!
+          </p>
+
+          <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <h3 style="margin: 0 0 12px 0; color: #065f46; font-size: 18px;">Payment Details</h3>
+            <p style="margin: 8px 0; font-size: 15px; color: #064e3b;">
+              <strong>Property:</strong> ${propertyName}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #064e3b;">
+              <strong>Units:</strong> ${units}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #064e3b;">
+              <strong>Amount:</strong> ${currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency} ${amount.toLocaleString()}
+            </p>
+            ${paymentReference ? `
+            <p style="margin: 8px 0; font-size: 15px; color: #064e3b;">
+              <strong>Reference:</strong> ${paymentReference}
+            </p>
+            ` : ''}
+          </div>
+
+          <p style="font-size: 16px; color: #444;">
+            <strong>What's Next?</strong><br>
+            Your payment is being processed. Once verification is complete (including KYC if not yet verified), your investment will be confirmed and you'll have full access to all investment details.
+          </p>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://www.brikvest.net/dashboard" 
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+              View Dashboard
+            </a>
+          </div>
+
+          <p style="margin-top: 40px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          © ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
+
+export function investmentConfirmedEmailTemplate({
+  fullName,
+  propertyName,
+  units,
+  amount,
+  currency,
+}: {
+  fullName: string;
+  propertyName: string;
+  units: number;
+  amount: number;
+  currency: string;
+}) {
+  return {
+    subject: "Investment Confirmed – Brikvest",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <div style="width: 80px; height: 80px; background: #2563eb; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
+              <span style="color: white; font-size: 48px;">🎉</span>
+            </div>
+          </div>
+
+          <h2 style="color: #222; text-align: center;">Congratulations ${fullName}!</h2>
+
+          <p style="font-size: 16px; color: #444; text-align: center;">
+            Your investment in <strong>${propertyName}</strong> has been <strong style="color: #2563eb;">confirmed</strong>!
+          </p>
+
+          <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Investment Summary</h3>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Property:</strong> ${propertyName}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Units Owned:</strong> ${units}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Total Investment:</strong> ${currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency} ${amount.toLocaleString()}
+            </p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
+              <strong>Status:</strong> <span style="color: #10b981;">Confirmed</span>
+            </p>
+          </div>
+
+          <p style="font-size: 16px; color: #444;">
+            <strong>What's Included:</strong>
+          </p>
+          <ul style="font-size: 15px; color: #666; line-height: 1.8;">
+            <li>Full access to property updates and progress</li>
+            <li>Detailed investment analytics in your dashboard</li>
+            <li>Regular updates on property development</li>
+            <li>Future returns and appreciation tracking</li>
+          </ul>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://www.brikvest.net/dashboard" 
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+              View Your Investment
+            </a>
+          </div>
+
+          <p style="font-size: 16px; color: #444;">
+            Thank you for choosing Brikvest. We're excited to have you as an investor!
+          </p>
+
+          <p style="margin-top: 40px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          © ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
