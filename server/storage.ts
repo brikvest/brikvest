@@ -3,7 +3,6 @@ import {
   adminUsers,
   properties,
   investmentReservations,
-  developerBids,
   investmentGroups,
   groupMemberships,
   verificationSteps,
@@ -19,8 +18,6 @@ import {
   type InsertProperty,
   type InvestmentReservation,
   type InsertInvestmentReservation,
-  type DeveloperBid,
-  type InsertDeveloperBid,
   type InvestmentGroup,
   type InsertInvestmentGroup,
   type GroupMembership,
@@ -47,6 +44,9 @@ export interface IStorage {
   setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
   getUserByResetToken(token: string): Promise<User | undefined>;
   updateUserLastLogin(id: number): Promise<void>;
+  updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
+  getAllKycSubmissions(): Promise<User[]>;
+  updateUserKycStatus(userId: number, status: string): Promise<void>;
   
   // Admin user methods
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -69,11 +69,6 @@ export interface IStorage {
   getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
-  
-  // Developer bid methods
-  createDeveloperBid(bid: InsertDeveloperBid): Promise<DeveloperBid>;
-  getDeveloperBids(): Promise<DeveloperBid[]>;
-  getDeveloperBid(id: number): Promise<DeveloperBid | undefined>;
   
   // Investment group methods
   createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
@@ -150,6 +145,27 @@ export class DatabaseStorage implements IStorage {
     await db.update(users)
       .set({ lastLogin: new Date(), updatedAt: new Date() })
       .where(eq(users.id, id));
+  }
+
+  async updateUserKyc(id: number, kycData: Partial<User>): Promise<void> {
+    await db.update(users)
+      .set({ ...kycData, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async getAllKycSubmissions(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(ne(users.kycStatus, 'pending'))
+      .orderBy(desc(users.kycSubmittedAt));
+  }
+
+  async updateUserKycStatus(userId: number, status: string): Promise<void> {
+    await db.update(users)
+      .set({ 
+        kycStatus: status as 'pending' | 'submitted' | 'verified' | 'rejected',
+        updatedAt: new Date() 
+      })
+      .where(eq(users.id, userId));
   }
 
   // Admin user methods
@@ -271,27 +287,6 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(investmentReservations)
       .orderBy(desc(investmentReservations.createdAt));
-  }
-
-  // Developer bid methods
-  async createDeveloperBid(bid: InsertDeveloperBid): Promise<DeveloperBid> {
-    const [newBid] = await db
-      .insert(developerBids)
-      .values(bid)
-      .returning();
-    return newBid;
-  }
-
-  async getDeveloperBids(): Promise<DeveloperBid[]> {
-    return await db
-      .select()
-      .from(developerBids)
-      .orderBy(desc(developerBids.createdAt));
-  }
-
-  async getDeveloperBid(id: number): Promise<DeveloperBid | undefined> {
-    const [bid] = await db.select().from(developerBids).where(eq(developerBids.id, id));
-    return bid || undefined;
   }
 
   // Investment group methods
