@@ -8,11 +8,10 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary } from "./cloudinary";
 import { sendEmail } from "./emailService";
-import { investmentEmailTemplate, developerBidEmailTemplate } from "./emailTemplates";
+import { investmentEmailTemplate } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
   insertInvestmentReservationSchema, 
-  insertDeveloperBidSchema,
   insertPropertySchema,
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
@@ -26,7 +25,6 @@ import {
   kycSubmissionSchema,
   type Property,
   type InvestmentReservation,
-  type DeveloperBid,
   type InvestmentGroup,
   type GroupMembership,
   type VerificationStep,
@@ -719,52 +717,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error marking reservation as paid:", error);
       res.status(500).json({ message: "Failed to send payment confirmation" });
-    }
-  });
-
-  // Create developer bid
-  app.post("/api/developer-bids", async (req, res) => {
-    try {
-      const validatedData = insertDeveloperBidSchema.parse(req.body);
-      const bid = await storage.createDeveloperBid(validatedData);
-
-      // Send confirmation email to developer
-      try {
-        const emailTemplate = developerBidEmailTemplate({
-          fullName: validatedData.developerName,
-          propertyName: "our available properties" // Generic since bids aren't property-specific
-        });
-        
-        await sendEmail({
-          to: validatedData.email,
-          subject: emailTemplate.subject,
-          html: emailTemplate.html
-        });
-        
-        console.log(`Developer bid confirmation email sent to ${validatedData.email}`);
-      } catch (emailError) {
-        console.error("Failed to send developer bid confirmation email:", emailError);
-        // Don't fail the request if email fails
-      }
-
-      res.status(201).json(bid);
-    } catch (error) {
-      console.error("Error creating developer bid:", error);
-      if (error instanceof Error && error.name === 'ZodError') {
-        return res.status(400).json({ message: "Invalid data provided" });
-      }
-      res.status(500).json({ message: "Failed to create developer bid" });
-    }
-  });
-
-  // Get all developer bids (admin endpoint)
-  app.get("/api/developer-bids", async (req, res) => {
-    try {
-      const bids = await storage.getDeveloperBids();
-      res.json(bids);
-    } catch (error) {
-      console.error("Error fetching developer bids:", error);
-      res.status(500).json({ message: "Failed to fetch developer bids" });
     }
   });
 
