@@ -3,6 +3,7 @@ import {
   adminUsers,
   properties,
   investmentReservations,
+  investmentPayments,
   investmentGroups,
   groupMemberships,
   verificationSteps,
@@ -69,6 +70,9 @@ export interface IStorage {
   getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
+  getReservation(id: number): Promise<InvestmentReservation | undefined>;
+  updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
+  updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   
   // Investment group methods
   createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
@@ -97,6 +101,10 @@ export interface IStorage {
   // Guzape listings methods
   saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]>;
   getGuzapeListings(limit?: number): Promise<GuzapeListing[]>;
+  
+  // Investment payments methods (admin-assisted)
+  createInvestmentPayment(payment: any): Promise<any>;
+  getInvestmentPayments(reservationId: number): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -253,7 +261,8 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     // Update property slots and funding progress
-    await this.updatePropertySlots(reservation.propertyId, reservation.units);
+    const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+    await this.updatePropertySlots(reservation.propertyId, units);
     
     return newReservation;
   }
@@ -287,6 +296,33 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(investmentReservations)
       .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getReservation(id: number): Promise<InvestmentReservation | undefined> {
+    const [reservation] = await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.id, id));
+    return reservation;
+  }
+
+  async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    const [updated] = await db
+      .update(investmentReservations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(investmentReservations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void> {
+    await db
+      .update(properties)
+      .set({
+        reservedUnits: sql`${properties.reservedUnits} + ${reservedDelta}`,
+        soldUnits: sql`${properties.soldUnits} + ${soldDelta}`,
+      })
+      .where(eq(properties.id, propertyId));
   }
 
   // Investment group methods
@@ -523,6 +559,23 @@ export class DatabaseStorage implements IStorage {
     }
     
     return query;
+  }
+
+  // Investment payments methods
+  async createInvestmentPayment(payment: any): Promise<any> {
+    const [newPayment] = await db
+      .insert(investmentPayments)
+      .values(payment)
+      .returning();
+    return newPayment;
+  }
+
+  async getInvestmentPayments(reservationId: number): Promise<any[]> {
+    return await db
+      .select()
+      .from(investmentPayments)
+      .where(eq(investmentPayments.reservationId, reservationId))
+      .orderBy(desc(investmentPayments.recordedAt));
   }
 }
 

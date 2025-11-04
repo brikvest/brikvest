@@ -157,7 +157,10 @@ export default function Dashboard() {
   }
 
   const userData = user as any;
-  const totalInvested = reservations.reduce((sum, res) => sum + (res.units * (res.property?.minInvestment || 0)), 0);
+  const totalInvested = reservations.reduce((sum, res) => {
+    const units = typeof res.units === 'string' ? parseFloat(res.units) : res.units;
+    return sum + (units * (res.property?.minInvestment || 0));
+  }, 0);
   const activeReservations = reservations.filter(r => r.status === "reserved").length;
   const completedInvestments = reservations.filter(r => r.status === "paid").length;
   const isKycVerified = userData.kycStatus === 'verified';
@@ -396,91 +399,168 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* My Reservations */}
-          <Card className="mb-6 sm:mb-8 shadow-lg">
-            <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <CardTitle className="text-lg sm:text-xl">My Investment Reservations</CardTitle>
-                {reservations.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setLocation('/');
-                      setTimeout(() => {
-                        const element = document.getElementById('properties');
-                        if (element) {
-                          element.scrollIntoView({ behavior: 'smooth' });
-                        }
-                      }, 100);
-                    }}
-                    className="text-blue-600 hover:text-blue-700 text-sm self-start sm:self-auto"
-                  >
-                    View All Properties
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-6">
-              {reservations.length === 0 ? (
-                <div className="text-center py-8 sm:py-12">
-                  <Building2 className="h-12 w-12 sm:h-16 sm:w-16 text-slate-300 mx-auto mb-4" />
-                  <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">No investments yet</h3>
-                  <p className="text-sm sm:text-base text-slate-600 mb-6">Start building your real estate portfolio today</p>
-                  <Button
-                    onClick={() => {
-                      setLocation('/');
-                      setTimeout(() => {
-                        const element = document.getElementById('properties');
-                        if (element) {
-                          element.scrollIntoView({ behavior: 'smooth' });
-                        }
-                      }, 100);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                    data-testid="button-browse-properties"
-                  >
-                    Browse Properties
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3 sm:space-y-4">
-                  {reservations.map((reservation) => (
-                    <div
-                      key={reservation.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all"
-                      data-testid={`reservation-${reservation.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-900 mb-1 text-sm sm:text-base">
-                          {reservation.property?.name || `Property #${reservation.propertyId}`}
-                        </h4>
-                        <p className="text-xs sm:text-sm text-slate-600">
-                          {reservation.units} {reservation.units === 1 ? 'slot' : 'slots'} • {formatCurrency(reservation.units * (reservation.property?.minInvestment || 0))}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Reserved {new Date(reservation.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
-                            reservation.status === "paid"
-                              ? "bg-green-100 text-green-700"
-                              : reservation.status === "reserved"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-100 text-slate-700"
-                          }`}
+          {/* Pending Reservations */}
+          {(() => {
+            const pendingReservations = reservations.filter(r => 
+              r.status === 'payment_pending' || r.status === 'payment_received'
+            );
+            
+            if (pendingReservations.length > 0) {
+              return (
+                <Card className="mb-6 sm:mb-8 shadow-lg border-yellow-200">
+                  <CardHeader className="border-b border-yellow-200 bg-yellow-50 p-4 sm:p-6">
+                    <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-yellow-600" />
+                      Pending Reservations
+                    </CardTitle>
+                    <p className="text-sm text-slate-600 mt-1">Complete payment to confirm your investments</p>
+                  </CardHeader>
+                  <CardContent className="p-4 sm:p-6">
+                    <div className="space-y-3 sm:space-y-4">
+                      {pendingReservations.map((reservation) => (
+                        <div
+                          key={reservation.id}
+                          className="border border-yellow-200 rounded-lg p-4 bg-yellow-50/50"
+                          data-testid={`reservation-pending-${reservation.id}`}
                         >
-                          {reservation.status === "paid" ? "Completed" : reservation.status === "reserved" ? "Pending Payment" : reservation.status}
-                        </span>
-                      </div>
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-slate-900 mb-1 text-sm sm:text-base">
+                                {reservation.property?.name || `Property #${reservation.propertyId}`}
+                              </h4>
+                              <div className="space-y-1 text-xs sm:text-sm text-slate-600">
+                                <p>Units: {reservation.units}</p>
+                                <p>Amount: {formatCurrency(reservation.amount)}</p>
+                                <p className="text-xs text-slate-500">
+                                  Created {new Date(reservation.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start ${
+                                reservation.status === "payment_received"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-yellow-100 text-yellow-700"
+                              }`}
+                            >
+                              {reservation.status === "payment_received" ? "Payment Received" : "Payment Pending"}
+                            </span>
+                          </div>
+                          
+                          {reservation.status === "payment_pending" && (
+                            <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
+                              <p className="text-sm font-medium text-slate-900 mb-2">Next Steps:</p>
+                              <p className="text-xs text-slate-600">
+                                Please complete your payment to confirm this investment. Contact support for payment instructions.
+                              </p>
+                            </div>
+                          )}
+
+                          {reservation.status === "payment_received" && (
+                            <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
+                              <p className="text-sm font-medium text-blue-900 mb-2">Payment received!</p>
+                              <p className="text-xs text-blue-700">
+                                Your payment has been received and is being processed. Your investment will be confirmed shortly.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              );
+            }
+            return null;
+          })()}
+
+          {/* My Holdings */}
+          {(() => {
+            const confirmedInvestments = reservations.filter(r => r.status === 'confirmed');
+            
+            return (
+              <Card className="mb-6 sm:mb-8 shadow-lg">
+                <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg sm:text-xl">My Property Holdings</CardTitle>
+                      <p className="text-sm text-slate-600 mt-1">Your confirmed real estate investments</p>
+                    </div>
+                    {reservations.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setLocation('/');
+                          setTimeout(() => {
+                            const element = document.getElementById('properties');
+                            if (element) {
+                              element.scrollIntoView({ behavior: 'smooth' });
+                            }
+                          }, 100);
+                        }}
+                        className="text-blue-600 hover:text-blue-700 text-sm self-start sm:self-auto"
+                      >
+                        View All Properties
+                        <ArrowRight className="h-4 w-4 ml-2" />
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6">
+                  {confirmedInvestments.length === 0 ? (
+                    <div className="text-center py-8 sm:py-12">
+                      <Building2 className="h-12 w-12 sm:h-16 sm:w-16 text-slate-300 mx-auto mb-4" />
+                      <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">No confirmed investments yet</h3>
+                      <p className="text-sm sm:text-base text-slate-600 mb-6">Start building your real estate portfolio today</p>
+                      <Button
+                        onClick={() => {
+                          setLocation('/');
+                          setTimeout(() => {
+                            const element = document.getElementById('properties');
+                            if (element) {
+                              element.scrollIntoView({ behavior: 'smooth' });
+                            }
+                          }, 100);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                        data-testid="button-browse-properties"
+                      >
+                        Browse Properties
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 sm:space-y-4">
+                      {confirmedInvestments.map((reservation) => (
+                        <div
+                          key={reservation.id}
+                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all"
+                          data-testid={`holding-${reservation.id}`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-slate-900 mb-1 text-sm sm:text-base">
+                              {reservation.property?.name || `Property #${reservation.propertyId}`}
+                            </h4>
+                            <div className="text-xs sm:text-sm text-slate-600 space-y-0.5">
+                              <p>Units owned: {reservation.units}</p>
+                              <p>Cost basis: {formatCurrency(reservation.amount)}</p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Confirmed {new Date(reservation.createdAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center">
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap bg-green-100 text-green-700">
+                              Confirmed
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </main>
       </div>
 
