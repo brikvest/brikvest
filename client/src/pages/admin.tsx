@@ -40,9 +40,11 @@ export default function AdminDashboard() {
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [viewingProperty, setViewingProperty] = useState<Property | null>(null);
   const [viewingReservation, setViewingReservation] = useState<InvestmentReservation | null>(null);
+  const [viewingKyc, setViewingKyc] = useState<UserType | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
+  const [isKycDetailOpen, setIsKycDetailOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingProperty, setDeletingProperty] = useState<Property | null>(null);
@@ -96,13 +98,9 @@ export default function AdminDashboard() {
   const { data: kycSubmissions = [], isLoading: kycLoading } = useQuery<UserType[]>({
     queryKey: ["/api/admin/kyc/submissions"],
     queryFn: async () => {
-      const sessionId = localStorage.getItem("adminSessionId");
-      const response = await fetch("/api/admin/kyc/submissions", {
-        headers: { "Authorization": `Bearer ${sessionId}` }
-      });
-      if (!response.ok) return [];
-      return response.json();
-    }
+      return await authenticatedRequest("/api/admin/kyc/submissions");
+    },
+    enabled: !!user, // Only fetch if admin is logged in
   });
 
   // Fetch verification steps
@@ -231,17 +229,10 @@ export default function AdminDashboard() {
 
   const updateKycStatusMutation = useMutation({
     mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
-      const sessionId = localStorage.getItem("adminSessionId");
-      const response = await fetch(`/api/admin/kyc/${userId}/status`, {
+      return await authenticatedRequest(`/api/admin/kyc/${userId}/status`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionId}`
-        },
         body: JSON.stringify({ status }),
       });
-      if (!response.ok) throw new Error("Failed to update KYC status");
-      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc/submissions"] });
@@ -1105,7 +1096,7 @@ export default function AdminDashboard() {
                           {kycSubmissions.slice(0, 5).map((kyc) => (
                             <div key={kyc.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                               <div>
-                                <p className="font-medium text-slate-900">{kyc.firstName} {kyc.lastName}</p>
+                                <p className="font-medium text-slate-900">{kyc.kycFullName || kyc.email}</p>
                                 <p className="text-sm text-slate-500">{kyc.email}</p>
                               </div>
                               <div className="text-right">
@@ -1726,14 +1717,14 @@ export default function AdminDashboard() {
                             <TableRow key={kyc.id}>
                               <TableCell>
                                 <div>
-                                  <div className="font-medium">{kyc.firstName} {kyc.lastName}</div>
+                                  <div className="font-medium">{kyc.kycFullName || kyc.email}</div>
                                   <div className="text-sm text-slate-500">{kyc.email}</div>
                                 </div>
                               </TableCell>
                               <TableCell>{kyc.kycFullName || '-'}</TableCell>
                               <TableCell>
                                 {kyc.kycDateOfBirth 
-                                  ? new Date(kyc.kycDateOfBirth).toLocaleDateString() 
+                                  ? new Date(kyc.kycDateOfBirth).toLocaleDateString('en-US', { timeZone: 'UTC' }) 
                                   : '-'}
                               </TableCell>
                               <TableCell>
@@ -1780,34 +1771,17 @@ export default function AdminDashboard() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                {kyc.kycStatus === 'submitted' && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      onClick={() => updateKycStatusMutation.mutate({ 
-                                        userId: kyc.id, 
-                                        status: 'verified' 
-                                      })}
-                                      disabled={updateKycStatusMutation.isPending}
-                                    >
-                                      <CheckCircle className="h-3 w-3 mr-1" />
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      onClick={() => updateKycStatusMutation.mutate({ 
-                                        userId: kyc.id, 
-                                        status: 'rejected' 
-                                      })}
-                                      disabled={updateKycStatusMutation.isPending}
-                                    >
-                                      <XCircle className="h-3 w-3 mr-1" />
-                                      Reject
-                                    </Button>
-                                  </div>
-                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setViewingKyc(kyc);
+                                    setIsKycDetailOpen(true);
+                                  }}
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View Details
+                                </Button>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -2608,6 +2582,218 @@ export default function AdminDashboard() {
                   {updateVerificationStepMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* KYC Detail Modal */}
+      <Dialog open={isKycDetailOpen} onOpenChange={setIsKycDetailOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center">
+              <ShieldCheck className="h-6 w-6 mr-2 text-blue-600" />
+              KYC Verification Details
+            </DialogTitle>
+          </DialogHeader>
+
+          {viewingKyc && (
+            <div className="space-y-6">
+              {/* User Information */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-lg mb-3 flex items-center">
+                  <User className="h-5 w-5 mr-2 text-blue-600" />
+                  User Information
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-slate-600">Email</p>
+                    <p className="font-medium">{viewingKyc.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">User ID</p>
+                    <p className="font-medium">#{viewingKyc.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">Account Created</p>
+                    <p className="font-medium">
+                      {viewingKyc.createdAt 
+                        ? formatDate(viewingKyc.createdAt.toString())
+                        : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">Phone</p>
+                    <p className="font-medium">{viewingKyc.phone || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* KYC Information */}
+              <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                <h3 className="font-semibold text-lg mb-3 flex items-center">
+                  <ShieldCheck className="h-5 w-5 mr-2 text-blue-600" />
+                  Identity Verification
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-slate-600">Full Legal Name</p>
+                    <p className="font-medium">{viewingKyc.kycFullName || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">Date of Birth</p>
+                    <p className="font-medium">
+                      {viewingKyc.kycDateOfBirth 
+                        ? new Date(viewingKyc.kycDateOfBirth).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            timeZone: 'UTC'
+                          })
+                        : '-'}
+                    </p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-sm text-slate-600">Residential Address</p>
+                    <p className="font-medium">{viewingKyc.kycAddress || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">ID Type</p>
+                    <Badge variant="outline" className="mt-1">
+                      {viewingKyc.kycIdType === 'passport' && 'International Passport'}
+                      {viewingKyc.kycIdType === 'drivers_license' && "Driver's License"}
+                      {viewingKyc.kycIdType === 'national_id' && 'National ID Card'}
+                      {!viewingKyc.kycIdType && '-'}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">ID Number</p>
+                    <p className="font-medium font-mono">{viewingKyc.kycIdNumber || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submission Details */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-lg mb-3 flex items-center">
+                  <Calendar className="h-5 w-5 mr-2 text-blue-600" />
+                  Submission Status
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-slate-600">Current Status</p>
+                    <Badge 
+                      variant={
+                        viewingKyc.kycStatus === 'verified' ? 'default' : 
+                        viewingKyc.kycStatus === 'rejected' ? 'destructive' : 
+                        'secondary'
+                      }
+                      className="mt-1"
+                    >
+                      {viewingKyc.kycStatus}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-600">Submitted On</p>
+                    <p className="font-medium">
+                      {viewingKyc.kycSubmittedAt 
+                        ? formatDate(viewingKyc.kycSubmittedAt.toString())
+                        : '-'}
+                    </p>
+                  </div>
+                  {viewingKyc.kycVerifiedAt && (
+                    <div>
+                      <p className="text-sm text-slate-600">Verified On</p>
+                      <p className="font-medium">
+                        {formatDate(viewingKyc.kycVerifiedAt.toString())}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Documents */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-lg mb-3 flex items-center">
+                  <ExternalLink className="h-5 w-5 mr-2 text-blue-600" />
+                  Uploaded Documents
+                </h3>
+                <div className="flex gap-3">
+                  {viewingKyc.kycIdDocumentUrl && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(viewingKyc.kycIdDocumentUrl!, '_blank')}
+                      className="flex-1"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View ID Document
+                    </Button>
+                  )}
+                  {viewingKyc.kycSelfieUrl && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(viewingKyc.kycSelfieUrl!, '_blank')}
+                      className="flex-1"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Selfie
+                    </Button>
+                  )}
+                  {!viewingKyc.kycIdDocumentUrl && !viewingKyc.kycSelfieUrl && (
+                    <p className="text-slate-500">No documents uploaded</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              {viewingKyc.kycStatus === 'submitted' && (
+                <div className="flex gap-3 pt-4 border-t">
+                  <Button
+                    variant="default"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    onClick={() => {
+                      updateKycStatusMutation.mutate({ 
+                        userId: viewingKyc.id, 
+                        status: 'verified' 
+                      });
+                      setIsKycDetailOpen(false);
+                    }}
+                    disabled={updateKycStatusMutation.isPending}
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve KYC
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => {
+                      updateKycStatusMutation.mutate({ 
+                        userId: viewingKyc.id, 
+                        status: 'rejected' 
+                      });
+                      setIsKycDetailOpen(false);
+                    }}
+                    disabled={updateKycStatusMutation.isPending}
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject KYC
+                  </Button>
+                </div>
+              )}
+
+              {viewingKyc.kycStatus === 'verified' && (
+                <div className="bg-green-50 border border-green-200 p-4 rounded-lg text-center">
+                  <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                  <p className="text-green-800 font-medium">This KYC has been verified</p>
+                </div>
+              )}
+
+              {viewingKyc.kycStatus === 'rejected' && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-lg text-center">
+                  <XCircle className="h-8 w-8 text-red-600 mx-auto mb-2" />
+                  <p className="text-red-800 font-medium">This KYC has been rejected</p>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
