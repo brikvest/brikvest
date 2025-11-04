@@ -151,7 +151,7 @@ export default function Login() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-2 text-gray-600">Loading...</p>
         </div>
       </div>
@@ -162,7 +162,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-emerald-600">
+          <CardTitle className="text-2xl font-bold text-blue-600">
             {isRegistering ? "Join Brikvest" : "Welcome Back"}
           </CardTitle>
           <CardDescription>
@@ -189,7 +189,7 @@ export default function Login() {
 
               <Button 
                 onClick={() => forgotPasswordMutation.mutate(forgotPasswordEmail)}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={forgotPasswordMutation.isPending || !forgotPasswordEmail}
               >
                 {forgotPasswordMutation.isPending ? "Sending..." : "Send Reset Link"}
@@ -234,7 +234,7 @@ export default function Login() {
 
               <Button 
                 type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={loginMutation.isPending}
               >
                 {loginMutation.isPending ? "Signing in..." : "Sign In"}
@@ -320,7 +320,7 @@ export default function Login() {
 
               <Button 
                 type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={registerMutation.isPending}
               >
                 {registerMutation.isPending ? "Creating Account..." : "Create Account"}
