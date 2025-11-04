@@ -431,8 +431,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Property not found" });
       }
 
-      // Calculate available units
-      const availableUnits = (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+      // Calculate available units - use totalSlots/availableSlots if available (legacy system)
+      const availableUnits = (property.totalSlots && property.totalSlots > 0)
+        ? (property.availableSlots || 0)
+        : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+      
       if (units > availableUnits) {
         return res.status(400).json({ 
           error: `Not enough units available. Only ${availableUnits} units remaining.` 

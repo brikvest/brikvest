@@ -296,7 +296,9 @@ function AdminInvestmentsTab({
 
   const selectedProperty = properties.find(p => p.id === selectedPropertyId);
   const availableUnits = selectedProperty 
-    ? (selectedProperty.totalUnits || 0) - (selectedProperty.reservedUnits || 0) - (selectedProperty.soldUnits || 0)
+    ? (selectedProperty.totalSlots && selectedProperty.totalSlots > 0 
+        ? (selectedProperty.availableSlots || 0)
+        : (selectedProperty.totalUnits || 0) - (selectedProperty.reservedUnits || 0) - (selectedProperty.soldUnits || 0))
     : 0;
 
   const filteredReservations = reservations.filter((r) => {

@@ -316,11 +316,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void> {
+    // Get the property to determine which system to use
+    const property = await this.getProperty(propertyId);
+    if (!property) return;
+
+    // Calculate total delta for slots system
+    const totalDelta = reservedDelta + soldDelta;
+    
     await db
       .update(properties)
       .set({
+        // Update new units system
         reservedUnits: sql`${properties.reservedUnits} + ${reservedDelta}`,
         soldUnits: sql`${properties.soldUnits} + ${soldDelta}`,
+        // Also update legacy slots system if it's being used
+        ...(property.totalSlots && property.totalSlots > 0 ? {
+          availableSlots: sql`${properties.availableSlots} - ${totalDelta}`,
+        } : {}),
       })
       .where(eq(properties.id, propertyId));
   }
