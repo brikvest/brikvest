@@ -290,11 +290,6 @@ export default function AdminDashboard() {
     setIsReservationViewOpen(true);
   };
 
-  const openDeveloperBidDetailModal = (bid: DeveloperBid) => {
-    setViewingDeveloperBid(bid);
-    setIsDeveloperBidViewOpen(true);
-  };
-
   const resetPropertyForm = () => {
     setPropertyForm({
       name: "",

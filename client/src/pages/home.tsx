@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
-import type { Property, InsertInvestmentReservation, InsertDeveloperBid, VerificationStep } from "@shared/schema";
+import type { Property, InsertInvestmentReservation, VerificationStep } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { CurrencySelector } from "@/components/CurrencySelector";
@@ -23,7 +23,6 @@ export default function Home() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
-  const [developerModalOpen, setDeveloperModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [propertyDetailModalOpen, setPropertyDetailModalOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
@@ -49,29 +48,8 @@ export default function Home() {
         email: userData.email || '',
         phone: userData.phone || ''
       }));
-      
-      setDeveloperForm(prev => ({
-        ...prev,
-        developerName: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(),
-        email: userData.email || '',
-        phone: userData.phone || ''
-      }));
     }
   }, [isAuthenticated, user]);
-
-  const [developerForm, setDeveloperForm] = useState({
-    developerName: "",
-    companyName: "",
-    email: "",
-    phone: "",
-    estimatedCost: 0,
-    costCurrency: "NGN",
-    description: "",
-    timeline: 0,
-    pastProjectLink: "",
-    pastProjectFile: "",
-    whySelected: ""
-  });
 
   // Fetch properties with currency conversion
   const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
@@ -138,42 +116,6 @@ export default function Home() {
     },
   });
 
-  // Developer bid mutation
-  const developerMutation = useMutation({
-    mutationFn: async (data: InsertDeveloperBid) => {
-      return await apiRequest("/api/developer-bids", {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: { "Content-Type": "application/json" }
-      });
-    },
-    onSuccess: () => {
-      setDeveloperModalOpen(false);
-      setSuccessMessage("Your development bid has been submitted successfully! Our team will review it and get back to you within 48 hours.");
-      setSuccessModalOpen(true);
-      setDeveloperForm({
-        developerName: "",
-        companyName: "",
-        email: "",
-        phone: "",
-        estimatedCost: 0,
-        costCurrency: "NGN",
-        description: "",
-        timeline: 0,
-        pastProjectLink: "",
-        pastProjectFile: "",
-        whySelected: ""
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to submit developer bid",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleInvestmentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProperty) return;
@@ -188,26 +130,6 @@ export default function Home() {
     };
 
     investmentMutation.mutate(reservationData);
-  };
-
-  const handleDeveloperSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const bidData: InsertDeveloperBid = {
-      developerName: developerForm.developerName,
-      companyName: developerForm.companyName,
-      email: developerForm.email,
-      phone: developerForm.phone,
-      estimatedCost: developerForm.estimatedCost,
-      costCurrency: developerForm.costCurrency,
-      description: developerForm.description,
-      timeline: developerForm.timeline,
-      pastProjectLink: developerForm.pastProjectLink || undefined,
-      pastProjectFile: developerForm.pastProjectFile || undefined,
-      whySelected: developerForm.whySelected,
-    };
-
-    developerMutation.mutate(bidData);
   };
 
   const openInvestmentModal = (property: Property) => {
@@ -836,160 +758,6 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      {/* Developer Modal */}
-      <Dialog open={developerModalOpen} onOpenChange={setDeveloperModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Submit Development Bid</DialogTitle>
-            <DialogDescription>
-              Join our network of trusted developers. Complete the form below to submit your development proposal.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleDeveloperSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="developerName">Developer Name *</Label>
-                <Input
-                  id="developerName"
-                  type="text"
-                  required
-                  value={developerForm.developerName}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, developerName: e.target.value }))}
-                  placeholder="Your full name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="companyName">Company Name *</Label>
-                <Input
-                  id="companyName"
-                  type="text"
-                  required
-                  value={developerForm.companyName}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, companyName: e.target.value }))}
-                  placeholder="Your company name"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="devEmail">Email Address *</Label>
-                <Input
-                  id="devEmail"
-                  type="email"
-                  required
-                  value={developerForm.email}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder="Business email"
-                />
-              </div>
-              <div>
-                <Label htmlFor="devPhone">Phone Number *</Label>
-                <Input
-                  id="devPhone"
-                  type="tel"
-                  required
-                  value={developerForm.phone}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, phone: e.target.value }))}
-                  placeholder="Business phone"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="estimatedCost">Estimated Construction Cost *</Label>
-                <Input
-                  id="estimatedCost"
-                  type="number"
-                  required
-                  value={developerForm.estimatedCost}
-                  onChange={(e) => setDeveloperForm(prev => ({ ...prev, estimatedCost: parseInt(e.target.value) || 0 }))}
-                  placeholder="Enter amount"
-                />
-              </div>
-              <div>
-                <Label htmlFor="costCurrency">Currency *</Label>
-                <Select value={developerForm.costCurrency} onValueChange={(value) => setDeveloperForm(prev => ({ ...prev, costCurrency: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select currency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NGN">₦ Nigerian Naira</SelectItem>
-                    <SelectItem value="USD">$ US Dollar</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="description">Description of Proposed Development *</Label>
-              <Textarea
-                id="description"
-                required
-                rows={4}
-                value={developerForm.description}
-                onChange={(e) => setDeveloperForm(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Type of structure, number of units, target market, financial projections..."
-              />
-            </div>
-            <div>
-              <Label htmlFor="timeline">Estimated Timeline (in months) *</Label>
-              <Input
-                id="timeline"
-                type="number"
-                required
-                value={developerForm.timeline}
-                onChange={(e) => setDeveloperForm(prev => ({ ...prev, timeline: parseInt(e.target.value) || 0 }))}
-                placeholder="e.g., 24"
-              />
-            </div>
-            <div>
-              <Label htmlFor="pastProjectLink">Past Project Link (Optional)</Label>
-              <Input
-                id="pastProjectLink"
-                type="url"
-                value={developerForm.pastProjectLink}
-                onChange={(e) => setDeveloperForm(prev => ({ ...prev, pastProjectLink: e.target.value }))}
-                placeholder="https://example.com/project"
-              />
-            </div>
-            <div>
-              <Label htmlFor="pastProjectFile">📎 Upload a Similar Past Project (Optional)</Label>
-              <Input
-                id="pastProjectFile"
-                type="file"
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setDeveloperForm(prev => ({ ...prev, pastProjectFile: file.name }));
-                  }
-                }}
-              />
-              <p className="text-sm text-muted-foreground mt-1">
-                {developerForm.pastProjectFile || "No file chosen"}
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="whySelected">Why Should You Be Selected? *</Label>
-              <Textarea
-                id="whySelected"
-                required
-                rows={4}
-                value={developerForm.whySelected}
-                onChange={(e) => setDeveloperForm(prev => ({ ...prev, whySelected: e.target.value }))}
-                placeholder="Explain why your company is a good fit for this development opportunity..."
-              />
-            </div>
-            <Button 
-              type="submit" 
-              className="w-full bg-green-600 hover:bg-green-700"
-              disabled={developerMutation.isPending}
-            >
-              {developerMutation.isPending ? "Submitting..." : "Submit Bid"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Property Detail Modal */}
       <Dialog open={propertyDetailModalOpen} onOpenChange={setPropertyDetailModalOpen}>
         <DialogContent className="w-[100vw] h-[100vh] sm:w-[95vw] sm:h-auto sm:max-w-4xl sm:max-h-[90vh] overflow-y-auto p-3 sm:p-6 sm:rounded-lg rounded-none">
@@ -1265,22 +1033,13 @@ export default function Home() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex gap-4 pt-6 border-t border-slate-200">
-                  <Button 
-                    onClick={() => {
-                      setPropertyDetailModalOpen(false);
-                      setDeveloperModalOpen(true);
-                    }}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    Bid to Develop
-                  </Button>
+                <div className="pt-6 border-t border-slate-200">
                   <Button 
                     onClick={() => {
                       setPropertyDetailModalOpen(false);
                       openInvestmentModal(selectedProperty);
                     }}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     Reserve Ownership Slot
                   </Button>
