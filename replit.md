@@ -154,6 +154,14 @@ Changelog:
 - November 4, 2025. Reservations display property name, slots, amount, status badges (Completed/Pending Payment), and reservation date
 - November 4, 2025. Account information shows user details: Full Name, Email, Phone, Preferred Currency, Member Since, and Account Status
 - November 4, 2025. Test user created for testing: test@brikvest.com / Test123!
+- November 4, 2025. Made dashboard fully mobile responsive with hamburger menu and slide-in sidebar navigation
+- November 4, 2025. Added mobile menu overlay with backdrop blur and smooth animations for better UX
+- November 4, 2025. Optimized header for mobile: compact layout, icon-only "New Investment" button, responsive welcome message
+- November 4, 2025. Stats cards now responsive: single column on mobile, 2 columns on tablet, 3 columns on desktop
+- November 4, 2025. Reservations list stacks vertically on mobile with proper touch targets and readable text sizes
+- November 4, 2025. Account information grid adapts to single column on mobile for better readability
+- November 4, 2025. All text sizes and spacing optimized for mobile viewing (text-xs/sm/base breakpoints)
+- November 4, 2025. Mobile viewport tested successfully on iPhone 12 dimensions (390x844)
 ```
 
 ## User Preferences
