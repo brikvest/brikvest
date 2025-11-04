@@ -302,32 +302,25 @@ export default function Dashboard() {
 
         {/* KYC Verification Banner - Sticky */}
         {userData.kycStatus !== 'verified' && (
-          <div className="sticky top-[73px] z-20 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg">
-            <div className="px-4 sm:px-6 py-3 sm:py-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-start sm:items-center gap-3">
-                  <AlertCircle className="h-5 w-5 sm:h-6 sm:w-6 flex-shrink-0 mt-0.5 sm:mt-0" />
-                  <div>
-                    <h3 className="font-semibold text-sm sm:text-base">
-                      {userData.kycStatus === 'pending' && 'Verify Your Identity'}
-                      {userData.kycStatus === 'submitted' && 'KYC Under Review'}
-                      {userData.kycStatus === 'rejected' && 'KYC Verification Required'}
-                    </h3>
-                    <p className="text-xs sm:text-sm mt-1 opacity-95">
-                      {userData.kycStatus === 'pending' && 'Complete KYC verification to unlock full access to your investment details.'}
-                      {userData.kycStatus === 'submitted' && 'Your documents are being reviewed. This usually takes 1-2 business days.'}
-                      {userData.kycStatus === 'rejected' && 'Your KYC submission needs attention. Please resubmit your documents.'}
-                    </p>
-                  </div>
+          <div className="sticky top-[73px] z-20 bg-blue-600 text-white shadow-md">
+            <div className="px-4 sm:px-6 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                  <p className="text-sm">
+                    {userData.kycStatus === 'pending' && 'Complete identity verification to view your investment details'}
+                    {userData.kycStatus === 'submitted' && 'Your verification is under review (1-2 business days)'}
+                    {userData.kycStatus === 'rejected' && 'Please resubmit your verification documents'}
+                  </p>
                 </div>
                 {userData.kycStatus !== 'submitted' && (
                   <Button
                     onClick={() => setKycModalOpen(true)}
-                    className="bg-white text-orange-600 hover:bg-orange-50 font-semibold whitespace-nowrap self-start sm:self-auto"
+                    className="bg-white text-blue-600 hover:bg-blue-50 font-medium whitespace-nowrap"
                     data-testid="button-verify-kyc"
                   >
                     <ShieldCheck className="h-4 w-4 mr-2" />
-                    {userData.kycStatus === 'rejected' ? 'Resubmit KYC' : 'Verify Now'}
+                    Verify
                   </Button>
                 )}
               </div>
