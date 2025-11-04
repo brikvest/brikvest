@@ -15,7 +15,18 @@ The application uses a modern full-stack architecture with clear separation of c
 -   **File Storage**: Cloudinary for images and documents.
 -   **Email Service**: Gmail SMTP for transactional emails.
 -   **UI/UX Decisions**: Employs Tailwind CSS with shadcn/ui for a modern, responsive design. Features include a Stripe-inspired user dashboard, gradient designs for public insights pages, and mobile-first responsiveness with slide-in sidebars and optimized layouts. Sensitive dashboard stats are blurred until KYC verification is complete.
--   **Key Features**: Fractional property investment, property listings, investment reservations, admin property management, developer applications, multi-currency support with real-time exchange rates, market insights (via web scraping and data visualization), comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with file uploads.
+-   **Key Features**: Fractional property investment, property listings, investment reservations, admin property management, multi-currency support with real-time exchange rates, market insights (via web scraping and data visualization), comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with file uploads.
+
+## Recent Changes (November 04, 2025)
+-   **Developer Bids Feature Removed**: Completely removed the Developer Bids feature from the platform as it was not being actively used. This included:
+    -   Removal of all Developer Bid API endpoints (`/api/developer-bids`, `/api/admin/developer-bids`)
+    -   Removal of all Developer Bid UI components from home page (form, modal, buttons)
+    -   Removal of Developer Bid management section from admin panel
+    -   Removal of Developer Bid email template
+    -   Database schema definition retained in `shared/schema.ts` for historical data preservation
+-   **Admin Panel Enhancement**: Replaced Developer Bids section with KYC Verifications management in admin panel
+    -   New KYC management endpoints: `GET /api/admin/kyc/submissions`, `PUT /api/admin/kyc/status/:userId`
+    -   Admin can now view all KYC submissions and approve/reject them directly from the admin panel
 
 ## External Dependencies
 -   **Database & ORM**: `@neondatabase/serverless` (PostgreSQL connection pooling), `drizzle-orm`.
