@@ -25,8 +25,15 @@ The application uses a modern full-stack architecture with clear separation of c
     -   Removal of Developer Bid email template
     -   Database schema definition retained in `shared/schema.ts` for historical data preservation
 -   **Admin Panel Enhancement**: Replaced Developer Bids section with KYC Verifications management in admin panel
-    -   New KYC management endpoints: `GET /api/admin/kyc/submissions`, `PUT /api/admin/kyc/status/:userId`
+    -   New KYC management endpoints: `GET /api/admin/kyc/submissions`, `PUT /api/admin/kyc/:userId/status`
     -   Admin can now view all KYC submissions and approve/reject them directly from the admin panel
+    -   Comprehensive KYC detail modal showing user information, identity verification, documents, and quick actions
+    -   Removed inline approve/reject buttons from table - all actions now in detailed modal
+-   **KYC Email Notifications**: Automated email notifications sent when KYC status is updated
+    -   **Approval Email**: Sent when KYC is verified, includes congratulations message and dashboard link
+    -   **Rejection Email**: Sent when KYC is rejected, explains common reasons and provides resubmission link
+    -   Email templates: `kycApprovedEmailTemplate` and `kycRejectedEmailTemplate` in `server/emailTemplates.ts`
+    -   Users receive their KYC status updates via email in addition to seeing updates in the dashboard
 
 ## External Dependencies
 -   **Database & ORM**: `@neondatabase/serverless` (PostgreSQL connection pooling), `drizzle-orm`.
