@@ -145,6 +145,15 @@ Changelog:
 - October 15, 2025. Implemented slide-in sidebar for mobile navigation - burger menu now opens right-side drawer with smooth animation and overlay backdrop
 - October 15, 2025. Enhanced mobile menu with user profile section, currency selector, and sign in/out buttons for improved mobile UX
 - October 15, 2025. Admin credentials for testing: username "dej", password "dej123"
+- November 4, 2025. Created comprehensive user dashboard at /dashboard with professional Stripe-inspired design and sidebar navigation
+- November 4, 2025. Dashboard features: portfolio overview stats, investment reservations list with property details, and account information section
+- November 4, 2025. Added backend API endpoint GET /api/user/reservations - returns user's investment reservations with complete property data
+- November 4, 2025. Updated login and registration flows to redirect authenticated users to /dashboard instead of homepage
+- November 4, 2025. Dashboard sidebar navigation includes: Dashboard, Browse Properties, Market Insights, with user profile and sign-out button
+- November 4, 2025. Stats cards display: Total Invested (sum of all reservations), Active Reservations (pending payment), Completed investments
+- November 4, 2025. Reservations display property name, slots, amount, status badges (Completed/Pending Payment), and reservation date
+- November 4, 2025. Account information shows user details: Full Name, Email, Phone, Preferred Currency, Member Since, and Account Status
+- November 4, 2025. Test user created for testing: test@brikvest.com / Test123!
 ```
 
 ## User Preferences
