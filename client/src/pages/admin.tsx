@@ -96,13 +96,9 @@ export default function AdminDashboard() {
   const { data: kycSubmissions = [], isLoading: kycLoading } = useQuery<UserType[]>({
     queryKey: ["/api/admin/kyc/submissions"],
     queryFn: async () => {
-      const sessionId = localStorage.getItem("adminSessionId");
-      const response = await fetch("/api/admin/kyc/submissions", {
-        headers: { "Authorization": `Bearer ${sessionId}` }
-      });
-      if (!response.ok) return [];
-      return response.json();
-    }
+      return await authenticatedRequest("/api/admin/kyc/submissions");
+    },
+    enabled: !!user, // Only fetch if admin is logged in
   });
 
   // Fetch verification steps
@@ -231,17 +227,10 @@ export default function AdminDashboard() {
 
   const updateKycStatusMutation = useMutation({
     mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
-      const sessionId = localStorage.getItem("adminSessionId");
-      const response = await fetch(`/api/admin/kyc/${userId}/status`, {
+      return await authenticatedRequest(`/api/admin/kyc/${userId}/status`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionId}`
-        },
         body: JSON.stringify({ status }),
       });
-      if (!response.ok) throw new Error("Failed to update KYC status");
-      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc/submissions"] });
