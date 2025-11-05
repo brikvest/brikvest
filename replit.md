@@ -28,6 +28,12 @@ The application uses a modern full-stack architecture with clear separation of c
     -   Backend validation: Server-side file type and size validation with Cloudinary upload to 'brikvest/kyc/signatures'
     -   Admin panel: Both fields now visible in KYC detail modal for verification review
     -   Updated KYC submission schema in `shared/schema.ts` to include occupation validation
+-   **KYC Update System for Existing Users**: Implemented automatic detection and update workflow for existing verified users
+    -   Orange banner appears on dashboard when verified users are missing new required fields (occupation/signature)
+    -   KYC form automatically prefills with existing user data when modal is opened for updates
+    -   Resubmitting KYC always changes status to 'submitted' for admin review, regardless of previous status
+    -   Separate update banner from regular KYC verification banner for better UX
+-   **Mobile Navigation Improvement**: Changed mobile sidebar authentication button from "Get Started" to "Sign In" with bold font styling for improved clarity and visibility
 
 ### November 04, 2025
 -   **Developer Bids Feature Removed**: Completely removed the Developer Bids feature from the platform as it was not being actively used. This included:

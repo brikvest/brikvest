@@ -42,6 +42,24 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, setLocation]);
 
+  // Prefill KYC form with existing data when modal opens (for updates)
+  useEffect(() => {
+    if (kycModalOpen && user) {
+      const userData = user as any;
+      // Only prefill if user has existing KYC data
+      if (userData.kycFullName) {
+        setKycFormData({
+          fullName: userData.kycFullName || '',
+          dateOfBirth: userData.kycDateOfBirth ? new Date(userData.kycDateOfBirth).toISOString().split('T')[0] : '',
+          address: userData.kycAddress || '',
+          occupation: userData.kycOccupation || '',
+          idType: userData.kycIdType || '',
+          idNumber: userData.kycIdNumber || '',
+        });
+      }
+    }
+  }, [kycModalOpen, user]);
+
   // Fetch user's reservations with property details
   const { data: reservations = [] } = useQuery<(InvestmentReservation & { property?: Property })[]>({
     queryKey: ["/api/user/reservations"],
@@ -201,6 +219,10 @@ export default function Dashboard() {
   const activeReservations = reservations.filter(r => r.status === "reserved").length;
   const completedInvestments = reservations.filter(r => r.status === "paid").length;
   const isKycVerified = userData.kycStatus === 'verified';
+  
+  // Check if KYC needs update (missing new required fields)
+  const needsKycUpdate = (userData.kycStatus === 'verified' || userData.kycStatus === 'submitted') && 
+    (!userData.kycOccupation || !userData.kycSignatureUrl);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -340,8 +362,32 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {/* KYC Update Required Banner - For existing users missing new fields */}
+        {needsKycUpdate && (
+          <div className="sticky top-[73px] z-20 bg-orange-600 text-white shadow-md">
+            <div className="px-4 sm:px-6 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                  <p className="text-sm">
+                    <strong>KYC Update Required:</strong> Please update your verification with your occupation and signature to continue accessing all features.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setKycModalOpen(true)}
+                  className="bg-white text-orange-600 hover:bg-orange-50 font-medium whitespace-nowrap"
+                  data-testid="button-update-kyc"
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  Update KYC
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* KYC Verification Banner - Sticky */}
-        {userData.kycStatus !== 'verified' && (
+        {!needsKycUpdate && userData.kycStatus !== 'verified' && (
           <div className="sticky top-[73px] z-20 bg-blue-600 text-white shadow-md">
             <div className="px-4 sm:px-6 py-3">
               <div className="flex items-center justify-between gap-3">
