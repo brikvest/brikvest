@@ -392,10 +392,10 @@ export default function Home() {
                       window.location.href = '/login';
                       setMobileMenuOpen(false);
                     }}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                     data-testid="button-mobile-signin"
                   >
-                    Get Started
+                    Sign In
                   </Button>
                 )}
               </div>
