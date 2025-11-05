@@ -27,11 +27,13 @@ export default function Dashboard() {
     fullName: '',
     dateOfBirth: '',
     address: '',
+    occupation: '',
     idType: '',
     idNumber: '',
   });
   const [idDocumentFile, setIdDocumentFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -59,7 +61,7 @@ export default function Dashboard() {
     e.preventDefault();
     
     // Validation
-    if (!kycFormData.fullName || !kycFormData.dateOfBirth || !kycFormData.address || !kycFormData.idType || !kycFormData.idNumber) {
+    if (!kycFormData.fullName || !kycFormData.dateOfBirth || !kycFormData.address || !kycFormData.occupation || !kycFormData.idType || !kycFormData.idNumber) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields.",
@@ -72,6 +74,15 @@ export default function Dashboard() {
       toast({
         title: "ID Document Required",
         description: "Please upload your government-issued ID document.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!signatureFile) {
+      toast({
+        title: "Signature Required",
+        description: "Please upload an image of your signature.",
         variant: "destructive",
       });
       return;
@@ -97,9 +108,11 @@ export default function Dashboard() {
       formData.append('fullName', kycFormData.fullName);
       formData.append('dateOfBirth', kycFormData.dateOfBirth);
       formData.append('address', kycFormData.address);
+      formData.append('occupation', kycFormData.occupation);
       formData.append('idType', kycFormData.idType);
       formData.append('idNumber', kycFormData.idNumber);
       formData.append('idDocument', idDocumentFile);
+      formData.append('signature', signatureFile);
       if (selfieFile) {
         formData.append('selfie', selfieFile);
       }
@@ -128,11 +141,13 @@ export default function Dashboard() {
         fullName: '',
         dateOfBirth: '',
         address: '',
+        occupation: '',
         idType: '',
         idNumber: '',
       });
       setIdDocumentFile(null);
       setSelfieFile(null);
+      setSignatureFile(null);
     } catch (error) {
       console.error('KYC submission error:', error);
       toast({
@@ -631,6 +646,22 @@ export default function Dashboard() {
                   data-testid="input-kyc-address"
                 />
               </div>
+
+              <div>
+                <Label htmlFor="occupation" className="text-sm font-medium">
+                  Occupation <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="occupation"
+                  type="text"
+                  value={kycFormData.occupation}
+                  onChange={(e) => setKycFormData({ ...kycFormData, occupation: e.target.value })}
+                  placeholder="Your current occupation or profession"
+                  className="mt-1"
+                  required
+                  data-testid="input-kyc-occupation"
+                />
+              </div>
             </div>
 
             {/* Contact Information - Pre-filled */}
@@ -720,6 +751,37 @@ export default function Dashboard() {
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" />
                       {idDocumentFile.name} selected
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Signature */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-lg text-slate-900">Signature <span className="text-red-500">*</span></h3>
+              
+              <div>
+                <Label htmlFor="signature" className="text-sm font-medium">
+                  Upload Signature <span className="text-red-500">*</span>
+                </Label>
+                <div className="mt-1">
+                  <Input
+                    id="signature"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setSignatureFile(e.target.files?.[0] || null)}
+                    className="cursor-pointer"
+                    required
+                    data-testid="input-kyc-signature"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Upload a clear image of your signature (JPG or PNG, max 5MB)
+                  </p>
+                  {signatureFile && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      {signatureFile.name} selected
                     </p>
                   )}
                 </div>

@@ -37,10 +37,12 @@ export const users = pgTable("users", {
   kycFullName: text("kyc_full_name"), // Full legal name from government ID
   kycDateOfBirth: timestamp("kyc_date_of_birth"), // Must be 18+ years old
   kycAddress: text("kyc_address"), // Residential address
+  kycOccupation: text("kyc_occupation"), // User's occupation/profession
   kycIdType: text("kyc_id_type"), // 'passport', 'drivers_license', 'national_id'
   kycIdNumber: text("kyc_id_number"), // ID number
   kycIdDocumentUrl: text("kyc_id_document_url"), // Cloudinary URL for ID document
   kycSelfieUrl: text("kyc_selfie_url"), // Optional selfie/liveness check
+  kycSignatureUrl: text("kyc_signature_url"), // Cloudinary URL for user's signature
   kycSubmittedAt: timestamp("kyc_submitted_at"), // When KYC was submitted
   kycVerifiedAt: timestamp("kyc_verified_at"), // When KYC was verified by admin
   
