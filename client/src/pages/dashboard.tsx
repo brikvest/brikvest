@@ -88,6 +88,28 @@ export default function Dashboard() {
       return;
     }
 
+    // Validate signature file type
+    const allowedSignatureTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedSignatureTypes.includes(signatureFile.type)) {
+      toast({
+        title: "Invalid Signature File",
+        description: "Signature must be a JPG, PNG, or WEBP image.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate signature file size (max 5MB)
+    const maxSignatureSize = 5 * 1024 * 1024; // 5MB
+    if (signatureFile.size > maxSignatureSize) {
+      toast({
+        title: "Signature File Too Large",
+        description: "Signature image must be less than 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Check age (must be 18+)
     const dob = new Date(kycFormData.dateOfBirth);
     const age = Math.floor((new Date().getTime() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
