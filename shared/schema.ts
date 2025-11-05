@@ -377,6 +377,7 @@ export const kycSubmissionSchema = z.object({
     return age >= 18;
   }, "You must be 18 years or older"),
   address: z.string().min(10, "Please provide a complete address"),
+  occupation: z.string().min(2, "Occupation must be at least 2 characters"),
   idType: z.enum(['passport', 'drivers_license', 'national_id'], {
     errorMap: () => ({ message: "Please select a valid ID type" })
   }),

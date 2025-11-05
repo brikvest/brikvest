@@ -194,7 +194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // KYC submission endpoint
   app.post('/api/kyc/submit', requireAuth, upload.fields([
     { name: 'idDocument', maxCount: 1 },
-    { name: 'selfie', maxCount: 1 }
+    { name: 'selfie', maxCount: 1 },
+    { name: 'signature', maxCount: 1 }
   ]), async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -209,11 +210,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { fullName, dateOfBirth, address, idType, idNumber } = validationResult.data;
+      const { fullName, dateOfBirth, address, occupation, idType, idNumber } = validationResult.data;
 
       // Validate file uploads
       if (!files || !files.idDocument || files.idDocument.length === 0) {
         return res.status(400).json({ error: "ID document is required" });
+      }
+
+      if (!files.signature || files.signature.length === 0) {
+        return res.status(400).json({ error: "Signature image is required" });
       }
 
       // Validate file types (images and PDFs only)
@@ -256,6 +261,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'brikvest/kyc/documents'
       );
 
+      // Upload signature
+      const signatureFile = files.signature[0];
+      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(signatureFile.mimetype)) {
+        return res.status(400).json({ 
+          error: "Invalid file type for signature. Only JPEG, PNG, and WEBP images are allowed." 
+        });
+      }
+      if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
+        return res.status(400).json({ 
+          error: "Signature file size exceeds 5MB limit." 
+        });
+      }
+      const signatureResult = await uploadToCloudinary(
+        signatureFile.buffer,
+        signatureFile.originalname,
+        'brikvest/kyc/signatures'
+      );
+
       // Upload selfie if provided
       let selfieUrl = null;
       if (files.selfie && files.selfie.length > 0) {
@@ -273,10 +296,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycFullName: fullName,
         kycDateOfBirth: new Date(dateOfBirth),
         kycAddress: address,
+        kycOccupation: occupation,
         kycIdType: idType,
         kycIdNumber: idNumber,
         kycIdDocumentUrl: idDocumentResult.url,
         kycSelfieUrl: selfieUrl,
+        kycSignatureUrl: signatureResult.url,
         kycStatus: 'submitted',
         kycSubmittedAt: new Date(),
       });
