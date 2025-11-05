@@ -17,7 +17,19 @@ The application uses a modern full-stack architecture with clear separation of c
 -   **UI/UX Decisions**: Employs Tailwind CSS with shadcn/ui for a modern, responsive design. Features include a Stripe-inspired user dashboard, gradient designs for public insights pages, and mobile-first responsiveness with slide-in sidebars and optimized layouts. Sensitive dashboard stats are blurred until KYC verification is complete.
 -   **Key Features**: Fractional property investment, property listings, investment reservations, admin property management, multi-currency support with real-time exchange rates, market insights (via web scraping and data visualization), comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with file uploads.
 
-## Recent Changes (November 04, 2025)
+## Recent Changes
+
+### November 05, 2025
+-   **Enhanced KYC Verification**: Added two new required fields to the KYC verification process
+    -   **Occupation Field**: Required text input for user's occupation/profession with minimum 2 character validation
+    -   **Signature Upload**: Required image upload (JPG/PNG/WEBP only, max 5MB) for user's signature
+    -   Database fields: `kycOccupation` (text) and `kycSignatureUrl` (text) added to users table
+    -   Frontend validation: Client-side file type and size validation before submission
+    -   Backend validation: Server-side file type and size validation with Cloudinary upload to 'brikvest/kyc/signatures'
+    -   Admin panel: Both fields now visible in KYC detail modal for verification review
+    -   Updated KYC submission schema in `shared/schema.ts` to include occupation validation
+
+### November 04, 2025
 -   **Developer Bids Feature Removed**: Completely removed the Developer Bids feature from the platform as it was not being actively used. This included:
     -   Removal of all Developer Bid API endpoints (`/api/developer-bids`, `/api/admin/developer-bids`)
     -   Removal of all Developer Bid UI components from home page (form, modal, buttons)
