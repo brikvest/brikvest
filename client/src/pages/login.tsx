@@ -198,7 +198,7 @@ export default function Login() {
               <Button
                 variant="ghost"
                 onClick={() => setShowForgotPassword(false)}
-                className="w-full text-sm text-blue-600 hover:text-blue-700"
+                className="w-full text-sm text-blue-600 hover:underline"
               >
                 Back to Sign In
               </Button>
@@ -244,7 +244,7 @@ export default function Login() {
                 <Button
                   variant="ghost"
                   onClick={() => setShowForgotPassword(true)}
-                  className="text-sm text-blue-600 hover:text-blue-700"
+                  className="text-sm text-blue-600 hover:underline"
                   type="button"
                 >
                   Forgot your password?
@@ -332,7 +332,7 @@ export default function Login() {
             <Button
               variant="ghost"
               onClick={() => setIsRegistering(!isRegistering)}
-              className="text-sm text-blue-600 hover:text-blue-700"
+              className="text-sm text-blue-600 hover:underline"
             >
               {isRegistering 
                 ? "Already have an account? Sign in" 

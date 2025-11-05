@@ -3354,6 +3354,10 @@ export default function AdminDashboard() {
                     <p className="text-sm text-slate-600">Residential Address</p>
                     <p className="font-medium">{viewingKyc.kycAddress || '-'}</p>
                   </div>
+                  <div className="col-span-2">
+                    <p className="text-sm text-slate-600">Occupation</p>
+                    <p className="font-medium">{(viewingKyc as any).kycOccupation || '-'}</p>
+                  </div>
                   <div>
                     <p className="text-sm text-slate-600">ID Type</p>
                     <Badge variant="outline" className="mt-1">
@@ -3415,7 +3419,7 @@ export default function AdminDashboard() {
                   <ExternalLink className="h-5 w-5 mr-2 text-blue-600" />
                   Uploaded Documents
                 </h3>
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-wrap">
                   {viewingKyc.kycIdDocumentUrl && (
                     <Button
                       variant="outline"
@@ -3424,6 +3428,16 @@ export default function AdminDashboard() {
                     >
                       <ExternalLink className="h-4 w-4 mr-2" />
                       View ID Document
+                    </Button>
+                  )}
+                  {(viewingKyc as any).kycSignatureUrl && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open((viewingKyc as any).kycSignatureUrl!, '_blank')}
+                      className="flex-1"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View Signature
                     </Button>
                   )}
                   {viewingKyc.kycSelfieUrl && (
@@ -3436,7 +3450,7 @@ export default function AdminDashboard() {
                       View Selfie
                     </Button>
                   )}
-                  {!viewingKyc.kycIdDocumentUrl && !viewingKyc.kycSelfieUrl && (
+                  {!viewingKyc.kycIdDocumentUrl && !(viewingKyc as any).kycSignatureUrl && !viewingKyc.kycSelfieUrl && (
                     <p className="text-slate-500">No documents uploaded</p>
                   )}
                 </div>
