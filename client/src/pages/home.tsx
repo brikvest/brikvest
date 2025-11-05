@@ -359,8 +359,17 @@ export default function Home() {
               <div className="border-t border-slate-200 p-4">
                 {isAuthenticated ? (
                   <Button 
-                    onClick={() => {
-                      window.location.href = '/api/auth/logout';
+                    onClick={async () => {
+                      try {
+                        await fetch('/api/logout', { 
+                          method: 'POST',
+                          credentials: 'include'
+                        });
+                        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+                        window.location.reload();
+                      } catch (error) {
+                        console.error('Logout error:', error);
+                      }
                     }}
                     variant="outline"
                     className="w-full border-slate-300 text-slate-700 hover:bg-slate-50"
