@@ -42,6 +42,24 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, setLocation]);
 
+  // Prefill KYC form with existing data when modal opens (for updates)
+  useEffect(() => {
+    if (kycModalOpen && user) {
+      const userData = user as any;
+      // Only prefill if user has existing KYC data
+      if (userData.kycFullName) {
+        setKycFormData({
+          fullName: userData.kycFullName || '',
+          dateOfBirth: userData.kycDateOfBirth ? new Date(userData.kycDateOfBirth).toISOString().split('T')[0] : '',
+          address: userData.kycAddress || '',
+          occupation: userData.kycOccupation || '',
+          idType: userData.kycIdType || '',
+          idNumber: userData.kycIdNumber || '',
+        });
+      }
+    }
+  }, [kycModalOpen, user]);
+
   // Fetch user's reservations with property details
   const { data: reservations = [] } = useQuery<(InvestmentReservation & { property?: Property })[]>({
     queryKey: ["/api/user/reservations"],
