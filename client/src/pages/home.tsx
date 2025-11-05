@@ -120,12 +120,20 @@ export default function Home() {
     e.preventDefault();
     if (!selectedProperty) return;
 
+    const units = parseFloat(investmentForm.units);
+    const unitPrice = selectedProperty.unitPrice || selectedProperty.minInvestment || 0;
+    const amount = Math.round(units * unitPrice);
+
     const reservationData: InsertInvestmentReservation = {
       propertyId: selectedProperty.id,
       fullName: investmentForm.fullName,
       email: investmentForm.email,
       phone: investmentForm.phone,
-      units: parseInt(investmentForm.units),
+      units: investmentForm.units,
+      amount: amount,
+      unitPriceSnapshot: unitPrice,
+      currency: selectedProperty.currency || 'NGN',
+      status: 'pending',
       referralCode: investmentForm.referralCode || undefined,
     };
 
@@ -327,7 +335,7 @@ export default function Home() {
                 </div>
 
                 {/* User section for authenticated users */}
-                {isAuthenticated && user && (
+                {isAuthenticated && user ? (
                   <div className="mt-6 px-3">
                     <div className="bg-slate-50 rounded-lg p-4 mb-3">
                       <div className="flex items-center space-x-3">
@@ -345,7 +353,7 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <div className="px-3 mt-4">
                   <div className="mb-3">
