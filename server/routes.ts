@@ -213,7 +213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { fullName, dateOfBirth, address, occupation, idType, idNumber } = validationResult.data;
 
       // Get existing KYC data to check if user is updating
-      const existingUser = await storage.getUserById(userId);
+      const existingUser = await storage.getUser(userId);
       const hasExistingIdDocument = !!existingUser?.kycIdDocumentUrl;
       const hasExistingSignature = !!existingUser?.kycSignatureUrl;
 
