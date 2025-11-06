@@ -949,20 +949,25 @@ export default function Portfolio() {
 
               <div>
                 <Label htmlFor="idDocument" className="text-sm font-medium">
-                  Upload ID Document <span className="text-red-500">*</span>
+                  Upload ID Document {!((user as any)?.kycIdDocumentUrl) && <span className="text-red-500">*</span>}
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycIdDocumentUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Document already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="idDocument"
                     type="file"
                     accept="image/*"
                     onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
-                    required
                     data-testid="input-kyc-document"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Clear photo or scan of your ID (JPG, PNG, or WEBP, max 10MB)
+                    Clear photo or scan of your ID (JPG, PNG, WEBP, or HEIC, max 10MB)
                   </p>
                   {idDocumentFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
@@ -976,24 +981,29 @@ export default function Portfolio() {
 
             {/* Signature */}
             <div className="space-y-4">
-              <h3 className="font-semibold text-lg text-slate-900">Signature <span className="text-red-500">*</span></h3>
+              <h3 className="font-semibold text-lg text-slate-900">Signature {!((user as any)?.kycSignatureUrl) && <span className="text-red-500">*</span>}</h3>
               
               <div>
                 <Label htmlFor="signature" className="text-sm font-medium">
-                  Upload Signature <span className="text-red-500">*</span>
+                  Upload Signature {!((user as any)?.kycSignatureUrl) && <span className="text-red-500">*</span>}
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycSignatureUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Signature already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="signature"
                     type="file"
                     accept="image/*"
                     onChange={(e) => setSignatureFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
-                    required
                     data-testid="input-kyc-signature"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Upload a clear image of your signature (JPG or PNG, max 5MB)
+                    Upload a clear image of your signature (JPG, PNG, WEBP, or HEIC, max 5MB)
                   </p>
                   {signatureFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
@@ -1014,6 +1024,12 @@ export default function Portfolio() {
                   Upload a Selfie
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycSelfieUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Selfie already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="selfie"
                     type="file"
