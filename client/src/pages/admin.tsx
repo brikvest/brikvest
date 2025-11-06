@@ -62,6 +62,17 @@ function AdminInvestmentsTab({
   // Filter states for management view
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // Edit reservation states
+  const [editingReservation, setEditingReservation] = useState<InvestmentReservation | null>(null);
+  const [isEditReservationOpen, setIsEditReservationOpen] = useState(false);
+  const [editUnits, setEditUnits] = useState("");
+  const [editPaymentMethod, setEditPaymentMethod] = useState("");
+  const [editPaymentReference, setEditPaymentReference] = useState("");
+  const [editPaymentEvidenceFile, setEditPaymentEvidenceFile] = useState<File | null>(null);
+  const [editUploadingEvidence, setEditUploadingEvidence] = useState(false);
+  const [editNotes, setEditNotes] = useState("");
+  const [editingSubmitting, setEditingSubmitting] = useState(false);
+
   const searchUserMutation = useMutation({
     mutationFn: async (email: string) => {
       return await authenticatedRequest("/api/admin/users/search", {
@@ -208,6 +219,32 @@ function AdminInvestmentsTab({
     },
   });
 
+  const updateReservationMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      setIsEditReservationOpen(false);
+      setEditingReservation(null);
+      toast({
+        title: "Investment updated",
+        description: "Investment reservation has been updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update investment",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSearchUser = () => {
     if (!userEmail.trim()) {
       toast({
@@ -292,6 +329,80 @@ function AdminInvestmentsTab({
       paymentEvidenceUrl,
       notes,
     });
+  };
+
+  const handleOpenEditReservation = (reservation: InvestmentReservation) => {
+    setEditingReservation(reservation);
+    setEditUnits(reservation.units.toString());
+    setEditPaymentMethod(reservation.paymentMethod || "");
+    setEditPaymentReference(reservation.paymentReference || "");
+    setEditNotes(reservation.notes || "");
+    setEditPaymentEvidenceFile(null);
+    setIsEditReservationOpen(true);
+  };
+
+  const handleUpdateReservation = async () => {
+    if (!editingReservation) return;
+
+    // Validation
+    const unitsValue = parseFloat(editUnits);
+    if (isNaN(unitsValue) || unitsValue <= 0) {
+      toast({
+        title: "Invalid units",
+        description: "Units must be a positive number",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setEditingSubmitting(true);
+
+    let paymentEvidenceUrl = editingReservation.paymentEvidenceUrl;
+
+    // Upload payment evidence if provided
+    if (editPaymentEvidenceFile) {
+      setEditUploadingEvidence(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', editPaymentEvidenceFile);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Upload failed');
+        }
+        
+        const data = await response.json();
+        paymentEvidenceUrl = data.url;
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: "Failed to upload payment evidence",
+          variant: "destructive",
+        });
+        setEditUploadingEvidence(false);
+        setEditingSubmitting(false);
+        return;
+      } finally {
+        setEditUploadingEvidence(false);
+      }
+    }
+
+    updateReservationMutation.mutate({
+      id: editingReservation.id,
+      data: {
+        units: unitsValue,
+        paymentMethod: editPaymentMethod || null,
+        paymentReference: editPaymentReference || null,
+        paymentEvidenceUrl,
+        notes: editNotes || null,
+      },
+    });
+
+    setEditingSubmitting(false);
   };
 
   const selectedProperty = properties.find(p => p.id === selectedPropertyId);
@@ -664,6 +775,17 @@ function AdminInvestmentsTab({
                       </TableCell>
                       <TableCell>
                         <div className="flex space-x-2">
+                          {(reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenEditReservation(reservation)}
+                              data-testid={`button-edit-${reservation.id}`}
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
+                          )}
                           {reservation.status === "payment_pending" && (
                             <Button
                               size="sm"
@@ -705,6 +827,137 @@ function AdminInvestmentsTab({
           </Card>
         </div>
       )}
+
+      {/* Edit Reservation Dialog */}
+      <Dialog open={isEditReservationOpen} onOpenChange={setIsEditReservationOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Investment Reservation</DialogTitle>
+          </DialogHeader>
+          
+          {editingReservation && (
+            <div className="space-y-6">
+              {/* User and Property Info (Read-only) */}
+              <div className="bg-slate-50 p-4 rounded-lg space-y-2">
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">User</Label>
+                  <p className="text-sm text-slate-900">{editingReservation.fullName} ({editingReservation.email})</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">Property</Label>
+                  <p className="text-sm text-slate-900">
+                    {properties.find(p => p.id === editingReservation.propertyId)?.name || `Property #${editingReservation.propertyId}`}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">Current Status</Label>
+                  <Badge className={getStatusBadgeColor(editingReservation.status)}>
+                    {editingReservation.status.replace('_', ' ')}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Editable Fields */}
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-units">Number of Units <span className="text-red-500">*</span></Label>
+                  <Input
+                    id="edit-units"
+                    type="number"
+                    step="0.01"
+                    value={editUnits}
+                    onChange={(e) => setEditUnits(e.target.value)}
+                    placeholder="Enter number of units"
+                    data-testid="input-edit-units"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Amount will be recalculated based on units
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-method">Payment Method</Label>
+                  <Select value={editPaymentMethod} onValueChange={setEditPaymentMethod}>
+                    <SelectTrigger id="edit-payment-method" data-testid="select-edit-payment-method">
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="check">Check</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-reference">Payment Reference</Label>
+                  <Input
+                    id="edit-payment-reference"
+                    value={editPaymentReference}
+                    onChange={(e) => setEditPaymentReference(e.target.value)}
+                    placeholder="Transaction ID or reference number"
+                    data-testid="input-edit-payment-reference"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-evidence">Payment Evidence (Optional)</Label>
+                  <Input
+                    id="edit-payment-evidence"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setEditPaymentEvidenceFile(e.target.files?.[0] || null)}
+                    data-testid="input-edit-payment-evidence"
+                  />
+                  {editingReservation.paymentEvidenceUrl && !editPaymentEvidenceFile && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      <a 
+                        href={editingReservation.paymentEvidenceUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        View current evidence
+                      </a>
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-notes">Notes (Internal)</Label>
+                  <Textarea
+                    id="edit-notes"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Add any notes about this investment"
+                    rows={3}
+                    data-testid="input-edit-notes"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEditReservationOpen(false)}
+                  disabled={editingSubmitting || editUploadingEvidence}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUpdateReservation}
+                  disabled={editingSubmitting || editUploadingEvidence}
+                  data-testid="button-save-edit"
+                >
+                  {editUploadingEvidence ? "Uploading..." : editingSubmitting ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
