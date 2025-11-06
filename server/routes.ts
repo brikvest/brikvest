@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
-import { upload, uploadToCloudinary } from "./cloudinary";
+import { upload, uploadToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { 
   investmentEmailTemplate, 
@@ -212,77 +212,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { fullName, dateOfBirth, address, occupation, idType, idNumber } = validationResult.data;
 
-      // Validate file uploads
-      if (!files || !files.idDocument || files.idDocument.length === 0) {
-        return res.status(400).json({ error: "ID document is required" });
+      // Get existing KYC data to check if user is updating
+      const existingUser = await storage.getUser(userId);
+      const hasExistingIdDocument = !!existingUser?.kycIdDocumentUrl;
+      const hasExistingSignature = !!existingUser?.kycSignatureUrl;
+
+      // Validate file uploads - only required if user doesn't already have them
+      if (!files || (!files.idDocument || files.idDocument.length === 0)) {
+        if (!hasExistingIdDocument) {
+          return res.status(400).json({ error: "ID document is required" });
+        }
       }
 
       if (!files.signature || files.signature.length === 0) {
-        return res.status(400).json({ error: "Signature image is required" });
+        if (!hasExistingSignature) {
+          return res.status(400).json({ error: "Signature image is required" });
+        }
       }
 
-      // Validate file types (images and PDFs only)
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
-      const idDocumentFile = files.idDocument[0];
-      
-      if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
-        return res.status(400).json({ 
-          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and PDF files are allowed." 
-        });
-      }
-
-      // Validate file size (max 10MB)
+      // Validate and upload files only if provided
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'];
+      const allowedDocumentTypes = [...allowedImageTypes, 'application/pdf']; // ID documents can be PDF or image
       const maxFileSize = 10 * 1024 * 1024; // 10MB
-      if (idDocumentFile.size > maxFileSize) {
-        return res.status(400).json({ 
-          error: "ID document file size exceeds 10MB limit." 
-        });
-      }
-
-      // Validate selfie if provided
-      if (files.selfie && files.selfie.length > 0) {
-        const selfieFile = files.selfie[0];
-        if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
+      
+      // Upload ID document if provided
+      let idDocumentUrl = existingUser?.kycIdDocumentUrl || null;
+      if (files.idDocument && files.idDocument.length > 0) {
+        const idDocumentFile = files.idDocument[0];
+        
+        if (!allowedDocumentTypes.includes(idDocumentFile.mimetype)) {
           return res.status(400).json({ 
-            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+            error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, HEIC, and PDF files are allowed." 
           });
         }
+
+        if (idDocumentFile.size > maxFileSize) {
+          return res.status(400).json({ 
+            error: "ID document file size exceeds 10MB limit." 
+          });
+        }
+
+        // Route PDFs to Object Storage, images to Cloudinary
+        const isPdf = idDocumentFile.mimetype === 'application/pdf';
+        if (isPdf) {
+          const idDocumentResult = await uploadToObjectStorage(
+            idDocumentFile.buffer,
+            idDocumentFile.originalname,
+            idDocumentFile.mimetype,
+            'kyc/documents'
+          );
+          idDocumentUrl = idDocumentResult.url;
+        } else {
+          const idDocumentResult = await uploadToCloudinary(
+            idDocumentFile.buffer,
+            idDocumentFile.originalname,
+            'brikvest/kyc/documents'
+          );
+          idDocumentUrl = idDocumentResult.url;
+        }
+      }
+
+      // Upload signature if provided (images only)
+      let signatureUrl = existingUser?.kycSignatureUrl || null;
+      if (files.signature && files.signature.length > 0) {
+        const signatureFile = files.signature[0];
+        
+        if (!allowedImageTypes.includes(signatureFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for signature. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
+          });
+        }
+        
+        if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
+          return res.status(400).json({ 
+            error: "Signature file size exceeds 5MB limit." 
+          });
+        }
+        
+        const signatureResult = await uploadToCloudinary(
+          signatureFile.buffer,
+          signatureFile.originalname,
+          'brikvest/kyc/signatures'
+        );
+        signatureUrl = signatureResult.url;
+      }
+
+      // Upload selfie if provided (images only)
+      let selfieUrl = existingUser?.kycSelfieUrl || null;
+      if (files.selfie && files.selfie.length > 0) {
+        const selfieFile = files.selfie[0];
+        
+        if (!allowedImageTypes.includes(selfieFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
+          });
+        }
+        
         if (selfieFile.size > maxFileSize) {
           return res.status(400).json({ 
             error: "Selfie file size exceeds 10MB limit." 
           });
         }
-      }
-
-      // Upload ID document to Cloudinary
-      const idDocumentResult = await uploadToCloudinary(
-        idDocumentFile.buffer,
-        idDocumentFile.originalname,
-        'brikvest/kyc/documents'
-      );
-
-      // Upload signature
-      const signatureFile = files.signature[0];
-      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(signatureFile.mimetype)) {
-        return res.status(400).json({ 
-          error: "Invalid file type for signature. Only JPEG, PNG, and WEBP images are allowed." 
-        });
-      }
-      if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
-        return res.status(400).json({ 
-          error: "Signature file size exceeds 5MB limit." 
-        });
-      }
-      const signatureResult = await uploadToCloudinary(
-        signatureFile.buffer,
-        signatureFile.originalname,
-        'brikvest/kyc/signatures'
-      );
-
-      // Upload selfie if provided
-      let selfieUrl = null;
-      if (files.selfie && files.selfie.length > 0) {
-        const selfieFile = files.selfie[0];
+        
         const selfieResult = await uploadToCloudinary(
           selfieFile.buffer,
           selfieFile.originalname,
@@ -299,9 +330,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycOccupation: occupation,
         kycIdType: idType,
         kycIdNumber: idNumber,
-        kycIdDocumentUrl: idDocumentResult.url,
+        kycIdDocumentUrl: idDocumentUrl,
         kycSelfieUrl: selfieUrl,
-        kycSignatureUrl: signatureResult.url,
+        kycSignatureUrl: signatureUrl,
         kycStatus: 'submitted',
         kycSubmittedAt: new Date(),
       });
@@ -640,6 +671,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update investment reservation details
+  app.put('/api/admin/investments/:id', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+      const { units, paymentMethod, paymentReference, paymentEvidenceUrl, notes } = req.body;
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      // If units are being changed, validate and update property counts
+      if (units !== undefined) {
+        const oldUnits = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+        const newUnits = parseFloat(units);
+        const unitsDelta = newUnits - oldUnits;
+
+        if (unitsDelta !== 0) {
+          // Check availability if increasing units
+          if (unitsDelta > 0) {
+            const availableUnits = (property.totalSlots && property.totalSlots > 0)
+              ? (property.availableSlots || 0)
+              : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+            
+            if (unitsDelta > availableUnits) {
+              return res.status(400).json({ 
+                error: `Not enough units available. Only ${availableUnits} additional units available.` 
+              });
+            }
+          }
+
+          // Update property unit counts
+          await storage.updatePropertyUnitCounts(reservation.propertyId, unitsDelta, 0);
+        }
+
+        // Recalculate amount based on new units
+        const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
+        const amount = Math.round(newUnits * unitPriceSnapshot);
+
+        // Update reservation
+        const updated = await storage.updateReservation(reservationId, {
+          units: units.toString(),
+          amount,
+          paymentMethod: paymentMethod !== undefined ? paymentMethod : reservation.paymentMethod,
+          paymentReference: paymentReference !== undefined ? paymentReference : reservation.paymentReference,
+          paymentEvidenceUrl: paymentEvidenceUrl !== undefined ? paymentEvidenceUrl : reservation.paymentEvidenceUrl,
+          notes: notes !== undefined ? notes : reservation.notes,
+        });
+
+        return res.json(updated);
+      }
+
+      // Update without changing units
+      const updated = await storage.updateReservation(reservationId, {
+        paymentMethod: paymentMethod !== undefined ? paymentMethod : reservation.paymentMethod,
+        paymentReference: paymentReference !== undefined ? paymentReference : reservation.paymentReference,
+        paymentEvidenceUrl: paymentEvidenceUrl !== undefined ? paymentEvidenceUrl : reservation.paymentEvidenceUrl,
+        notes: notes !== undefined ? notes : reservation.notes,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating investment:", error);
+      res.status(500).json({ error: "Failed to update investment" });
+    }
+  });
+
   // Cancel investment reservation
   app.put('/api/admin/investments/:id/cancel', requireAdminAuth, async (req, res) => {
     try {
@@ -923,7 +1026,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create investment reservation
   app.post("/api/reservations", async (req, res) => {
     try {
-      const validatedData = insertInvestmentReservationSchema.parse(req.body);
+      // Validate request data
+      const result = insertInvestmentReservationSchema.safeParse(req.body);
+      if (!result.success) {
+        // Create user-friendly error message
+        const errors = result.error.errors.map(err => {
+          const field = err.path.join('.');
+          switch (field) {
+            case 'fullName':
+              return 'Please enter your full name';
+            case 'email':
+              return 'Please enter a valid email address';
+            case 'phone':
+              return 'Please enter a valid phone number';
+            case 'units':
+              return 'Please enter a valid number of units';
+            case 'amount':
+              return 'Invalid investment amount';
+            case 'propertyId':
+              return 'Please select a property';
+            case 'unitPriceSnapshot':
+              return 'Invalid price information';
+            default:
+              return err.message;
+          }
+        });
+        return res.status(400).json({ 
+          message: errors[0] || "Please check your information and try again",
+          errors: errors
+        });
+      }
+
+      const validatedData = result.data;
       
       // Add userId if user is authenticated
       let reservationData = validatedData;
@@ -937,13 +1071,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if property exists
       const property = await storage.getProperty(reservationData.propertyId);
       if (!property) {
-        return res.status(404).json({ message: "Property not found" });
+        return res.status(400).json({ message: "The selected property is no longer available" });
       }
 
       // Check if there are available slots
       const units = typeof reservationData.units === 'string' ? parseFloat(reservationData.units) : reservationData.units;
       if (property.availableSlots < units) {
-        return res.status(400).json({ message: "Not enough available slots" });
+        return res.status(400).json({ 
+          message: `Only ${property.availableSlots} unit${property.availableSlots !== 1 ? 's' : ''} available. Please select a smaller quantity.` 
+        });
       }
 
       const reservation = await storage.createInvestmentReservation(reservationData);
@@ -1213,24 +1349,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // File upload endpoint for partnership documents
+  // File upload endpoint for documents (PDFs go to Object Storage, images to Cloudinary)
   app.post("/api/upload/document", upload.single('document'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      const result = await uploadToCloudinary(
-        req.file.buffer,
-        req.file.originalname,
-        'brikvest/documents'
-      );
+      // Route PDFs to Object Storage, images to Cloudinary
+      const isPdf = req.file.mimetype === 'application/pdf';
+      
+      if (isPdf) {
+        const result = await uploadToObjectStorage(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype,
+          'documents'
+        );
 
-      res.json({
-        url: result.url,
-        publicId: result.publicId,
-        originalName: req.file.originalname
-      });
+        res.json({
+          url: result.url,
+          path: result.path,
+          originalName: req.file.originalname,
+          storageType: 'object_storage'
+        });
+      } else {
+        const result = await uploadToCloudinary(
+          req.file.buffer,
+          req.file.originalname,
+          'brikvest/documents'
+        );
+
+        res.json({
+          url: result.url,
+          publicId: result.publicId,
+          originalName: req.file.originalname,
+          storageType: 'cloudinary'
+        });
+      }
     } catch (error) {
       console.error("Error uploading document:", error);
       res.status(500).json({ error: "Failed to upload document" });
@@ -1287,6 +1443,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error uploading video:", error);
       res.status(500).json({ error: "Failed to upload video" });
+    }
+  });
+
+  // Serve documents from Object Storage (PDFs)
+  app.get("/api/documents/:folder/:filename", async (req, res) => {
+    try {
+      const { folder, filename } = req.params;
+      const privateDir = process.env.PRIVATE_OBJECT_DIR || '';
+      
+      if (!privateDir) {
+        return res.status(500).json({ error: "Object storage not configured" });
+      }
+
+      // Parse bucket name from PRIVATE_OBJECT_DIR
+      const pathParts = privateDir.split('/').filter(p => p);
+      const bucketName = pathParts[0];
+      
+      // Construct the full path
+      const objectPath = `.private/${folder}/${filename}`;
+      
+      // Get the file from Object Storage
+      const objectStorageClient = (await import('./objectStorage')).objectStorageClient;
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectPath);
+      
+      // Check if file exists
+      const [exists] = await file.exists();
+      if (!exists) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      // Get file metadata
+      const [metadata] = await file.getMetadata();
+      
+      // Set headers
+      res.set({
+        'Content-Type': metadata.contentType || 'application/pdf',
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Cache-Control': 'private, max-age=3600'
+      });
+      
+      // Stream the file to the response
+      const stream = file.createReadStream();
+      
+      stream.on('error', (err) => {
+        console.error('Stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Error streaming document" });
+        }
+      });
+      
+      stream.pipe(res);
+    } catch (error) {
+      console.error("Error serving document:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to serve document" });
+      }
     }
   });
 
@@ -1503,11 +1716,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get the property's stored currency (default to USD for old properties without currency field)
         const storedCurrency = property.currency || 'USD';
         
+        // Store original values for reservation purposes
+        const originalMinInvestment = property.minInvestment;
+        const originalUnitPrice = property.unitPrice || property.minInvestment;
+        
         // If user currency matches stored currency, no conversion needed
         if (userCurrency === storedCurrency) {
           return {
             ...property,
-            userCurrency
+            userCurrency,
+            originalMinInvestment,
+            originalUnitPrice,
+            originalCurrency: storedCurrency
           };
         }
 
@@ -1516,7 +1736,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...property,
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
-          userCurrency
+          unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
+          userCurrency,
+          originalMinInvestment,
+          originalUnitPrice,
+          originalCurrency: storedCurrency
         };
       });
 
