@@ -12,7 +12,7 @@ The application uses a modern full-stack architecture with clear separation of c
 -   **Backend**: Express.js server with TypeScript, Drizzle ORM for PostgreSQL, Express session for admin authentication, `crypto` for password hashing, Multer with Cloudinary for file uploads, and Nodemailer with Gmail SMTP for emails.
 -   **Database**: PostgreSQL with Drizzle ORM.
 -   **Authentication**: Dual system for user (email/password) and admin sessions.
--   **File Storage**: Cloudinary for images and documents.
+-   **File Storage**: Cloudinary for images, Replit Object Storage for PDF documents.
 -   **Email Service**: Gmail SMTP for transactional emails.
 -   **UI/UX Decisions**: Employs Tailwind CSS with shadcn/ui for a modern, responsive design. Features include a Stripe-inspired user dashboard, gradient designs for public insights pages, and mobile-first responsiveness with slide-in sidebars and optimized layouts. Sensitive dashboard stats are blurred until KYC verification is complete.
 -   **Key Features**: Fractional property investment, property listings, investment reservations, admin property management, multi-currency support with real-time exchange rates, market insights (via web scraping and data visualization), comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with file uploads.
@@ -20,6 +20,21 @@ The application uses a modern full-stack architecture with clear separation of c
 ## Recent Changes
 
 ### November 06, 2025
+-   **PDF Document Storage Enhancement**: Implemented Replit Object Storage for PDF documents
+    -   **Storage Strategy**: PDFs now stored in Replit Object Storage, images continue using Cloudinary
+    -   **Upload Function**: New `uploadToObjectStorage()` function in `server/cloudinary.ts` handles PDF uploads
+    -   **Smart Routing**: `/api/upload/document` endpoint automatically routes PDFs to Object Storage, images to Cloudinary
+    -   **PDF Serving**: New `/api/documents/:folder/:filename` endpoint streams PDFs from Object Storage
+    -   **Admin Display**: Payment evidence in admin panel now shows PDF icon with "View PDF Document" link for PDFs, image previews for images
+    -   **File Detection**: System detects file type by URL pattern (`/api/documents/` = PDF, Cloudinary URL = image)
+    -   **Browser Compatibility**: PDFs served with proper Content-Type headers for inline viewing
+    -   **Storage Location**: PDFs stored in `.private/documents/` folder within Replit Object Storage bucket
+-   **Currency Conversion Fix for Reservations**: Fixed critical bug where converted currency amounts were being stored instead of original property prices
+    -   **Backend Enhancement**: `/api/properties-converted` endpoint now returns both original values (`originalUnitPrice`, `originalCurrency`) and converted values for display
+    -   **Reservation Logic**: Reservation creation now uses original property price and currency instead of user's display currency
+    -   **Admin Display**: Admin panel now correctly shows reservations in property's native currency (e.g., ₦325,000 NGN instead of ₦225.85)
+    -   **Database Fix**: Corrected existing test reservation (ID 63) from ₦225.85 to ₦325,000
+    -   **User Experience**: Users still see converted prices for convenience, but system stores correct original amounts
 -   **Portfolio Page Redesign**: Transformed the user dashboard into a professional investment portfolio experience
     -   **Renamed**: Changed "Dashboard" to "Portfolio" throughout the user interface
     -   **Navigation Icon**: Updated sidebar icon from Home to PieChart for better portfolio representation
