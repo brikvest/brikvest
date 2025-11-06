@@ -79,6 +79,10 @@ export default function Portfolio() {
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const userData = user as any;
+    const hasExistingIdDocument = !!userData?.kycIdDocumentUrl;
+    const hasExistingSignature = !!userData?.kycSignatureUrl;
+    
     // Validation
     if (!kycFormData.fullName || !kycFormData.dateOfBirth || !kycFormData.address || !kycFormData.occupation || !kycFormData.idType || !kycFormData.idNumber) {
       toast({
@@ -89,7 +93,8 @@ export default function Portfolio() {
       return;
     }
 
-    if (!idDocumentFile) {
+    // ID document is only required if user doesn't already have one
+    if (!idDocumentFile && !hasExistingIdDocument) {
       toast({
         title: "ID Document Required",
         description: "Please upload your government-issued ID document.",
@@ -98,7 +103,8 @@ export default function Portfolio() {
       return;
     }
 
-    if (!signatureFile) {
+    // Signature is only required if user doesn't already have one
+    if (!signatureFile && !hasExistingSignature) {
       toast({
         title: "Signature Required",
         description: "Please upload an image of your signature.",
@@ -107,47 +113,51 @@ export default function Portfolio() {
       return;
     }
 
-    // Validate ID document file type (images only)
+    // Validate ID document file type and size (only if a new file is provided)
     const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    if (!allowedImageTypes.includes(idDocumentFile.type)) {
-      toast({
-        title: "Invalid ID Document File",
-        description: "ID document must be a JPG, PNG, WEBP, or HEIC image.",
-        variant: "destructive",
-      });
-      return;
+    if (idDocumentFile) {
+      if (!allowedImageTypes.includes(idDocumentFile.type)) {
+        toast({
+          title: "Invalid ID Document File",
+          description: "ID document must be a JPG, PNG, WEBP, or HEIC image.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate ID document file size (max 10MB)
+      const maxIdDocumentSize = 10 * 1024 * 1024; // 10MB
+      if (idDocumentFile.size > maxIdDocumentSize) {
+        toast({
+          title: "ID Document File Too Large",
+          description: "ID document image must be less than 10MB.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
-    // Validate ID document file size (max 10MB)
-    const maxIdDocumentSize = 10 * 1024 * 1024; // 10MB
-    if (idDocumentFile.size > maxIdDocumentSize) {
-      toast({
-        title: "ID Document File Too Large",
-        description: "ID document image must be less than 10MB.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Validate signature file type and size (only if a new file is provided)
+    if (signatureFile) {
+      if (!allowedImageTypes.includes(signatureFile.type)) {
+        toast({
+          title: "Invalid Signature File",
+          description: "Signature must be a JPG, PNG, WEBP, or HEIC image.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    // Validate signature file type
-    if (!allowedImageTypes.includes(signatureFile.type)) {
-      toast({
-        title: "Invalid Signature File",
-        description: "Signature must be a JPG, PNG, WEBP, or HEIC image.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate signature file size (max 5MB)
-    const maxSignatureSize = 5 * 1024 * 1024; // 5MB
-    if (signatureFile.size > maxSignatureSize) {
-      toast({
-        title: "Signature File Too Large",
-        description: "Signature image must be less than 5MB.",
-        variant: "destructive",
-      });
-      return;
+      // Validate signature file size (max 5MB)
+      const maxSignatureSize = 5 * 1024 * 1024; // 5MB
+      if (signatureFile.size > maxSignatureSize) {
+        toast({
+          title: "Signature File Too Large",
+          description: "Signature image must be less than 5MB.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Check age (must be 18+)
@@ -173,8 +183,14 @@ export default function Portfolio() {
       formData.append('occupation', kycFormData.occupation);
       formData.append('idType', kycFormData.idType);
       formData.append('idNumber', kycFormData.idNumber);
-      formData.append('idDocument', idDocumentFile);
-      formData.append('signature', signatureFile);
+      
+      // Only append files if they're provided (allows updating without re-uploading)
+      if (idDocumentFile) {
+        formData.append('idDocument', idDocumentFile);
+      }
+      if (signatureFile) {
+        formData.append('signature', signatureFile);
+      }
       if (selfieFile) {
         formData.append('selfie', selfieFile);
       }
