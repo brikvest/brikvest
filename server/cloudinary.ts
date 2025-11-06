@@ -53,6 +53,10 @@ export const uploadToCloudinary = async (
         folder,
         resource_type: 'auto',
         public_id: `${Date.now()}-${originalName.split('.')[0]}`,
+        format: 'jpg', // Convert all images (including HEIC) to JPG for browser compatibility
+        transformation: [
+          { quality: 'auto' } // Optimize quality automatically
+        ]
       },
       (error, result) => {
         if (error) {
