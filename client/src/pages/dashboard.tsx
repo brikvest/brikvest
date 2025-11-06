@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import type { InvestmentReservation, Property } from "@shared/schema";
@@ -15,8 +15,9 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-export default function Dashboard() {
+export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const { formatCurrency, userCurrency } = useCurrency();
@@ -226,7 +227,7 @@ export default function Dashboard() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading your dashboard...</p>
+          <p className="mt-4 text-slate-600">Loading your portfolio...</p>
         </div>
       </div>
     );
@@ -277,11 +278,11 @@ export default function Dashboard() {
             <Link 
               href="/dashboard"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-600 font-medium" 
-              data-testid="nav-dashboard"
+              data-testid="nav-portfolio"
               onClick={() => setMobileMenuOpen(false)}
             >
-              <Home className="h-5 w-5" />
-              <span>Dashboard</span>
+              <PieChart className="h-5 w-5" />
+              <span>Portfolio</span>
             </Link>
             <button
               onClick={() => {
@@ -435,8 +436,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Dashboard Content */}
+        {/* Portfolio Content */}
         <main className="p-4 sm:p-6 max-w-7xl mx-auto">
+          {/* Portfolio Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My Portfolio</h1>
+            <p className="text-slate-600 mt-1">Track and manage your real estate investments</p>
+          </div>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-total-invested">
@@ -502,6 +508,105 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Portfolio Performance Chart */}
+          {isKycVerified && reservations.length > 0 && (
+            <Card className="mb-6 sm:mb-8 shadow-lg">
+              <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5 text-blue-600" />
+                      Portfolio Growth
+                    </CardTitle>
+                    <p className="text-sm text-slate-600 mt-1">Track your investment performance over time</p>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full">
+                    <TrendingUp className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-700">Growing</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="h-64 sm:h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={(() => {
+                        const sortedReservations = [...reservations].sort((a, b) => 
+                          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                        );
+                        
+                        let cumulative = 0;
+                        return sortedReservations.map((res, index) => {
+                          cumulative += res.amount;
+                          return {
+                            date: new Date(res.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            value: cumulative,
+                            investments: index + 1
+                          };
+                        });
+                      })()}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#64748b"
+                        style={{ fontSize: '12px' }}
+                      />
+                      <YAxis 
+                        stroke="#64748b"
+                        style={{ fontSize: '12px' }}
+                        tickFormatter={(value) => `${formatCurrency(value).split('.')[0]}`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'white',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                        }}
+                        formatter={(value: any) => [formatCurrency(value), 'Total Invested']}
+                        labelStyle={{ color: '#334155', fontWeight: 600 }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorValue)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+                  <div>
+                    <p className="text-xs text-slate-600">Total Invested</p>
+                    <p className="text-lg font-bold text-slate-900">{formatCurrency(totalInvested)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-600">Properties</p>
+                    <p className="text-lg font-bold text-slate-900">
+                      {new Set(reservations.map(r => r.propertyId)).size}
+                    </p>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="text-xs text-slate-600">Avg. Investment</p>
+                    <p className="text-lg font-bold text-slate-900">
+                      {formatCurrency(reservations.length > 0 ? totalInvested / reservations.length : 0)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Pending Reservations */}
           {(() => {
