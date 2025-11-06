@@ -775,7 +775,7 @@ function AdminInvestmentsTab({
                       </TableCell>
                       <TableCell>
                         <div className="flex space-x-2">
-                          {(reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -786,7 +786,7 @@ function AdminInvestmentsTab({
                               Edit
                             </Button>
                           )}
-                          {reservation.status === "payment_pending" && (
+                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
                             <Button
                               size="sm"
                               onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
@@ -806,7 +806,7 @@ function AdminInvestmentsTab({
                               Confirm
                             </Button>
                           )}
-                          {(reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
                             <Button
                               size="sm"
                               variant="destructive"
