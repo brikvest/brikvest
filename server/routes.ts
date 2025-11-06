@@ -231,7 +231,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate and upload files only if provided
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'];
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'];
+      const allowedDocumentTypes = [...allowedImageTypes, 'application/pdf']; // ID documents can be PDF or image
       const maxFileSize = 10 * 1024 * 1024; // 10MB
       
       // Upload ID document if provided
@@ -239,9 +240,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (files.idDocument && files.idDocument.length > 0) {
         const idDocumentFile = files.idDocument[0];
         
-        if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
+        if (!allowedDocumentTypes.includes(idDocumentFile.mimetype)) {
           return res.status(400).json({ 
-            error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
+            error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, HEIC, and PDF files are allowed." 
           });
         }
 
@@ -251,20 +252,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        const idDocumentResult = await uploadToCloudinary(
-          idDocumentFile.buffer,
-          idDocumentFile.originalname,
-          'brikvest/kyc/documents'
-        );
-        idDocumentUrl = idDocumentResult.url;
+        // Route PDFs to Object Storage, images to Cloudinary
+        const isPdf = idDocumentFile.mimetype === 'application/pdf';
+        if (isPdf) {
+          const idDocumentResult = await uploadToObjectStorage(
+            idDocumentFile.buffer,
+            idDocumentFile.originalname,
+            idDocumentFile.mimetype,
+            'kyc/documents'
+          );
+          idDocumentUrl = idDocumentResult.url;
+        } else {
+          const idDocumentResult = await uploadToCloudinary(
+            idDocumentFile.buffer,
+            idDocumentFile.originalname,
+            'brikvest/kyc/documents'
+          );
+          idDocumentUrl = idDocumentResult.url;
+        }
       }
 
-      // Upload signature if provided
+      // Upload signature if provided (images only)
       let signatureUrl = existingUser?.kycSignatureUrl || null;
       if (files.signature && files.signature.length > 0) {
         const signatureFile = files.signature[0];
         
-        if (!allowedMimeTypes.includes(signatureFile.mimetype)) {
+        if (!allowedImageTypes.includes(signatureFile.mimetype)) {
           return res.status(400).json({ 
             error: "Invalid file type for signature. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
           });
@@ -284,12 +297,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         signatureUrl = signatureResult.url;
       }
 
-      // Upload selfie if provided
+      // Upload selfie if provided (images only)
       let selfieUrl = existingUser?.kycSelfieUrl || null;
       if (files.selfie && files.selfie.length > 0) {
         const selfieFile = files.selfie[0];
         
-        if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
+        if (!allowedImageTypes.includes(selfieFile.mimetype)) {
           return res.status(400).json({ 
             error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
           });
