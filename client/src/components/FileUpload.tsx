@@ -147,7 +147,7 @@ export function FileUpload({
               ? 'PDF, DOC, DOCX up to 10MB' 
               : uploadType === 'video' 
                 ? 'MP4, MOV, AVI up to 50MB' 
-                : 'JPG, PNG, WEBP up to 10MB'
+                : 'JPG, PNG, WEBP, HEIC up to 10MB'
             }
           </p>
         </div>
