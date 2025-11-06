@@ -29,10 +29,11 @@ The application uses a modern full-stack architecture with clear separation of c
     -   **Chart Features**: Shows investment timeline, cumulative value, with summary statistics (Total Invested, Properties count, Average Investment)
     -   **Component**: Renamed Dashboard component to Portfolio in `client/src/pages/dashboard.tsx`
 -   **KYC Document Upload Restriction**: Limited KYC document uploads to image formats only
-    -   **Allowed Formats**: JPG, PNG, WEBP images only (removed PDF support)
+    -   **Allowed Formats**: JPG, PNG, WEBP, and HEIC images (removed PDF support)
+    -   **HEIC Support**: Added support for Apple's HEIC/HEIF image format from iPhones and iPads
     -   **Frontend Validation**: Client-side file type and size validation for ID document, signature, and selfie
     -   **Backend Validation**: Server-side MIME type checking to enforce image-only uploads
-    -   **User Guidance**: Updated help text to clarify image-only requirement
+    -   **User Guidance**: Updated help text to clarify image-only requirement with HEIC support
 -   **Investment Currency Fix**: Corrected Gilmore Land, Guzape 2 property to use Naira (NGN) currency
     -   **Property**: Updated from USD to NGN with ₦325,000 per unit pricing
     -   **Reservations**: All existing Gilmore Land investments updated to NGN currency
