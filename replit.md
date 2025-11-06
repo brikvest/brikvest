@@ -25,9 +25,17 @@ The application uses a modern full-stack architecture with clear separation of c
     -   **Editable Fields**: Admins can now edit units, payment method, payment reference, payment evidence, and internal notes
     -   **Smart Unit Management**: When units are changed, the system automatically validates availability and updates property counts
     -   **Amount Recalculation**: Investment amount is automatically recalculated when units are changed
-    -   **Edit Dialog**: Added user-friendly edit dialog in admin panel with all reservation details
+    -   **Edit Dialog**: Added user-friendly edit dialog in admin panel with all reservation details with live price calculator
     -   **Workflow**: Edit → Mark Paid → Confirm sequence allows flexible investment management
     -   **File Upload**: Support for updating payment evidence documents during editing
+    -   **Three-Dots Menu**: Actions column now uses a scalable dropdown menu instead of individual buttons
+    -   **Price Display**: Table and modal show current amount and real-time calculation when editing units
+-   **KYC Document Viewing Enhancement**: Improved admin KYC document viewing with visual previews
+    -   **Image Previews**: Documents now show thumbnail previews instead of just links
+    -   **Error Handling**: Added fallback images if document loading fails
+    -   **PDF Support**: Shows file icon for PDF documents
+    -   **Grid Layout**: Documents displayed in a clean 3-column grid
+    -   **Cloudinary Integration**: Verified all uploads are properly saved to Cloudinary with correct URLs
 
 ### November 05, 2025
 -   **Enhanced KYC Verification**: Added two new required fields to the KYC verification process

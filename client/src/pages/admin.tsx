@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -3704,39 +3704,81 @@ export default function AdminDashboard() {
                   <ExternalLink className="h-5 w-5 mr-2 text-blue-600" />
                   Uploaded Documents
                 </h3>
-                <div className="flex gap-3 flex-wrap">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {viewingKyc.kycIdDocumentUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open(viewingKyc.kycIdDocumentUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      View ID Document
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">ID Document</p>
+                      {viewingKyc.kycIdDocumentUrl.endsWith('.pdf') ? (
+                        <div className="aspect-square bg-slate-100 rounded flex items-center justify-center mb-2">
+                          <FileText className="h-16 w-16 text-slate-400" />
+                        </div>
+                      ) : (
+                        <img 
+                          src={viewingKyc.kycIdDocumentUrl} 
+                          alt="ID Document" 
+                          className="w-full aspect-square object-cover rounded mb-2"
+                          onError={(e) => {
+                            e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error</text></svg>';
+                          }}
+                        />
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(viewingKyc.kycIdDocumentUrl!, '_blank')}
+                        className="w-full"
+                      >
+                        <ExternalLink className="h-3 w-3 mr-2" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                   {(viewingKyc as any).kycSignatureUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open((viewingKyc as any).kycSignatureUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      View Signature
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">Signature</p>
+                      <img 
+                        src={(viewingKyc as any).kycSignatureUrl} 
+                        alt="Signature" 
+                        className="w-full aspect-square object-contain rounded mb-2 bg-white border border-slate-100"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error loading</text></svg>';
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open((viewingKyc as any).kycSignatureUrl!, '_blank')}
+                        className="w-full"
+                      >
+                        <ExternalLink className="h-3 w-3 mr-2" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                   {viewingKyc.kycSelfieUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open(viewingKyc.kycSelfieUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Selfie
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">Selfie</p>
+                      <img 
+                        src={viewingKyc.kycSelfieUrl} 
+                        alt="Selfie" 
+                        className="w-full aspect-square object-cover rounded mb-2"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error loading</text></svg>';
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(viewingKyc.kycSelfieUrl!, '_blank')}
+                        className="w-full"
+                      >
+                        <Eye className="h-3 w-3 mr-2" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                   {!viewingKyc.kycIdDocumentUrl && !(viewingKyc as any).kycSignatureUrl && !viewingKyc.kycSelfieUrl && (
-                    <p className="text-slate-500">No documents uploaded</p>
+                    <p className="text-slate-500 col-span-3">No documents uploaded</p>
                   )}
                 </div>
               </div>
