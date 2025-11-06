@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -774,50 +775,63 @@ function AdminInvestmentsTab({
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex space-x-2">
-                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
                             <Button
+                              variant="ghost"
                               size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenEditReservation(reservation)}
-                              data-testid={`button-edit-${reservation.id}`}
+                              className="h-8 w-8 p-0"
+                              data-testid={`button-actions-${reservation.id}`}
                             >
-                              <Edit className="h-4 w-4 mr-1" />
-                              Edit
+                              <MoreVertical className="h-4 w-4" />
                             </Button>
-                          )}
-                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
-                            <Button
-                              size="sm"
-                              onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
-                              disabled={markPaymentReceivedMutation.isPending}
-                              data-testid={`button-mark-payment-${reservation.id}`}
-                            >
-                              Mark Paid
-                            </Button>
-                          )}
-                          {reservation.status === "payment_received" && (
-                            <Button
-                              size="sm"
-                              onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
-                              disabled={confirmInvestmentMutation.isPending}
-                              data-testid={`button-confirm-${reservation.id}`}
-                            >
-                              Confirm
-                            </Button>
-                          )}
-                          {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
-                              disabled={cancelInvestmentMutation.isPending}
-                              data-testid={`button-cancel-${reservation.id}`}
-                            >
-                              Cancel
-                            </Button>
-                          )}
-                        </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                              <DropdownMenuItem
+                                onClick={() => handleOpenEditReservation(reservation)}
+                                data-testid={`menu-edit-${reservation.id}`}
+                              >
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit Details
+                              </DropdownMenuItem>
+                            )}
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
+                              <DropdownMenuItem
+                                onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
+                                disabled={markPaymentReceivedMutation.isPending}
+                                data-testid={`menu-mark-payment-${reservation.id}`}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Mark as Paid
+                              </DropdownMenuItem>
+                            )}
+                            {reservation.status === "payment_received" && (
+                              <DropdownMenuItem
+                                onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
+                                disabled={confirmInvestmentMutation.isPending}
+                                data-testid={`menu-confirm-${reservation.id}`}
+                              >
+                                <ShieldCheck className="h-4 w-4 mr-2" />
+                                Confirm Investment
+                              </DropdownMenuItem>
+                            )}
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
+                                  disabled={cancelInvestmentMutation.isPending}
+                                  className="text-red-600 focus:text-red-600"
+                                  data-testid={`menu-cancel-${reservation.id}`}
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Cancel Investment
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
