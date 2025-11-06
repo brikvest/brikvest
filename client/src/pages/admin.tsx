@@ -869,6 +869,15 @@ function AdminInvestmentsTab({
                     {editingReservation.status.replace('_', ' ')}
                   </Badge>
                 </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <Label className="text-sm font-medium text-slate-700">Current Amount</Label>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {getCurrencySymbol(editingReservation.currency)}{editingReservation.amount.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {editingReservation.units} units × {getCurrencySymbol(editingReservation.currency)}{editingReservation.unitPriceSnapshot.toLocaleString()} per unit
+                  </p>
+                </div>
               </div>
 
               {/* Editable Fields */}
@@ -884,9 +893,18 @@ function AdminInvestmentsTab({
                     placeholder="Enter number of units"
                     data-testid="input-edit-units"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Amount will be recalculated based on units
-                  </p>
+                  {editUnits && !isNaN(parseFloat(editUnits)) && (
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-medium text-blue-900">New Amount</p>
+                      <p className="text-xl font-bold text-blue-900">
+                        {getCurrencySymbol(editingReservation.currency)}
+                        {Math.round(parseFloat(editUnits) * editingReservation.unitPriceSnapshot).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        {parseFloat(editUnits)} units × {getCurrencySymbol(editingReservation.currency)}{editingReservation.unitPriceSnapshot.toLocaleString()} per unit
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div>
