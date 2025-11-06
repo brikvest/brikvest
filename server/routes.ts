@@ -640,6 +640,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update investment reservation details
+  app.put('/api/admin/investments/:id', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+      const { units, paymentMethod, paymentReference, paymentEvidenceUrl, notes } = req.body;
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      // If units are being changed, validate and update property counts
+      if (units !== undefined) {
+        const oldUnits = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+        const newUnits = parseFloat(units);
+        const unitsDelta = newUnits - oldUnits;
+
+        if (unitsDelta !== 0) {
+          // Check availability if increasing units
+          if (unitsDelta > 0) {
+            const availableUnits = (property.totalSlots && property.totalSlots > 0)
+              ? (property.availableSlots || 0)
+              : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+            
+            if (unitsDelta > availableUnits) {
+              return res.status(400).json({ 
+                error: `Not enough units available. Only ${availableUnits} additional units available.` 
+              });
+            }
+          }
+
+          // Update property unit counts
+          await storage.updatePropertyUnitCounts(reservation.propertyId, unitsDelta, 0);
+        }
+
+        // Recalculate amount based on new units
+        const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
+        const amount = Math.round(newUnits * unitPriceSnapshot);
+
+        // Update reservation
+        const updated = await storage.updateReservation(reservationId, {
+          units: units.toString(),
+          amount,
+          paymentMethod: paymentMethod !== undefined ? paymentMethod : reservation.paymentMethod,
+          paymentReference: paymentReference !== undefined ? paymentReference : reservation.paymentReference,
+          paymentEvidenceUrl: paymentEvidenceUrl !== undefined ? paymentEvidenceUrl : reservation.paymentEvidenceUrl,
+          notes: notes !== undefined ? notes : reservation.notes,
+        });
+
+        return res.json(updated);
+      }
+
+      // Update without changing units
+      const updated = await storage.updateReservation(reservationId, {
+        paymentMethod: paymentMethod !== undefined ? paymentMethod : reservation.paymentMethod,
+        paymentReference: paymentReference !== undefined ? paymentReference : reservation.paymentReference,
+        paymentEvidenceUrl: paymentEvidenceUrl !== undefined ? paymentEvidenceUrl : reservation.paymentEvidenceUrl,
+        notes: notes !== undefined ? notes : reservation.notes,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating investment:", error);
+      res.status(500).json({ error: "Failed to update investment" });
+    }
+  });
+
   // Cancel investment reservation
   app.put('/api/admin/investments/:id/cancel', requireAdminAuth, async (req, res) => {
     try {
