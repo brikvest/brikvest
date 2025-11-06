@@ -114,12 +114,14 @@ export default function Portfolio() {
     }
 
     // Validate ID document file type and size (only if a new file is provided)
+    const allowedDocumentTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
     const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    
     if (idDocumentFile) {
-      if (!allowedImageTypes.includes(idDocumentFile.type)) {
+      if (!allowedDocumentTypes.includes(idDocumentFile.type)) {
         toast({
           title: "Invalid ID Document File",
-          description: "ID document must be a JPG, PNG, WEBP, or HEIC image.",
+          description: "ID document must be a JPG, PNG, WEBP, HEIC, or PDF file.",
           variant: "destructive",
         });
         return;
@@ -130,7 +132,7 @@ export default function Portfolio() {
       if (idDocumentFile.size > maxIdDocumentSize) {
         toast({
           title: "ID Document File Too Large",
-          description: "ID document image must be less than 10MB.",
+          description: "ID document must be less than 10MB.",
           variant: "destructive",
         });
         return;
@@ -961,13 +963,13 @@ export default function Portfolio() {
                   <Input
                     id="idDocument"
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.pdf"
                     onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
                     data-testid="input-kyc-document"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Clear photo or scan of your ID (JPG, PNG, WEBP, or HEIC, max 10MB)
+                    Clear photo or scan of your ID (JPG, PNG, WEBP, HEIC, or PDF, max 10MB)
                   </p>
                   {idDocumentFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
