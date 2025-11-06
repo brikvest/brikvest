@@ -787,14 +787,24 @@ function AdminInvestmentsTab({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => handleOpenEditReservation(reservation)}
+                              data-testid={`menu-view-${reservation.id}`}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
                             {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
-                              <DropdownMenuItem
-                                onClick={() => handleOpenEditReservation(reservation)}
-                                data-testid={`menu-edit-${reservation.id}`}
-                              >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit Details
-                              </DropdownMenuItem>
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenEditReservation(reservation)}
+                                  data-testid={`menu-edit-${reservation.id}`}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Details
+                                </DropdownMenuItem>
+                              </>
                             )}
                             {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
                               <DropdownMenuItem
