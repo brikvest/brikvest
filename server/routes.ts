@@ -1013,7 +1013,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create investment reservation
   app.post("/api/reservations", async (req, res) => {
     try {
-      const validatedData = insertInvestmentReservationSchema.parse(req.body);
+      // Validate request data
+      const result = insertInvestmentReservationSchema.safeParse(req.body);
+      if (!result.success) {
+        // Create user-friendly error message
+        const errors = result.error.errors.map(err => {
+          const field = err.path.join('.');
+          switch (field) {
+            case 'fullName':
+              return 'Please enter your full name';
+            case 'email':
+              return 'Please enter a valid email address';
+            case 'phone':
+              return 'Please enter a valid phone number';
+            case 'units':
+              return 'Please enter a valid number of units';
+            case 'amount':
+              return 'Invalid investment amount';
+            case 'propertyId':
+              return 'Please select a property';
+            case 'unitPriceSnapshot':
+              return 'Invalid price information';
+            default:
+              return err.message;
+          }
+        });
+        return res.status(400).json({ 
+          message: errors[0] || "Please check your information and try again",
+          errors: errors
+        });
+      }
+
+      const validatedData = result.data;
       
       // Add userId if user is authenticated
       let reservationData = validatedData;
@@ -1027,13 +1058,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if property exists
       const property = await storage.getProperty(reservationData.propertyId);
       if (!property) {
-        return res.status(404).json({ message: "Property not found" });
+        return res.status(400).json({ message: "The selected property is no longer available" });
       }
 
       // Check if there are available slots
       const units = typeof reservationData.units === 'string' ? parseFloat(reservationData.units) : reservationData.units;
       if (property.availableSlots < units) {
-        return res.status(400).json({ message: "Not enough available slots" });
+        return res.status(400).json({ 
+          message: `Only ${property.availableSlots} unit${property.availableSlots !== 1 ? 's' : ''} available. Please select a smaller quantity.` 
+        });
       }
 
       const reservation = await storage.createInvestmentReservation(reservationData);

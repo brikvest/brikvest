@@ -105,9 +105,9 @@ export const investmentReservations = pgTable("investment_reservations", {
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   units: decimal("units", { precision: 15, scale: 2 }).notNull(), // Number of units being purchased
-  amount: bigint("amount", { mode: "number" }).notNull(), // Total amount (units * unitPriceSnapshot)
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(), // Total amount (units * unitPriceSnapshot)
   currency: text("currency").notNull().default("USD"), // Currency for the investment
-  unitPriceSnapshot: bigint("unit_price_snapshot", { mode: "number" }).notNull(), // Price per unit at time of reservation
+  unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
   referralCode: text("referral_code"),
   status: text("status").notNull().default("payment_pending"), // 'payment_pending', 'payment_received', 'confirmed', 'cancelled'
   

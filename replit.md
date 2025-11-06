@@ -37,6 +37,13 @@ The application uses a modern full-stack architecture with clear separation of c
     -   **Frontend Validation**: Client-side file type and size validation only when new files are provided
     -   **Backend Validation**: Server-side validation preserves existing document URLs when no new file is uploaded
     -   **User Guidance**: Updated help text to clarify image formats with HEIC support and indicate which fields are already completed
+    -   **Admin Image Display**: HEIC images automatically converted to JPG format for browser compatibility in admin panel
+    -   **Cloudinary Integration**: All uploaded images automatically converted to JPG for universal browser support
+-   **Investment Reservation Validation Improvements**: Enhanced error messages and data validation for better user experience
+    -   **User-Friendly Error Messages**: Replaced generic "Invalid data provided" with specific, actionable messages (e.g., "Please enter your full name", "Only 5 units available. Please select a smaller quantity.")
+    -   **Schema Fix**: Changed `amount` and `unitPriceSnapshot` from integer to decimal to support fractional prices
+    -   **Field-Specific Validation**: Each form field now returns clear, understandable error messages
+    -   **Availability Messaging**: Shows exact number of available units when user tries to reserve more than available
 -   **Investment Currency Fix**: Corrected Gilmore Land, Guzape 2 property to use Naira (NGN) currency
     -   **Property**: Updated from USD to NGN with ₦325,000 per unit pricing
     -   **Reservations**: All existing Gilmore Land investments updated to NGN currency
