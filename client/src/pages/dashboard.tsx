@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import type { InvestmentReservation, Property } from "@shared/schema";
@@ -15,8 +15,9 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-export default function Dashboard() {
+export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const { formatCurrency, userCurrency } = useCurrency();
@@ -78,6 +79,10 @@ export default function Dashboard() {
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const userData = user as any;
+    const hasExistingIdDocument = !!userData?.kycIdDocumentUrl;
+    const hasExistingSignature = !!userData?.kycSignatureUrl;
+    
     // Validation
     if (!kycFormData.fullName || !kycFormData.dateOfBirth || !kycFormData.address || !kycFormData.occupation || !kycFormData.idType || !kycFormData.idNumber) {
       toast({
@@ -88,7 +93,8 @@ export default function Dashboard() {
       return;
     }
 
-    if (!idDocumentFile) {
+    // ID document is only required if user doesn't already have one
+    if (!idDocumentFile && !hasExistingIdDocument) {
       toast({
         title: "ID Document Required",
         description: "Please upload your government-issued ID document.",
@@ -97,7 +103,8 @@ export default function Dashboard() {
       return;
     }
 
-    if (!signatureFile) {
+    // Signature is only required if user doesn't already have one
+    if (!signatureFile && !hasExistingSignature) {
       toast({
         title: "Signature Required",
         description: "Please upload an image of your signature.",
@@ -106,26 +113,53 @@ export default function Dashboard() {
       return;
     }
 
-    // Validate signature file type
-    const allowedSignatureTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!allowedSignatureTypes.includes(signatureFile.type)) {
-      toast({
-        title: "Invalid Signature File",
-        description: "Signature must be a JPG, PNG, or WEBP image.",
-        variant: "destructive",
-      });
-      return;
+    // Validate ID document file type and size (only if a new file is provided)
+    const allowedDocumentTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    
+    if (idDocumentFile) {
+      if (!allowedDocumentTypes.includes(idDocumentFile.type)) {
+        toast({
+          title: "Invalid ID Document File",
+          description: "ID document must be a JPG, PNG, WEBP, HEIC, or PDF file.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate ID document file size (max 10MB)
+      const maxIdDocumentSize = 10 * 1024 * 1024; // 10MB
+      if (idDocumentFile.size > maxIdDocumentSize) {
+        toast({
+          title: "ID Document File Too Large",
+          description: "ID document must be less than 10MB.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
-    // Validate signature file size (max 5MB)
-    const maxSignatureSize = 5 * 1024 * 1024; // 5MB
-    if (signatureFile.size > maxSignatureSize) {
-      toast({
-        title: "Signature File Too Large",
-        description: "Signature image must be less than 5MB.",
-        variant: "destructive",
-      });
-      return;
+    // Validate signature file type and size (only if a new file is provided)
+    if (signatureFile) {
+      if (!allowedImageTypes.includes(signatureFile.type)) {
+        toast({
+          title: "Invalid Signature File",
+          description: "Signature must be a JPG, PNG, WEBP, or HEIC image.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate signature file size (max 5MB)
+      const maxSignatureSize = 5 * 1024 * 1024; // 5MB
+      if (signatureFile.size > maxSignatureSize) {
+        toast({
+          title: "Signature File Too Large",
+          description: "Signature image must be less than 5MB.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Check age (must be 18+)
@@ -151,8 +185,14 @@ export default function Dashboard() {
       formData.append('occupation', kycFormData.occupation);
       formData.append('idType', kycFormData.idType);
       formData.append('idNumber', kycFormData.idNumber);
-      formData.append('idDocument', idDocumentFile);
-      formData.append('signature', signatureFile);
+      
+      // Only append files if they're provided (allows updating without re-uploading)
+      if (idDocumentFile) {
+        formData.append('idDocument', idDocumentFile);
+      }
+      if (signatureFile) {
+        formData.append('signature', signatureFile);
+      }
       if (selfieFile) {
         formData.append('selfie', selfieFile);
       }
@@ -205,7 +245,7 @@ export default function Dashboard() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading your dashboard...</p>
+          <p className="mt-4 text-slate-600">Loading your portfolio...</p>
         </div>
       </div>
     );
@@ -256,11 +296,11 @@ export default function Dashboard() {
             <Link 
               href="/dashboard"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-600 font-medium" 
-              data-testid="nav-dashboard"
+              data-testid="nav-portfolio"
               onClick={() => setMobileMenuOpen(false)}
             >
-              <Home className="h-5 w-5" />
-              <span>Dashboard</span>
+              <PieChart className="h-5 w-5" />
+              <span>Portfolio</span>
             </Link>
             <button
               onClick={() => {
@@ -414,42 +454,51 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Dashboard Content */}
+        {/* Portfolio Content */}
         <main className="p-4 sm:p-6 max-w-7xl mx-auto">
+          {/* Portfolio Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My Portfolio</h1>
+            <p className="text-slate-600 mt-1">Track and manage your real estate investments</p>
+          </div>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-total-invested">
-              <CardContent className="p-4 sm:p-6">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-gradient-to-br from-blue-500 to-blue-600 text-white relative overflow-hidden" data-testid="card-total-invested">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+              <CardContent className="p-4 sm:p-6 relative">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Total Invested</p>
-                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
+                    <p className="text-xs sm:text-sm text-blue-100 mb-1 font-medium">Total Portfolio Value</p>
+                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {formatCurrency(totalInvested)}
                     </p>
                   </div>
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-2 backdrop-blur-sm">
+                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                   </div>
                 </div>
                 {!isKycVerified && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
-                    <ShieldCheck className="h-6 w-6 text-slate-400" />
+                  <div className="absolute inset-0 flex items-center justify-center bg-blue-600/60 backdrop-blur-[2px]">
+                    <ShieldCheck className="h-6 w-6 text-white" />
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-active-reservations">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white relative" data-testid="card-active-reservations">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Active Reservations</p>
+                    <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Properties Owned</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {activeReservations}
+                      {new Set(reservations.filter(r => r.status === 'confirmed').map(r => r.propertyId)).size}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {activeReservations} pending
                     </p>
                   </div>
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                    <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
+                    <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                   </div>
                 </div>
                 {!isKycVerified && (
@@ -460,13 +509,16 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Completed</p>
+                    <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Total Investments</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {completedInvestments}
+                      {reservations.length}
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-1 font-medium">
+                      {completedInvestments} confirmed
                     </p>
                   </div>
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
@@ -481,6 +533,105 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Portfolio Performance Chart */}
+          {isKycVerified && reservations.length > 0 && (
+            <Card className="mb-6 sm:mb-8 shadow-lg">
+              <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5 text-blue-600" />
+                      Portfolio Growth
+                    </CardTitle>
+                    <p className="text-sm text-slate-600 mt-1">Track your investment performance over time</p>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full">
+                    <TrendingUp className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-700">Growing</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="h-64 sm:h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={(() => {
+                        const sortedReservations = [...reservations].sort((a, b) => 
+                          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                        );
+                        
+                        let cumulative = 0;
+                        return sortedReservations.map((res, index) => {
+                          cumulative += res.amount;
+                          return {
+                            date: new Date(res.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            value: cumulative,
+                            investments: index + 1
+                          };
+                        });
+                      })()}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="date" 
+                        stroke="#64748b"
+                        style={{ fontSize: '12px' }}
+                      />
+                      <YAxis 
+                        stroke="#64748b"
+                        style={{ fontSize: '12px' }}
+                        tickFormatter={(value) => `${formatCurrency(value).split('.')[0]}`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'white',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                        }}
+                        formatter={(value: any) => [formatCurrency(value), 'Total Invested']}
+                        labelStyle={{ color: '#334155', fontWeight: 600 }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorValue)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+                  <div>
+                    <p className="text-xs text-slate-600">Total Invested</p>
+                    <p className="text-lg font-bold text-slate-900">{formatCurrency(totalInvested)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-600">Properties</p>
+                    <p className="text-lg font-bold text-slate-900">
+                      {new Set(reservations.map(r => r.propertyId)).size}
+                    </p>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="text-xs text-slate-600">Avg. Investment</p>
+                    <p className="text-lg font-bold text-slate-900">
+                      {formatCurrency(reservations.length > 0 ? totalInvested / reservations.length : 0)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Pending Reservations */}
           {(() => {
@@ -800,20 +951,25 @@ export default function Dashboard() {
 
               <div>
                 <Label htmlFor="idDocument" className="text-sm font-medium">
-                  Upload ID Document <span className="text-red-500">*</span>
+                  Upload ID Document {!((user as any)?.kycIdDocumentUrl) && <span className="text-red-500">*</span>}
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycIdDocumentUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Document already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="idDocument"
                     type="file"
                     accept="image/*,.pdf"
                     onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
-                    required
                     data-testid="input-kyc-document"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Clear photo or scan of your ID (JPG, PNG, or PDF, max 10MB)
+                    Clear photo or scan of your ID (JPG, PNG, WEBP, HEIC, or PDF, max 10MB)
                   </p>
                   {idDocumentFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
@@ -827,24 +983,29 @@ export default function Dashboard() {
 
             {/* Signature */}
             <div className="space-y-4">
-              <h3 className="font-semibold text-lg text-slate-900">Signature <span className="text-red-500">*</span></h3>
+              <h3 className="font-semibold text-lg text-slate-900">Signature {!((user as any)?.kycSignatureUrl) && <span className="text-red-500">*</span>}</h3>
               
               <div>
                 <Label htmlFor="signature" className="text-sm font-medium">
-                  Upload Signature <span className="text-red-500">*</span>
+                  Upload Signature {!((user as any)?.kycSignatureUrl) && <span className="text-red-500">*</span>}
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycSignatureUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Signature already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="signature"
                     type="file"
                     accept="image/*"
                     onChange={(e) => setSignatureFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
-                    required
                     data-testid="input-kyc-signature"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Upload a clear image of your signature (JPG or PNG, max 5MB)
+                    Upload a clear image of your signature (JPG, PNG, WEBP, or HEIC, max 5MB)
                   </p>
                   {signatureFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
@@ -865,6 +1026,12 @@ export default function Dashboard() {
                   Upload a Selfie
                 </Label>
                 <div className="mt-1">
+                  {((user as any)?.kycSelfieUrl) && (
+                    <p className="text-xs text-blue-600 mb-2 flex items-center gap-1 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Selfie already uploaded. Upload a new one only if you want to replace it.
+                    </p>
+                  )}
                   <Input
                     id="selfie"
                     type="file"

@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -29,6 +30,19 @@ const getCurrencySymbol = (currency: string) => {
     case 'USD': return '$';
     default: return currency;
   }
+};
+
+// Helper function to convert Cloudinary images to JPG format for browser compatibility
+const convertToJpg = (url: string): string => {
+  if (!url || !url.includes('cloudinary.com')) return url;
+  
+  // Cloudinary URL format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{version}/{path}
+  // We need to insert f_jpg transformation
+  const parts = url.split('/upload/');
+  if (parts.length === 2) {
+    return `${parts[0]}/upload/f_jpg/${parts[1]}`;
+  }
+  return url;
 };
 
 // Admin Investments Tab Component
@@ -61,6 +75,17 @@ function AdminInvestmentsTab({
 
   // Filter states for management view
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Edit reservation states
+  const [editingReservation, setEditingReservation] = useState<InvestmentReservation | null>(null);
+  const [isEditReservationOpen, setIsEditReservationOpen] = useState(false);
+  const [editUnits, setEditUnits] = useState("");
+  const [editPaymentMethod, setEditPaymentMethod] = useState("");
+  const [editPaymentReference, setEditPaymentReference] = useState("");
+  const [editPaymentEvidenceFile, setEditPaymentEvidenceFile] = useState<File | null>(null);
+  const [editUploadingEvidence, setEditUploadingEvidence] = useState(false);
+  const [editNotes, setEditNotes] = useState("");
+  const [editingSubmitting, setEditingSubmitting] = useState(false);
 
   const searchUserMutation = useMutation({
     mutationFn: async (email: string) => {
@@ -208,6 +233,32 @@ function AdminInvestmentsTab({
     },
   });
 
+  const updateReservationMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      setIsEditReservationOpen(false);
+      setEditingReservation(null);
+      toast({
+        title: "Investment updated",
+        description: "Investment reservation has been updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error.message || "Failed to update investment",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSearchUser = () => {
     if (!userEmail.trim()) {
       toast({
@@ -292,6 +343,80 @@ function AdminInvestmentsTab({
       paymentEvidenceUrl,
       notes,
     });
+  };
+
+  const handleOpenEditReservation = (reservation: InvestmentReservation) => {
+    setEditingReservation(reservation);
+    setEditUnits(reservation.units.toString());
+    setEditPaymentMethod(reservation.paymentMethod || "");
+    setEditPaymentReference(reservation.paymentReference || "");
+    setEditNotes(reservation.notes || "");
+    setEditPaymentEvidenceFile(null);
+    setIsEditReservationOpen(true);
+  };
+
+  const handleUpdateReservation = async () => {
+    if (!editingReservation) return;
+
+    // Validation
+    const unitsValue = parseFloat(editUnits);
+    if (isNaN(unitsValue) || unitsValue <= 0) {
+      toast({
+        title: "Invalid units",
+        description: "Units must be a positive number",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setEditingSubmitting(true);
+
+    let paymentEvidenceUrl = editingReservation.paymentEvidenceUrl;
+
+    // Upload payment evidence if provided
+    if (editPaymentEvidenceFile) {
+      setEditUploadingEvidence(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', editPaymentEvidenceFile);
+        
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error('Upload failed');
+        }
+        
+        const data = await response.json();
+        paymentEvidenceUrl = data.url;
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: "Failed to upload payment evidence",
+          variant: "destructive",
+        });
+        setEditUploadingEvidence(false);
+        setEditingSubmitting(false);
+        return;
+      } finally {
+        setEditUploadingEvidence(false);
+      }
+    }
+
+    updateReservationMutation.mutate({
+      id: editingReservation.id,
+      data: {
+        units: unitsValue,
+        paymentMethod: editPaymentMethod || null,
+        paymentReference: editPaymentReference || null,
+        paymentEvidenceUrl,
+        notes: editNotes || null,
+      },
+    });
+
+    setEditingSubmitting(false);
   };
 
   const selectedProperty = properties.find(p => p.id === selectedPropertyId);
@@ -663,39 +788,73 @@ function AdminInvestmentsTab({
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex space-x-2">
-                          {reservation.status === "payment_pending" && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
                             <Button
+                              variant="ghost"
                               size="sm"
-                              onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
-                              disabled={markPaymentReceivedMutation.isPending}
-                              data-testid={`button-mark-payment-${reservation.id}`}
+                              className="h-8 w-8 p-0"
+                              data-testid={`button-actions-${reservation.id}`}
                             >
-                              Mark Paid
+                              <MoreVertical className="h-4 w-4" />
                             </Button>
-                          )}
-                          {reservation.status === "payment_received" && (
-                            <Button
-                              size="sm"
-                              onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
-                              disabled={confirmInvestmentMutation.isPending}
-                              data-testid={`button-confirm-${reservation.id}`}
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => handleOpenEditReservation(reservation)}
+                              data-testid={`menu-view-${reservation.id}`}
                             >
-                              Confirm
-                            </Button>
-                          )}
-                          {(reservation.status === "payment_pending" || reservation.status === "payment_received") && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
-                              disabled={cancelInvestmentMutation.isPending}
-                              data-testid={`button-cancel-${reservation.id}`}
-                            >
-                              Cancel
-                            </Button>
-                          )}
-                        </div>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenEditReservation(reservation)}
+                                  data-testid={`menu-edit-${reservation.id}`}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Details
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
+                              <DropdownMenuItem
+                                onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
+                                disabled={markPaymentReceivedMutation.isPending}
+                                data-testid={`menu-mark-payment-${reservation.id}`}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Mark as Paid
+                              </DropdownMenuItem>
+                            )}
+                            {reservation.status === "payment_received" && (
+                              <DropdownMenuItem
+                                onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
+                                disabled={confirmInvestmentMutation.isPending}
+                                data-testid={`menu-confirm-${reservation.id}`}
+                              >
+                                <ShieldCheck className="h-4 w-4 mr-2" />
+                                Confirm Investment
+                              </DropdownMenuItem>
+                            )}
+                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
+                                  disabled={cancelInvestmentMutation.isPending}
+                                  className="text-red-600 focus:text-red-600"
+                                  data-testid={`menu-cancel-${reservation.id}`}
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Cancel Investment
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -705,6 +864,178 @@ function AdminInvestmentsTab({
           </Card>
         </div>
       )}
+
+      {/* Edit Reservation Dialog */}
+      <Dialog open={isEditReservationOpen} onOpenChange={setIsEditReservationOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Investment Reservation</DialogTitle>
+          </DialogHeader>
+          
+          {editingReservation && (
+            <div className="space-y-6">
+              {/* User and Property Info (Read-only) */}
+              <div className="bg-slate-50 p-4 rounded-lg space-y-2">
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">User</Label>
+                  <p className="text-sm text-slate-900">{editingReservation.fullName} ({editingReservation.email})</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">Property</Label>
+                  <p className="text-sm text-slate-900">
+                    {properties.find(p => p.id === editingReservation.propertyId)?.name || `Property #${editingReservation.propertyId}`}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-700">Current Status</Label>
+                  <Badge className={getStatusBadgeColor(editingReservation.status)}>
+                    {editingReservation.status.replace('_', ' ')}
+                  </Badge>
+                </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <Label className="text-sm font-medium text-slate-700">Current Amount</Label>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {getCurrencySymbol(editingReservation.currency)}{editingReservation.amount.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {editingReservation.units} units × {getCurrencySymbol(editingReservation.currency)}{editingReservation.unitPriceSnapshot.toLocaleString()} per unit
+                  </p>
+                </div>
+              </div>
+
+              {/* Editable Fields */}
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-units">Number of Units <span className="text-red-500">*</span></Label>
+                  <Input
+                    id="edit-units"
+                    type="number"
+                    step="0.01"
+                    value={editUnits}
+                    onChange={(e) => setEditUnits(e.target.value)}
+                    placeholder="Enter number of units"
+                    data-testid="input-edit-units"
+                  />
+                  {editUnits && !isNaN(parseFloat(editUnits)) && (
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-medium text-blue-900">New Amount</p>
+                      <p className="text-xl font-bold text-blue-900">
+                        {getCurrencySymbol(editingReservation.currency)}
+                        {Math.round(parseFloat(editUnits) * editingReservation.unitPriceSnapshot).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        {parseFloat(editUnits)} units × {getCurrencySymbol(editingReservation.currency)}{editingReservation.unitPriceSnapshot.toLocaleString()} per unit
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-method">Payment Method</Label>
+                  <Select value={editPaymentMethod} onValueChange={setEditPaymentMethod}>
+                    <SelectTrigger id="edit-payment-method" data-testid="select-edit-payment-method">
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="check">Check</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-reference">Payment Reference</Label>
+                  <Input
+                    id="edit-payment-reference"
+                    value={editPaymentReference}
+                    onChange={(e) => setEditPaymentReference(e.target.value)}
+                    placeholder="Transaction ID or reference number"
+                    data-testid="input-edit-payment-reference"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-payment-evidence">Payment Evidence (Optional)</Label>
+                  <Input
+                    id="edit-payment-evidence"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setEditPaymentEvidenceFile(e.target.files?.[0] || null)}
+                    data-testid="input-edit-payment-evidence"
+                  />
+                  {editingReservation.paymentEvidenceUrl && !editPaymentEvidenceFile && (
+                    <div className="mt-2">
+                      {editingReservation.paymentEvidenceUrl.includes('/api/documents/') ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-slate-500">Current PDF document:</p>
+                          <div className="border border-slate-200 rounded-lg p-2">
+                            <a 
+                              href={editingReservation.paymentEvidenceUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center space-x-2 text-blue-600 hover:underline text-sm"
+                            >
+                              <FileText className="h-4 w-4" />
+                              <span>View PDF Document</span>
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-slate-500">Current image:</p>
+                          <a 
+                            href={editingReservation.paymentEvidenceUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                          >
+                            <img 
+                              src={editingReservation.paymentEvidenceUrl} 
+                              alt="Payment evidence" 
+                              className="max-w-xs rounded-lg border border-slate-200 hover:border-blue-500 transition-colors"
+                            />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-notes">Notes (Internal)</Label>
+                  <Textarea
+                    id="edit-notes"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Add any notes about this investment"
+                    rows={3}
+                    data-testid="input-edit-notes"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEditReservationOpen(false)}
+                  disabled={editingSubmitting || editUploadingEvidence}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUpdateReservation}
+                  disabled={editingSubmitting || editUploadingEvidence}
+                  data-testid="button-save-edit"
+                >
+                  {editUploadingEvidence ? "Uploading..." : editingSubmitting ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3419,39 +3750,81 @@ export default function AdminDashboard() {
                   <ExternalLink className="h-5 w-5 mr-2 text-blue-600" />
                   Uploaded Documents
                 </h3>
-                <div className="flex gap-3 flex-wrap">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {viewingKyc.kycIdDocumentUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open(viewingKyc.kycIdDocumentUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      View ID Document
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">ID Document</p>
+                      {viewingKyc.kycIdDocumentUrl.includes('/api/documents/') ? (
+                        <div className="aspect-square bg-slate-100 rounded flex items-center justify-center mb-2">
+                          <FileText className="h-16 w-16 text-slate-400" />
+                        </div>
+                      ) : (
+                        <img 
+                          src={convertToJpg(viewingKyc.kycIdDocumentUrl)} 
+                          alt="ID Document" 
+                          className="w-full aspect-square object-cover rounded mb-2"
+                          onError={(e) => {
+                            e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error</text></svg>';
+                          }}
+                        />
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(viewingKyc.kycIdDocumentUrl!, '_blank')}
+                        className="w-full"
+                      >
+                        <ExternalLink className="h-3 w-3 mr-2" />
+                        {viewingKyc.kycIdDocumentUrl.includes('/api/documents/') ? 'View PDF' : 'Open'}
+                      </Button>
+                    </div>
                   )}
                   {(viewingKyc as any).kycSignatureUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open((viewingKyc as any).kycSignatureUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      View Signature
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">Signature</p>
+                      <img 
+                        src={convertToJpg((viewingKyc as any).kycSignatureUrl)} 
+                        alt="Signature" 
+                        className="w-full aspect-square object-contain rounded mb-2 bg-white border border-slate-100"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error loading</text></svg>';
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(convertToJpg((viewingKyc as any).kycSignatureUrl!), '_blank')}
+                        className="w-full"
+                      >
+                        <ExternalLink className="h-3 w-3 mr-2" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                   {viewingKyc.kycSelfieUrl && (
-                    <Button
-                      variant="outline"
-                      onClick={() => window.open(viewingKyc.kycSelfieUrl!, '_blank')}
-                      className="flex-1"
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Selfie
-                    </Button>
+                    <div className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <p className="text-sm font-medium text-slate-700 mb-2">Selfie</p>
+                      <img 
+                        src={convertToJpg(viewingKyc.kycSelfieUrl)} 
+                        alt="Selfie" 
+                        className="w-full aspect-square object-cover rounded mb-2"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999">Error loading</text></svg>';
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(convertToJpg(viewingKyc.kycSelfieUrl!), '_blank')}
+                        className="w-full"
+                      >
+                        <Eye className="h-3 w-3 mr-2" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                   {!viewingKyc.kycIdDocumentUrl && !(viewingKyc as any).kycSignatureUrl && !viewingKyc.kycSelfieUrl && (
-                    <p className="text-slate-500">No documents uploaded</p>
+                    <p className="text-slate-500 col-span-3">No documents uploaded</p>
                   )}
                 </div>
               </div>
