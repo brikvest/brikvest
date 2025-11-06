@@ -32,6 +32,19 @@ const getCurrencySymbol = (currency: string) => {
   }
 };
 
+// Helper function to convert Cloudinary images to JPG format for browser compatibility
+const convertToJpg = (url: string): string => {
+  if (!url || !url.includes('cloudinary.com')) return url;
+  
+  // Cloudinary URL format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{version}/{path}
+  // We need to insert f_jpg transformation
+  const parts = url.split('/upload/');
+  if (parts.length === 2) {
+    return `${parts[0]}/upload/f_jpg/${parts[1]}`;
+  }
+  return url;
+};
+
 // Admin Investments Tab Component
 function AdminInvestmentsTab({ 
   properties, 
@@ -3724,7 +3737,7 @@ export default function AdminDashboard() {
                         </div>
                       ) : (
                         <img 
-                          src={viewingKyc.kycIdDocumentUrl} 
+                          src={convertToJpg(viewingKyc.kycIdDocumentUrl)} 
                           alt="ID Document" 
                           className="w-full aspect-square object-cover rounded mb-2"
                           onError={(e) => {
@@ -3747,7 +3760,7 @@ export default function AdminDashboard() {
                     <div className="border border-slate-200 rounded-lg p-3 bg-white">
                       <p className="text-sm font-medium text-slate-700 mb-2">Signature</p>
                       <img 
-                        src={(viewingKyc as any).kycSignatureUrl} 
+                        src={convertToJpg((viewingKyc as any).kycSignatureUrl)} 
                         alt="Signature" 
                         className="w-full aspect-square object-contain rounded mb-2 bg-white border border-slate-100"
                         onError={(e) => {
@@ -3757,7 +3770,7 @@ export default function AdminDashboard() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open((viewingKyc as any).kycSignatureUrl!, '_blank')}
+                        onClick={() => window.open(convertToJpg((viewingKyc as any).kycSignatureUrl!), '_blank')}
                         className="w-full"
                       >
                         <ExternalLink className="h-3 w-3 mr-2" />
@@ -3769,7 +3782,7 @@ export default function AdminDashboard() {
                     <div className="border border-slate-200 rounded-lg p-3 bg-white">
                       <p className="text-sm font-medium text-slate-700 mb-2">Selfie</p>
                       <img 
-                        src={viewingKyc.kycSelfieUrl} 
+                        src={convertToJpg(viewingKyc.kycSelfieUrl)} 
                         alt="Selfie" 
                         className="w-full aspect-square object-cover rounded mb-2"
                         onError={(e) => {
@@ -3779,7 +3792,7 @@ export default function AdminDashboard() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open(viewingKyc.kycSelfieUrl!, '_blank')}
+                        onClick={() => window.open(convertToJpg(viewingKyc.kycSelfieUrl!), '_blank')}
                         className="w-full"
                       >
                         <Eye className="h-3 w-3 mr-2" />
