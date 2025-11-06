@@ -1626,11 +1626,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get the property's stored currency (default to USD for old properties without currency field)
         const storedCurrency = property.currency || 'USD';
         
+        // Store original values for reservation purposes
+        const originalMinInvestment = property.minInvestment;
+        const originalUnitPrice = property.unitPrice || property.minInvestment;
+        
         // If user currency matches stored currency, no conversion needed
         if (userCurrency === storedCurrency) {
           return {
             ...property,
-            userCurrency
+            userCurrency,
+            originalMinInvestment,
+            originalUnitPrice,
+            originalCurrency: storedCurrency
           };
         }
 
@@ -1639,7 +1646,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...property,
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
-          userCurrency
+          unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
+          userCurrency,
+          originalMinInvestment,
+          originalUnitPrice,
+          originalCurrency: storedCurrency
         };
       });
 

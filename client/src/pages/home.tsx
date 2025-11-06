@@ -121,8 +121,11 @@ export default function Home() {
     if (!selectedProperty) return;
 
     const units = parseFloat(investmentForm.units);
-    const unitPrice = selectedProperty.unitPrice || selectedProperty.minInvestment || 0;
-    const amount = units * unitPrice;
+    
+    // Use original property price (not converted for display)
+    const originalUnitPrice = (selectedProperty as any).originalUnitPrice || selectedProperty.unitPrice || selectedProperty.minInvestment || 0;
+    const originalCurrency = (selectedProperty as any).originalCurrency || selectedProperty.currency || 'NGN';
+    const amount = units * originalUnitPrice;
 
     const reservationData: InsertInvestmentReservation = {
       propertyId: selectedProperty.id,
@@ -131,8 +134,8 @@ export default function Home() {
       phone: investmentForm.phone,
       units: investmentForm.units,
       amount: amount.toString(),
-      unitPriceSnapshot: unitPrice.toString(),
-      currency: selectedProperty.currency || 'NGN',
+      unitPriceSnapshot: originalUnitPrice.toString(),
+      currency: originalCurrency,
       status: 'payment_pending',
       referralCode: investmentForm.referralCode || undefined,
     };
