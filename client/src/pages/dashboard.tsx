@@ -106,9 +106,30 @@ export default function Dashboard() {
       return;
     }
 
+    // Validate ID document file type (images only)
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedImageTypes.includes(idDocumentFile.type)) {
+      toast({
+        title: "Invalid ID Document File",
+        description: "ID document must be a JPG, PNG, or WEBP image.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate ID document file size (max 10MB)
+    const maxIdDocumentSize = 10 * 1024 * 1024; // 10MB
+    if (idDocumentFile.size > maxIdDocumentSize) {
+      toast({
+        title: "ID Document File Too Large",
+        description: "ID document image must be less than 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Validate signature file type
-    const allowedSignatureTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!allowedSignatureTypes.includes(signatureFile.type)) {
+    if (!allowedImageTypes.includes(signatureFile.type)) {
       toast({
         title: "Invalid Signature File",
         description: "Signature must be a JPG, PNG, or WEBP image.",
@@ -806,14 +827,14 @@ export default function Dashboard() {
                   <Input
                     id="idDocument"
                     type="file"
-                    accept="image/*,.pdf"
+                    accept="image/*"
                     onChange={(e) => setIdDocumentFile(e.target.files?.[0] || null)}
                     className="cursor-pointer"
                     required
                     data-testid="input-kyc-document"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Clear photo or scan of your ID (JPG, PNG, or PDF, max 10MB)
+                    Clear photo or scan of your ID (JPG, PNG, or WEBP, max 10MB)
                   </p>
                   {idDocumentFile && (
                     <p className="text-xs text-green-600 mt-1 flex items-center gap-1">

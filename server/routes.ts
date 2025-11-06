@@ -221,13 +221,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Signature image is required" });
       }
 
-      // Validate file types (images and PDFs only)
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      // Validate file types (images only)
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
       const idDocumentFile = files.idDocument[0];
       
       if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
         return res.status(400).json({ 
-          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+          error: "Invalid file type for ID document. Only JPEG, PNG, and WEBP images are allowed." 
         });
       }
 
@@ -244,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const selfieFile = files.selfie[0];
         if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
           return res.status(400).json({ 
-            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+            error: "Invalid file type for selfie. Only JPEG, PNG, and WEBP images are allowed." 
           });
         }
         if (selfieFile.size > maxFileSize) {
