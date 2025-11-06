@@ -445,38 +445,42 @@ export default function Portfolio() {
           </div>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-total-invested">
-              <CardContent className="p-4 sm:p-6">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-gradient-to-br from-blue-500 to-blue-600 text-white relative overflow-hidden" data-testid="card-total-invested">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
+              <CardContent className="p-4 sm:p-6 relative">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Total Invested</p>
-                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
+                    <p className="text-xs sm:text-sm text-blue-100 mb-1 font-medium">Total Portfolio Value</p>
+                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {formatCurrency(totalInvested)}
                     </p>
                   </div>
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-2 backdrop-blur-sm">
+                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                   </div>
                 </div>
                 {!isKycVerified && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
-                    <ShieldCheck className="h-6 w-6 text-slate-400" />
+                  <div className="absolute inset-0 flex items-center justify-center bg-blue-600/60 backdrop-blur-[2px]">
+                    <ShieldCheck className="h-6 w-6 text-white" />
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow relative" data-testid="card-active-reservations">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white relative" data-testid="card-active-reservations">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Active Reservations</p>
+                    <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Properties Owned</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {activeReservations}
+                      {new Set(reservations.filter(r => r.status === 'confirmed').map(r => r.propertyId)).size}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {activeReservations} pending
                     </p>
                   </div>
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
-                    <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
+                    <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                   </div>
                 </div>
                 {!isKycVerified && (
@@ -487,13 +491,16 @@ export default function Portfolio() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-shadow sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-slate-600 mb-1">Completed</p>
+                    <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Total Investments</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {completedInvestments}
+                      {reservations.length}
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-1 font-medium">
+                      {completedInvestments} confirmed
                     </p>
                   </div>
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
