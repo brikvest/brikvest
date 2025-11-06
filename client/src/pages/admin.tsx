@@ -3754,7 +3754,7 @@ export default function AdminDashboard() {
                   {viewingKyc.kycIdDocumentUrl && (
                     <div className="border border-slate-200 rounded-lg p-3 bg-white">
                       <p className="text-sm font-medium text-slate-700 mb-2">ID Document</p>
-                      {viewingKyc.kycIdDocumentUrl.endsWith('.pdf') ? (
+                      {viewingKyc.kycIdDocumentUrl.includes('/api/documents/') ? (
                         <div className="aspect-square bg-slate-100 rounded flex items-center justify-center mb-2">
                           <FileText className="h-16 w-16 text-slate-400" />
                         </div>
@@ -3775,7 +3775,7 @@ export default function AdminDashboard() {
                         className="w-full"
                       >
                         <ExternalLink className="h-3 w-3 mr-2" />
-                        Open
+                        {viewingKyc.kycIdDocumentUrl.includes('/api/documents/') ? 'View PDF' : 'Open'}
                       </Button>
                     </div>
                   )}
