@@ -28,12 +28,15 @@ The application uses a modern full-stack architecture with clear separation of c
     -   **Portfolio Metrics**: Updated cards to show Properties Owned, Total Investments with detailed sub-metrics
     -   **Chart Features**: Shows investment timeline, cumulative value, with summary statistics (Total Invested, Properties count, Average Investment)
     -   **Component**: Renamed Dashboard component to Portfolio in `client/src/pages/dashboard.tsx`
--   **KYC Document Upload Restriction**: Limited KYC document uploads to image formats only
+-   **KYC Document Upload Enhancement**: Improved KYC document upload system for better user experience
     -   **Allowed Formats**: JPG, PNG, WEBP, and HEIC images (removed PDF support)
     -   **HEIC Support**: Added support for Apple's HEIC/HEIF image format from iPhones and iPads
-    -   **Frontend Validation**: Client-side file type and size validation for ID document, signature, and selfie
-    -   **Backend Validation**: Server-side MIME type checking to enforce image-only uploads
-    -   **User Guidance**: Updated help text to clarify image-only requirement with HEIC support
+    -   **Smart Update System**: When updating KYC information, users no longer need to re-upload documents they've already submitted
+    -   **Visual Indicators**: Form now shows "Already uploaded" message for existing documents with checkmark icon
+    -   **Optional Re-upload**: Users can choose to replace existing documents by uploading new ones
+    -   **Frontend Validation**: Client-side file type and size validation only when new files are provided
+    -   **Backend Validation**: Server-side validation preserves existing document URLs when no new file is uploaded
+    -   **User Guidance**: Updated help text to clarify image formats with HEIC support and indicate which fields are already completed
 -   **Investment Currency Fix**: Corrected Gilmore Land, Guzape 2 property to use Naira (NGN) currency
     -   **Property**: Updated from USD to NGN with ₦325,000 per unit pricing
     -   **Reservations**: All existing Gilmore Land investments updated to NGN currency
