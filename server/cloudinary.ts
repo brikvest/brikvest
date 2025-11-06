@@ -20,6 +20,8 @@ export const upload = multer({
       'image/jpeg',
       'image/png',
       'image/webp',
+      'image/heic',
+      'image/heif',
       'video/mp4',
       'video/mpeg',
       'video/quicktime',
