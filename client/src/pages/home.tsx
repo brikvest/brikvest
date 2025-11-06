@@ -122,7 +122,7 @@ export default function Home() {
 
     const units = parseFloat(investmentForm.units);
     const unitPrice = selectedProperty.unitPrice || selectedProperty.minInvestment || 0;
-    const amount = Math.round(units * unitPrice);
+    const amount = units * unitPrice;
 
     const reservationData: InsertInvestmentReservation = {
       propertyId: selectedProperty.id,
@@ -130,10 +130,10 @@ export default function Home() {
       email: investmentForm.email,
       phone: investmentForm.phone,
       units: investmentForm.units,
-      amount: amount,
-      unitPriceSnapshot: unitPrice,
+      amount: amount.toString(),
+      unitPriceSnapshot: unitPrice.toString(),
       currency: selectedProperty.currency || 'NGN',
-      status: 'pending',
+      status: 'payment_pending',
       referralCode: investmentForm.referralCode || undefined,
     };
 
