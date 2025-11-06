@@ -20,6 +20,15 @@ The application uses a modern full-stack architecture with clear separation of c
 ## Recent Changes
 
 ### November 06, 2025
+-   **KYC Document PDF Support**: Extended PDF support to KYC verification system
+    -   **ID Document PDF Support**: ID documents now accept both images (JPG, PNG, WEBP, HEIC) and PDF files
+    -   **Selective PDF Support**: Only ID documents accept PDFs; signatures and selfies remain image-only for security
+    -   **Smart File Routing**: ID document PDFs automatically routed to Replit Object Storage, images to Cloudinary
+    -   **Frontend Validation**: Updated file type validation to accept `.pdf` files for ID documents (max 10MB)
+    -   **Backend Logic**: Enhanced `/api/kyc/submit` endpoint to detect PDF MIME type and route accordingly
+    -   **Admin Display**: KYC detail modal detects PDF documents by URL pattern and shows file icon with "View PDF" button
+    -   **Storage Location**: KYC PDFs stored in `.private/kyc/documents/` folder within Object Storage
+    -   **User Experience**: Help text updated to show "JPG, PNG, WEBP, HEIC, or PDF" for ID document uploads
 -   **PDF Document Storage Enhancement**: Implemented Replit Object Storage for PDF documents
     -   **Storage Strategy**: PDFs now stored in Replit Object Storage, images continue using Cloudinary
     -   **Upload Function**: New `uploadToObjectStorage()` function in `server/cloudinary.ts` handles PDF uploads
