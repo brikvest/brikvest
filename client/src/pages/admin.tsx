@@ -966,16 +966,39 @@ function AdminInvestmentsTab({
                     data-testid="input-edit-payment-evidence"
                   />
                   {editingReservation.paymentEvidenceUrl && !editPaymentEvidenceFile && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      <a 
-                        href={editingReservation.paymentEvidenceUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        View current evidence
-                      </a>
-                    </p>
+                    <div className="mt-2">
+                      {editingReservation.paymentEvidenceUrl.includes('/api/documents/') ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-slate-500">Current PDF document:</p>
+                          <div className="border border-slate-200 rounded-lg p-2">
+                            <a 
+                              href={editingReservation.paymentEvidenceUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="flex items-center space-x-2 text-blue-600 hover:underline text-sm"
+                            >
+                              <FileText className="h-4 w-4" />
+                              <span>View PDF Document</span>
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-slate-500">Current image:</p>
+                          <a 
+                            href={editingReservation.paymentEvidenceUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                          >
+                            <img 
+                              src={editingReservation.paymentEvidenceUrl} 
+                              alt="Payment evidence" 
+                              className="max-w-xs rounded-lg border border-slate-200 hover:border-blue-500 transition-colors"
+                            />
+                          </a>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
