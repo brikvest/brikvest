@@ -44,6 +44,8 @@ The application uses a modern full-stack architecture with clear separation of c
     -   **Schema Fix**: Changed `amount` and `unitPriceSnapshot` from integer to decimal to support fractional prices
     -   **Field-Specific Validation**: Each form field now returns clear, understandable error messages
     -   **Availability Messaging**: Shows exact number of available units when user tries to reserve more than available
+    -   **Auto-Fill for Logged-in Users**: When authenticated users reserve slots, their name, email, and phone are automatically pre-filled and hidden from the form
+    -   **Simplified Reservation Flow**: Logged-in users only need to select units and optionally enter a referral code
 -   **Investment Currency Fix**: Corrected Gilmore Land, Guzape 2 property to use Naira (NGN) currency
     -   **Property**: Updated from USD to NGN with ₦325,000 per unit pricing
     -   **Reservations**: All existing Gilmore Land investments updated to NGN currency

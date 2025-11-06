@@ -142,6 +142,18 @@ export default function Home() {
 
   const openInvestmentModal = (property: Property) => {
     setSelectedProperty(property);
+    
+    // Pre-fill form with user data if authenticated
+    if (isAuthenticated && user) {
+      setInvestmentForm({
+        fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+        email: user.email,
+        phone: (user as any).phone || "",
+        units: "",
+        referralCode: ""
+      });
+    }
+    
     setInvestmentModalOpen(true);
   };
 
@@ -698,39 +710,43 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInvestmentSubmit} className="space-y-6">
-            <div>
-              <Label htmlFor="fullName">Full Name *</Label>
-              <Input
-                id="fullName"
-                type="text"
-                required
-                value={investmentForm.fullName}
-                onChange={(e) => setInvestmentForm(prev => ({ ...prev, fullName: e.target.value }))}
-                placeholder="Enter your full name"
-              />
-            </div>
-            <div>
-              <Label htmlFor="email">Email Address *</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={investmentForm.email}
-                onChange={(e) => setInvestmentForm(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="Enter your email"
-              />
-            </div>
-            <div>
-              <Label htmlFor="phone">Phone Number *</Label>
-              <Input
-                id="phone"
-                type="tel"
-                required
-                value={investmentForm.phone}
-                onChange={(e) => setInvestmentForm(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="Enter your phone number"
-              />
-            </div>
+            {!isAuthenticated && (
+              <>
+                <div>
+                  <Label htmlFor="fullName">Full Name *</Label>
+                  <Input
+                    id="fullName"
+                    type="text"
+                    required
+                    value={investmentForm.fullName}
+                    onChange={(e) => setInvestmentForm(prev => ({ ...prev, fullName: e.target.value }))}
+                    placeholder="Enter your full name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email Address *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    value={investmentForm.email}
+                    onChange={(e) => setInvestmentForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="Enter your email"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="phone">Phone Number *</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    required
+                    value={investmentForm.phone}
+                    onChange={(e) => setInvestmentForm(prev => ({ ...prev, phone: e.target.value }))}
+                    placeholder="Enter your phone number"
+                  />
+                </div>
+              </>
+            )}
             <div>
               <Label htmlFor="units">Number of Units *</Label>
               <Select value={investmentForm.units} onValueChange={(value) => setInvestmentForm(prev => ({ ...prev, units: value }))}>
