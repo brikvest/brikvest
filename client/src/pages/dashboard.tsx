@@ -108,11 +108,11 @@ export default function Portfolio() {
     }
 
     // Validate ID document file type (images only)
-    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
     if (!allowedImageTypes.includes(idDocumentFile.type)) {
       toast({
         title: "Invalid ID Document File",
-        description: "ID document must be a JPG, PNG, or WEBP image.",
+        description: "ID document must be a JPG, PNG, WEBP, or HEIC image.",
         variant: "destructive",
       });
       return;
@@ -133,7 +133,7 @@ export default function Portfolio() {
     if (!allowedImageTypes.includes(signatureFile.type)) {
       toast({
         title: "Invalid Signature File",
-        description: "Signature must be a JPG, PNG, or WEBP image.",
+        description: "Signature must be a JPG, PNG, WEBP, or HEIC image.",
         variant: "destructive",
       });
       return;

@@ -222,12 +222,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate file types (images only)
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'];
       const idDocumentFile = files.idDocument[0];
       
       if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
         return res.status(400).json({ 
-          error: "Invalid file type for ID document. Only JPEG, PNG, and WEBP images are allowed." 
+          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
         });
       }
 
@@ -244,7 +244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const selfieFile = files.selfie[0];
         if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
           return res.status(400).json({ 
-            error: "Invalid file type for selfie. Only JPEG, PNG, and WEBP images are allowed." 
+            error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
           });
         }
         if (selfieFile.size > maxFileSize) {
@@ -263,9 +263,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Upload signature
       const signatureFile = files.signature[0];
-      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(signatureFile.mimetype)) {
+      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'].includes(signatureFile.mimetype)) {
         return res.status(400).json({ 
-          error: "Invalid file type for signature. Only JPEG, PNG, and WEBP images are allowed." 
+          error: "Invalid file type for signature. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
         });
       }
       if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
