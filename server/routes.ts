@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
-import { upload, uploadToCloudinary } from "./cloudinary";
+import { upload, uploadToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { 
   investmentEmailTemplate, 
@@ -1336,24 +1336,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // File upload endpoint for partnership documents
+  // File upload endpoint for documents (PDFs go to Object Storage, images to Cloudinary)
   app.post("/api/upload/document", upload.single('document'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      const result = await uploadToCloudinary(
-        req.file.buffer,
-        req.file.originalname,
-        'brikvest/documents'
-      );
+      // Route PDFs to Object Storage, images to Cloudinary
+      const isPdf = req.file.mimetype === 'application/pdf';
+      
+      if (isPdf) {
+        const result = await uploadToObjectStorage(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype,
+          'documents'
+        );
 
-      res.json({
-        url: result.url,
-        publicId: result.publicId,
-        originalName: req.file.originalname
-      });
+        res.json({
+          url: result.url,
+          path: result.path,
+          originalName: req.file.originalname,
+          storageType: 'object_storage'
+        });
+      } else {
+        const result = await uploadToCloudinary(
+          req.file.buffer,
+          req.file.originalname,
+          'brikvest/documents'
+        );
+
+        res.json({
+          url: result.url,
+          publicId: result.publicId,
+          originalName: req.file.originalname,
+          storageType: 'cloudinary'
+        });
+      }
     } catch (error) {
       console.error("Error uploading document:", error);
       res.status(500).json({ error: "Failed to upload document" });
@@ -1410,6 +1430,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error uploading video:", error);
       res.status(500).json({ error: "Failed to upload video" });
+    }
+  });
+
+  // Serve documents from Object Storage (PDFs)
+  app.get("/api/documents/:folder/:filename", async (req, res) => {
+    try {
+      const { folder, filename } = req.params;
+      const privateDir = process.env.PRIVATE_OBJECT_DIR || '';
+      
+      if (!privateDir) {
+        return res.status(500).json({ error: "Object storage not configured" });
+      }
+
+      // Parse bucket name from PRIVATE_OBJECT_DIR
+      const pathParts = privateDir.split('/').filter(p => p);
+      const bucketName = pathParts[0];
+      
+      // Construct the full path
+      const objectPath = `.private/${folder}/${filename}`;
+      
+      // Get the file from Object Storage
+      const objectStorageClient = (await import('./objectStorage')).objectStorageClient;
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectPath);
+      
+      // Check if file exists
+      const [exists] = await file.exists();
+      if (!exists) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      // Get file metadata
+      const [metadata] = await file.getMetadata();
+      
+      // Set headers
+      res.set({
+        'Content-Type': metadata.contentType || 'application/pdf',
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Cache-Control': 'private, max-age=3600'
+      });
+      
+      // Stream the file to the response
+      const stream = file.createReadStream();
+      
+      stream.on('error', (err) => {
+        console.error('Stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Error streaming document" });
+        }
+      });
+      
+      stream.pipe(res);
+    } catch (error) {
+      console.error("Error serving document:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to serve document" });
+      }
     }
   });
 
