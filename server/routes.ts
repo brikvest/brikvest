@@ -212,77 +212,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { fullName, dateOfBirth, address, occupation, idType, idNumber } = validationResult.data;
 
-      // Validate file uploads
-      if (!files || !files.idDocument || files.idDocument.length === 0) {
-        return res.status(400).json({ error: "ID document is required" });
+      // Get existing KYC data to check if user is updating
+      const existingUser = await storage.getUserById(userId);
+      const hasExistingIdDocument = !!existingUser?.kycIdDocumentUrl;
+      const hasExistingSignature = !!existingUser?.kycSignatureUrl;
+
+      // Validate file uploads - only required if user doesn't already have them
+      if (!files || (!files.idDocument || files.idDocument.length === 0)) {
+        if (!hasExistingIdDocument) {
+          return res.status(400).json({ error: "ID document is required" });
+        }
       }
 
       if (!files.signature || files.signature.length === 0) {
-        return res.status(400).json({ error: "Signature image is required" });
+        if (!hasExistingSignature) {
+          return res.status(400).json({ error: "Signature image is required" });
+        }
       }
 
-      // Validate file types (images only)
+      // Validate and upload files only if provided
       const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'];
-      const idDocumentFile = files.idDocument[0];
-      
-      if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
-        return res.status(400).json({ 
-          error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
-        });
-      }
-
-      // Validate file size (max 10MB)
       const maxFileSize = 10 * 1024 * 1024; // 10MB
-      if (idDocumentFile.size > maxFileSize) {
-        return res.status(400).json({ 
-          error: "ID document file size exceeds 10MB limit." 
-        });
+      
+      // Upload ID document if provided
+      let idDocumentUrl = existingUser?.kycIdDocumentUrl || null;
+      if (files.idDocument && files.idDocument.length > 0) {
+        const idDocumentFile = files.idDocument[0];
+        
+        if (!allowedMimeTypes.includes(idDocumentFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for ID document. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
+          });
+        }
+
+        if (idDocumentFile.size > maxFileSize) {
+          return res.status(400).json({ 
+            error: "ID document file size exceeds 10MB limit." 
+          });
+        }
+
+        const idDocumentResult = await uploadToCloudinary(
+          idDocumentFile.buffer,
+          idDocumentFile.originalname,
+          'brikvest/kyc/documents'
+        );
+        idDocumentUrl = idDocumentResult.url;
       }
 
-      // Validate selfie if provided
+      // Upload signature if provided
+      let signatureUrl = existingUser?.kycSignatureUrl || null;
+      if (files.signature && files.signature.length > 0) {
+        const signatureFile = files.signature[0];
+        
+        if (!allowedMimeTypes.includes(signatureFile.mimetype)) {
+          return res.status(400).json({ 
+            error: "Invalid file type for signature. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
+          });
+        }
+        
+        if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
+          return res.status(400).json({ 
+            error: "Signature file size exceeds 5MB limit." 
+          });
+        }
+        
+        const signatureResult = await uploadToCloudinary(
+          signatureFile.buffer,
+          signatureFile.originalname,
+          'brikvest/kyc/signatures'
+        );
+        signatureUrl = signatureResult.url;
+      }
+
+      // Upload selfie if provided
+      let selfieUrl = existingUser?.kycSelfieUrl || null;
       if (files.selfie && files.selfie.length > 0) {
         const selfieFile = files.selfie[0];
+        
         if (!allowedMimeTypes.includes(selfieFile.mimetype)) {
           return res.status(400).json({ 
             error: "Invalid file type for selfie. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
           });
         }
+        
         if (selfieFile.size > maxFileSize) {
           return res.status(400).json({ 
             error: "Selfie file size exceeds 10MB limit." 
           });
         }
-      }
-
-      // Upload ID document to Cloudinary
-      const idDocumentResult = await uploadToCloudinary(
-        idDocumentFile.buffer,
-        idDocumentFile.originalname,
-        'brikvest/kyc/documents'
-      );
-
-      // Upload signature
-      const signatureFile = files.signature[0];
-      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/heic', 'image/heif'].includes(signatureFile.mimetype)) {
-        return res.status(400).json({ 
-          error: "Invalid file type for signature. Only JPEG, PNG, WEBP, and HEIC images are allowed." 
-        });
-      }
-      if (signatureFile.size > 5 * 1024 * 1024) { // 5MB max
-        return res.status(400).json({ 
-          error: "Signature file size exceeds 5MB limit." 
-        });
-      }
-      const signatureResult = await uploadToCloudinary(
-        signatureFile.buffer,
-        signatureFile.originalname,
-        'brikvest/kyc/signatures'
-      );
-
-      // Upload selfie if provided
-      let selfieUrl = null;
-      if (files.selfie && files.selfie.length > 0) {
-        const selfieFile = files.selfie[0];
+        
         const selfieResult = await uploadToCloudinary(
           selfieFile.buffer,
           selfieFile.originalname,
@@ -299,9 +317,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycOccupation: occupation,
         kycIdType: idType,
         kycIdNumber: idNumber,
-        kycIdDocumentUrl: idDocumentResult.url,
+        kycIdDocumentUrl: idDocumentUrl,
         kycSelfieUrl: selfieUrl,
-        kycSignatureUrl: signatureResult.url,
+        kycSignatureUrl: signatureUrl,
         kycStatus: 'submitted',
         kycSubmittedAt: new Date(),
       });
