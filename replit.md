@@ -19,6 +19,16 @@ The application uses a modern full-stack architecture with clear separation of c
 
 ## Recent Changes
 
+### November 06, 2025
+-   **Investment Reservation Management Enhancement**: Added comprehensive editing capabilities for investment reservations
+    -   **Edit Investment Endpoint**: New `PUT /api/admin/investments/:id` endpoint allows updating reservation details
+    -   **Editable Fields**: Admins can now edit units, payment method, payment reference, payment evidence, and internal notes
+    -   **Smart Unit Management**: When units are changed, the system automatically validates availability and updates property counts
+    -   **Amount Recalculation**: Investment amount is automatically recalculated when units are changed
+    -   **Edit Dialog**: Added user-friendly edit dialog in admin panel with all reservation details
+    -   **Workflow**: Edit → Mark Paid → Confirm sequence allows flexible investment management
+    -   **File Upload**: Support for updating payment evidence documents during editing
+
 ### November 05, 2025
 -   **Enhanced KYC Verification**: Added two new required fields to the KYC verification process
     -   **Occupation Field**: Required text input for user's occupation/profession with minimum 2 character validation
