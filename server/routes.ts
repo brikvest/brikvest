@@ -1447,9 +1447,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Serve documents from Object Storage (PDFs)
-  app.get("/api/documents/:folder/:filename", async (req, res) => {
+  // Use wildcard to capture full path including slashes
+  app.get("/api/documents/*", async (req, res) => {
     try {
-      const { folder, filename } = req.params;
+      // Extract the full path after /api/documents/
+      const fullPath = (req.params as any)[0] as string; // e.g., "kyc/documents/filename.pdf" or "documents/filename.pdf"
+      
       const privateDir = process.env.PRIVATE_OBJECT_DIR || '';
       
       if (!privateDir) {
@@ -1461,7 +1464,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bucketName = pathParts[0];
       
       // Construct the full path
-      const objectPath = `.private/${folder}/${filename}`;
+      const objectPath = `.private/${fullPath}`;
+      
+      // Extract filename for Content-Disposition header
+      const filename = fullPath.split('/').pop() || 'document.pdf';
       
       // Get the file from Object Storage
       const objectStorageClient = (await import('./objectStorage')).objectStorageClient;
