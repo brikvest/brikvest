@@ -203,11 +203,13 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <img 
-                src={brikvest_logo} 
-                alt="Brikvest Logo" 
-                className="h-8 w-auto"
-              />
+              <Link href="/">
+                <img 
+                  src={brikvest_logo} 
+                  alt="Brikvest Logo" 
+                  className="h-8 w-auto cursor-pointer"
+                />
+              </Link>
             </div>
             <nav className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-8">
@@ -295,7 +297,9 @@ export default function Home() {
             <div className="flex flex-col h-full">
               {/* Sidebar header */}
               <div className="flex items-center justify-between p-4 border-b border-slate-200">
-                <img src={brikvest_logo} alt="Brikvest" className="h-8" />
+                <Link href="/">
+                  <img src={brikvest_logo} alt="Brikvest" className="h-8 cursor-pointer" />
+                </Link>
                 <Button
                   variant="ghost"
                   size="sm"

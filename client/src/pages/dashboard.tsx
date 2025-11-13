@@ -284,7 +284,9 @@ export default function Portfolio() {
         <div className="flex flex-col h-full">
           {/* Logo & Close Button */}
           <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-            <img src={brikvest_logo} alt="Brikvest" className="h-8" />
+            <Link href="/">
+              <img src={brikvest_logo} alt="Brikvest" className="h-8 cursor-pointer" />
+            </Link>
             <button
               onClick={() => setMobileMenuOpen(false)}
               className="lg:hidden p-2 hover:bg-slate-100 rounded-lg"
