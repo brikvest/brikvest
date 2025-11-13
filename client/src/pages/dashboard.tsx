@@ -20,7 +20,7 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const { formatCurrency, userCurrency } = useCurrency();
+  const { formatCurrency, userCurrency, convertAmount } = useCurrency();
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [kycModalOpen, setKycModalOpen] = useState(false);
@@ -253,8 +253,11 @@ export default function Portfolio() {
 
   const userData = user as any;
   const totalInvested = reservations.reduce((sum, res) => {
-    const units = typeof res.units === 'string' ? parseFloat(res.units) : res.units;
-    return sum + (units * (res.property?.minInvestment || 0));
+    // Use the reservation's stored amount and currency, then convert to user's selected currency
+    const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
+    const reservationCurrency = res.currency || 'NGN';
+    const convertedAmount = convertAmount(reservationAmount, reservationCurrency);
+    return sum + convertedAmount;
   }, 0);
   const activeReservations = reservations.filter(r => r.status === "reserved").length;
   const completedInvestments = reservations.filter(r => r.status === "paid").length;
@@ -563,7 +566,9 @@ export default function Portfolio() {
                         
                         let cumulative = 0;
                         return sortedReservations.map((res, index) => {
-                          cumulative += res.amount;
+                          const resAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
+                          const resCurrency = res.currency || 'NGN';
+                          cumulative += convertAmount(resAmount, resCurrency);
                           return {
                             date: new Date(res.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                             value: cumulative,
@@ -664,7 +669,10 @@ export default function Portfolio() {
                               </h4>
                               <div className="space-y-1 text-xs sm:text-sm text-slate-600">
                                 <p>Units: {reservation.units}</p>
-                                <p>Amount: {formatCurrency(reservation.amount)}</p>
+                                <p>Amount: {formatCurrency(convertAmount(
+                                  typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
+                                  reservation.currency || 'NGN'
+                                ))}</p>
                                 <p className="text-xs text-slate-500">
                                   Created {new Date(reservation.createdAt).toLocaleDateString()}
                                 </p>
@@ -776,7 +784,10 @@ export default function Portfolio() {
                             </h4>
                             <div className="text-xs sm:text-sm text-slate-600 space-y-0.5">
                               <p>Units owned: {reservation.units}</p>
-                              <p>Cost basis: {formatCurrency(reservation.amount)}</p>
+                              <p>Cost basis: {formatCurrency(convertAmount(
+                                typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
+                                reservation.currency || 'NGN'
+                              ))}</p>
                               <p className="text-xs text-slate-500 mt-1">
                                 Confirmed {new Date(reservation.createdAt).toLocaleDateString()}
                               </p>
