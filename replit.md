@@ -19,6 +19,17 @@ The application uses a modern full-stack architecture with clear separation of c
 
 ## Recent Changes
 
+### November 13, 2025
+-   **Currency Conversion Fix for Portfolio and Admin**: Fixed critical currency conversion bugs throughout the application
+    -   **Portfolio Total Invested Fix**: Changed from summing raw `reservation.amount` values to converting each amount using `convertAmount(Number(reservation.amount), reservation.currency)` before summing, ensuring accurate multi-currency aggregation
+    -   **Chart Data Conversion**: Portfolio growth chart now converts each investment amount from its source currency to user's selected currency before calculating cumulative totals
+    -   **Admin Panel Currency Integration**: Replaced hardcoded `₦` symbol with `useCurrency` hook for proper multi-currency support
+    -   **formatCurrency Enhancement**: Updated admin `formatCurrency` function to accept source currency parameter and convert using `convertAmount(amount, currency)` before applying abbreviations (B/M/K)
+    -   **Property Display Updates**: All `formatCurrency` calls for properties now pass `property.currency` parameter for accurate conversion
+    -   **Aggregate Calculations**: Total Value calculations in admin now convert each property using `convertAmount(p.totalValue, p.currency)` before summing, then format with `formatCurrencyBase`
+    -   **Currency Conversion Path**: All amounts convert from source currency → USD → user's selected currency using exchange rates from `/api/exchange-rates`
+    -   **Files Modified**: `client/src/pages/dashboard.tsx` (lines 258-264, 571-574, 675-678, 790-793), `client/src/pages/admin.tsx` (lines 1052, 1265-1288, 1686-1688, 1779-1783, 1955-1956, 2045-2047, 2960-2964)
+
 ### November 06, 2025
 -   **KYC Document PDF Support**: Extended PDF support to KYC verification system
     -   **ID Document PDF Support**: ID documents now accept both images (JPG, PNG, WEBP, HEIC) and PDF files
