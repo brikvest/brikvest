@@ -22,6 +22,7 @@ import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import type { Property, InvestmentReservation, InsertProperty, VerificationStep, MarketInsight, User as UserType } from "@shared/schema";
 import { FileUploader } from "@/components/FileUploader";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useCurrency } from "@/hooks/useCurrency";
 
 // Helper function to get currency symbol
 const getCurrencySymbol = (currency: string) => {
@@ -921,10 +922,10 @@ function AdminInvestmentsTab({
                       <p className="text-sm font-medium text-blue-900">New Amount</p>
                       <p className="text-xl font-bold text-blue-900">
                         {getCurrencySymbol(editingReservation.currency)}
-                        {Math.round(parseFloat(editUnits) * editingReservation.unitPriceSnapshot).toLocaleString()}
+                        {Math.round(parseFloat(editUnits) * (typeof editingReservation.unitPriceSnapshot === 'string' ? parseFloat(editingReservation.unitPriceSnapshot) : editingReservation.unitPriceSnapshot)).toLocaleString()}
                       </p>
                       <p className="text-xs text-blue-700 mt-1">
-                        {parseFloat(editUnits)} units × {getCurrencySymbol(editingReservation.currency)}{editingReservation.unitPriceSnapshot.toLocaleString()} per unit
+                        {parseFloat(editUnits)} units × {getCurrencySymbol(editingReservation.currency)}{(typeof editingReservation.unitPriceSnapshot === 'string' ? parseFloat(editingReservation.unitPriceSnapshot) : editingReservation.unitPriceSnapshot).toLocaleString()} per unit
                       </p>
                     </div>
                   )}
@@ -1045,6 +1046,7 @@ export default function AdminDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user, logout, authenticatedRequest } = useAdminAuth();
+  const { userCurrency, formatCurrency: formatCurrencyBase, convertAmount } = useCurrency();
 
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [viewingProperty, setViewingProperty] = useState<Property | null>(null);
@@ -1257,18 +1259,28 @@ export default function AdminDashboard() {
   });
 
   // Helper functions
-  const formatCurrency = (amount: number) => {
-    if (amount >= 1000000000) {
-      const billions = amount / 1000000000;
-      return billions % 1 === 0 ? `₦${billions}B` : `₦${billions.toFixed(1)}B`;
-    } else if (amount >= 1000000) {
-      const millions = amount / 1000000;
-      return millions % 1 === 0 ? `₦${millions}M` : `₦${millions.toFixed(1)}M`;
-    } else if (amount >= 1000) {
-      const thousands = amount / 1000;
-      return thousands % 1 === 0 ? `₦${thousands}K` : `₦${thousands.toFixed(1)}K`;
+  const formatCurrency = (amount: number, currency: string = 'NGN') => {
+    // Convert to user's selected currency first
+    const convertedAmount = convertAmount(amount, currency);
+    
+    // Get the currency symbol
+    const symbol = userCurrency === 'USD' ? '$' : 
+                   userCurrency === 'EUR' ? '€' :
+                   userCurrency === 'GBP' ? '£' :
+                   userCurrency === 'NGN' ? '₦' : userCurrency;
+    
+    // Apply abbreviation logic
+    if (convertedAmount >= 1000000000) {
+      const billions = convertedAmount / 1000000000;
+      return billions % 1 === 0 ? `${symbol}${billions}B` : `${symbol}${billions.toFixed(1)}B`;
+    } else if (convertedAmount >= 1000000) {
+      const millions = convertedAmount / 1000000;
+      return millions % 1 === 0 ? `${symbol}${millions}M` : `${symbol}${millions.toFixed(1)}M`;
+    } else if (convertedAmount >= 1000) {
+      const thousands = convertedAmount / 1000;
+      return thousands % 1 === 0 ? `${symbol}${thousands}K` : `${symbol}${thousands.toFixed(1)}K`;
     } else {
-      return `₦${amount}`;
+      return `${symbol}${convertedAmount.toFixed(2)}`;
     }
   };
 
@@ -1668,7 +1680,9 @@ export default function AdminDashboard() {
                             <div className="ml-4">
                               <p className="text-sm font-medium text-slate-600">Total Value</p>
                               <p className="text-3xl font-bold text-slate-900">
-                                {formatCurrency(properties.reduce((sum: number, p: Property) => sum + p.totalValue, 0))}
+                                {formatCurrencyBase(properties.reduce((sum: number, p: Property) => 
+                                  sum + convertAmount(p.totalValue, p.currency), 0
+                                ))}
                               </p>
                             </div>
                           </div>
@@ -1761,10 +1775,10 @@ export default function AdminDashboard() {
                                   <TableCell className="py-6 px-6">
                                     <div>
                                       <p className="font-semibold text-slate-900">
-                                        {formatCurrency(property.totalValue)}
+                                        {formatCurrency(property.totalValue, property.currency)}
                                       </p>
                                       <p className="text-sm text-slate-500">
-                                        Min: {formatCurrency(property.minInvestment)}
+                                        Min: {formatCurrency(property.minInvestment, property.currency)}
                                       </p>
                                     </div>
                                   </TableCell>
@@ -1937,8 +1951,8 @@ export default function AdminDashboard() {
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
                                 <div className="space-y-2">
                                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Investment Value</p>
-                                  <p className="text-xl font-bold text-slate-900">{formatCurrency(property.totalValue)}</p>
-                                  <p className="text-sm text-slate-600">Min: {formatCurrency(property.minInvestment)}</p>
+                                  <p className="text-xl font-bold text-slate-900">{formatCurrency(property.totalValue, property.currency)}</p>
+                                  <p className="text-sm text-slate-600">Min: {formatCurrency(property.minInvestment, property.currency)}</p>
                                 </div>
                                 <div className="space-y-2">
                                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Progress</p>
@@ -2025,7 +2039,9 @@ export default function AdminDashboard() {
                         <div className="ml-4">
                           <p className="text-sm font-medium text-slate-600">Total Value</p>
                           <p className="text-3xl font-bold text-slate-900">
-                            {formatCurrency(properties.reduce((sum: number, p: Property) => sum + p.totalValue, 0))}
+                            {formatCurrencyBase(properties.reduce((sum: number, p: Property) => 
+                              sum + convertAmount(p.totalValue, p.currency), 0
+                            ))}
                           </p>
                         </div>
                       </div>
@@ -2942,11 +2958,11 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-slate-50 rounded-lg p-4">
                   <h3 className="font-semibold text-slate-900 mb-2">Total Value</h3>
-                  <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.totalValue)}</p>
+                  <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.totalValue, viewingProperty.currency)}</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-4">
                   <h3 className="font-semibold text-slate-900 mb-2">Min Investment</h3>
-                  <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.minInvestment)}</p>
+                  <p className="text-2xl font-bold text-slate-900">{formatCurrency(viewingProperty.minInvestment, viewingProperty.currency)}</p>
                 </div>
 
               </div>
