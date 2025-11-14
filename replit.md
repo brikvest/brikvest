@@ -18,6 +18,17 @@ The application employs a modern full-stack architecture with a clear separation
 -   **UI/UX Decisions**: The platform adopts a modern, responsive design using Tailwind CSS and shadcn/ui. Key UI/UX elements include a Stripe-inspired user dashboard, gradient designs for public insights pages, mobile-first responsiveness with slide-in sidebars, and optimized layouts. Sensitive dashboard statistics are blurred until KYC verification is completed.
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights (derived from web scraping and data visualization), a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
+## Recent Updates (November 14, 2025)
+-   **Portfolio Calculation Fix**: Corrected dashboard portfolio calculations to accurately reflect payment status. Total Portfolio Value now only includes investments with status 'confirmed' or 'payment_received', excluding 'payment_pending' reservations. This ensures investors see accurate financial data based on actual payment confirmation.
+-   **Investment Status Migration**: Migrated legacy status values ('pending', 'reserved') to new standardized statuses ('payment_pending', 'payment_received', 'confirmed', 'cancelled') for data consistency across the platform.
+-   **PDF Document Routing**: Fixed PDF document serving by implementing wildcard route pattern (`/api/documents/*`) to handle nested folder paths (e.g., `kyc/documents/filename.pdf`) in Replit Object Storage.
+
+## Investment Status Flow
+1. **payment_pending**: Initial reservation created, awaiting payment
+2. **payment_received**: Admin has recorded payment, pending final confirmation
+3. **confirmed**: Investment fully confirmed and active (counts toward portfolio value and properties owned)
+4. **cancelled**: Reservation cancelled
+
 ## External Dependencies
 -   **Database & ORM**: `@neondatabase/serverless` (PostgreSQL connection pooling), `drizzle-orm`.
 -   **Frontend State Management**: `@tanstack/react-query`.

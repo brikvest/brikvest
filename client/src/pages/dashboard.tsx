@@ -252,15 +252,25 @@ export default function Portfolio() {
   }
 
   const userData = user as any;
-  const totalInvested = reservations.reduce((sum, res) => {
-    // Use the reservation's stored amount and currency, then convert to user's selected currency
-    const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
-    const reservationCurrency = res.currency || 'NGN';
-    const convertedAmount = convertAmount(reservationAmount, reservationCurrency);
-    return sum + convertedAmount;
-  }, 0);
-  const activeReservations = reservations.filter(r => r.status === "reserved").length;
-  const completedInvestments = reservations.filter(r => r.status === "paid").length;
+  
+  // Only count confirmed and payment_received investments in total portfolio value
+  const totalInvested = reservations
+    .filter(res => res.status === 'confirmed' || res.status === 'payment_received')
+    .reduce((sum, res) => {
+      // Use the reservation's stored amount and currency, then convert to user's selected currency
+      const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
+      const reservationCurrency = res.currency || 'NGN';
+      const convertedAmount = convertAmount(reservationAmount, reservationCurrency);
+      return sum + convertedAmount;
+    }, 0);
+  
+  // Active reservations are those pending payment or payment received (not yet confirmed)
+  const activeReservations = reservations.filter(r => 
+    r.status === "payment_pending" || r.status === "payment_received"
+  ).length;
+  
+  // Completed investments are fully confirmed
+  const completedInvestments = reservations.filter(r => r.status === "confirmed").length;
   const isKycVerified = userData.kycStatus === 'verified';
   
   // Check if KYC needs update (missing new required fields)
