@@ -73,6 +73,7 @@ export interface IStorage {
   getReservation(id: number): Promise<InvestmentReservation | undefined>;
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
+  linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
   
   // Investment group methods
   createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
@@ -281,6 +282,20 @@ export class DatabaseStorage implements IStorage {
       .from(investmentReservations)
       .where(eq(investmentReservations.userId, userId))
       .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async linkOrphanedReservationsToUser(userId: number, email: string): Promise<number> {
+    const result = await db
+      .update(investmentReservations)
+      .set({ userId })
+      .where(
+        and(
+          eq(investmentReservations.email, email),
+          sql`${investmentReservations.userId} IS NULL`
+        )
+      );
+    
+    return result.rowCount || 0;
   }
 
   async getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]> {

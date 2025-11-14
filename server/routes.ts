@@ -107,6 +107,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         emailVerified: true, // Auto-verify for now
       });
 
+      // Link any orphaned reservations to this user
+      try {
+        const linkedCount = await storage.linkOrphanedReservationsToUser(user.id, user.email);
+        if (linkedCount > 0) {
+          console.log(`[AUTO-LINK] Linked ${linkedCount} orphaned reservation(s) to new user ${user.id} (${user.email})`);
+        }
+      } catch (linkError) {
+        console.error(`[AUTO-LINK] Failed to link reservations for user ${user.id}:`, linkError);
+        // Don't fail registration if linking fails
+      }
+
       // Auto-login after registration
       req.login(user, (err: any) => {
         if (err) return res.status(500).json({ message: "Registration successful but login failed" });
@@ -119,8 +130,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/login', passport.authenticate('local'), (req, res) => {
-    const { password: _, ...userWithoutPassword } = req.user as any;
+  app.post('/api/login', passport.authenticate('local'), async (req, res) => {
+    const user = req.user as any;
+    
+    // Link any orphaned reservations to this user on login
+    try {
+      const linkedCount = await storage.linkOrphanedReservationsToUser(user.id, user.email);
+      if (linkedCount > 0) {
+        console.log(`[AUTO-LINK] Linked ${linkedCount} orphaned reservation(s) to user ${user.id} (${user.email}) on login`);
+      }
+    } catch (linkError) {
+      console.error(`[AUTO-LINK] Failed to link reservations for user ${user.id}:`, linkError);
+      // Don't fail login if linking fails
+    }
+    
+    const { password: _, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
   });
 

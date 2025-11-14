@@ -22,12 +22,18 @@ The application employs a modern full-stack architecture with a clear separation
 -   **Portfolio Calculation Fix**: Corrected dashboard portfolio calculations to accurately reflect payment status. Total Portfolio Value now only includes investments with status 'confirmed' or 'payment_received', excluding 'payment_pending' reservations. This ensures investors see accurate financial data based on actual payment confirmation.
 -   **Investment Status Migration**: Migrated legacy status values ('pending', 'reserved') to new standardized statuses ('payment_pending', 'payment_received', 'confirmed', 'cancelled') for data consistency across the platform.
 -   **PDF Document Routing**: Fixed PDF document serving by implementing wildcard route pattern (`/api/documents/*`) to handle nested folder paths (e.g., `kyc/documents/filename.pdf`) in Replit Object Storage.
+-   **Orphaned Reservations Fix**: Resolved issue where investment reservations with NULL user_id caused portfolios to show 0. Implemented automatic linking of reservations to user accounts by email on login/registration. Fixed 25 existing orphaned reservations and added safeguards to prevent future occurrences.
 
 ## Investment Status Flow
 1. **payment_pending**: Initial reservation created, awaiting payment
 2. **payment_received**: Admin has recorded payment, pending final confirmation
 3. **confirmed**: Investment fully confirmed and active (counts toward portfolio value and properties owned)
 4. **cancelled**: Reservation cancelled
+
+## Data Integrity Safeguards
+-   **Auto-Linking on Authentication**: When users log in or register, the system automatically links any orphaned investment reservations (those with NULL user_id) to their account by matching email addresses. This ensures portfolios display all user investments even if reservations were created before account creation.
+-   **Reservation Creation**: All reservation endpoints automatically set user_id when the user is authenticated, preventing new orphaned records.
+-   **Audit Logging**: Auto-linking operations are logged with format `[AUTO-LINK] Linked N orphaned reservation(s) to user ID (email)` for monitoring and troubleshooting.
 
 ## External Dependencies
 -   **Database & ORM**: `@neondatabase/serverless` (PostgreSQL connection pooling), `drizzle-orm`.
