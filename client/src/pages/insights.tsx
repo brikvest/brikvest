@@ -223,9 +223,11 @@ export default function Insights() {
                 <SelectItem value="guzape">Guzape, Abuja</SelectItem>
                 <SelectItem value="jahi">Jahi, Abuja</SelectItem>
                 <SelectItem value="lugbe">Lugbe, Abuja</SelectItem>
-                <SelectItem value="maitama" disabled>Maitama, Abuja (Coming Soon)</SelectItem>
-                <SelectItem value="lekki" disabled>Lekki, Lagos (Coming Soon)</SelectItem>
-                <SelectItem value="ikoyi" disabled>Ikoyi, Lagos (Coming Soon)</SelectItem>
+                <SelectItem value="asokoro">Asokoro, Abuja</SelectItem>
+                <SelectItem value="lokogoma">Lokogoma, Abuja</SelectItem>
+                <SelectItem value="maitama">Maitama, Abuja</SelectItem>
+                <SelectItem value="apo">Apo, Abuja</SelectItem>
+                <SelectItem value="gwarinpa">Gwarinpa, Abuja</SelectItem>
               </SelectContent>
             </Select>
           </div>

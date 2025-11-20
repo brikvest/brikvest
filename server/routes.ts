@@ -2383,12 +2383,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const priceText = $row.find('h5').text().trim();
         const changeText = $row.find('.green-badge, .red-badge').text().trim();
         
-        // Parse price (e.g., "NGN 340.00 million" -> 340000000)
-        const priceMatch = priceText.match(/([\d,\.]+)\s*million/i);
+        // Parse price (e.g., "NGN 340.00 million" or "NGN 3.50 billion")
+        const priceMatch = priceText.match(/([\d,\.]+)\s*(million|billion)/i);
         const changeMatch = changeText.match(/([\d\.]+)\s*%/);
         
         if (priceMatch) {
-          const priceValue = parseFloat(priceMatch[1].replace(/,/g, '')) * 1_000_000;
+          const numericValue = parseFloat(priceMatch[1].replace(/,/g, ''));
+          const unit = priceMatch[2].toLowerCase();
+          const priceValue = unit === 'billion' ? numericValue * 1_000_000_000 : numericValue * 1_000_000;
           const changeValue = changeMatch ? parseFloat(changeMatch[1]) : 0;
           const isPositive = changeText.includes('caret-up') || !changeText.includes('caret-down');
           

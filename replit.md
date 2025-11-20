@@ -19,18 +19,21 @@ The application employs a modern full-stack architecture with a clear separation
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights for multiple Abuja locations (Guzape, Jahi, Lugbe) derived from web scraping PropertyPro.ng with data visualization, a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
 ## Recent Updates (November 20, 2025)
--   **Market Insights Multi-Location Support**: Successfully implemented support for three Abuja locations (Guzape, Jahi, Lugbe) on the Market Insights page. Each location displays historical price trends, index growth charts, and market statistics from 2019-2025.
+-   **Market Insights Multi-Location Support**: Successfully implemented support for **eight Abuja locations** (Guzape, Jahi, Lugbe, Asokoro, Lokogoma, Maitama, Apo, Gwarinpa) on the Market Insights page. Each location displays historical price trends, index growth charts, and market statistics from 2019-2025 with exact data extracted from PropertyPro.ng.
     - **Data Source**: PropertyPro.ng market insights pages (`https://propertypro.ng/index/sale/all/abuja/:location`)
     - **Technical Approach**:
       - **Guzape**: Uses cached HTML file with embedded `priceHistoryData` and `priceIndexData` JavaScript variables
-      - **Jahi & Lugbe**: Real-time extraction of `renderGlobalChart()` function calls from PropertyPro.ng HTML using regex parsing
+      - **All Other Locations**: Real-time extraction of `renderGlobalChart()` function calls and historical price cards from PropertyPro.ng HTML using regex and cheerio parsing
       - All locations return consistent data structure: `{priceChart, indexChart, historicalPrices, scrapedAt}`
     - **Implementation Details**:
       - Backend endpoint `/api/scrape/:location-graphs` handles data extraction with robust validation
       - Regex patterns handle scientific notation (e.g., `1.9625E8`) and varying whitespace
+      - HTML parsing extracts exact historical prices supporting both "million" and "billion" formats
       - Comprehensive error handling for missing data, parse failures, and network issues
       - Frontend dynamically switches between locations with React Query cache management
-    - **Data Structure**: Historical trends show average property prices (₦55M-₦300M range for Jahi) and index values (0-445 range) across 7 years
+    - **Data Examples**: 
+      - Jahi: ₦340M (6mo), ₦322.5M (1yr), ₦205.42M (2yr)
+      - Maitama: ₦3.50B (6mo), ₦2.33B (1yr), ₦1.39B (2yr)
 
 ## Previous Updates (November 14, 2025)
 -   **Portfolio Calculation Fix**: Corrected dashboard portfolio calculations to accurately reflect payment status. Total Portfolio Value now only includes investments with status 'confirmed' or 'payment_received', excluding 'payment_pending' reservations. This ensures investors see accurate financial data based on actual payment confirmation.
