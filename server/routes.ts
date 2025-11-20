@@ -2200,35 +2200,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.type('text/html').status(200).send(html);
       }
       
-      // For other locations, scrape and save to database
-      console.log(`Scraping ${location} from PropertyPro.ng and saving to database...`);
+      // For other locations, they use the same pattern as Guzape - market insights pages
+      // Data is extracted via /api/scrape/:location-graphs endpoint directly from PropertyPro.ng
+      // This endpoint just confirms the location data is accessible
+      console.log(`Verifying ${location} market insights from PropertyPro.ng...`);
       
-      const { scrapePropertyProAbuja } = await import('./scraper');
-      const scrapedListings = await scrapePropertyProAbuja(location);
+      const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
       
-      if (!scrapedListings || scrapedListings.length === 0) {
-        return res.status(404).json({ 
-          error: `No properties found for ${location}`,
-          message: 'The scraper found no valid property listings' 
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `Failed to fetch ${location} page from PropertyPro.ng`,
+          message: `HTTP ${response.status}` 
         });
       }
       
-      // Save to database
-      console.log(`Saving ${scrapedListings.length} listings for ${location} to database...`);
-      await storage.createMarketInsights(scrapedListings);
-      console.log(`Successfully saved ${scrapedListings.length} listings for ${location}`);
+      const html = await response.text();
+      
+      // Check if the page has chart data
+      const hasChartData = html.includes('renderGlobalChart') && html.includes('propertyChart');
+      
+      if (!hasChartData) {
+        return res.status(404).json({ 
+          error: `No market insights data found for ${location}`,
+          message: 'PropertyPro.ng may not have market insights for this location' 
+        });
+      }
       
       // Optionally persist HTML to file system for reference
       if (persist) {
-        const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          },
-        });
-        const html = await response.text();
-        
         const fs = await import('fs/promises');
         const path = await import('path');
         const publicDir = path.join(process.cwd(), 'public');
@@ -2237,6 +2242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           await fs.mkdir(publicDir, { recursive: true });
           await fs.writeFile(filePath, html, 'utf8');
+          console.log(`Persisted ${location} HTML to ${filePath}`);
         } catch (err) {
           console.error(`Failed to persist ${location} HTML:`, err);
         }
@@ -2245,8 +2251,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         success: true, 
         location,
-        listingsSaved: scrapedListings.length,
-        message: `Successfully scraped and saved ${scrapedListings.length} properties for ${location}`
+        hasChartData,
+        message: `Market insights data is available for ${location}. Use /api/scrape/${location}-graphs to access the data.`
       });
     } catch (err: any) {
       res.status(503).json({ 
@@ -2268,56 +2274,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(graphData);
       }
       
-      // For other locations (Jahi, Lugbe), generate charts from database listings
-      console.log(`Generating chart data for ${location} from database listings...`);
+      // For other locations (Jahi, Lugbe), extract from PropertyPro.ng HTML
+      console.log(`Extracting chart data for ${location} from PropertyPro.ng...`);
       
-      // Get current property listings from database
-      const locationCapitalized = location.charAt(0).toUpperCase() + location.slice(1);
-      const listings = await storage.getMarketInsights(locationCapitalized);
-      
-      if (!listings || listings.length === 0) {
-        return res.status(404).json({ 
-          error: `No property data found for ${location}`,
-          hint: `Scrape data first: /api/scrape/${location}-html?persist=1` 
-        });
-      }
-      
-      // Calculate average price from current listings
-      const validPrices = listings.filter((l: any) => l.price && l.price > 0).map((l: any) => l.price!);
-      if (validPrices.length === 0) {
-        return res.status(404).json({ 
-          error: `No valid price data found for ${location}`,
-          hint: 'Listings exist but contain no valid prices' 
-        });
-      }
-      
-      const avgPrice = validPrices.reduce((sum: number, p: number) => sum + p, 0) / validPrices.length;
-      const currentYear = new Date().getFullYear();
-      
-      // Generate synthetic historical data (current price with moderate historical growth)
-      // Assuming 8% annual growth backwards from current average
-      const years = [2019, 2020, 2021, 2022, 2023, 2024, 2025];
-      const priceHistory = years.map((year, idx) => {
-        const yearsFromCurrent = currentYear - year;
-        const historicalPrice = avgPrice / Math.pow(1.08, yearsFromCurrent);
-        return {
-          year,
-          price: Math.round(historicalPrice),
-          index: 100 * Math.pow(1.08, years.length - 1 - idx)
-        };
+      const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
       });
       
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `Failed to fetch ${location} data from PropertyPro.ng`,
+          message: `HTTP ${response.status}`
+        });
+      }
+      
+      const html = await response.text();
+      
+      // Extract renderGlobalChart calls - these contain the price and index data
+      // Pattern: renderGlobalChart([years], [values], 'chartId') - handles scientific notation
+      const priceChartMatch = html.match(/renderGlobalChart\s*\(\s*\[([^\]]+)\]\s*,\s*\[([^\]]+)\]\s*,\s*['"]propertyChart['"]\s*\)/);
+      const indexChartMatch = html.match(/renderGlobalChart\s*\(\s*\[([^\]]+)\]\s*,\s*\[([^\]]+)\]\s*,\s*['"]indexChart['"]\s*\)/);
+      
+      if (!priceChartMatch) {
+        console.error(`No propertyChart data found for ${location}`);
+        return res.status(404).json({ 
+          error: `No price chart data found for ${location}`,
+          hint: 'PropertyPro.ng may not have price history for this location' 
+        });
+      }
+      
+      if (!indexChartMatch) {
+        console.error(`No indexChart data found for ${location}`);
+        return res.status(404).json({ 
+          error: `No index chart data found for ${location}`,
+          hint: 'PropertyPro.ng may not have index history for this location' 
+        });
+      }
+      
+      // Parse the data arrays with validation
+      const parseNumericArray = (str: string, arrayName: string): number[] => {
+        return str.split(',')
+          .map((v: string) => parseFloat(v.trim()))
+          .filter(v => !isNaN(v) && isFinite(v));
+      };
+      
+      const priceYears = parseNumericArray(priceChartMatch[1], 'priceYears');
+      const priceValues = parseNumericArray(priceChartMatch[2], 'priceValues');
+      const indexYears = parseNumericArray(indexChartMatch[1], 'indexYears');
+      const indexValues = parseNumericArray(indexChartMatch[2], 'indexValues');
+      
+      // Validate we have data
+      if (priceYears.length === 0 || priceValues.length === 0) {
+        console.error(`Invalid price chart data for ${location}: years=${priceYears.length}, values=${priceValues.length}`);
+        return res.status(500).json({ 
+          error: `Invalid price chart data for ${location}`,
+          hint: 'Failed to parse price data from PropertyPro.ng' 
+        });
+      }
+      
+      if (indexYears.length === 0 || indexValues.length === 0) {
+        console.error(`Invalid index chart data for ${location}: years=${indexYears.length}, values=${indexValues.length}`);
+        return res.status(500).json({ 
+          error: `Invalid index chart data for ${location}`,
+          hint: 'Failed to parse index data from PropertyPro.ng' 
+        });
+      }
+      
+      if (priceYears.length !== priceValues.length) {
+        console.error(`Price data mismatch for ${location}: ${priceYears.length} years vs ${priceValues.length} values`);
+        return res.status(500).json({ 
+          error: `Inconsistent price data for ${location}`,
+          hint: 'Years and values arrays have different lengths' 
+        });
+      }
+      
+      // Build price history for calculations
+      const priceHistory = priceYears.map((year, idx) => ({
+        year,
+        price: priceValues[idx],
+        index: indexValues[idx]
+      }));
+      
       const priceChart = {
-        labels: priceHistory.map(item => item.year),
-        values: priceHistory.map(item => item.price)
+        labels: priceYears,
+        values: priceValues
       };
       
       const indexChart = {
-        labels: priceHistory.map(item => item.year),
-        values: priceHistory.map(item => Math.round(item.index))
+        labels: indexYears,
+        values: indexValues
       };
       
-      // Calculate change metrics
+      // Calculate historical price changes
       const currentPrice = priceHistory[priceHistory.length - 1];
       const lastMonth = priceHistory[priceHistory.length - 2] || currentPrice;
       const sixMonths = priceHistory[Math.max(0, priceHistory.length - 2)] || priceHistory[0];
@@ -2350,12 +2402,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           twoYears: { period: '2 Years', ...calculateChange(currentPrice, twoYears) }
         },
         scrapedAt: new Date().toISOString(),
-        generatedFromListings: true,
-        totalListings: listings.length,
-        validPrices: validPrices.length
+        location
       });
     } catch (err: any) {
-      console.error(`Error generating graph data for location:`, err);
+      console.error(`Error extracting graph data for ${location}:`, err);
       const errorMessage = err?.message || 'Failed to extract graph data';
       res.status(500).json({ 
         error: errorMessage,
