@@ -2369,18 +2369,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         values: indexValues
       };
       
-      // Calculate historical price changes
-      const currentPrice = priceHistory[priceHistory.length - 1];
-      const lastMonth = priceHistory[priceHistory.length - 2] || currentPrice;
-      const sixMonths = priceHistory[Math.max(0, priceHistory.length - 2)] || priceHistory[0];
-      const oneYear = priceHistory[Math.max(0, priceHistory.length - 2)] || priceHistory[0];
-      const twoYears = priceHistory[Math.max(0, priceHistory.length - 3)] || priceHistory[0];
+      // Extract actual historical prices from the HTML text (the cards section)
+      const cheerio = await import('cheerio');
+      const $ = cheerio.load(html);
       
+      // Find all historical price rows
+      const historicalPriceRows = $('.historical-price-row').toArray();
+      const extractedPrices: any = {};
+      
+      historicalPriceRows.forEach((row) => {
+        const $row = $(row);
+        const periodText = $row.find('p').text().trim().toLowerCase();
+        const priceText = $row.find('h5').text().trim();
+        const changeText = $row.find('.green-badge, .red-badge').text().trim();
+        
+        // Parse price (e.g., "NGN 340.00 million" -> 340000000)
+        const priceMatch = priceText.match(/([\d,\.]+)\s*million/i);
+        const changeMatch = changeText.match(/([\d\.]+)\s*%/);
+        
+        if (priceMatch) {
+          const priceValue = parseFloat(priceMatch[1].replace(/,/g, '')) * 1_000_000;
+          const changeValue = changeMatch ? parseFloat(changeMatch[1]) : 0;
+          const isPositive = changeText.includes('caret-up') || !changeText.includes('caret-down');
+          
+          const priceData = {
+            price: priceText.replace(/NGN\s*/i, '₦'),
+            priceValue,
+            change: `${isPositive && changeValue > 0 ? '+' : ''}${changeValue.toFixed(2)}%`,
+            changeValue: isPositive ? changeValue : -changeValue
+          };
+          
+          if (periodText.includes('6 month')) {
+            extractedPrices.sixMonths = { period: '6 Months', ...priceData };
+          } else if (periodText.includes('1 year')) {
+            extractedPrices.oneYear = { period: '1 Year', ...priceData };
+          } else if (periodText.includes('2 year')) {
+            extractedPrices.twoYears = { period: '2 Years', ...priceData };
+          }
+        }
+      });
+      
+      // Fallback to chart data if HTML parsing fails
       const formatPrice = (value: number) => {
         if (value >= 1e9) return `₦${(value / 1e9).toFixed(1)}B`;
         if (value >= 1e6) return `₦${(value / 1e6).toFixed(0)}M`;
         return `₦${value.toLocaleString()}`;
       };
+      
+      const currentPrice = priceHistory[priceHistory.length - 1];
+      const lastMonth = priceHistory[priceHistory.length - 2] || currentPrice;
       
       const calculateChange = (current: any, previous: any) => {
         const changePercent = ((current.price - previous.price) / previous.price) * 100;
@@ -2397,9 +2434,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         indexChart,
         historicalPrices: {
           lastMonth: calculateChange(currentPrice, lastMonth),
-          sixMonths: { period: '6 Months', ...calculateChange(currentPrice, sixMonths) },
-          oneYear: { period: '1 Year', ...calculateChange(currentPrice, oneYear) },
-          twoYears: { period: '2 Years', ...calculateChange(currentPrice, twoYears) }
+          sixMonths: extractedPrices.sixMonths || { period: '6 Months', ...calculateChange(currentPrice, lastMonth) },
+          oneYear: extractedPrices.oneYear || { period: '1 Year', ...calculateChange(currentPrice, lastMonth) },
+          twoYears: extractedPrices.twoYears || { period: '2 Years', ...calculateChange(currentPrice, priceHistory[0]) }
         },
         scrapedAt: new Date().toISOString(),
         location
