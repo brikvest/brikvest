@@ -2184,6 +2184,275 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generic location-based scraping endpoints (supports jahi, lugbe, etc.)
+  app.get("/api/scrape/:location-html", async (req, res) => {
+    try {
+      const location = req.params.location;
+      const persist = req.query.persist === '1';
+      
+      // For guzape, use the existing implementation
+      if (location === 'guzape') {
+        const { fetchGuzapeRawHtml, persistGuzapeHtml } = await import('./scrape/guzapeHtml');
+        const html = await fetchGuzapeRawHtml();
+        if (persist) {
+          await persistGuzapeHtml(html);
+        }
+        return res.type('text/html').status(200).send(html);
+      }
+      
+      // For other locations, they use the same pattern as Guzape - market insights pages
+      // Data is extracted via /api/scrape/:location-graphs endpoint directly from PropertyPro.ng
+      // This endpoint just confirms the location data is accessible
+      console.log(`Verifying ${location} market insights from PropertyPro.ng...`);
+      
+      const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `Failed to fetch ${location} page from PropertyPro.ng`,
+          message: `HTTP ${response.status}` 
+        });
+      }
+      
+      const html = await response.text();
+      
+      // Check if the page has chart data
+      const hasChartData = html.includes('renderGlobalChart') && html.includes('propertyChart');
+      
+      if (!hasChartData) {
+        return res.status(404).json({ 
+          error: `No market insights data found for ${location}`,
+          message: 'PropertyPro.ng may not have market insights for this location' 
+        });
+      }
+      
+      // Optionally persist HTML to file system for reference
+      if (persist) {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const publicDir = path.join(process.cwd(), 'public');
+        const filePath = path.join(publicDir, `${location}.html`);
+        
+        try {
+          await fs.mkdir(publicDir, { recursive: true });
+          await fs.writeFile(filePath, html, 'utf8');
+          console.log(`Persisted ${location} HTML to ${filePath}`);
+        } catch (err) {
+          console.error(`Failed to persist ${location} HTML:`, err);
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        location,
+        hasChartData,
+        message: `Market insights data is available for ${location}. Use /api/scrape/${location}-graphs to access the data.`
+      });
+    } catch (err: any) {
+      res.status(503).json({ 
+        error: err?.message || 'scrape failed', 
+        hint: 'network/selectors/robots' 
+      });
+    }
+  });
+
+  // Generic location-based graph data endpoint
+  app.get("/api/scrape/:location-graphs", async (req, res) => {
+    try {
+      const location = req.params.location;
+      
+      // For guzape, use the existing implementation with embedded price history
+      if (location === 'guzape') {
+        const { getGraphDataFromFile } = await import('./scrape/guzapeGraphs');
+        const graphData = await getGraphDataFromFile();
+        return res.json(graphData);
+      }
+      
+      // For other locations (Jahi, Lugbe), extract from PropertyPro.ng HTML
+      console.log(`Extracting chart data for ${location} from PropertyPro.ng...`);
+      
+      const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `Failed to fetch ${location} data from PropertyPro.ng`,
+          message: `HTTP ${response.status}`
+        });
+      }
+      
+      const html = await response.text();
+      
+      // Extract renderGlobalChart calls - these contain the price and index data
+      // Pattern: renderGlobalChart([years], [values], 'chartId') - handles scientific notation
+      const priceChartMatch = html.match(/renderGlobalChart\s*\(\s*\[([^\]]+)\]\s*,\s*\[([^\]]+)\]\s*,\s*['"]propertyChart['"]\s*\)/);
+      const indexChartMatch = html.match(/renderGlobalChart\s*\(\s*\[([^\]]+)\]\s*,\s*\[([^\]]+)\]\s*,\s*['"]indexChart['"]\s*\)/);
+      
+      if (!priceChartMatch) {
+        console.error(`No propertyChart data found for ${location}`);
+        return res.status(404).json({ 
+          error: `No price chart data found for ${location}`,
+          hint: 'PropertyPro.ng may not have price history for this location' 
+        });
+      }
+      
+      if (!indexChartMatch) {
+        console.error(`No indexChart data found for ${location}`);
+        return res.status(404).json({ 
+          error: `No index chart data found for ${location}`,
+          hint: 'PropertyPro.ng may not have index history for this location' 
+        });
+      }
+      
+      // Parse the data arrays with validation
+      const parseNumericArray = (str: string, arrayName: string): number[] => {
+        return str.split(',')
+          .map((v: string) => parseFloat(v.trim()))
+          .filter(v => !isNaN(v) && isFinite(v));
+      };
+      
+      const priceYears = parseNumericArray(priceChartMatch[1], 'priceYears');
+      const priceValues = parseNumericArray(priceChartMatch[2], 'priceValues');
+      const indexYears = parseNumericArray(indexChartMatch[1], 'indexYears');
+      const indexValues = parseNumericArray(indexChartMatch[2], 'indexValues');
+      
+      // Validate we have data
+      if (priceYears.length === 0 || priceValues.length === 0) {
+        console.error(`Invalid price chart data for ${location}: years=${priceYears.length}, values=${priceValues.length}`);
+        return res.status(500).json({ 
+          error: `Invalid price chart data for ${location}`,
+          hint: 'Failed to parse price data from PropertyPro.ng' 
+        });
+      }
+      
+      if (indexYears.length === 0 || indexValues.length === 0) {
+        console.error(`Invalid index chart data for ${location}: years=${indexYears.length}, values=${indexValues.length}`);
+        return res.status(500).json({ 
+          error: `Invalid index chart data for ${location}`,
+          hint: 'Failed to parse index data from PropertyPro.ng' 
+        });
+      }
+      
+      if (priceYears.length !== priceValues.length) {
+        console.error(`Price data mismatch for ${location}: ${priceYears.length} years vs ${priceValues.length} values`);
+        return res.status(500).json({ 
+          error: `Inconsistent price data for ${location}`,
+          hint: 'Years and values arrays have different lengths' 
+        });
+      }
+      
+      // Build price history for calculations
+      const priceHistory = priceYears.map((year, idx) => ({
+        year,
+        price: priceValues[idx],
+        index: indexValues[idx]
+      }));
+      
+      const priceChart = {
+        labels: priceYears,
+        values: priceValues
+      };
+      
+      const indexChart = {
+        labels: indexYears,
+        values: indexValues
+      };
+      
+      // Extract actual historical prices from the HTML text (the cards section)
+      const cheerio = await import('cheerio');
+      const $ = cheerio.load(html);
+      
+      // Find all historical price rows
+      const historicalPriceRows = $('.historical-price-row').toArray();
+      const extractedPrices: any = {};
+      
+      historicalPriceRows.forEach((row) => {
+        const $row = $(row);
+        const periodText = $row.find('p').text().trim().toLowerCase();
+        const priceText = $row.find('h5').text().trim();
+        const changeText = $row.find('.green-badge, .red-badge').text().trim();
+        
+        // Parse price (e.g., "NGN 340.00 million" or "NGN 3.50 billion")
+        const priceMatch = priceText.match(/([\d,\.]+)\s*(million|billion)/i);
+        const changeMatch = changeText.match(/([\d\.]+)\s*%/);
+        
+        if (priceMatch) {
+          const numericValue = parseFloat(priceMatch[1].replace(/,/g, ''));
+          const unit = priceMatch[2].toLowerCase();
+          const priceValue = unit === 'billion' ? numericValue * 1_000_000_000 : numericValue * 1_000_000;
+          const changeValue = changeMatch ? parseFloat(changeMatch[1]) : 0;
+          const isPositive = changeText.includes('caret-up') || !changeText.includes('caret-down');
+          
+          const priceData = {
+            price: priceText.replace(/NGN\s*/i, '₦'),
+            priceValue,
+            change: `${isPositive && changeValue > 0 ? '+' : ''}${changeValue.toFixed(2)}%`,
+            changeValue: isPositive ? changeValue : -changeValue
+          };
+          
+          if (periodText.includes('6 month')) {
+            extractedPrices.sixMonths = { period: '6 Months', ...priceData };
+          } else if (periodText.includes('1 year')) {
+            extractedPrices.oneYear = { period: '1 Year', ...priceData };
+          } else if (periodText.includes('2 year')) {
+            extractedPrices.twoYears = { period: '2 Years', ...priceData };
+          }
+        }
+      });
+      
+      // Fallback to chart data if HTML parsing fails
+      const formatPrice = (value: number) => {
+        if (value >= 1e9) return `₦${(value / 1e9).toFixed(1)}B`;
+        if (value >= 1e6) return `₦${(value / 1e6).toFixed(0)}M`;
+        return `₦${value.toLocaleString()}`;
+      };
+      
+      const currentPrice = priceHistory[priceHistory.length - 1];
+      const lastMonth = priceHistory[priceHistory.length - 2] || currentPrice;
+      
+      const calculateChange = (current: any, previous: any) => {
+        const changePercent = ((current.price - previous.price) / previous.price) * 100;
+        return {
+          price: formatPrice(current.price),
+          priceValue: current.price,
+          change: `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%`,
+          changeValue: changePercent
+        };
+      };
+      
+      res.json({
+        priceChart,
+        indexChart,
+        historicalPrices: {
+          lastMonth: calculateChange(currentPrice, lastMonth),
+          sixMonths: extractedPrices.sixMonths || { period: '6 Months', ...calculateChange(currentPrice, lastMonth) },
+          oneYear: extractedPrices.oneYear || { period: '1 Year', ...calculateChange(currentPrice, lastMonth) },
+          twoYears: extractedPrices.twoYears || { period: '2 Years', ...calculateChange(currentPrice, priceHistory[0]) }
+        },
+        scrapedAt: new Date().toISOString(),
+        location
+      });
+    } catch (err: any) {
+      console.error(`Error extracting graph data for ${location}:`, err);
+      const errorMessage = err?.message || 'Failed to extract graph data';
+      res.status(500).json({ 
+        error: errorMessage,
+        hint: 'Check server logs for details.' 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
