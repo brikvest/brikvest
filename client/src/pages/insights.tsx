@@ -44,17 +44,17 @@ export default function Insights() {
   const [selectedCity, setSelectedCity] = useState("guzape");
   const { toast } = useToast();
 
-  // Fetch Guzape graph data
+  // Fetch graph data for selected location
   const { data: graphData, isLoading } = useQuery<GuzapeGraphData>({
-    queryKey: ['/api/scrape/guzape-graphs'],
-    enabled: selectedCity === "guzape",
+    queryKey: [`/api/scrape/${selectedCity}-graphs`],
+    enabled: !!selectedCity,
   });
 
   // Mutation for refreshing market data
   const refreshMutation = useMutation({
     mutationFn: async () => {
       // Re-scrape the HTML first
-      const response = await fetch('/api/scrape/guzape-html?persist=1');
+      const response = await fetch(`/api/scrape/${selectedCity}-html?persist=1`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || 'Failed to refresh data');
@@ -65,7 +65,7 @@ export default function Insights() {
     },
     onSuccess: () => {
       // Invalidate the cache to refetch
-      queryClient.invalidateQueries({ queryKey: ['/api/scrape/guzape-graphs'] });
+      queryClient.invalidateQueries({ queryKey: [`/api/scrape/${selectedCity}-graphs`] });
       toast({
         title: "Data refreshed",
         description: "Market insights have been updated with the latest data from PropertyPro.ng",
@@ -221,6 +221,8 @@ export default function Insights() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="guzape">Guzape, Abuja</SelectItem>
+                <SelectItem value="jahi">Jahi, Abuja</SelectItem>
+                <SelectItem value="lugbe">Lugbe, Abuja</SelectItem>
                 <SelectItem value="maitama" disabled>Maitama, Abuja (Coming Soon)</SelectItem>
                 <SelectItem value="lekki" disabled>Lekki, Lagos (Coming Soon)</SelectItem>
                 <SelectItem value="ikoyi" disabled>Ikoyi, Lagos (Coming Soon)</SelectItem>
@@ -255,7 +257,7 @@ export default function Insights() {
                 </div>
               </div>
               <div className="text-3xl font-bold text-slate-900">{formatPrice(currentPrice)}</div>
-              <div className="text-xs text-slate-500 mt-1">Guzape, Abuja (2025)</div>
+              <div className="text-xs text-slate-500 mt-1">{selectedCity.charAt(0).toUpperCase() + selectedCity.slice(1)}, Abuja (2025)</div>
             </CardContent>
           </Card>
 
@@ -347,7 +349,7 @@ export default function Insights() {
         <Card className="border-0 bg-white shadow-lg mb-8" data-testid="card-price-history">
           <CardHeader>
             <CardTitle className="text-xl">Average Price History</CardTitle>
-            <p className="text-sm text-slate-600">Property price trends in Guzape, Abuja (2019-2025)</p>
+            <p className="text-sm text-slate-600">Property price trends in {selectedCity.charAt(0).toUpperCase() + selectedCity.slice(1)}, Abuja (2019-2025)</p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={350}>
@@ -446,7 +448,7 @@ export default function Insights() {
                 </li>
                 <li className="flex items-start">
                   <span className="text-blue-600 mr-2">•</span>
-                  <span>Consistent upward trend indicates growing demand in Guzape area</span>
+                  <span>Consistent upward trend indicates growing demand in {selectedCity.charAt(0).toUpperCase() + selectedCity.slice(1)} area</span>
                 </li>
               </ul>
             </div>

@@ -2184,6 +2184,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generic location-based scraping endpoints (supports jahi, lugbe, etc.)
+  app.get("/api/scrape/:location-html", async (req, res) => {
+    try {
+      const location = req.params.location;
+      const persist = req.query.persist === '1';
+      
+      // For guzape, use the existing implementation
+      if (location === 'guzape') {
+        const { fetchGuzapeRawHtml, persistGuzapeHtml } = await import('./scrape/guzapeHtml');
+        const html = await fetchGuzapeRawHtml();
+        if (persist) {
+          await persistGuzapeHtml(html);
+        }
+        return res.type('text/html').status(200).send(html);
+      }
+      
+      // For other locations, fetch HTML from PropertyPro.ng
+      const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        },
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ 
+          error: `HTTP ${response.status}`,
+          message: response.statusText 
+        });
+      }
+      
+      const html = await response.text();
+      
+      if (persist) {
+        // Save to file system for caching
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const publicDir = path.join(process.cwd(), 'public');
+        const filePath = path.join(publicDir, `${location}.html`);
+        
+        try {
+          await fs.mkdir(publicDir, { recursive: true });
+          await fs.writeFile(filePath, html, 'utf8');
+        } catch (err) {
+          console.error(`Failed to persist ${location} HTML:`, err);
+        }
+      }
+      
+      res.type('text/html').status(200).send(html);
+    } catch (err: any) {
+      res.status(503).json({ 
+        error: err?.message || 'scrape failed', 
+        hint: 'network/selectors/robots' 
+      });
+    }
+  });
+
+  // Generic location-based graph data endpoint
+  app.get("/api/scrape/:location-graphs", async (req, res) => {
+    try {
+      const location = req.params.location;
+      
+      // For guzape, use the existing implementation
+      if (location === 'guzape') {
+        const { getGraphDataFromFile } = await import('./scrape/guzapeGraphs');
+        const graphData = await getGraphDataFromFile();
+        return res.json(graphData);
+      }
+      
+      // For other locations, read from file and extract graph data
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const cheerio = await import('cheerio');
+      
+      const filePath = path.join(process.cwd(), 'public', `${location}.html`);
+      
+      try {
+        const html = await fs.readFile(filePath, 'utf8');
+        const $ = cheerio.load(html);
+        
+        // Extract graph data from the HTML (same logic as guzapeGraphs)
+        const scriptTag = $('script:contains("priceHistory")').html();
+        
+        if (!scriptTag) {
+          throw new Error('Price history data not found in HTML');
+        }
+        
+        // Extract priceHistory array
+        const priceHistoryMatch = scriptTag.match(/priceHistory\s*=\s*(\[[\s\S]*?\]);/);
+        if (!priceHistoryMatch) {
+          throw new Error('Could not extract priceHistory array');
+        }
+        
+        const priceHistory = JSON.parse(priceHistoryMatch[1]);
+        
+        // Transform to chart data
+        const priceChart = {
+          labels: priceHistory.map((item: any) => item.year),
+          values: priceHistory.map((item: any) => item.price)
+        };
+        
+        const indexChart = {
+          labels: priceHistory.map((item: any) => item.year),
+          values: priceHistory.map((item: any) => item.index)
+        };
+        
+        // Calculate historical price data
+        const currentPrice = priceHistory[priceHistory.length - 1];
+        const lastMonth = priceHistory[priceHistory.length - 2] || currentPrice;
+        const sixMonths = priceHistory[Math.max(0, priceHistory.length - 7)] || priceHistory[0];
+        const oneYear = priceHistory[Math.max(0, priceHistory.length - 13)] || priceHistory[0];
+        const twoYears = priceHistory[0];
+        
+        const formatPrice = (value: number) => {
+          if (value >= 1e9) return `₦${(value / 1e9).toFixed(1)}B`;
+          if (value >= 1e6) return `₦${(value / 1e6).toFixed(0)}M`;
+          return `₦${value.toLocaleString()}`;
+        };
+        
+        const calculateChange = (current: any, previous: any) => {
+          const changePercent = ((current.price - previous.price) / previous.price) * 100;
+          return {
+            price: formatPrice(current.price),
+            priceValue: current.price,
+            change: `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%`,
+            changeValue: changePercent
+          };
+        };
+        
+        res.json({
+          priceChart,
+          indexChart,
+          historicalPrices: {
+            lastMonth: calculateChange(currentPrice, lastMonth),
+            sixMonths: { period: '6 Months', ...calculateChange(currentPrice, sixMonths) },
+            oneYear: { period: '1 Year', ...calculateChange(currentPrice, oneYear) },
+            twoYears: { period: '2 Years', ...calculateChange(currentPrice, twoYears) }
+          },
+          scrapedAt: new Date().toISOString()
+        });
+      } catch (fileErr: any) {
+        if (fileErr.code === 'ENOENT') {
+          return res.status(404).json({ 
+            error: `No cached data found for ${location}`,
+            hint: `Run the scraper first: /api/scrape/${location}-html?persist=1` 
+          });
+        }
+        throw fileErr;
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to extract graph data';
+      res.status(500).json({ 
+        error: errorMessage,
+        hint: 'Check server logs for details. The HTML structure may have changed.' 
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
