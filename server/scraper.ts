@@ -13,10 +13,10 @@ interface ScrapedProperty {
   propertyType: string | null;
 }
 
-export async function scrapePropertyProAbuja(location: string = 'abuja'): Promise<InsertMarketInsight[]> {
+export async function scrapePropertyProAbuja(location: string = 'guzape'): Promise<InsertMarketInsight[]> {
   try {
-    const url = `https://propertypro.ng/index/sale/all/abuja/guzape`;
-    console.log(`Scraping PropertyPro.ng from Guzape, Abuja...`);
+    const url = `https://propertypro.ng/index/sale/all/abuja/${location.toLowerCase()}`;
+    console.log(`Scraping PropertyPro.ng from ${location}, Abuja...`);
     console.log(`URL: ${url}`);
 
     const response = await fetch(url, {
