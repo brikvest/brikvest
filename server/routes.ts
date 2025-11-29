@@ -592,10 +592,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
       });
 
-      // Create payment record
+      // Create payment record - ensure amount is a proper number for bigint column
+      const paymentAmount = amount 
+        ? (typeof amount === 'string' ? Math.round(parseFloat(amount)) : Math.round(amount))
+        : (typeof reservation.amount === 'string' ? Math.round(parseFloat(reservation.amount)) : Math.round(reservation.amount));
+      
       await storage.createInvestmentPayment({
         reservationId,
-        amount: amount || reservation.amount,
+        amount: paymentAmount,
         currency: reservation.currency,
         paymentMethod: paymentMethod || reservation.paymentMethod || 'bank_transfer',
         paymentReference: paymentReference || reservation.paymentReference,
@@ -615,7 +619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             fullName: reservation.fullName,
             propertyName: property.name,
             units,
-            amount: amount || reservation.amount,
+            amount: paymentAmount,
             currency: reservation.currency,
             paymentReference: paymentReference || reservation.paymentReference || undefined,
           });
