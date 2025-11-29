@@ -678,10 +678,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
       await storage.updatePropertyUnitCounts(reservation.propertyId, -units, units);
 
-      // Get property for email
+      // Get property for email and certificate
       const property = await storage.getProperty(reservation.propertyId);
       
-      // Send email to user
+      // Generate ownership certificate
+      let certificate = null;
+      if (property) {
+        try {
+          // Generate unique verification token
+          const verificationToken = randomBytes(32).toString('hex');
+          
+          // Get next certificate number
+          const certificateNumber = await storage.getNextCertificateNumber();
+          
+          // Create the certificate
+          certificate = await storage.createOwnershipCertificate({
+            reservationId,
+            certificateNumber,
+            verificationToken,
+            ownerName: reservation.fullName,
+            propertyName: property.name,
+            propertyLocation: property.location,
+            units: reservation.units.toString(),
+            amount: reservation.amount.toString(),
+            currency: reservation.currency,
+            issuedByAdminId: (req.user as any).userId,
+          });
+          
+          console.log(`[CERTIFICATE] Generated certificate ${certificateNumber} for reservation ${reservationId}`);
+        } catch (certError) {
+          console.error("Error generating certificate:", certError);
+          // Don't fail the whole confirmation if certificate fails
+        }
+      }
+      
+      // Send email to user with certificate info
       if (property) {
         try {
           const emailContent = investmentConfirmedEmailTemplate({
@@ -690,6 +721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             units,
             amount: reservation.amount,
             currency: reservation.currency,
+            certificateNumber: certificate?.certificateNumber,
           });
           await sendEmail({
             to: reservation.email,
@@ -701,7 +733,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ message: "Investment confirmed successfully" });
+      res.json({ 
+        message: "Investment confirmed successfully",
+        certificateNumber: certificate?.certificateNumber 
+      });
     } catch (error) {
       console.error("Error confirming investment:", error);
       res.status(500).json({ error: "Failed to confirm investment" });
