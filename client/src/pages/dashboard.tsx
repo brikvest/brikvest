@@ -7,15 +7,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { useEffect, useState } from "react";
-import type { InvestmentReservation, Property } from "@shared/schema";
+import { useEffect, useState, useRef } from "react";
+import type { InvestmentReservation, Property, OwnershipCertificate } from "@shared/schema";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { OwnershipCertificate as CertificateComponent, CertificateDownloadButton } from "@/components/OwnershipCertificate";
 
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -36,6 +37,9 @@ export default function Portfolio() {
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [certificateModalOpen, setCertificateModalOpen] = useState(false);
+  const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
+  const certificateRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -66,6 +70,21 @@ export default function Portfolio() {
     queryKey: ["/api/user/reservations"],
     enabled: isAuthenticated,
   });
+
+  // Fetch certificate for selected reservation
+  const { data: certificateData, isLoading: certificateLoading } = useQuery<{
+    certificate: OwnershipCertificate;
+    property: { id: number; name: string; location: string; imageUrl: string } | null;
+    verificationUrl: string;
+  }>({
+    queryKey: ["/api/user/certificates", selectedReservationId],
+    enabled: !!selectedReservationId && certificateModalOpen,
+  });
+
+  const handleViewCertificate = (reservationId: number) => {
+    setSelectedReservationId(reservationId);
+    setCertificateModalOpen(true);
+  };
 
   const handleLogout = async () => {
     try {
@@ -805,7 +824,17 @@ export default function Portfolio() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewCertificate(reservation.id)}
+                              className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                              data-testid={`button-view-certificate-${reservation.id}`}
+                            >
+                              <Award className="h-4 w-4 mr-1" />
+                              Certificate
+                            </Button>
                             <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap bg-green-100 text-green-700">
                               Confirmed
                             </span>
@@ -1107,6 +1136,77 @@ export default function Portfolio() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Certificate View Modal */}
+      <Dialog open={certificateModalOpen} onOpenChange={(open) => {
+        setCertificateModalOpen(open);
+        if (!open) setSelectedReservationId(null);
+      }}>
+        <DialogContent className="max-w-[900px] max-h-[95vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Award className="h-6 w-6 text-amber-600" />
+              Ownership Certificate
+            </DialogTitle>
+            <DialogDescription>
+              Your verified proof of property ownership. Download or share this certificate.
+            </DialogDescription>
+          </DialogHeader>
+
+          {certificateLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
+              <span className="ml-3 text-slate-600">Loading certificate...</span>
+            </div>
+          ) : certificateData?.certificate ? (
+            <div className="space-y-4">
+              {/* Certificate Preview */}
+              <div className="overflow-x-auto bg-slate-100 rounded-lg p-4">
+                <div ref={certificateRef} className="mx-auto" style={{ width: 'fit-content' }}>
+                  <CertificateComponent 
+                    certificate={{
+                      ...certificateData.certificate,
+                      verificationToken: certificateData.certificate.verificationToken
+                    }} 
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
+                <CertificateDownloadButton certificateRef={certificateRef} />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const url = `${window.location.origin}/verify/${certificateData.certificate.verificationToken}`;
+                    navigator.clipboard.writeText(url);
+                    toast({
+                      title: "Link copied!",
+                      description: "Verification link copied to clipboard.",
+                    });
+                  }}
+                  className="flex items-center gap-2"
+                  data-testid="button-copy-verification-link"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy Verification Link
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <AlertCircle className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">Certificate Not Found</h3>
+              <p className="text-slate-600">
+                The ownership certificate for this investment is not available yet. 
+                Please contact support if this is unexpected.
+              </p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
