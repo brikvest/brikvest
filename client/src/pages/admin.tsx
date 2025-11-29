@@ -787,7 +787,7 @@ function AdminInvestmentsTab({
                           <TableCell>{reservation.units}</TableCell>
                           <TableCell>{ownershipPercent}%</TableCell>
                           <TableCell>
-                            {getCurrencySymbol(reservation.currency)}{reservation.amount.toLocaleString()}
+                            {getCurrencySymbol(reservation.currency)}{Number(reservation.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </TableCell>
                           <TableCell>
                             {new Date(reservation.createdAt).toLocaleDateString('en-US', {
