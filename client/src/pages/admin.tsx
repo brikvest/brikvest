@@ -806,7 +806,11 @@ function AdminInvestmentsTab({
                             )}
                           </TableCell>
                           <TableCell>
-                            <span className="text-slate-500 text-sm">{property?.name ? `${property.name.substring(0, 15)}...` : '-'}</span>
+                            {property?.spvName ? (
+                              <span className="font-mono text-sm text-blue-700">{property.spvName}</span>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <DropdownMenu>

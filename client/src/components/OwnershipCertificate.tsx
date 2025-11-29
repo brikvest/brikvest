@@ -7,6 +7,7 @@ interface CertificateData {
   ownerName: string;
   propertyName: string;
   propertyLocation: string;
+  spvName?: string | null;
   units: string | number;
   amount: string | number;
   currency: string;
@@ -131,6 +132,12 @@ export function OwnershipCertificate({ certificate, className = '' }: OwnershipC
                 {getCurrencySymbol(certificate.currency)}{formatAmount(certificate.amount)}
               </p>
             </div>
+            {certificate.spvName && (
+              <div className="col-span-2 border-t border-slate-200 pt-4 mt-2">
+                <p className="text-sm text-slate-500 uppercase tracking-wide mb-1">SPV Entity</p>
+                <p className="text-lg font-mono font-semibold text-blue-700">{certificate.spvName}</p>
+              </div>
+            )}
           </div>
         </div>
 

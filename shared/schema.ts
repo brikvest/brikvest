@@ -94,6 +94,11 @@ export const properties = pgTable("properties", {
   unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
+  // SPV (Special Purpose Vehicle) identification
+  spvName: text("spv_name"), // e.g., BRKABJGUZ011025 - auto-generated unique SPV identifier
+  city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
+  district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -224,6 +229,7 @@ export const ownershipCertificates = pgTable("ownership_certificates", {
   ownerName: text("owner_name").notNull(),
   propertyName: text("property_name").notNull(),
   propertyLocation: text("property_location").notNull(),
+  spvName: text("spv_name"), // SPV identifier from property (e.g., BRKABJGUZ011025)
   units: decimal("units", { precision: 15, scale: 2 }).notNull(),
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("NGN"),
