@@ -17,6 +17,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OwnershipCertificate as CertificateComponent, CertificateDownloadButton } from "@/components/OwnershipCertificate";
+import { CurrencySelector } from "@/components/CurrencySelector";
 
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -362,6 +363,12 @@ export default function Portfolio() {
               <TrendingUp className="h-5 w-5" />
               <span>Market Insights</span>
             </Link>
+            
+            {/* Currency Selector - Mobile */}
+            <div className="px-4 py-3">
+              <p className="text-xs text-slate-500 mb-2">Display Currency</p>
+              <CurrencySelector />
+            </div>
           </nav>
 
           {/* User section */}
@@ -413,6 +420,11 @@ export default function Portfolio() {
                 <p className="text-xs sm:text-sm text-slate-600 mt-1 hidden sm:block">
                   Track your investments and explore new opportunities
                 </p>
+              </div>
+
+              {/* Currency Selector */}
+              <div className="hidden sm:block">
+                <CurrencySelector compact />
               </div>
 
               {/* New Investment Button */}
