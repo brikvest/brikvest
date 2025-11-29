@@ -6,7 +6,7 @@ import { CheckCircle, XCircle, Home, Shield, Building2, Calendar, Hash, User, Ma
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 interface VerificationData {
-  valid: boolean;
+  verified: boolean;
   certificate: {
     certificateNumber: string;
     ownerName: string;
@@ -87,7 +87,7 @@ export default function CertificateVerification() {
     );
   }
 
-  if (!data.valid || !data.certificate) {
+  if (!data.verified || !data.certificate) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-red-200">
