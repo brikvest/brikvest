@@ -77,11 +77,6 @@ function AdminInvestmentsTab({
   // Filter states for management view
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  // Mark Payment Received dialog states
-  const [markPaymentReservation, setMarkPaymentReservation] = useState<InvestmentReservation | null>(null);
-  const [isMarkPaymentDialogOpen, setIsMarkPaymentDialogOpen] = useState(false);
-  const [markPaymentRef, setMarkPaymentRef] = useState("");
-
   // Edit reservation states
   const [editingReservation, setEditingReservation] = useState<InvestmentReservation | null>(null);
   const [isEditReservationOpen, setIsEditReservationOpen] = useState(false);
@@ -182,45 +177,21 @@ function AdminInvestmentsTab({
   });
 
   const markPaymentReceivedMutation = useMutation({
-    mutationFn: async ({ id, paymentReference }: { id: number; paymentReference: string }) => {
+    mutationFn: async (id: number) => {
       return await authenticatedRequest(`/api/admin/investments/${id}/mark-payment-received`, {
         method: "PUT",
-        body: JSON.stringify({ paymentReference }),
+        body: JSON.stringify({}),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
-      setIsMarkPaymentDialogOpen(false);
-      setMarkPaymentReservation(null);
-      setMarkPaymentRef("");
       toast({
         title: "Payment marked",
-        description: "Payment has been marked as received and investor notified",
+        description: "Payment has been marked as received and investor notified with payment reference",
       });
     },
   });
-
-  const handleOpenMarkPaymentDialog = (reservation: InvestmentReservation) => {
-    setMarkPaymentReservation(reservation);
-    setMarkPaymentRef(reservation.paymentReference || "");
-    setIsMarkPaymentDialogOpen(true);
-  };
-
-  const handleSubmitMarkPayment = () => {
-    if (!markPaymentReservation || !markPaymentRef.trim()) {
-      toast({
-        title: "Payment reference required",
-        description: "Please enter a payment reference before marking as paid",
-        variant: "destructive",
-      });
-      return;
-    }
-    markPaymentReceivedMutation.mutate({ 
-      id: markPaymentReservation.id, 
-      paymentReference: markPaymentRef.trim() 
-    });
-  };
 
   const confirmInvestmentMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -851,7 +822,7 @@ function AdminInvestmentsTab({
                             )}
                             {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
                               <DropdownMenuItem
-                                onClick={() => handleOpenMarkPaymentDialog(reservation)}
+                                onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
                                 disabled={markPaymentReceivedMutation.isPending}
                                 data-testid={`menu-mark-payment-${reservation.id}`}
                               >
@@ -1067,77 +1038,6 @@ function AdminInvestmentsTab({
         </DialogContent>
       </Dialog>
 
-      {/* Mark Payment Received Dialog */}
-      <Dialog open={isMarkPaymentDialogOpen} onOpenChange={setIsMarkPaymentDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Mark Payment as Received</DialogTitle>
-          </DialogHeader>
-          
-          {markPaymentReservation && (
-            <div className="space-y-6">
-              {/* Investment Summary */}
-              <div className="bg-slate-50 p-4 rounded-lg space-y-2">
-                <div>
-                  <Label className="text-sm font-medium text-slate-700">Investor</Label>
-                  <p className="text-sm text-slate-900">{markPaymentReservation.fullName}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-slate-700">Property</Label>
-                  <p className="text-sm text-slate-900">
-                    {properties.find(p => p.id === markPaymentReservation.propertyId)?.name || `Property #${markPaymentReservation.propertyId}`}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-slate-700">Amount</Label>
-                  <p className="text-lg font-semibold text-slate-900">
-                    {getCurrencySymbol(markPaymentReservation.currency)}{markPaymentReservation.amount.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              {/* Payment Reference Input */}
-              <div className="space-y-2">
-                <Label htmlFor="mark-payment-reference" className="text-sm font-medium">
-                  Payment Reference <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="mark-payment-reference"
-                  value={markPaymentRef}
-                  onChange={(e) => setMarkPaymentRef(e.target.value)}
-                  placeholder="Enter transaction ID or reference number"
-                  data-testid="input-mark-payment-reference"
-                />
-                <p className="text-xs text-slate-500">
-                  This reference will be included in the email sent to the investor.
-                </p>
-              </div>
-
-              <div className="flex justify-end space-x-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsMarkPaymentDialogOpen(false);
-                    setMarkPaymentReservation(null);
-                    setMarkPaymentRef("");
-                  }}
-                  disabled={markPaymentReceivedMutation.isPending}
-                  data-testid="button-cancel-mark-payment"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSubmitMarkPayment}
-                  disabled={markPaymentReceivedMutation.isPending || !markPaymentRef.trim()}
-                  data-testid="button-confirm-mark-payment"
-                >
-                  {markPaymentReceivedMutation.isPending ? "Processing..." : "Mark as Paid & Notify Investor"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

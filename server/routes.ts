@@ -577,18 +577,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/admin/investments/:id/mark-payment-received', requireAdminAuth, async (req, res) => {
     try {
       const reservationId = parseInt(req.params.id);
-      const { paymentMethod, paymentReference, paymentEvidenceUrl, amount } = req.body;
+      const { paymentMethod, paymentEvidenceUrl, amount } = req.body;
 
       const reservation = await storage.getReservation(reservationId);
       if (!reservation) {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
-      // Update reservation status
+      // Generate unique payment reference: BRK-YYYYMMDD-XXXXX
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const generatedPaymentReference = `BRK-${dateStr}-${randomPart}`;
+
+      // Update reservation status with generated payment reference
       await storage.updateReservation(reservationId, {
         status: 'payment_received',
         paymentMethod: paymentMethod || reservation.paymentMethod,
-        paymentReference: paymentReference || reservation.paymentReference,
+        paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
       });
 
@@ -602,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount: paymentAmount,
         currency: reservation.currency,
         paymentMethod: paymentMethod || reservation.paymentMethod || 'bank_transfer',
-        paymentReference: paymentReference || reservation.paymentReference,
+        paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
         recordedByAdminId: (req.user as any).userId,
         status: 'received',
@@ -611,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get property for email
       const property = await storage.getProperty(reservation.propertyId);
       
-      // Send email to user
+      // Send email to user with generated payment reference
       if (property) {
         try {
           const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
@@ -621,7 +627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             units,
             amount: paymentAmount,
             currency: reservation.currency,
-            paymentReference: paymentReference || reservation.paymentReference || undefined,
+            paymentReference: generatedPaymentReference,
           });
           await sendEmail({
             to: reservation.email,
@@ -633,7 +639,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ message: "Payment marked as received" });
+      res.json({ 
+        message: "Payment marked as received", 
+        paymentReference: generatedPaymentReference 
+      });
     } catch (error) {
       console.error("Error marking payment as received:", error);
       res.status(500).json({ error: "Failed to mark payment as received" });
