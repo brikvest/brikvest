@@ -11,6 +11,7 @@ import {
   verificationStepCompletions,
   marketInsights,
   guzapeListings,
+  ownershipCertificates,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -30,7 +31,9 @@ import {
   type MarketInsight,
   type InsertMarketInsight,
   type GuzapeListing,
-  type InsertGuzapeListing
+  type InsertGuzapeListing,
+  type OwnershipCertificate,
+  type InsertOwnershipCertificate
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql } from "drizzle-orm";
@@ -106,6 +109,14 @@ export interface IStorage {
   // Investment payments methods (admin-assisted)
   createInvestmentPayment(payment: any): Promise<any>;
   getInvestmentPayments(reservationId: number): Promise<any[]>;
+  
+  // Ownership certificates methods
+  createOwnershipCertificate(certificate: InsertOwnershipCertificate): Promise<OwnershipCertificate>;
+  getCertificateByReservationId(reservationId: number): Promise<OwnershipCertificate | undefined>;
+  getCertificateByVerificationToken(token: string): Promise<OwnershipCertificate | undefined>;
+  getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined>;
+  getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]>;
+  getNextCertificateNumber(): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -603,6 +614,81 @@ export class DatabaseStorage implements IStorage {
       .from(investmentPayments)
       .where(eq(investmentPayments.reservationId, reservationId))
       .orderBy(desc(investmentPayments.recordedAt));
+  }
+
+  // Ownership certificates methods
+  async createOwnershipCertificate(certificate: InsertOwnershipCertificate): Promise<OwnershipCertificate> {
+    const [newCertificate] = await db
+      .insert(ownershipCertificates)
+      .values(certificate)
+      .returning();
+    return newCertificate;
+  }
+
+  async getCertificateByReservationId(reservationId: number): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.reservationId, reservationId));
+    return certificate;
+  }
+
+  async getCertificateByVerificationToken(token: string): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.verificationToken, token));
+    return certificate;
+  }
+
+  async getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.certificateNumber, certNumber));
+    return certificate;
+  }
+
+  async getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]> {
+    // Get certificates for reservations belonging to this user
+    const userReservations = await db
+      .select({ id: investmentReservations.id })
+      .from(investmentReservations)
+      .where(eq(investmentReservations.userId, userId));
+    
+    if (userReservations.length === 0) {
+      return [];
+    }
+
+    const reservationIds = userReservations.map(r => r.id);
+    const certificates = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(sql`${ownershipCertificates.reservationId} = ANY(${reservationIds})`);
+    
+    return certificates;
+  }
+
+  async getNextCertificateNumber(): Promise<string> {
+    // Format: CERT-YYYY-NNNNN
+    const year = new Date().getFullYear();
+    const prefix = `CERT-${year}-`;
+    
+    // Get the highest certificate number for this year
+    const [latestCert] = await db
+      .select({ certificateNumber: ownershipCertificates.certificateNumber })
+      .from(ownershipCertificates)
+      .where(sql`${ownershipCertificates.certificateNumber} LIKE ${prefix + '%'}`)
+      .orderBy(desc(ownershipCertificates.certificateNumber))
+      .limit(1);
+    
+    let nextNumber = 1;
+    if (latestCert) {
+      const lastNumber = parseInt(latestCert.certificateNumber.split('-')[2], 10);
+      nextNumber = lastNumber + 1;
+    }
+    
+    return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
   }
 }
 

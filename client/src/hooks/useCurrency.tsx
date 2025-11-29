@@ -41,7 +41,8 @@ const CURRENCY_SYMBOLS = {
 } as const;
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [userCurrency, setUserCurrencyState] = useState<string>('USD');
+  // Default to NGN (Nigerian Naira) as this is a Nigerian real estate platform
+  const [userCurrency, setUserCurrencyState] = useState<string>('NGN');
 
   // Fetch exchange rates and available currencies
   const { data: ratesData, isLoading } = useQuery({
@@ -49,33 +50,26 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     refetchInterval: 60 * 60 * 1000, // Refetch every hour
   }) as { data?: { rates: ExchangeRates; currencies: Record<string, CurrencyConfig> }; isLoading: boolean };
 
-  // Detect user's currency based on location
-  const { data: detectedCurrency } = useQuery({
-    queryKey: ['/api/user-currency'],
-    enabled: !localStorage.getItem('selectedCurrency'), // Only detect if no manual selection
-  }) as { data?: { currency: string } };
-
-  // Initialize currency from localStorage or detected currency
+  // Initialize currency from localStorage only (user must explicitly choose to change from NGN)
   useEffect(() => {
     const savedCurrency = localStorage.getItem('selectedCurrency');
     if (savedCurrency) {
       setUserCurrencyState(savedCurrency);
-    } else if (detectedCurrency?.currency) {
-      setUserCurrencyState(detectedCurrency.currency);
     }
-  }, [detectedCurrency]);
+    // If no saved currency, keep default NGN - don't auto-detect
+  }, []);
 
   const setUserCurrency = (currency: string) => {
     setUserCurrencyState(currency);
     localStorage.setItem('selectedCurrency', currency);
   };
 
-  const convertAmount = (amount: number, fromCurrency: string = 'USD'): number => {
+  const convertAmount = (amount: number, fromCurrency: string = 'NGN'): number => {
     if (!ratesData || !ratesData.rates || fromCurrency === userCurrency) {
       return amount;
     }
 
-    // Convert from source currency to USD first
+    // Convert from source currency to USD first (USD is the base in exchange rates)
     const usdAmount = fromCurrency === 'USD' ? amount : amount / ratesData.rates[fromCurrency];
     
     // Convert from USD to target currency

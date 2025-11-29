@@ -215,6 +215,22 @@ export const verificationStepCompletions = pgTable("verification_step_completion
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Ownership Certificates - generated when investment is confirmed
+export const ownershipCertificates = pgTable("ownership_certificates", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id).unique(),
+  certificateNumber: text("certificate_number").notNull().unique(), // e.g., CERT-2024-00001
+  verificationToken: text("verification_token").notNull().unique(), // UUID for QR code verification
+  ownerName: text("owner_name").notNull(),
+  propertyName: text("property_name").notNull(),
+  propertyLocation: text("property_location").notNull(),
+  units: decimal("units", { precision: 15, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  issuedAt: timestamp("issued_at").defaultNow().notNull(),
+  issuedByAdminId: integer("issued_by_admin_id").references(() => adminUsers.id),
+});
+
 // Market Insights - scraped property data from external sources
 export const marketInsights = pgTable("market_insights", {
   id: serial("id").primaryKey(),
@@ -278,6 +294,18 @@ export const investmentReservationsRelations = relations(investmentReservations,
     references: [adminUsers.id],
   }),
   payments: many(investmentPayments),
+  certificate: one(ownershipCertificates),
+}));
+
+export const ownershipCertificatesRelations = relations(ownershipCertificates, ({ one }) => ({
+  reservation: one(investmentReservations, {
+    fields: [ownershipCertificates.reservationId],
+    references: [investmentReservations.id],
+  }),
+  issuedByAdmin: one(adminUsers, {
+    fields: [ownershipCertificates.issuedByAdminId],
+    references: [adminUsers.id],
+  }),
 }));
 
 export const investmentPaymentsRelations = relations(investmentPayments, ({ one }) => ({
@@ -458,6 +486,11 @@ export const insertGuzapeListingSchema = createInsertSchema(guzapeListings).omit
   scrapedAt: true,
 });
 
+export const insertOwnershipCertificateSchema = createInsertSchema(ownershipCertificates).omit({
+  id: true,
+  issuedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -500,3 +533,6 @@ export type InsertMarketInsight = z.infer<typeof insertMarketInsightSchema>;
 export type MarketInsight = typeof marketInsights.$inferSelect;
 export type InsertGuzapeListing = z.infer<typeof insertGuzapeListingSchema>;
 export type GuzapeListing = typeof guzapeListings.$inferSelect;
+
+export type InsertOwnershipCertificate = z.infer<typeof insertOwnershipCertificateSchema>;
+export type OwnershipCertificate = typeof ownershipCertificates.$inferSelect;

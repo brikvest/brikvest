@@ -341,15 +341,18 @@ export function investmentConfirmedEmailTemplate({
   units,
   amount,
   currency,
+  certificateNumber,
 }: {
   fullName: string;
   propertyName: string;
   units: number;
-  amount: number;
+  amount: number | string;
   currency: string;
+  certificateNumber?: string;
 }) {
+  const amountNum = typeof amount === 'string' ? parseFloat(amount) : amount;
   return {
-    subject: "Investment Confirmed – Brikvest",
+    subject: "Investment Confirmed – Your Ownership Certificate is Ready – Brikvest",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
         <div style="text-align: center; margin-bottom: 20px;">
@@ -358,8 +361,8 @@ export function investmentConfirmedEmailTemplate({
 
         <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
           <div style="text-align: center; margin-bottom: 20px;">
-            <div style="width: 80px; height: 80px; background: #2563eb; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
-              <span style="color: white; font-size: 48px;">🎉</span>
+            <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #2563eb, #1e40af); border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
+              <span style="color: white; font-size: 40px;">✓</span>
             </div>
           </div>
 
@@ -368,6 +371,16 @@ export function investmentConfirmedEmailTemplate({
           <p style="font-size: 16px; color: #444; text-align: center;">
             Your investment in <strong>${propertyName}</strong> has been <strong style="color: #2563eb;">confirmed</strong>!
           </p>
+
+          ${certificateNumber ? `
+          <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px solid #f59e0b; padding: 20px; margin: 24px 0; border-radius: 8px; text-align: center;">
+            <p style="margin: 0 0 8px 0; font-size: 14px; color: #92400e; font-weight: 600;">OWNERSHIP CERTIFICATE ISSUED</p>
+            <p style="margin: 0; font-size: 24px; color: #78350f; font-weight: bold; letter-spacing: 1px;">${certificateNumber}</p>
+            <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;">
+              Your digital ownership certificate is now available in your dashboard.
+            </p>
+          </div>
+          ` : ''}
 
           <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
             <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Investment Summary</h3>
@@ -378,7 +391,7 @@ export function investmentConfirmedEmailTemplate({
               <strong>Units Owned:</strong> ${units}
             </p>
             <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
-              <strong>Total Investment:</strong> ${currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency} ${amount.toLocaleString()}
+              <strong>Total Investment:</strong> ${currency === 'NGN' ? '₦' : currency === 'USD' ? '$' : currency} ${amountNum.toLocaleString()}
             </p>
             <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;">
               <strong>Status:</strong> <span style="color: #10b981;">Confirmed</span>
@@ -389,16 +402,16 @@ export function investmentConfirmedEmailTemplate({
             <strong>What's Included:</strong>
           </p>
           <ul style="font-size: 15px; color: #666; line-height: 1.8;">
+            <li>Digital Ownership Certificate with QR verification</li>
             <li>Full access to property updates and progress</li>
             <li>Detailed investment analytics in your dashboard</li>
             <li>Regular updates on property development</li>
-            <li>Future returns and appreciation tracking</li>
           </ul>
 
           <div style="text-align: center; margin: 30px 0;">
             <a href="https://www.brikvest.net/dashboard" 
                style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
-              View Your Investment
+              View Your Certificate
             </a>
           </div>
 

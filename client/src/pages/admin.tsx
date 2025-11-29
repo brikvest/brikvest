@@ -188,7 +188,7 @@ function AdminInvestmentsTab({
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       toast({
         title: "Payment marked",
-        description: "Payment has been marked as received",
+        description: "Payment has been marked as received and investor notified with payment reference",
       });
     },
   });
@@ -1037,6 +1037,7 @@ function AdminInvestmentsTab({
           )}
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }
