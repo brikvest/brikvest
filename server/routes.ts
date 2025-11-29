@@ -73,6 +73,16 @@ function requireAuth(req: any, res: any, next: any) {
   res.status(401).json({ message: "Authentication required" });
 }
 
+// Generate unique SPV name
+// Pattern: BRK + CITY(3) + DISTRICT(3) + PROPERTYID(padded)
+// Example: BRKABJGUZ00033 for Abuja, Guzape, property ID 33
+async function generateSpvName(city: string, district: string, propertyId: number): Promise<string> {
+  const cityCode = city.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, '');
+  const districtCode = district.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, '');
+  const propertyCode = propertyId.toString().padStart(5, '0');
+  return `BRK${cityCode}${districtCode}${propertyCode}`;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup email/password authentication
   setupAuth(app);
@@ -526,6 +536,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
       const amount = Math.round(units * unitPriceSnapshot);
 
+      // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
+      const investmentCurrency = property.currency || 'NGN';
+      
       // Create reservation
       const reservation = await storage.createInvestmentReservation({
         userId,
@@ -535,7 +548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone: user.phone || '',
         units: units.toString(),
         amount,
-        currency: property.currency || 'USD',
+        currency: investmentCurrency,
         unitPriceSnapshot,
         status: 'payment_pending',
         paymentMethod: paymentMethod || null,
@@ -544,6 +557,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdByAdminId: (req.user as any).userId,
         notes: notes || null,
       });
+      
+      console.log(`[INVESTMENT] Created reservation ${reservation.id} with currency ${investmentCurrency} for property ${property.name}`);
 
       // Update property reserved units
       await storage.updatePropertyUnitCounts(propertyId, units, 0);
@@ -555,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyName: property.name,
           units,
           amount,
-          currency: property.currency || 'USD',
+          currency: investmentCurrency,
         });
         await sendEmail({
           to: user.email,
@@ -699,6 +714,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ownerName: reservation.fullName,
             propertyName: property.name,
             propertyLocation: property.location,
+            spvName: property.spvName || null,
             units: reservation.units.toString(),
             amount: reservation.amount.toString(),
             currency: reservation.currency,
@@ -1151,7 +1167,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Create property first to get ID
       const property = await storage.createProperty(result.data);
+      
+      // Auto-generate SPV name if city and district are provided
+      if (result.data.city && result.data.district && !result.data.spvName) {
+        const spvName = await generateSpvName(result.data.city, result.data.district, property.id);
+        await storage.updateProperty(property.id, { spvName });
+        property.spvName = spvName;
+        console.log(`[SPV] Auto-generated SPV name: ${spvName} for property ${property.id}`);
+      }
+      
       res.status(201).json(property);
     } catch (error) {
       console.error("Error creating property:", error);
@@ -1218,7 +1244,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const reservation = await storage.createInvestmentReservation(reservationData);
+      // Enforce currency consistency - always use property's currency, default to NGN
+      const investmentCurrency = property.currency || 'NGN';
+      const sanitizedReservationData = {
+        ...reservationData,
+        currency: investmentCurrency, // Override any user-provided currency with property's currency
+      };
+      
+      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name}`);
+
+      const reservation = await storage.createInvestmentReservation(sanitizedReservationData);
       
       // Update property available slots
       await storage.updatePropertySlots(reservationData.propertyId, units);
@@ -1279,7 +1314,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reservations/all", async (req, res) => {
     try {
       const reservations = await storage.getAllReservations();
-      res.json(reservations);
+      
+      // Enrich reservations with certificate data
+      const enrichedReservations = await Promise.all(
+        reservations.map(async (reservation: any) => {
+          const certificate = await storage.getCertificateByReservationId(reservation.id);
+          return {
+            ...reservation,
+            certificateNumber: certificate?.certificateNumber || null,
+            certificateId: certificate?.id || null,
+          };
+        })
+      );
+      
+      res.json(enrichedReservations);
     } catch (error) {
       console.error("Error fetching all reservations:", error);
       res.status(500).json({ message: "Failed to fetch reservations" });

@@ -85,7 +85,7 @@ export const properties = pgTable("properties", {
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
-  currency: text("currency").notNull().default("USD"), // Currency for property values
+  currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
   
   // Unit-based investment tracking
   totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
@@ -93,6 +93,11 @@ export const properties = pgTable("properties", {
   soldUnits: integer("sold_units").notNull().default(0), // Units confirmed and sold
   unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
+  
+  // SPV (Special Purpose Vehicle) identification
+  spvName: text("spv_name"), // e.g., BRKABJGUZ011025 - auto-generated unique SPV identifier
+  city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
+  district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -106,7 +111,7 @@ export const investmentReservations = pgTable("investment_reservations", {
   phone: text("phone").notNull(),
   units: decimal("units", { precision: 15, scale: 2 }).notNull(), // Number of units being purchased
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(), // Total amount (units * unitPriceSnapshot)
-  currency: text("currency").notNull().default("USD"), // Currency for the investment
+  currency: text("currency").notNull().default("NGN"), // Currency for the investment (NGN = Nigerian Naira - platform default)
   unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
   referralCode: text("referral_code"),
   status: text("status").notNull().default("payment_pending"), // 'payment_pending', 'payment_received', 'confirmed', 'cancelled'
@@ -224,6 +229,7 @@ export const ownershipCertificates = pgTable("ownership_certificates", {
   ownerName: text("owner_name").notNull(),
   propertyName: text("property_name").notNull(),
   propertyLocation: text("property_location").notNull(),
+  spvName: text("spv_name"), // SPV identifier from property (e.g., BRKABJGUZ011025)
   units: decimal("units", { precision: 15, scale: 2 }).notNull(),
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("NGN"),

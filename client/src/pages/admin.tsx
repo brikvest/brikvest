@@ -756,111 +756,137 @@ function AdminInvestmentsTab({
 
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Units</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredReservations.map((reservation) => (
-                    <TableRow key={reservation.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{reservation.fullName}</div>
-                          <div className="text-sm text-slate-500">{reservation.email}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {properties.find(p => p.id === reservation.propertyId)?.name || `Property #${reservation.propertyId}`}
-                      </TableCell>
-                      <TableCell>{reservation.units}</TableCell>
-                      <TableCell>
-                        {getCurrencySymbol(reservation.currency)}{reservation.amount.toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getStatusBadgeColor(reservation.status)}>
-                          {reservation.status.replace('_', ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              data-testid={`button-actions-${reservation.id}`}
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => handleOpenEditReservation(reservation)}
-                              data-testid={`menu-view-${reservation.id}`}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
-                              <>
-                                <DropdownMenuSeparator />
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Owner</TableHead>
+                      <TableHead>Units</TableHead>
+                      <TableHead>% Ownership</TableHead>
+                      <TableHead>Cost Base</TableHead>
+                      <TableHead>Entry Date</TableHead>
+                      <TableHead>Certificate ID</TableHead>
+                      <TableHead>SPV</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredReservations.map((reservation) => {
+                      const property = properties.find(p => p.id === reservation.propertyId);
+                      const totalUnits = property?.totalUnits || property?.totalSlots || 100;
+                      const ownershipPercent = totalUnits > 0 ? ((reservation.units / totalUnits) * 100).toFixed(2) : '0.00';
+                      
+                      return (
+                        <TableRow key={reservation.id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{reservation.fullName}</div>
+                              <div className="text-sm text-slate-500">{reservation.email}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{reservation.units}</TableCell>
+                          <TableCell>{ownershipPercent}%</TableCell>
+                          <TableCell>
+                            {getCurrencySymbol(reservation.currency)}{Number(reservation.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(reservation.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            {reservation.certificateNumber ? (
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {reservation.certificateNumber}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {property?.spvName ? (
+                              <span className="font-mono text-sm text-blue-700">{property.spvName}</span>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  data-testid={`button-actions-${reservation.id}`}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
                                 <DropdownMenuItem
                                   onClick={() => handleOpenEditReservation(reservation)}
-                                  data-testid={`menu-edit-${reservation.id}`}
+                                  data-testid={`menu-view-${reservation.id}`}
                                 >
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Edit Details
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View Details
                                 </DropdownMenuItem>
-                              </>
-                            )}
-                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
-                              <DropdownMenuItem
-                                onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
-                                disabled={markPaymentReceivedMutation.isPending}
-                                data-testid={`menu-mark-payment-${reservation.id}`}
-                              >
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Mark as Paid
-                              </DropdownMenuItem>
-                            )}
-                            {reservation.status === "payment_received" && (
-                              <DropdownMenuItem
-                                onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
-                                disabled={confirmInvestmentMutation.isPending}
-                                data-testid={`menu-confirm-${reservation.id}`}
-                              >
-                                <ShieldCheck className="h-4 w-4 mr-2" />
-                                Confirm Investment
-                              </DropdownMenuItem>
-                            )}
-                            {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
-                                  disabled={cancelInvestmentMutation.isPending}
-                                  className="text-red-600 focus:text-red-600"
-                                  data-testid={`menu-cancel-${reservation.id}`}
-                                >
-                                  <XCircle className="h-4 w-4 mr-2" />
-                                  Cancel Investment
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleOpenEditReservation(reservation)}
+                                      data-testid={`menu-edit-${reservation.id}`}
+                                    >
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit Details
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
+                                  <DropdownMenuItem
+                                    onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
+                                    disabled={markPaymentReceivedMutation.isPending}
+                                    data-testid={`menu-mark-payment-${reservation.id}`}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    Mark as Paid
+                                  </DropdownMenuItem>
+                                )}
+                                {reservation.status === "payment_received" && (
+                                  <DropdownMenuItem
+                                    onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
+                                    disabled={confirmInvestmentMutation.isPending}
+                                    data-testid={`menu-confirm-${reservation.id}`}
+                                  >
+                                    <ShieldCheck className="h-4 w-4 mr-2" />
+                                    Confirm Investment
+                                  </DropdownMenuItem>
+                                )}
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
+                                      disabled={cancelInvestmentMutation.isPending}
+                                      className="text-red-600 focus:text-red-600"
+                                      data-testid={`menu-cancel-${reservation.id}`}
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Cancel Investment
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </div>
