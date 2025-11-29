@@ -536,6 +536,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
       const amount = Math.round(units * unitPriceSnapshot);
 
+      // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
+      const investmentCurrency = property.currency || 'NGN';
+      
       // Create reservation
       const reservation = await storage.createInvestmentReservation({
         userId,
@@ -545,7 +548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone: user.phone || '',
         units: units.toString(),
         amount,
-        currency: property.currency || 'USD',
+        currency: investmentCurrency,
         unitPriceSnapshot,
         status: 'payment_pending',
         paymentMethod: paymentMethod || null,
@@ -554,6 +557,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdByAdminId: (req.user as any).userId,
         notes: notes || null,
       });
+      
+      console.log(`[INVESTMENT] Created reservation ${reservation.id} with currency ${investmentCurrency} for property ${property.name}`);
 
       // Update property reserved units
       await storage.updatePropertyUnitCounts(propertyId, units, 0);
@@ -565,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyName: property.name,
           units,
           amount,
-          currency: property.currency || 'USD',
+          currency: investmentCurrency,
         });
         await sendEmail({
           to: user.email,
@@ -1239,7 +1244,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const reservation = await storage.createInvestmentReservation(reservationData);
+      // Enforce currency consistency - always use property's currency, default to NGN
+      const investmentCurrency = property.currency || 'NGN';
+      const sanitizedReservationData = {
+        ...reservationData,
+        currency: investmentCurrency, // Override any user-provided currency with property's currency
+      };
+      
+      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name}`);
+
+      const reservation = await storage.createInvestmentReservation(sanitizedReservationData);
       
       // Update property available slots
       await storage.updatePropertySlots(reservationData.propertyId, units);

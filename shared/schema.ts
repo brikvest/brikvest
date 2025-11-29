@@ -85,7 +85,7 @@ export const properties = pgTable("properties", {
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
-  currency: text("currency").notNull().default("USD"), // Currency for property values
+  currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
   
   // Unit-based investment tracking
   totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
@@ -111,7 +111,7 @@ export const investmentReservations = pgTable("investment_reservations", {
   phone: text("phone").notNull(),
   units: decimal("units", { precision: 15, scale: 2 }).notNull(), // Number of units being purchased
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(), // Total amount (units * unitPriceSnapshot)
-  currency: text("currency").notNull().default("USD"), // Currency for the investment
+  currency: text("currency").notNull().default("NGN"), // Currency for the investment (NGN = Nigerian Naira - platform default)
   unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
   referralCode: text("referral_code"),
   status: text("status").notNull().default("payment_pending"), // 'payment_pending', 'payment_received', 'confirmed', 'cancelled'
