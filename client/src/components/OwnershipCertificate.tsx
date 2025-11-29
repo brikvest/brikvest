@@ -1,6 +1,6 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { format } from 'date-fns';
-import { Shield, Award, CheckCircle2 } from 'lucide-react';
+import { Award, CheckCircle2 } from 'lucide-react';
 
 interface CertificateData {
   certificateNumber: string;
@@ -71,11 +71,9 @@ export function OwnershipCertificate({ certificate, className = '' }: OwnershipC
         {/* Header */}
         <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <Shield className="w-10 h-10 text-amber-600" />
             <h1 className="text-3xl font-bold tracking-wider text-slate-800" style={{ letterSpacing: '0.15em' }}>
               BRIKVEST
             </h1>
-            <Shield className="w-10 h-10 text-amber-600" />
           </div>
           <p className="text-sm text-slate-500 tracking-widest uppercase">
             Real Estate Investment Platform
