@@ -20,8 +20,8 @@ interface OwnershipCertificateProps {
 }
 
 export function OwnershipCertificate({ certificate, className = '' }: OwnershipCertificateProps) {
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.brikvest.net';
-  const verificationUrl = `${baseUrl}/verify/${certificate.verificationToken}`;
+  // Always use production URL for QR code verification so certificates work when scanned
+  const verificationUrl = `https://www.brikvest.net/verify/${certificate.verificationToken}`;
   
   const getCurrencySymbol = (currency: string) => {
     switch (currency) {
