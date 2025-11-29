@@ -10,6 +10,7 @@ import ResetPassword from "@/pages/reset-password";
 import Dashboard from "@/pages/dashboard";
 import AdminProtected from "@/pages/admin-protected";
 import Insights from "@/pages/insights";
+import CertificateVerification from "@/pages/verify";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/admin" component={AdminProtected} />
       <Route path="/insights" component={Insights} />
+      <Route path="/verify/:token" component={CertificateVerification} />
       <Route component={NotFound} />
     </Switch>
   );

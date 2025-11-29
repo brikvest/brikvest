@@ -77,7 +77,7 @@ export default function Portfolio() {
     property: { id: number; name: string; location: string; imageUrl: string } | null;
     verificationUrl: string;
   }>({
-    queryKey: ["/api/user/certificates", selectedReservationId],
+    queryKey: [`/api/user/certificates/${selectedReservationId}`],
     enabled: !!selectedReservationId && certificateModalOpen,
   });
 
