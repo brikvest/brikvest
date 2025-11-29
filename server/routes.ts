@@ -2501,6 +2501,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // CERTIFICATE VERIFICATION ROUTES
+  // ============================================
+  
+  // Public: Verify certificate by token (for QR code scanning)
+  app.get('/api/verify/certificate/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      
+      const certificate = await storage.getCertificateByVerificationToken(token);
+      if (!certificate) {
+        return res.status(404).json({ 
+          verified: false,
+          error: "Certificate not found or invalid" 
+        });
+      }
+
+      // Get reservation for additional details
+      const reservation = await storage.getReservation(certificate.reservationId);
+      
+      res.json({
+        verified: true,
+        certificate: {
+          certificateNumber: certificate.certificateNumber,
+          ownerName: certificate.ownerName,
+          propertyName: certificate.propertyName,
+          propertyLocation: certificate.propertyLocation,
+          units: certificate.units,
+          amount: certificate.amount,
+          currency: certificate.currency,
+          issuedAt: certificate.issuedAt,
+          investmentStatus: reservation?.status || 'confirmed'
+        }
+      });
+    } catch (error) {
+      console.error("Error verifying certificate:", error);
+      res.status(500).json({ verified: false, error: "Verification failed" });
+    }
+  });
+
+  // Public: Verify certificate by certificate number (for manual lookup)
+  app.get('/api/verify/certificate-number/:certNumber', async (req, res) => {
+    try {
+      const { certNumber } = req.params;
+      
+      const certificate = await storage.getCertificateByCertificateNumber(certNumber);
+      if (!certificate) {
+        return res.status(404).json({ 
+          verified: false,
+          error: "Certificate not found" 
+        });
+      }
+
+      // Get reservation for additional details
+      const reservation = await storage.getReservation(certificate.reservationId);
+      
+      res.json({
+        verified: true,
+        certificate: {
+          certificateNumber: certificate.certificateNumber,
+          ownerName: certificate.ownerName,
+          propertyName: certificate.propertyName,
+          propertyLocation: certificate.propertyLocation,
+          units: certificate.units,
+          amount: certificate.amount,
+          currency: certificate.currency,
+          issuedAt: certificate.issuedAt,
+          investmentStatus: reservation?.status || 'confirmed'
+        }
+      });
+    } catch (error) {
+      console.error("Error verifying certificate by number:", error);
+      res.status(500).json({ verified: false, error: "Verification failed" });
+    }
+  });
+
+  // User: Get certificates for logged-in user
+  app.get('/api/user/certificates', async (req, res) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const user = req.user as any;
+      const certificates = await storage.getCertificatesByUserId(user.id);
+      
+      res.json({ certificates });
+    } catch (error) {
+      console.error("Error fetching user certificates:", error);
+      res.status(500).json({ error: "Failed to fetch certificates" });
+    }
+  });
+
+  // User: Get specific certificate with full details
+  app.get('/api/user/certificates/:reservationId', async (req, res) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const user = req.user as any;
+      const reservationId = parseInt(req.params.reservationId);
+      
+      // Verify the reservation belongs to the user
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.userId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const certificate = await storage.getCertificateByReservationId(reservationId);
+      if (!certificate) {
+        return res.status(404).json({ error: "Certificate not found" });
+      }
+
+      // Get property for additional info
+      const property = await storage.getProperty(reservation.propertyId);
+      
+      res.json({
+        certificate,
+        property: property ? {
+          id: property.id,
+          name: property.name,
+          location: property.location,
+          imageUrl: property.imageUrl
+        } : null,
+        verificationUrl: `${req.protocol}://${req.get('host')}/verify/${certificate.verificationToken}`
+      });
+    } catch (error) {
+      console.error("Error fetching certificate:", error);
+      res.status(500).json({ error: "Failed to fetch certificate" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
