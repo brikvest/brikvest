@@ -65,15 +65,30 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   };
 
   const convertAmount = (amount: number, fromCurrency: string = 'NGN'): number => {
-    if (!ratesData || !ratesData.rates || fromCurrency === userCurrency) {
+    // Normalize currency codes to uppercase
+    const normalizedFrom = (fromCurrency || 'NGN').toUpperCase().trim();
+    const normalizedTo = userCurrency.toUpperCase().trim();
+    
+    // No conversion needed if same currency or rates not loaded
+    if (!ratesData || !ratesData.rates || normalizedFrom === normalizedTo) {
+      return amount;
+    }
+
+    // Ensure we have valid rates for both currencies
+    if (normalizedFrom !== 'USD' && !ratesData.rates[normalizedFrom]) {
+      console.warn(`Missing exchange rate for ${normalizedFrom}, returning original amount`);
+      return amount;
+    }
+    if (normalizedTo !== 'USD' && !ratesData.rates[normalizedTo]) {
+      console.warn(`Missing exchange rate for ${normalizedTo}, returning original amount`);
       return amount;
     }
 
     // Convert from source currency to USD first (USD is the base in exchange rates)
-    const usdAmount = fromCurrency === 'USD' ? amount : amount / ratesData.rates[fromCurrency];
+    const usdAmount = normalizedFrom === 'USD' ? amount : amount / ratesData.rates[normalizedFrom];
     
     // Convert from USD to target currency
-    const convertedAmount = userCurrency === 'USD' ? usdAmount : usdAmount * ratesData.rates[userCurrency];
+    const convertedAmount = normalizedTo === 'USD' ? usdAmount : usdAmount * ratesData.rates[normalizedTo];
     
     return convertedAmount;
   };

@@ -1,6 +1,6 @@
 import { QRCodeSVG } from 'qrcode.react';
 import { format } from 'date-fns';
-import { Shield, Award, CheckCircle2 } from 'lucide-react';
+import { Award, CheckCircle2 } from 'lucide-react';
 
 interface CertificateData {
   certificateNumber: string;
@@ -20,8 +20,8 @@ interface OwnershipCertificateProps {
 }
 
 export function OwnershipCertificate({ certificate, className = '' }: OwnershipCertificateProps) {
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.brikvest.net';
-  const verificationUrl = `${baseUrl}/verify/${certificate.verificationToken}`;
+  // Always use production URL for QR code verification so certificates work when scanned
+  const verificationUrl = `https://www.brikvest.net/verify/${certificate.verificationToken}`;
   
   const getCurrencySymbol = (currency: string) => {
     switch (currency) {
@@ -53,14 +53,14 @@ export function OwnershipCertificate({ certificate, className = '' }: OwnershipC
       }}
     >
       {/* Decorative Border */}
-      <div className="absolute inset-0 border-[12px] border-double border-amber-600/30 m-3 pointer-events-none" />
-      <div className="absolute inset-0 border-[3px] border-amber-700/50 m-6 pointer-events-none" />
+      <div className="absolute inset-0 border-[12px] border-double border-blue-600/30 m-3 pointer-events-none" />
+      <div className="absolute inset-0 border-[3px] border-blue-700/50 m-6 pointer-events-none" />
       
       {/* Corner Decorations */}
-      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-amber-600/40" />
-      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-amber-600/40" />
-      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-amber-600/40" />
-      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-amber-600/40" />
+      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-blue-600/40" />
+      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-blue-600/40" />
+      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-blue-600/40" />
+      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-blue-600/40" />
       
       {/* Watermark */}
       <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none">
@@ -71,11 +71,9 @@ export function OwnershipCertificate({ certificate, className = '' }: OwnershipC
         {/* Header */}
         <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <Shield className="w-10 h-10 text-amber-600" />
             <h1 className="text-3xl font-bold tracking-wider text-slate-800" style={{ letterSpacing: '0.15em' }}>
               BRIKVEST
             </h1>
-            <Shield className="w-10 h-10 text-amber-600" />
           </div>
           <p className="text-sm text-slate-500 tracking-widest uppercase">
             Real Estate Investment Platform
