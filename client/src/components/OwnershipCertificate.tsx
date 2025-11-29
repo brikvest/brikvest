@@ -53,14 +53,14 @@ export function OwnershipCertificate({ certificate, className = '' }: OwnershipC
       }}
     >
       {/* Decorative Border */}
-      <div className="absolute inset-0 border-[12px] border-double border-amber-600/30 m-3 pointer-events-none" />
-      <div className="absolute inset-0 border-[3px] border-amber-700/50 m-6 pointer-events-none" />
+      <div className="absolute inset-0 border-[12px] border-double border-blue-600/30 m-3 pointer-events-none" />
+      <div className="absolute inset-0 border-[3px] border-blue-700/50 m-6 pointer-events-none" />
       
       {/* Corner Decorations */}
-      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-amber-600/40" />
-      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-amber-600/40" />
-      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-amber-600/40" />
-      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-amber-600/40" />
+      <div className="absolute top-8 left-8 w-16 h-16 border-l-4 border-t-4 border-blue-600/40" />
+      <div className="absolute top-8 right-8 w-16 h-16 border-r-4 border-t-4 border-blue-600/40" />
+      <div className="absolute bottom-8 left-8 w-16 h-16 border-l-4 border-b-4 border-blue-600/40" />
+      <div className="absolute bottom-8 right-8 w-16 h-16 border-r-4 border-b-4 border-blue-600/40" />
       
       {/* Watermark */}
       <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none">
