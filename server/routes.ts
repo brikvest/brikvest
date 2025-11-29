@@ -815,6 +815,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate certificates for all confirmed investments without certificates
+  app.post('/api/admin/investments/generate-missing-certificates', requireAdminAuth, async (req, res) => {
+    try {
+      // Get all confirmed reservations
+      const allReservations = await storage.getAllReservations();
+      const confirmedReservations = allReservations.filter(r => r.status === 'confirmed');
+      
+      let generated = 0;
+      let errors = 0;
+      const results: Array<{ reservationId: number; certificateNumber?: string; error?: string }> = [];
+      
+      for (const reservation of confirmedReservations) {
+        // Check if certificate already exists
+        const existingCert = await storage.getCertificateByReservationId(reservation.id);
+        if (existingCert) {
+          continue; // Skip if already has certificate
+        }
+        
+        const property = await storage.getProperty(reservation.propertyId);
+        if (!property) {
+          results.push({ reservationId: reservation.id, error: 'Property not found' });
+          errors++;
+          continue;
+        }
+        
+        try {
+          const verificationToken = randomBytes(32).toString('hex');
+          const certificateNumber = await storage.getNextCertificateNumber();
+          
+          const certificate = await storage.createOwnershipCertificate({
+            reservationId: reservation.id,
+            certificateNumber,
+            verificationToken,
+            ownerName: reservation.fullName,
+            propertyName: property.name,
+            propertyLocation: property.location,
+            units: reservation.units.toString(),
+            amount: reservation.amount.toString(),
+            currency: reservation.currency,
+            issuedByAdminId: (req.user as any).userId,
+          });
+          
+          console.log(`[CERTIFICATE] Generated missing certificate ${certificateNumber} for reservation ${reservation.id}`);
+          results.push({ reservationId: reservation.id, certificateNumber: certificate.certificateNumber });
+          generated++;
+        } catch (certError) {
+          console.error(`Error generating certificate for reservation ${reservation.id}:`, certError);
+          results.push({ reservationId: reservation.id, error: String(certError) });
+          errors++;
+        }
+      }
+      
+      res.json({
+        message: `Generated ${generated} certificates, ${errors} errors`,
+        generated,
+        errors,
+        results
+      });
+    } catch (error) {
+      console.error("Error generating missing certificates:", error);
+      res.status(500).json({ error: "Failed to generate certificates" });
+    }
+  });
+
   // Cancel investment reservation
   app.put('/api/admin/investments/:id/cancel', requireAdminAuth, async (req, res) => {
     try {
