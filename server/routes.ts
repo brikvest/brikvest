@@ -1279,7 +1279,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reservations/all", async (req, res) => {
     try {
       const reservations = await storage.getAllReservations();
-      res.json(reservations);
+      
+      // Enrich reservations with certificate data
+      const enrichedReservations = await Promise.all(
+        reservations.map(async (reservation: any) => {
+          const certificate = await storage.getCertificateByReservationId(reservation.id);
+          return {
+            ...reservation,
+            certificateNumber: certificate?.certificateNumber || null,
+            certificateId: certificate?.id || null,
+          };
+        })
+      );
+      
+      res.json(enrichedReservations);
     } catch (error) {
       console.error("Error fetching all reservations:", error);
       res.status(500).json({ message: "Failed to fetch reservations" });
