@@ -577,28 +577,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/admin/investments/:id/mark-payment-received', requireAdminAuth, async (req, res) => {
     try {
       const reservationId = parseInt(req.params.id);
-      const { paymentMethod, paymentReference, paymentEvidenceUrl, amount } = req.body;
+      const { paymentMethod, paymentEvidenceUrl, amount } = req.body;
 
       const reservation = await storage.getReservation(reservationId);
       if (!reservation) {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
-      // Update reservation status
+      // Generate unique payment reference: BRK-YYYYMMDD-XXXXX
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const generatedPaymentReference = `BRK-${dateStr}-${randomPart}`;
+
+      // Update reservation status with generated payment reference
       await storage.updateReservation(reservationId, {
         status: 'payment_received',
         paymentMethod: paymentMethod || reservation.paymentMethod,
-        paymentReference: paymentReference || reservation.paymentReference,
+        paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
       });
 
-      // Create payment record
+      // Create payment record - ensure amount is a proper number for bigint column
+      const paymentAmount = amount 
+        ? (typeof amount === 'string' ? Math.round(parseFloat(amount)) : Math.round(amount))
+        : (typeof reservation.amount === 'string' ? Math.round(parseFloat(reservation.amount)) : Math.round(reservation.amount));
+      
       await storage.createInvestmentPayment({
         reservationId,
-        amount: amount || reservation.amount,
+        amount: paymentAmount,
         currency: reservation.currency,
         paymentMethod: paymentMethod || reservation.paymentMethod || 'bank_transfer',
-        paymentReference: paymentReference || reservation.paymentReference,
+        paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
         recordedByAdminId: (req.user as any).userId,
         status: 'received',
@@ -607,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get property for email
       const property = await storage.getProperty(reservation.propertyId);
       
-      // Send email to user
+      // Send email to user with generated payment reference
       if (property) {
         try {
           const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
@@ -615,9 +625,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             fullName: reservation.fullName,
             propertyName: property.name,
             units,
-            amount: amount || reservation.amount,
+            amount: paymentAmount,
             currency: reservation.currency,
-            paymentReference: paymentReference || reservation.paymentReference || undefined,
+            paymentReference: generatedPaymentReference,
           });
           await sendEmail({
             to: reservation.email,
@@ -629,7 +639,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ message: "Payment marked as received" });
+      res.json({ 
+        message: "Payment marked as received", 
+        paymentReference: generatedPaymentReference 
+      });
     } catch (error) {
       console.error("Error marking payment as received:", error);
       res.status(500).json({ error: "Failed to mark payment as received" });
@@ -665,10 +678,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
       await storage.updatePropertyUnitCounts(reservation.propertyId, -units, units);
 
-      // Get property for email
+      // Get property for email and certificate
       const property = await storage.getProperty(reservation.propertyId);
       
-      // Send email to user
+      // Generate ownership certificate
+      let certificate = null;
+      if (property) {
+        try {
+          // Generate unique verification token
+          const verificationToken = randomBytes(32).toString('hex');
+          
+          // Get next certificate number
+          const certificateNumber = await storage.getNextCertificateNumber();
+          
+          // Create the certificate
+          certificate = await storage.createOwnershipCertificate({
+            reservationId,
+            certificateNumber,
+            verificationToken,
+            ownerName: reservation.fullName,
+            propertyName: property.name,
+            propertyLocation: property.location,
+            units: reservation.units.toString(),
+            amount: reservation.amount.toString(),
+            currency: reservation.currency,
+            issuedByAdminId: (req.user as any).userId,
+          });
+          
+          console.log(`[CERTIFICATE] Generated certificate ${certificateNumber} for reservation ${reservationId}`);
+        } catch (certError) {
+          console.error("Error generating certificate:", certError);
+          // Don't fail the whole confirmation if certificate fails
+        }
+      }
+      
+      // Send email to user with certificate info
       if (property) {
         try {
           const emailContent = investmentConfirmedEmailTemplate({
@@ -677,6 +721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             units,
             amount: reservation.amount,
             currency: reservation.currency,
+            certificateNumber: certificate?.certificateNumber,
           });
           await sendEmail({
             to: reservation.email,
@@ -688,7 +733,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ message: "Investment confirmed successfully" });
+      res.json({ 
+        message: "Investment confirmed successfully",
+        certificateNumber: certificate?.certificateNumber 
+      });
     } catch (error) {
       console.error("Error confirming investment:", error);
       res.status(500).json({ error: "Failed to confirm investment" });
@@ -764,6 +812,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating investment:", error);
       res.status(500).json({ error: "Failed to update investment" });
+    }
+  });
+
+  // Generate certificates for all confirmed investments without certificates
+  app.post('/api/admin/investments/generate-missing-certificates', requireAdminAuth, async (req, res) => {
+    try {
+      // Get all confirmed reservations
+      const allReservations = await storage.getAllReservations();
+      const confirmedReservations = allReservations.filter(r => r.status === 'confirmed');
+      
+      let generated = 0;
+      let errors = 0;
+      const results: Array<{ reservationId: number; certificateNumber?: string; error?: string }> = [];
+      
+      for (const reservation of confirmedReservations) {
+        // Check if certificate already exists
+        const existingCert = await storage.getCertificateByReservationId(reservation.id);
+        if (existingCert) {
+          continue; // Skip if already has certificate
+        }
+        
+        const property = await storage.getProperty(reservation.propertyId);
+        if (!property) {
+          results.push({ reservationId: reservation.id, error: 'Property not found' });
+          errors++;
+          continue;
+        }
+        
+        try {
+          const verificationToken = randomBytes(32).toString('hex');
+          const certificateNumber = await storage.getNextCertificateNumber();
+          
+          const certificate = await storage.createOwnershipCertificate({
+            reservationId: reservation.id,
+            certificateNumber,
+            verificationToken,
+            ownerName: reservation.fullName,
+            propertyName: property.name,
+            propertyLocation: property.location,
+            units: reservation.units.toString(),
+            amount: reservation.amount.toString(),
+            currency: reservation.currency,
+            issuedByAdminId: (req.user as any).userId,
+          });
+          
+          console.log(`[CERTIFICATE] Generated missing certificate ${certificateNumber} for reservation ${reservation.id}`);
+          results.push({ reservationId: reservation.id, certificateNumber: certificate.certificateNumber });
+          generated++;
+        } catch (certError) {
+          console.error(`Error generating certificate for reservation ${reservation.id}:`, certError);
+          results.push({ reservationId: reservation.id, error: String(certError) });
+          errors++;
+        }
+      }
+      
+      res.json({
+        message: `Generated ${generated} certificates, ${errors} errors`,
+        generated,
+        errors,
+        results
+      });
+    } catch (error) {
+      console.error("Error generating missing certificates:", error);
+      res.status(500).json({ error: "Failed to generate certificates" });
     }
   });
 
@@ -2450,6 +2562,139 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: errorMessage,
         hint: 'Check server logs for details.' 
       });
+    }
+  });
+
+  // ============================================
+  // CERTIFICATE VERIFICATION ROUTES
+  // ============================================
+  
+  // Public: Verify certificate by token (for QR code scanning)
+  app.get('/api/verify/certificate/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      
+      const certificate = await storage.getCertificateByVerificationToken(token);
+      if (!certificate) {
+        return res.status(404).json({ 
+          verified: false,
+          error: "Certificate not found or invalid" 
+        });
+      }
+
+      // Get reservation for additional details
+      const reservation = await storage.getReservation(certificate.reservationId);
+      
+      res.json({
+        verified: true,
+        certificate: {
+          certificateNumber: certificate.certificateNumber,
+          ownerName: certificate.ownerName,
+          propertyName: certificate.propertyName,
+          propertyLocation: certificate.propertyLocation,
+          units: certificate.units,
+          amount: certificate.amount,
+          currency: certificate.currency,
+          issuedAt: certificate.issuedAt,
+          investmentStatus: reservation?.status || 'confirmed'
+        }
+      });
+    } catch (error) {
+      console.error("Error verifying certificate:", error);
+      res.status(500).json({ verified: false, error: "Verification failed" });
+    }
+  });
+
+  // Public: Verify certificate by certificate number (for manual lookup)
+  app.get('/api/verify/certificate-number/:certNumber', async (req, res) => {
+    try {
+      const { certNumber } = req.params;
+      
+      const certificate = await storage.getCertificateByCertificateNumber(certNumber);
+      if (!certificate) {
+        return res.status(404).json({ 
+          verified: false,
+          error: "Certificate not found" 
+        });
+      }
+
+      // Get reservation for additional details
+      const reservation = await storage.getReservation(certificate.reservationId);
+      
+      res.json({
+        verified: true,
+        certificate: {
+          certificateNumber: certificate.certificateNumber,
+          ownerName: certificate.ownerName,
+          propertyName: certificate.propertyName,
+          propertyLocation: certificate.propertyLocation,
+          units: certificate.units,
+          amount: certificate.amount,
+          currency: certificate.currency,
+          issuedAt: certificate.issuedAt,
+          investmentStatus: reservation?.status || 'confirmed'
+        }
+      });
+    } catch (error) {
+      console.error("Error verifying certificate by number:", error);
+      res.status(500).json({ verified: false, error: "Verification failed" });
+    }
+  });
+
+  // User: Get certificates for logged-in user
+  app.get('/api/user/certificates', async (req, res) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const user = req.user as any;
+      const certificates = await storage.getCertificatesByUserId(user.id);
+      
+      res.json({ certificates });
+    } catch (error) {
+      console.error("Error fetching user certificates:", error);
+      res.status(500).json({ error: "Failed to fetch certificates" });
+    }
+  });
+
+  // User: Get specific certificate with full details
+  app.get('/api/user/certificates/:reservationId', async (req, res) => {
+    try {
+      if (!req.isAuthenticated || !req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const user = req.user as any;
+      const reservationId = parseInt(req.params.reservationId);
+      
+      // Verify the reservation belongs to the user
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.userId !== user.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const certificate = await storage.getCertificateByReservationId(reservationId);
+      if (!certificate) {
+        return res.status(404).json({ error: "Certificate not found" });
+      }
+
+      // Get property for additional info
+      const property = await storage.getProperty(reservation.propertyId);
+      
+      res.json({
+        certificate,
+        property: property ? {
+          id: property.id,
+          name: property.name,
+          location: property.location,
+          imageUrl: property.imageUrl
+        } : null,
+        verificationUrl: `${req.protocol}://${req.get('host')}/verify/${certificate.verificationToken}`
+      });
+    } catch (error) {
+      console.error("Error fetching certificate:", error);
+      res.status(500).json({ error: "Failed to fetch certificate" });
     }
   });
 

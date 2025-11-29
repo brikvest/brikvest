@@ -18,7 +18,17 @@ The application employs a modern full-stack architecture with a clear separation
 -   **UI/UX Decisions**: The platform adopts a modern, responsive design using Tailwind CSS and shadcn/ui. Key UI/UX elements include a Stripe-inspired user dashboard, gradient designs for public insights pages, mobile-first responsiveness with slide-in sidebars, and optimized layouts. Sensitive dashboard statistics are blurred until KYC verification is completed.
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights for multiple Abuja locations (Guzape, Jahi, Lugbe) derived from web scraping PropertyPro.ng with data visualization, a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
-## Recent Updates (November 20, 2025)
+## Recent Updates (November 29, 2025)
+-   **Ownership Certificate System**: Implemented comprehensive ownership certificate generation and verification for confirmed investments.
+    - **Certificate Generation**: Auto-generates CERT-YYYY-NNNN format certificates with UUID verification tokens when admin confirms investment
+    - **Dashboard Integration**: Investors can view and download certificates from the "My Property Holdings" section via "Certificate" button
+    - **Premium Certificate Design**: Professional financial document styling with Brikvest branding, QR code for verification, owner details, property information, and investment amount
+    - **Download Functionality**: Uses html2canvas to generate downloadable PNG images of certificates
+    - **Public Verification**: QR codes link to `/verify/:token` public page where anyone can verify certificate authenticity
+    - **Verification API**: Public endpoints at `/api/verify/certificate/:token` and `/api/verify/certificate-number/:certNumber`
+    - **Database Schema**: `ownership_certificates` table with unique certificate numbers, verification tokens, and investment details
+
+## Previous Updates (November 20, 2025)
 -   **Market Insights Multi-Location Support**: Successfully implemented support for **eight Abuja locations** (Guzape, Jahi, Lugbe, Asokoro, Lokogoma, Maitama, Apo, Gwarinpa) on the Market Insights page. Each location displays historical price trends, index growth charts, and market statistics from 2019-2025 with exact data extracted from PropertyPro.ng.
     - **Data Source**: PropertyPro.ng market insights pages (`https://propertypro.ng/index/sale/all/abuja/:location`)
     - **Technical Approach**:
