@@ -1,33 +1,9 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, XCircle, Home, Shield, Building2, Calendar, Hash, User, MapPin, FileText, ChevronDown, ChevronUp } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { CheckCircle, XCircle, Home, Shield, Building2, Calendar, Hash, User, MapPin } from "lucide-react";
 import brikvest_logo from "@/assets/brikvest-logo.png";
-
-interface LandDocumentation {
-  firstOwnerName: string | null;
-  fileNumber: string | null;
-  plotNumber: string | null;
-  landDistrict: string | null;
-  landUse: string | null;
-  plotSize: string | null;
-  cofoNumber: string | null;
-  cofoDate: string | null;
-  rofoNumber: string | null;
-  rofoDate: string | null;
-  registrationInfo: string | null;
-  rentPerAnnum: string | null;
-  outstandingRent: string | null;
-  encumbranceActionDate: string | null;
-  encumbranceNumber: string | null;
-  encumbrancePage: string | null;
-  encumbranceVolume: string | null;
-  encumbranceDetails: string | null;
-  otherComments: string | null;
-}
 
 interface VerificationData {
   verified: boolean;
@@ -41,13 +17,11 @@ interface VerificationData {
     currency: string;
     issuedAt: string;
   } | null;
-  landDocumentation: LandDocumentation | null;
 }
 
 export default function CertificateVerification() {
   const [, params] = useRoute("/verify/:token");
   const token = params?.token;
-  const [isLandDocsOpen, setIsLandDocsOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery<VerificationData>({
     queryKey: [`/api/verify/certificate/${token}`],
@@ -258,128 +232,6 @@ export default function CertificateVerification() {
                 {formattedAmount}
               </p>
             </div>
-
-            {/* Land Documentation Section - Collapsible */}
-            {data.landDocumentation && (
-              <Collapsible open={isLandDocsOpen} onOpenChange={setIsLandDocsOpen} className="border border-slate-200 rounded-lg">
-                <CollapsibleTrigger className="flex items-center justify-between w-full p-4 hover:bg-slate-50">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    <span className="font-semibold text-slate-900">Land Documentation (Audit Trail)</span>
-                  </div>
-                  {isLandDocsOpen ? (
-                    <ChevronUp className="w-5 h-5 text-slate-500" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-slate-500" />
-                  )}
-                </CollapsibleTrigger>
-                <CollapsibleContent className="p-4 pt-0 border-t border-slate-200">
-                  <div className="space-y-4 text-sm">
-                    {/* Title & Registration */}
-                    {(data.landDocumentation.firstOwnerName || data.landDocumentation.fileNumber || data.landDocumentation.plotNumber || data.landDocumentation.landDistrict) && (
-                      <div>
-                        <h4 className="font-semibold text-slate-700 mb-2">Title & Registration</h4>
-                        <div className="grid grid-cols-2 gap-2 text-slate-600">
-                          {data.landDocumentation.firstOwnerName && (
-                            <div><span className="text-slate-500">First Owner:</span> {data.landDocumentation.firstOwnerName}</div>
-                          )}
-                          {data.landDocumentation.fileNumber && (
-                            <div><span className="text-slate-500">File No:</span> {data.landDocumentation.fileNumber}</div>
-                          )}
-                          {data.landDocumentation.plotNumber && (
-                            <div><span className="text-slate-500">Plot No:</span> {data.landDocumentation.plotNumber}</div>
-                          )}
-                          {data.landDocumentation.landDistrict && (
-                            <div><span className="text-slate-500">District:</span> {data.landDocumentation.landDistrict}</div>
-                          )}
-                          {data.landDocumentation.landUse && (
-                            <div><span className="text-slate-500">Land Use:</span> {data.landDocumentation.landUse}</div>
-                          )}
-                          {data.landDocumentation.plotSize && (
-                            <div><span className="text-slate-500">Plot Size:</span> {data.landDocumentation.plotSize}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* C of O Details */}
-                    {(data.landDocumentation.cofoNumber || data.landDocumentation.rofoNumber) && (
-                      <div className="border-t border-slate-100 pt-3">
-                        <h4 className="font-semibold text-slate-700 mb-2">Certificate of Occupancy</h4>
-                        <div className="grid grid-cols-2 gap-2 text-slate-600">
-                          {data.landDocumentation.cofoNumber && (
-                            <div><span className="text-slate-500">C of O No:</span> {data.landDocumentation.cofoNumber}</div>
-                          )}
-                          {data.landDocumentation.cofoDate && (
-                            <div><span className="text-slate-500">C of O Date:</span> {new Date(data.landDocumentation.cofoDate).toLocaleDateString()}</div>
-                          )}
-                          {data.landDocumentation.rofoNumber && (
-                            <div><span className="text-slate-500">R of O No:</span> {data.landDocumentation.rofoNumber}</div>
-                          )}
-                          {data.landDocumentation.rofoDate && (
-                            <div><span className="text-slate-500">R of O Date:</span> {new Date(data.landDocumentation.rofoDate).toLocaleDateString()}</div>
-                          )}
-                        </div>
-                        {data.landDocumentation.registrationInfo && (
-                          <div className="mt-2 text-slate-600">
-                            <span className="text-slate-500">Registration Info:</span> {data.landDocumentation.registrationInfo}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Ground Rent */}
-                    {(data.landDocumentation.rentPerAnnum || data.landDocumentation.outstandingRent) && (
-                      <div className="border-t border-slate-100 pt-3">
-                        <h4 className="font-semibold text-slate-700 mb-2">Ground Rent</h4>
-                        <div className="grid grid-cols-2 gap-2 text-slate-600">
-                          {data.landDocumentation.rentPerAnnum && (
-                            <div><span className="text-slate-500">Rent Per Annum:</span> {data.landDocumentation.rentPerAnnum}</div>
-                          )}
-                          {data.landDocumentation.outstandingRent && (
-                            <div><span className="text-slate-500">Outstanding:</span> {data.landDocumentation.outstandingRent}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Encumbrances */}
-                    {(data.landDocumentation.encumbranceNumber || data.landDocumentation.encumbranceDetails) && (
-                      <div className="border-t border-slate-100 pt-3">
-                        <h4 className="font-semibold text-slate-700 mb-2">Encumbrances</h4>
-                        <div className="grid grid-cols-2 gap-2 text-slate-600">
-                          {data.landDocumentation.encumbranceNumber && (
-                            <div><span className="text-slate-500">Number:</span> {data.landDocumentation.encumbranceNumber}</div>
-                          )}
-                          {data.landDocumentation.encumbranceActionDate && (
-                            <div><span className="text-slate-500">Action Date:</span> {new Date(data.landDocumentation.encumbranceActionDate).toLocaleDateString()}</div>
-                          )}
-                          {data.landDocumentation.encumbrancePage && (
-                            <div><span className="text-slate-500">Page:</span> {data.landDocumentation.encumbrancePage}</div>
-                          )}
-                          {data.landDocumentation.encumbranceVolume && (
-                            <div><span className="text-slate-500">Volume:</span> {data.landDocumentation.encumbranceVolume}</div>
-                          )}
-                        </div>
-                        {data.landDocumentation.encumbranceDetails && (
-                          <div className="mt-2 text-slate-600">
-                            <span className="text-slate-500">Details:</span> {data.landDocumentation.encumbranceDetails}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Other Comments */}
-                    {data.landDocumentation.otherComments && (
-                      <div className="border-t border-slate-100 pt-3">
-                        <h4 className="font-semibold text-slate-700 mb-2">Additional Notes</h4>
-                        <p className="text-slate-600">{data.landDocumentation.otherComments}</p>
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
 
             {/* Trust Badge */}
             <div className="flex items-center justify-center gap-2 text-green-600 bg-green-50 rounded-lg p-3 border border-green-200">

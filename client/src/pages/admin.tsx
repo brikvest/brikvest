@@ -13,8 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, ChevronDown } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -1114,27 +1113,7 @@ export default function AdminDashboard() {
     videoUrl: "",
     gallery: [] as string[],
     status: "active",
-    currency: "NGN",
-    // Land Documentation fields
-    firstOwnerName: "",
-    fileNumber: "",
-    plotNumber: "",
-    landDistrict: "",
-    landUse: "",
-    plotSize: "",
-    cofoNumber: "",
-    cofoDate: "",
-    rofoNumber: "",
-    rofoDate: "",
-    registrationInfo: "",
-    rentPerAnnum: "",
-    outstandingRent: "",
-    encumbranceActionDate: "",
-    encumbranceNumber: "",
-    encumbrancePage: "",
-    encumbranceVolume: "",
-    encumbranceDetails: "",
-    otherComments: ""
+    currency: "NGN"
   });
 
   // Fetch properties
@@ -1369,27 +1348,7 @@ export default function AdminDashboard() {
       videoUrl: "",
       gallery: [] as string[],
       status: "active",
-      currency: "NGN",
-      // Land Documentation fields
-      firstOwnerName: "",
-      fileNumber: "",
-      plotNumber: "",
-      landDistrict: "",
-      landUse: "",
-      plotSize: "",
-      cofoNumber: "",
-      cofoDate: "",
-      rofoNumber: "",
-      rofoDate: "",
-      registrationInfo: "",
-      rentPerAnnum: "",
-      outstandingRent: "",
-      encumbranceActionDate: "",
-      encumbranceNumber: "",
-      encumbrancePage: "",
-      encumbranceVolume: "",
-      encumbranceDetails: "",
-      otherComments: ""
+      currency: "NGN"
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -1464,27 +1423,7 @@ export default function AdminDashboard() {
       videoUrl: "",
       gallery: [],
       status: "active",
-      currency: "NGN",
-      // Land Documentation fields
-      firstOwnerName: "",
-      fileNumber: "",
-      plotNumber: "",
-      landDistrict: "",
-      landUse: "",
-      plotSize: "",
-      cofoNumber: "",
-      cofoDate: "",
-      rofoNumber: "",
-      rofoDate: "",
-      registrationInfo: "",
-      rentPerAnnum: "",
-      outstandingRent: "",
-      encumbranceActionDate: "",
-      encumbranceNumber: "",
-      encumbrancePage: "",
-      encumbranceVolume: "",
-      encumbranceDetails: "",
-      otherComments: ""
+      currency: "NGN"
     });
     return currentForm !== emptyForm;
   };
@@ -1558,26 +1497,6 @@ export default function AdminDashboard() {
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
       status: propertyForm.status, // Include the status field
       currency: propertyForm.currency,
-      // Land Documentation fields
-      firstOwnerName: propertyForm.firstOwnerName || null,
-      fileNumber: propertyForm.fileNumber || null,
-      plotNumber: propertyForm.plotNumber || null,
-      landDistrict: propertyForm.landDistrict || null,
-      landUse: propertyForm.landUse || null,
-      plotSize: propertyForm.plotSize || null,
-      cofoNumber: propertyForm.cofoNumber || null,
-      cofoDate: propertyForm.cofoDate ? new Date(propertyForm.cofoDate) : null,
-      rofoNumber: propertyForm.rofoNumber || null,
-      rofoDate: propertyForm.rofoDate ? new Date(propertyForm.rofoDate) : null,
-      registrationInfo: propertyForm.registrationInfo || null,
-      rentPerAnnum: propertyForm.rentPerAnnum || null,
-      outstandingRent: propertyForm.outstandingRent || null,
-      encumbranceActionDate: propertyForm.encumbranceActionDate ? new Date(propertyForm.encumbranceActionDate) : null,
-      encumbranceNumber: propertyForm.encumbranceNumber || null,
-      encumbrancePage: propertyForm.encumbrancePage || null,
-      encumbranceVolume: propertyForm.encumbranceVolume || null,
-      encumbranceDetails: propertyForm.encumbranceDetails || null,
-      otherComments: propertyForm.otherComments || null,
     };
 
 
@@ -1961,27 +1880,7 @@ export default function AdminDashboard() {
                                             developerNotes: property.developerNotes || "",
                                             investmentDetails: property.investmentDetails || "",
                                             status: property.status,
-                                            currency: property.currency || "NGN",
-                                            // Land Documentation fields
-                                            firstOwnerName: property.firstOwnerName || "",
-                                            fileNumber: property.fileNumber || "",
-                                            plotNumber: property.plotNumber || "",
-                                            landDistrict: property.landDistrict || "",
-                                            landUse: property.landUse || "",
-                                            plotSize: property.plotSize || "",
-                                            cofoNumber: property.cofoNumber || "",
-                                            cofoDate: property.cofoDate ? new Date(property.cofoDate).toISOString().split('T')[0] : "",
-                                            rofoNumber: property.rofoNumber || "",
-                                            rofoDate: property.rofoDate ? new Date(property.rofoDate).toISOString().split('T')[0] : "",
-                                            registrationInfo: property.registrationInfo || "",
-                                            rentPerAnnum: property.rentPerAnnum || "",
-                                            outstandingRent: property.outstandingRent || "",
-                                            encumbranceActionDate: property.encumbranceActionDate ? new Date(property.encumbranceActionDate).toISOString().split('T')[0] : "",
-                                            encumbranceNumber: property.encumbranceNumber || "",
-                                            encumbrancePage: property.encumbrancePage || "",
-                                            encumbranceVolume: property.encumbranceVolume || "",
-                                            encumbranceDetails: property.encumbranceDetails || "",
-                                            otherComments: property.otherComments || ""
+                                            currency: property.currency || "NGN"
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -2065,27 +1964,7 @@ export default function AdminDashboard() {
                                         developerNotes: property.developerNotes || "",
                                         investmentDetails: property.investmentDetails || "",
                                         status: property.status,
-                                        currency: property.currency || "NGN",
-                                        // Land Documentation fields
-                                        firstOwnerName: property.firstOwnerName || "",
-                                        fileNumber: property.fileNumber || "",
-                                        plotNumber: property.plotNumber || "",
-                                        landDistrict: property.landDistrict || "",
-                                        landUse: property.landUse || "",
-                                        plotSize: property.plotSize || "",
-                                        cofoNumber: property.cofoNumber || "",
-                                        cofoDate: property.cofoDate ? new Date(property.cofoDate).toISOString().split('T')[0] : "",
-                                        rofoNumber: property.rofoNumber || "",
-                                        rofoDate: property.rofoDate ? new Date(property.rofoDate).toISOString().split('T')[0] : "",
-                                        registrationInfo: property.registrationInfo || "",
-                                        rentPerAnnum: property.rentPerAnnum || "",
-                                        outstandingRent: property.outstandingRent || "",
-                                        encumbranceActionDate: property.encumbranceActionDate ? new Date(property.encumbranceActionDate).toISOString().split('T')[0] : "",
-                                        encumbranceNumber: property.encumbranceNumber || "",
-                                        encumbrancePage: property.encumbrancePage || "",
-                                        encumbranceVolume: property.encumbranceVolume || "",
-                                        encumbranceDetails: property.encumbranceDetails || "",
-                                        otherComments: property.otherComments || ""
+                                        currency: property.currency || "USD"
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -3019,27 +2898,7 @@ export default function AdminDashboard() {
                         developerNotes: viewingProperty.developerNotes || "",
                         investmentDetails: viewingProperty.investmentDetails || "",
                         status: viewingProperty.status,
-                        currency: viewingProperty.currency || "NGN",
-                        // Land Documentation fields
-                        firstOwnerName: viewingProperty.firstOwnerName || "",
-                        fileNumber: viewingProperty.fileNumber || "",
-                        plotNumber: viewingProperty.plotNumber || "",
-                        landDistrict: viewingProperty.landDistrict || "",
-                        landUse: viewingProperty.landUse || "",
-                        plotSize: viewingProperty.plotSize || "",
-                        cofoNumber: viewingProperty.cofoNumber || "",
-                        cofoDate: viewingProperty.cofoDate ? new Date(viewingProperty.cofoDate).toISOString().split('T')[0] : "",
-                        rofoNumber: viewingProperty.rofoNumber || "",
-                        rofoDate: viewingProperty.rofoDate ? new Date(viewingProperty.rofoDate).toISOString().split('T')[0] : "",
-                        registrationInfo: viewingProperty.registrationInfo || "",
-                        rentPerAnnum: viewingProperty.rentPerAnnum || "",
-                        outstandingRent: viewingProperty.outstandingRent || "",
-                        encumbranceActionDate: viewingProperty.encumbranceActionDate ? new Date(viewingProperty.encumbranceActionDate).toISOString().split('T')[0] : "",
-                        encumbranceNumber: viewingProperty.encumbranceNumber || "",
-                        encumbrancePage: viewingProperty.encumbrancePage || "",
-                        encumbranceVolume: viewingProperty.encumbranceVolume || "",
-                        encumbranceDetails: viewingProperty.encumbranceDetails || "",
-                        otherComments: viewingProperty.otherComments || ""
+                        currency: viewingProperty.currency || "NGN"
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -3463,231 +3322,6 @@ export default function AdminDashboard() {
                 className="min-h-[150px]"
               />
             </div>
-
-            {/* Land Documentation Section - Collapsible */}
-            <Collapsible className="border border-slate-200 rounded-lg">
-              <CollapsibleTrigger className="flex items-center justify-between w-full p-4 hover:bg-slate-50">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-blue-600" />
-                  <span className="font-semibold text-slate-900">Land Documentation (Audit Trail)</span>
-                </div>
-                <ChevronDown className="w-5 h-5 text-slate-500" />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="p-4 pt-0 space-y-6">
-                {/* Title & Registration */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Title & Registration</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstOwnerName">First Owner Name</Label>
-                      <Input
-                        id="firstOwnerName"
-                        value={propertyForm.firstOwnerName}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, firstOwnerName: e.target.value }))}
-                        placeholder="Original property owner"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="fileNumber">File Number</Label>
-                      <Input
-                        id="fileNumber"
-                        value={propertyForm.fileNumber}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, fileNumber: e.target.value }))}
-                        placeholder="Government file number"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="plotNumber">Plot Number</Label>
-                      <Input
-                        id="plotNumber"
-                        value={propertyForm.plotNumber}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, plotNumber: e.target.value }))}
-                        placeholder="Plot number from survey"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="landDistrict">District</Label>
-                      <Input
-                        id="landDistrict"
-                        value={propertyForm.landDistrict}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, landDistrict: e.target.value }))}
-                        placeholder="Land registry district"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="landUse">Land Use</Label>
-                      <Select
-                        value={propertyForm.landUse}
-                        onValueChange={(value) => setPropertyForm(prev => ({ ...prev, landUse: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select land use" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="residential">Residential</SelectItem>
-                          <SelectItem value="commercial">Commercial</SelectItem>
-                          <SelectItem value="mixed">Mixed Use</SelectItem>
-                          <SelectItem value="agricultural">Agricultural</SelectItem>
-                          <SelectItem value="industrial">Industrial</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="plotSize">Plot Size</Label>
-                      <Input
-                        id="plotSize"
-                        value={propertyForm.plotSize}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, plotSize: e.target.value }))}
-                        placeholder="e.g., 1000 sqm, 0.5 hectare"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Certificate of Occupancy Details */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Certificate of Occupancy (C of O)</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="cofoNumber">C of O Number</Label>
-                      <Input
-                        id="cofoNumber"
-                        value={propertyForm.cofoNumber}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, cofoNumber: e.target.value }))}
-                        placeholder="Certificate of Occupancy number"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cofoDate">C of O Date</Label>
-                      <Input
-                        id="cofoDate"
-                        type="date"
-                        value={propertyForm.cofoDate}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, cofoDate: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="rofoNumber">R of O Number</Label>
-                      <Input
-                        id="rofoNumber"
-                        value={propertyForm.rofoNumber}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, rofoNumber: e.target.value }))}
-                        placeholder="Right of Occupancy number"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="rofoDate">R of O Date</Label>
-                      <Input
-                        id="rofoDate"
-                        type="date"
-                        value={propertyForm.rofoDate}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, rofoDate: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="registrationInfo">Registration Information</Label>
-                      <Textarea
-                        id="registrationInfo"
-                        value={propertyForm.registrationInfo}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, registrationInfo: e.target.value }))}
-                        placeholder="Land registry registration details..."
-                        rows={2}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ground Rent */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Ground Rent</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="rentPerAnnum">Rent Per Annum</Label>
-                      <Input
-                        id="rentPerAnnum"
-                        value={propertyForm.rentPerAnnum}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, rentPerAnnum: e.target.value }))}
-                        placeholder="Annual ground rent amount"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="outstandingRent">Outstanding Rent</Label>
-                      <Input
-                        id="outstandingRent"
-                        value={propertyForm.outstandingRent}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, outstandingRent: e.target.value }))}
-                        placeholder="On request / amount owed"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Encumbrances */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Encumbrances</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="encumbranceActionDate">Action Date</Label>
-                      <Input
-                        id="encumbranceActionDate"
-                        type="date"
-                        value={propertyForm.encumbranceActionDate}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, encumbranceActionDate: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="encumbranceNumber">Encumbrance Number</Label>
-                      <Input
-                        id="encumbranceNumber"
-                        value={propertyForm.encumbranceNumber}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, encumbranceNumber: e.target.value }))}
-                        placeholder="Registration number"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="encumbrancePage">Page</Label>
-                      <Input
-                        id="encumbrancePage"
-                        value={propertyForm.encumbrancePage}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, encumbrancePage: e.target.value }))}
-                        placeholder="Page in register"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="encumbranceVolume">Volume</Label>
-                      <Input
-                        id="encumbranceVolume"
-                        value={propertyForm.encumbranceVolume}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, encumbranceVolume: e.target.value }))}
-                        placeholder="Volume in register"
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="encumbranceDetails">Encumbrance Details</Label>
-                      <Textarea
-                        id="encumbranceDetails"
-                        value={propertyForm.encumbranceDetails}
-                        onChange={(e) => setPropertyForm(prev => ({ ...prev, encumbranceDetails: e.target.value }))}
-                        placeholder="Description of any encumbrances, liens, mortgages, or caveats..."
-                        rows={2}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Other Comments */}
-                <div className="space-y-2">
-                  <Label htmlFor="otherComments">Other Comments</Label>
-                  <Textarea
-                    id="otherComments"
-                    value={propertyForm.otherComments}
-                    onChange={(e) => setPropertyForm(prev => ({ ...prev, otherComments: e.target.value }))}
-                    placeholder="Any other relevant details for audit purposes..."
-                    rows={3}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
 
             <div className="flex gap-4 pt-6">
               <Button 

@@ -2633,9 +2633,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get reservation for additional details
       const reservation = await storage.getReservation(certificate.reservationId);
       
-      // Get property for land documentation
-      const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
-      
       res.json({
         verified: true,
         certificate: {
@@ -2648,28 +2645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
           investmentStatus: reservation?.status || 'confirmed'
-        },
-        landDocumentation: property ? {
-          firstOwnerName: property.firstOwnerName,
-          fileNumber: property.fileNumber,
-          plotNumber: property.plotNumber,
-          landDistrict: property.landDistrict,
-          landUse: property.landUse,
-          plotSize: property.plotSize,
-          cofoNumber: property.cofoNumber,
-          cofoDate: property.cofoDate,
-          rofoNumber: property.rofoNumber,
-          rofoDate: property.rofoDate,
-          registrationInfo: property.registrationInfo,
-          rentPerAnnum: property.rentPerAnnum,
-          outstandingRent: property.outstandingRent,
-          encumbranceActionDate: property.encumbranceActionDate,
-          encumbranceNumber: property.encumbranceNumber,
-          encumbrancePage: property.encumbrancePage,
-          encumbranceVolume: property.encumbranceVolume,
-          encumbranceDetails: property.encumbranceDetails,
-          otherComments: property.otherComments
-        } : null
+        }
       });
     } catch (error) {
       console.error("Error verifying certificate:", error);
@@ -2693,9 +2669,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get reservation for additional details
       const reservation = await storage.getReservation(certificate.reservationId);
       
-      // Get property for land documentation
-      const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
-      
       res.json({
         verified: true,
         certificate: {
@@ -2708,28 +2681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
           investmentStatus: reservation?.status || 'confirmed'
-        },
-        landDocumentation: property ? {
-          firstOwnerName: property.firstOwnerName,
-          fileNumber: property.fileNumber,
-          plotNumber: property.plotNumber,
-          landDistrict: property.landDistrict,
-          landUse: property.landUse,
-          plotSize: property.plotSize,
-          cofoNumber: property.cofoNumber,
-          cofoDate: property.cofoDate,
-          rofoNumber: property.rofoNumber,
-          rofoDate: property.rofoDate,
-          registrationInfo: property.registrationInfo,
-          rentPerAnnum: property.rentPerAnnum,
-          outstandingRent: property.outstandingRent,
-          encumbranceActionDate: property.encumbranceActionDate,
-          encumbranceNumber: property.encumbranceNumber,
-          encumbrancePage: property.encumbrancePage,
-          encumbranceVolume: property.encumbranceVolume,
-          encumbranceDetails: property.encumbranceDetails,
-          otherComments: property.otherComments
-        } : null
+        }
       });
     } catch (error) {
       console.error("Error verifying certificate by number:", error);

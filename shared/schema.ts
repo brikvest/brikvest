@@ -99,35 +99,6 @@ export const properties = pgTable("properties", {
   city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
   district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
   
-  // Land Documentation - Title & Registration
-  firstOwnerName: text("first_owner_name"), // Original owner of the property from government records
-  fileNumber: text("file_number"), // Government file number
-  plotNumber: text("plot_number"), // Plot number from survey
-  landDistrict: text("land_district"), // District as per land registry (may differ from SPV district)
-  landUse: text("land_use"), // Designated land use (residential, commercial, mixed, agricultural)
-  plotSize: text("plot_size"), // Plot dimensions/size (e.g., "1000 sqm", "0.5 hectare")
-  
-  // Certificate of Occupancy (C of O) Details
-  cofoNumber: text("cofo_number"), // Certificate of Occupancy number
-  cofoDate: timestamp("cofo_date"), // Date C of O was issued
-  rofoNumber: text("rofo_number"), // Right of Occupancy number
-  rofoDate: timestamp("rofo_date"), // Date R of O was issued
-  registrationInfo: text("registration_info"), // Land registry registration details
-  
-  // Financial - Ground Rent
-  rentPerAnnum: text("rent_per_annum"), // Annual ground rent amount
-  outstandingRent: text("outstanding_rent"), // Any outstanding rent (if applicable)
-  
-  // Encumbrances (liens, mortgages, caveats)
-  encumbranceActionDate: timestamp("encumbrance_action_date"), // Date of encumbrance action
-  encumbranceNumber: text("encumbrance_number"), // Encumbrance registration number
-  encumbrancePage: text("encumbrance_page"), // Page in encumbrance register
-  encumbranceVolume: text("encumbrance_volume"), // Volume in encumbrance register
-  encumbranceDetails: text("encumbrance_details"), // Description of any encumbrances
-  
-  // Additional Documentation
-  otherComments: text("other_comments"), // Any other relevant details for audit
-  
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

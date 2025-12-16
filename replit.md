@@ -18,14 +18,7 @@ The application employs a modern full-stack architecture with a clear separation
 -   **UI/UX Decisions**: The platform adopts a modern, responsive design using Tailwind CSS and shadcn/ui. Key UI/UX elements include a Stripe-inspired user dashboard, gradient designs for public insights pages, mobile-first responsiveness with slide-in sidebars, and optimized layouts. Sensitive dashboard statistics are blurred until KYC verification is completed.
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights for multiple Abuja locations (Guzape, Jahi, Lugbe) derived from web scraping PropertyPro.ng with data visualization, a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
-## Recent Updates (December 16, 2025)
--   **Land Documentation Audit Trail**: Implemented comprehensive land documentation fields for property listings to provide legal assurance and audit trail for investors.
-    - **Schema Fields Added**: firstOwnerName, fileNumber, plotNumber, landDistrict, landUse, plotSize, cofoNumber, cofoDate, rofoNumber, rofoDate, registrationInfo, rentPerAnnum, outstandingRent, encumbranceActionDate, encumbranceNumber, encumbrancePage, encumbranceVolume, encumbranceDetails, otherComments
-    - **Admin Panel**: Collapsible "Land Documentation (Audit Trail)" section in property edit form with organized subsections for Title & Registration, Certificate of Occupancy, Ground Rent, and Encumbrances
-    - **Public Verification**: Certificate verification pages (`/verify/:token`) now display land documentation in a collapsible section when available
-    - **API Updates**: Verification endpoints `/api/verify/certificate/:token` and `/api/verify/certificate-number/:certNumber` now include `landDocumentation` object
-
-## Previous Updates (November 29, 2025)
+## Recent Updates (November 29, 2025)
 -   **Ownership Certificate System**: Implemented comprehensive ownership certificate generation and verification for confirmed investments.
     - **Certificate Generation**: Auto-generates CERT-YYYY-NNNN format certificates with UUID verification tokens when admin confirms investment
     - **Dashboard Integration**: Investors can view and download certificates from the "My Property Holdings" section via "Certificate" button

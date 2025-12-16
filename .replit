@@ -14,6 +14,50 @@ run = ["npm", "run", "start"]
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 33689
+externalPort = 5000
+
+[[ports]]
+localPort = 35671
+externalPort = 3003
+
+[[ports]]
+localPort = 38295
+externalPort = 8000
+
+[[ports]]
+localPort = 39491
+externalPort = 3001
+
+[[ports]]
+localPort = 39813
+externalPort = 6000
+
+[[ports]]
+localPort = 41107
+externalPort = 3000
+
+[[ports]]
+localPort = 41119
+externalPort = 3002
+
+[[ports]]
+localPort = 42281
+externalPort = 4200
+
+[[ports]]
+localPort = 43209
+externalPort = 6800
+
+[[ports]]
+localPort = 45475
+externalPort = 8080
+
+[[ports]]
+localPort = 45789
+externalPort = 5173
+
 [workflows]
 runButton = "Project"
 
@@ -36,7 +80,7 @@ args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["javascript_sendgrid:1.0.0"]
+integrations = ["javascript_sendgrid==1.0.0"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-35269575-475c-4d86-88b0-e0fedb234478"
