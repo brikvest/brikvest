@@ -80,7 +80,7 @@ args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["javascript_sendgrid==1.0.0"]
+integrations = ["javascript_sendgrid:1.0.0"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-35269575-475c-4d86-88b0-e0fedb234478"
