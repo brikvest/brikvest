@@ -612,17 +612,28 @@ function AdminInvestmentsTab({
                   <Label>Number of Units</Label>
                   <Input
                     type="number"
-                    step="0.01"
+                    step="any"
+                    min="0.01"
                     value={units}
                     onChange={(e) => setUnits(e.target.value)}
-                    placeholder="0.00"
-                    max={availableUnits}
+                    placeholder="Enter any amount (e.g., 1, 2.5, 10)"
                     data-testid="input-units"
                   />
-                  <p className="text-sm text-slate-500 mt-1">
-                    Total: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
-                    {(parseFloat(units || "0") * (selectedProperty.unitPrice || selectedProperty.minInvestment || 0)).toLocaleString()}
-                  </p>
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600">
+                      Unit Price: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
+                      {(selectedProperty.unitPrice || selectedProperty.minInvestment || 0).toLocaleString()}
+                    </p>
+                    <p className="text-base font-semibold text-slate-900 mt-1">
+                      Total Amount: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
+                      {(parseFloat(units || "0") * (selectedProperty.unitPrice || selectedProperty.minInvestment || 0)).toLocaleString()}
+                    </p>
+                    {parseFloat(units || "0") > availableUnits && (
+                      <p className="text-sm text-amber-600 mt-1">
+                        Note: Only {availableUnits.toLocaleString()} units available
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div>
