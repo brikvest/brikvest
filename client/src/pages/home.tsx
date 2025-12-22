@@ -756,18 +756,24 @@ export default function Home() {
             )}
             <div>
               <Label htmlFor="units">Number of Units *</Label>
-              <Select value={investmentForm.units} onValueChange={(value) => setInvestmentForm(prev => ({ ...prev, units: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select units to reserve" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 Unit ({formatCurrency(selectedProperty?.minInvestment || 30000)})</SelectItem>
-                  <SelectItem value="5">5 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 5)})</SelectItem>
-                  <SelectItem value="10">10 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 10)})</SelectItem>
-                  <SelectItem value="25">25 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 25)})</SelectItem>
-                  <SelectItem value="50">50 Units ({formatCurrency((selectedProperty?.minInvestment || 30000) * 50)})</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                id="units"
+                type="number"
+                step="any"
+                min="1"
+                required
+                value={investmentForm.units}
+                onChange={(e) => setInvestmentForm(prev => ({ ...prev, units: e.target.value }))}
+                placeholder="Enter number of units (e.g., 1, 5, 10)"
+              />
+              <div className="mt-2 p-3 bg-slate-50 rounded-lg">
+                <p className="text-sm text-slate-600">
+                  Price per Unit: {formatCurrency(selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000)}
+                </p>
+                <p className="text-base font-semibold text-slate-900 mt-1">
+                  Total: {formatCurrency(parseFloat(investmentForm.units || "0") * (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000))}
+                </p>
+              </div>
             </div>
             <div>
               <Label htmlFor="referralCode">Referral Code (Optional)</Label>
