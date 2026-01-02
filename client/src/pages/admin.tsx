@@ -875,7 +875,7 @@ function AdminInvestmentsTab({
                                     Confirm Investment
                                   </DropdownMenuItem>
                                 )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -885,7 +885,7 @@ function AdminInvestmentsTab({
                                       data-testid={`menu-cancel-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      Cancel Investment
+                                      {reservation.status === "confirmed" ? "Revert & Cancel" : "Cancel Investment"}
                                     </DropdownMenuItem>
                                   </>
                                 )}

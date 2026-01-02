@@ -984,10 +984,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'cancelled'
       });
 
-      // If units were reserved, release them
-      if (reservation.status === 'payment_pending' || reservation.status === 'payment_received') {
+      // Release units back to the property for any active status
+      if (reservation.status === 'payment_pending' || reservation.status === 'payment_received' || reservation.status === 'confirmed') {
         const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-        await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
+        // For confirmed, decrease soldUnits; for pending/received, decrease reservedUnits
+        if (reservation.status === 'confirmed') {
+          await storage.updatePropertyUnitCounts(reservation.propertyId, 0, -units);
+        } else {
+          await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
+        }
       }
 
       res.json({ message: "Investment cancelled successfully" });
