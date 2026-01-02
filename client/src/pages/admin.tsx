@@ -875,7 +875,7 @@ function AdminInvestmentsTab({
                                     Confirm Investment
                                   </DropdownMenuItem>
                                 )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -1345,24 +1345,25 @@ function UserPortfolioTab({
                             )}
                           </TableCell>
                           <TableCell>
-                            {reservation.status !== 'cancelled' ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => handleCancelInvestment(reservation.id)}
-                                disabled={cancellingId === reservation.id}
-                                data-testid={`button-cancel-portfolio-${reservation.id}`}
-                              >
-                                {cancellingId === reservation.id ? (
-                                  <RefreshCw className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <XCircle className="h-4 w-4 mr-1" />
-                                    {reservation.status === 'confirmed' ? 'Revert' : 'Cancel'}
-                                  </>
-                                )}
-                              </Button>
+                            {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => handleCancelInvestment(reservation.id)}
+                                    disabled={cancellingId === reservation.id}
+                                    className="text-red-600 focus:text-red-600"
+                                    data-testid={`menu-cancel-portfolio-${reservation.id}`}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             ) : (
                               <span className="text-slate-400 text-sm">-</span>
                             )}
