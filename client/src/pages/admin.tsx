@@ -1087,8 +1087,10 @@ function UserPortfolioTab({
   authenticatedRequest: any;
   getCurrencySymbol: (currency: string) => string;
 }) {
+  const { toast } = useToast();
   const [searchEmail, setSearchEmail] = useState("");
   const [searching, setSearching] = useState(false);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [portfolioData, setPortfolioData] = useState<{
     user: any;
     reservations: any[];
@@ -1115,6 +1117,29 @@ function UserPortfolioTab({
       setError(err.message || "Failed to find user portfolio");
     } finally {
       setSearching(false);
+    }
+  };
+
+  const handleCancelInvestment = async (reservationId: number) => {
+    setCancellingId(reservationId);
+    try {
+      await authenticatedRequest(`/api/admin/investments/${reservationId}/cancel`, {
+        method: 'PUT'
+      });
+      toast({
+        title: "Investment cancelled",
+        description: "The investment has been cancelled and units returned",
+      });
+      // Refresh the portfolio data
+      handleSearch();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to cancel investment",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -1289,6 +1314,7 @@ function UserPortfolioTab({
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Certificate</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1316,6 +1342,29 @@ function UserPortfolioTab({
                               <Badge variant="secondary">Pending</Badge>
                             ) : (
                               <span className="text-slate-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {reservation.status !== 'cancelled' ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleCancelInvestment(reservation.id)}
+                                disabled={cancellingId === reservation.id}
+                                data-testid={`button-cancel-portfolio-${reservation.id}`}
+                              >
+                                {cancellingId === reservation.id ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    {reservation.status === 'confirmed' ? 'Revert' : 'Cancel'}
+                                  </>
+                                )}
+                              </Button>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
                             )}
                           </TableCell>
                         </TableRow>
