@@ -70,6 +70,7 @@ export interface IStorage {
   // Investment reservation methods
   createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
+  getUserReservationsWithPropertyByEmail(email: string): Promise<(InvestmentReservation & { property?: Property })[]>;
   getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
   getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
   getAllReservations(): Promise<InvestmentReservation[]>;
@@ -285,6 +286,24 @@ export class DatabaseStorage implements IStorage {
       .from(investmentReservations)
       .where(eq(investmentReservations.email, email))
       .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getUserReservationsWithPropertyByEmail(email: string): Promise<(InvestmentReservation & { property?: Property })[]> {
+    const reservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.email, email))
+      .orderBy(desc(investmentReservations.createdAt));
+    
+    // Fetch property details for each reservation
+    const reservationsWithProperty = await Promise.all(
+      reservations.map(async (reservation) => {
+        const property = await this.getProperty(reservation.propertyId);
+        return { ...reservation, property: property || undefined };
+      })
+    );
+    
+    return reservationsWithProperty;
   }
 
   async getReservationsByUserId(userId: number): Promise<InvestmentReservation[]> {

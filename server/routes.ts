@@ -458,6 +458,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user portfolio (admin view of user's dashboard)
+  app.get('/api/admin/users/portfolio', requireAdminAuth, async (req, res) => {
+    try {
+      const email = req.query.email as string;
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get user's reservations with property details
+      const reservations = await storage.getUserReservationsWithPropertyByEmail(email);
+      
+      // Get certificates for confirmed investments
+      const certificates = await storage.getCertificatesByUserId(user.id);
+      
+      // Attach certificates to reservations
+      const reservationsWithCertificates = reservations.map((r: any) => {
+        const certificate = certificates.find((c: any) => c.reservationId === r.id);
+        return { ...r, certificate };
+      });
+
+      // Calculate summary (same logic as user dashboard)
+      const confirmedAndReceived = reservations.filter((r: any) => 
+        r.status === 'confirmed' || r.status === 'payment_received'
+      );
+      
+      const totalPortfolioValue = confirmedAndReceived.reduce((sum: number, r: any) => {
+        const amount = typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0);
+        return sum + amount;
+      }, 0);
+
+      const propertiesOwned = new Set(
+        reservations
+          .filter((r: any) => r.status === 'confirmed')
+          .map((r: any) => r.propertyId)
+      ).size;
+
+      const activeReservations = reservations.filter((r: any) => 
+        r.status === 'payment_pending' || r.status === 'payment_received'
+      ).length;
+
+      const confirmedInvestments = reservations.filter((r: any) => 
+        r.status === 'confirmed'
+      ).length;
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+          kycFullName: user.kycFullName,
+          kycStatus: user.kycStatus,
+          createdAt: user.createdAt,
+        },
+        reservations: reservationsWithCertificates,
+        summary: {
+          totalPortfolioValue,
+          propertiesOwned,
+          activeReservations,
+          confirmedInvestments,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching user portfolio:", error);
+      res.status(500).json({ error: "Failed to fetch user portfolio" });
+    }
+  });
+
   // Create new user account (admin-assisted)
   app.post('/api/admin/users/create', requireAdminAuth, async (req, res) => {
     try {
