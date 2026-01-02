@@ -36,7 +36,7 @@ import {
   type InsertOwnershipCertificate
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, sql } from "drizzle-orm";
+import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -683,7 +683,7 @@ export class DatabaseStorage implements IStorage {
     const certificates = await db
       .select()
       .from(ownershipCertificates)
-      .where(sql`${ownershipCertificates.reservationId} = ANY(${reservationIds})`);
+      .where(inArray(ownershipCertificates.reservationId, reservationIds));
     
     return certificates;
   }
