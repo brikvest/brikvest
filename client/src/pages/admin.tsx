@@ -875,7 +875,7 @@ function AdminInvestmentsTab({
                                     Confirm Investment
                                   </DropdownMenuItem>
                                 )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -885,7 +885,7 @@ function AdminInvestmentsTab({
                                       data-testid={`menu-cancel-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      Cancel Investment
+                                      {reservation.status === "confirmed" ? "Revert & Cancel" : "Cancel Investment"}
                                     </DropdownMenuItem>
                                   </>
                                 )}
@@ -1075,6 +1075,309 @@ function AdminInvestmentsTab({
         </DialogContent>
       </Dialog>
 
+    </div>
+  );
+}
+
+// User Portfolio Tab Component
+function UserPortfolioTab({ 
+  authenticatedRequest,
+  getCurrencySymbol
+}: {
+  authenticatedRequest: any;
+  getCurrencySymbol: (currency: string) => string;
+}) {
+  const { toast } = useToast();
+  const [searchEmail, setSearchEmail] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [portfolioData, setPortfolioData] = useState<{
+    user: any;
+    reservations: any[];
+    summary: {
+      totalPortfolioValue: number;
+      propertiesOwned: number;
+      activeReservations: number;
+      confirmedInvestments: number;
+    };
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSearch = async () => {
+    if (!searchEmail.trim()) return;
+    
+    setSearching(true);
+    setError(null);
+    setPortfolioData(null);
+    
+    try {
+      const response = await authenticatedRequest(`/api/admin/users/portfolio?email=${encodeURIComponent(searchEmail)}`);
+      setPortfolioData(response);
+    } catch (err: any) {
+      setError(err.message || "Failed to find user portfolio");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleCancelInvestment = async (reservationId: number) => {
+    setCancellingId(reservationId);
+    try {
+      await authenticatedRequest(`/api/admin/investments/${reservationId}/cancel`, {
+        method: 'PUT'
+      });
+      toast({
+        title: "Investment cancelled",
+        description: "The investment has been cancelled and units returned",
+      });
+      // Refresh the portfolio data
+      handleSearch();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to cancel investment",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'confirmed':
+        return <Badge className="bg-green-100 text-green-800">Confirmed</Badge>;
+      case 'payment_received':
+        return <Badge className="bg-blue-100 text-blue-800">Payment Received</Badge>;
+      case 'payment_pending':
+        return <Badge className="bg-amber-100 text-amber-800">Payment Pending</Badge>;
+      case 'cancelled':
+        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">User Portfolio Lookup</h1>
+        <p className="text-slate-600 mt-2">Search for a user to view their portfolio as they see it on their dashboard</p>
+      </div>
+
+      {/* Search Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            Search User
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-3">
+            <Input
+              placeholder="Enter user email address"
+              value={searchEmail}
+              onChange={(e) => setSearchEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="flex-1"
+              data-testid="input-search-user-email"
+            />
+            <Button 
+              onClick={handleSearch} 
+              disabled={searching || !searchEmail.trim()}
+              data-testid="button-search-user"
+            >
+              {searching ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Searching...
+                </>
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Portfolio
+                </>
+              )}
+            </Button>
+          </div>
+          {error && (
+            <p className="text-red-600 mt-2 text-sm">{error}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Portfolio Results */}
+      {portfolioData && (
+        <>
+          {/* User Info Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                User Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-slate-500">Name</p>
+                  <p className="font-medium">{portfolioData.user.kycFullName || `${portfolioData.user.firstName || ''} ${portfolioData.user.lastName || ''}`.trim() || 'Not provided'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">Email</p>
+                  <p className="font-medium">{portfolioData.user.email}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">Phone</p>
+                  <p className="font-medium">{portfolioData.user.phone || 'Not provided'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">KYC Status</p>
+                  <Badge 
+                    variant={portfolioData.user.kycStatus === 'verified' ? 'default' : 'secondary'}
+                    className={portfolioData.user.kycStatus === 'verified' ? 'bg-green-100 text-green-800' : ''}
+                  >
+                    {portfolioData.user.kycStatus || 'Not submitted'}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">Account Created</p>
+                  <p className="font-medium">
+                    {portfolioData.user.createdAt 
+                      ? new Date(portfolioData.user.createdAt).toLocaleDateString() 
+                      : 'Unknown'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Portfolio Summary - Same as user dashboard */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="bg-gradient-to-br from-blue-600 to-blue-800">
+              <CardContent className="p-6">
+                <p className="text-sm text-blue-100 font-medium">Total Portfolio Value</p>
+                <p className="text-2xl font-bold text-white mt-1">
+                  {getCurrencySymbol('NGN')}{portfolioData.summary.totalPortfolioValue.toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm text-slate-600 font-medium">Properties Owned</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">
+                  {portfolioData.summary.propertiesOwned}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm text-slate-600 font-medium">Active Reservations</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">
+                  {portfolioData.summary.activeReservations}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-sm text-slate-600 font-medium">Confirmed Investments</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">
+                  {portfolioData.summary.confirmedInvestments}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Investment Details Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building className="h-5 w-5" />
+                Investment Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {portfolioData.reservations.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <Building className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                  <p>No investments found for this user</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Property</TableHead>
+                        <TableHead>Units</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Certificate</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {portfolioData.reservations.map((reservation: any) => (
+                        <TableRow key={reservation.id}>
+                          <TableCell>
+                            <div className="font-medium">{reservation.property?.name || 'Unknown Property'}</div>
+                            <div className="text-sm text-slate-500">{reservation.property?.location || ''}</div>
+                          </TableCell>
+                          <TableCell>{parseFloat(reservation.units).toLocaleString()}</TableCell>
+                          <TableCell>
+                            {getCurrencySymbol(reservation.currency || 'NGN')}
+                            {parseFloat(reservation.amount || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(reservation.status)}</TableCell>
+                          <TableCell>
+                            {new Date(reservation.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            {reservation.certificate ? (
+                              <Badge className="bg-green-100 text-green-800">
+                                {reservation.certificate.certificateNumber}
+                              </Badge>
+                            ) : reservation.status === 'confirmed' ? (
+                              <Badge variant="secondary">Pending</Badge>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => handleCancelInvestment(reservation.id)}
+                                    disabled={cancellingId === reservation.id}
+                                    className="text-red-600 focus:text-red-600"
+                                    data-testid={`menu-cancel-portfolio-${reservation.id}`}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : (
+                              <span className="text-slate-400 text-sm">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -1593,6 +1896,14 @@ export default function AdminDashboard() {
               >
                 <ShieldCheck className="mr-3 h-4 w-4" />
                 KYC Verifications
+              </Button>
+              <Button
+                variant={selectedTab === "user-portfolio" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("user-portfolio")}
+              >
+                <Eye className="mr-3 h-4 w-4" />
+                User Portfolio
               </Button>
             </div>
           </nav>
@@ -2873,6 +3184,14 @@ export default function AdminDashboard() {
                   </Card>
                 )}
               </div>
+            )}
+
+            {/* User Portfolio Lookup */}
+            {selectedTab === "user-portfolio" && (
+              <UserPortfolioTab
+                authenticatedRequest={authenticatedRequest}
+                getCurrencySymbol={getCurrencySymbol}
+              />
             )}
           </div>
         </div>
