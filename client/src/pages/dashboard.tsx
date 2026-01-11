@@ -736,12 +736,42 @@ export default function Portfolio() {
                                 Upload Payment Proof
                               </Button>
                             </div>
+                          ) : userData.kycStatus === 'rejected' ? (
+                            <div className="mt-4 p-3 bg-white border border-red-200 rounded-lg">
+                              <p className="text-sm font-medium text-red-900 mb-2">KYC Verification Required</p>
+                              <p className="text-xs text-red-700 mb-3">
+                                Your KYC was rejected. Please resubmit your verification documents to proceed with payment.
+                              </p>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="w-full sm:w-auto border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={() => setShowKycModal(true)}
+                              >
+                                Resubmit KYC
+                              </Button>
+                            </div>
+                          ) : userData.kycStatus === 'submitted' ? (
+                            <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
+                              <p className="text-sm font-medium text-blue-900 mb-2">KYC Under Review</p>
+                              <p className="text-xs text-blue-700">
+                                Your KYC documents are being reviewed. You'll be able to upload payment proof once approved.
+                              </p>
+                            </div>
                           ) : (
                             <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
                               <p className="text-sm font-medium text-slate-900 mb-2">Complete KYC First</p>
-                              <p className="text-xs text-slate-600">
+                              <p className="text-xs text-slate-600 mb-3">
                                 You must complete KYC verification and get approval before uploading payment proof.
                               </p>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="w-full sm:w-auto"
+                                onClick={() => setShowKycModal(true)}
+                              >
+                                Start KYC Verification
+                              </Button>
                             </div>
                           )}
                         </div>
