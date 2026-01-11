@@ -57,6 +57,15 @@ The application employs a modern full-stack architecture with a clear separation
 3. **confirmed**: Investment fully confirmed and active (counts toward portfolio value and properties owned)
 4. **cancelled**: Reservation cancelled
 
+## Payment Rules
+- **Reservations**: Users can reserve without an account (creates orphaned reservation with email only)
+- **Payment Requirements**: To mark payment received, user must:
+  1. Be signed in (reservation must have userId linked)
+  2. Complete KYC submission
+  3. Have KYC approved by admin (kycStatus = 'verified')
+- **Payment Blocked**: Until KYC is approved, admin cannot mark payment as received
+- **Confirmation Requirements**: Same KYC verification required for final confirmation
+
 ## Data Integrity Safeguards
 -   **Auto-Linking on Authentication**: When users log in or register, the system automatically links any orphaned investment reservations (those with NULL user_id) to their account by matching email addresses. This ensures portfolios display all user investments even if reservations were created before account creation.
 -   **Reservation Creation**: All reservation endpoints automatically set user_id when the user is authenticated, preventing new orphaned records.

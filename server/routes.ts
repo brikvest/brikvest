@@ -673,6 +673,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
+      // Check if reservation has a user account linked
+      if (!reservation.userId) {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User must be signed in and linked to this reservation." 
+        });
+      }
+
+      // Check KYC status - must be verified before payment can be recorded
+      const user = await storage.getUser(reservation.userId);
+      if (!user) {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User account not found." 
+        });
+      }
+      if (user.kycStatus !== 'verified') {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User KYC must be verified first." 
+        });
+      }
+
       // Generate unique payment reference: BRK-YYYYMMDD-XXXXX
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');

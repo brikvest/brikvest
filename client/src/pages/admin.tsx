@@ -191,6 +191,13 @@ function AdminInvestmentsTab({
         description: "Payment has been marked as received and investor notified with payment reference",
       });
     },
+    onError: (error: any) => {
+      toast({
+        title: "Cannot mark payment",
+        description: error.message || "Failed to mark payment as received",
+        variant: "destructive",
+      });
+    },
   });
 
   const confirmInvestmentMutation = useMutation({
