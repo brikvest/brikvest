@@ -19,11 +19,29 @@ The application employs a modern full-stack architecture with a clear separation
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights for multiple Abuja locations (Guzape, Jahi, Lugbe) derived from web scraping PropertyPro.ng with data visualization, a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
 ## Recent Updates (January 11, 2026)
+-   **User-Initiated Payment Submission Workflow**: Complete overhaul from admin-assisted to user-initiated payment proof upload system.
+    - **New Flow**: Users upload payment proof → Admin reviews → Approval converts reservation to investment with certificate
+    - **Payment Submissions Table**: New `payment_submissions` table with statuses: `pending_admin_review`, `approved`, `rejected`
+    - **User Endpoints**: 
+      - `POST /api/payment-submissions/:reservationId` - Upload payment proof
+      - `GET /api/payment-submissions/reservation/:reservationId` - Get submission by reservation
+      - `GET /api/payment-submissions/my-submissions` - Get user's submissions
+    - **Admin Endpoints**:
+      - `GET /api/admin/payment-submissions` - View pending submissions
+      - `POST /api/admin/payment-submissions/:id/approve` - Approve and convert to investment
+      - `POST /api/admin/payment-submissions/:id/reject` - Reject with reason
+    - **Atomic Updates**: Approved submissions atomically update reservation status, generate ownership certificates, and send confirmation emails
+
+-   **Status Value Migration**: Standardized status enums across the platform.
+    - **KYC Statuses**: `not_started` → `submitted` → `approved` / `rejected` (replaces old pending/verified)
+    - **Reservation Statuses**: `reserved` → `expired` / `converted_to_investment` / `cancelled` (replaces old payment_pending/payment_received/confirmed)
+    - **UI Updates**: All admin and dashboard components updated to use new status values with appropriate badges and gating
+
 -   **24-Hour Reservation Expiration System**: Implemented automatic expiration for investment reservations to prevent indefinite unit holds.
     - **Schema Update**: Added `expiresAt` field to `investment_reservations` table
     - **Expiration Setting**: All new reservations automatically expire 24 hours from creation
     - **Email Notifications**: Updated investment email templates to notify users about 24-hour deadline and required steps (sign in → complete KYC → get approval → pay)
-    - **Automatic Cleanup**: Server runs cleanup on startup and hourly to cancel expired 'payment_pending' reservations
+    - **Automatic Cleanup**: Server runs cleanup on startup and hourly to cancel expired 'reserved' reservations
     - **Admin Endpoint**: POST `/api/admin/cleanup-expired-reservations` for manual cleanup
     - **Race Condition Protection**: Cleanup uses guarded UPDATE with RETURNING to prevent cancelling reservations whose status changed during cleanup
     - **Inventory Consistency**: Cancelled reservations properly restore both `availableSlots` and `reservedUnits`
@@ -62,19 +80,32 @@ The application employs a modern full-stack architecture with a clear separation
 -   **Orphaned Reservations Fix**: Resolved issue where investment reservations with NULL user_id caused portfolios to show 0. Implemented automatic linking of reservations to user accounts by email on login/registration. Fixed 25 existing orphaned reservations and added safeguards to prevent future occurrences.
 
 ## Investment Status Flow
-1. **payment_pending**: Initial reservation created, awaiting payment
-2. **payment_received**: Admin has recorded payment, pending final confirmation
-3. **confirmed**: Investment fully confirmed and active (counts toward portfolio value and properties owned)
-4. **cancelled**: Reservation cancelled
+1. **reserved**: Initial reservation created, awaiting payment proof upload
+2. **expired**: Reservation expired (24-hour timeout without payment submission)
+3. **converted_to_investment**: Investment confirmed and active (counts toward portfolio value and properties owned)
+4. **cancelled**: Reservation cancelled by admin or user
+
+## KYC Status Flow
+1. **not_started**: User has not begun KYC verification
+2. **submitted**: User has submitted KYC documents, awaiting admin review
+3. **approved**: Admin has verified and approved KYC
+4. **rejected**: Admin has rejected KYC (user can resubmit)
+
+## Payment Submission Flow
+1. User creates reservation → status: `reserved`
+2. User completes KYC → kycStatus: `submitted` → `approved`
+3. User uploads payment proof → creates `payment_submissions` record with status: `pending_admin_review`
+4. Admin reviews → approves: reservation becomes `converted_to_investment`, certificate generated
+5. Or admin rejects → submission status: `rejected`, user can upload new proof
 
 ## Payment Rules
 - **Reservations**: Users can reserve without an account (creates orphaned reservation with email only)
-- **Payment Requirements**: To mark payment received, user must:
+- **Payment Proof Upload Requirements**: User must:
   1. Be signed in (reservation must have userId linked)
-  2. Complete KYC submission
-  3. Have KYC approved by admin (kycStatus = 'verified')
-- **Payment Blocked**: Until KYC is approved, admin cannot mark payment as received
-- **Confirmation Requirements**: Same KYC verification required for final confirmation
+  2. Have KYC approved (kycStatus = 'approved')
+  3. Have reservation in 'reserved' status
+- **Admin Approval**: Admin reviews payment proof and approves/rejects
+- **Investment Confirmation**: Approved payments automatically convert reservations and generate ownership certificates
 
 ## Data Integrity Safeguards
 -   **Auto-Linking on Authentication**: When users log in or register, the system automatically links any orphaned investment reservations (those with NULL user_id) to their account by matching email addresses. This ensures portfolios display all user investments even if reservations were created before account creation.
