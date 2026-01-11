@@ -962,42 +962,101 @@ export default function Portfolio() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="space-y-3 sm:space-y-4">
+                    <div className="grid gap-4 sm:gap-6">
                       {confirmedInvestments.map((reservation) => (
                         <div
                           key={reservation.id}
-                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all"
+                          className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-lg transition-all duration-200"
                           data-testid={`holding-${reservation.id}`}
                         >
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-slate-900 mb-1 text-sm sm:text-base">
-                              {reservation.property?.name || `Property #${reservation.propertyId}`}
-                            </h4>
-                            <div className="text-xs sm:text-sm text-slate-600 space-y-0.5">
-                              <p>Units owned: {reservation.units}</p>
-                              <p>Cost basis: {formatCurrency(convertAmount(
-                                typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
-                                reservation.currency || 'NGN'
-                              ))}</p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Confirmed {new Date(reservation.createdAt).toLocaleDateString()}
-                              </p>
+                          <div className="flex flex-col md:flex-row">
+                            {/* Property Image */}
+                            <div className="md:w-48 h-40 md:h-auto bg-gradient-to-br from-blue-100 to-blue-50 flex-shrink-0">
+                              {reservation.property?.imageUrl ? (
+                                <img 
+                                  src={reservation.property.imageUrl} 
+                                  alt={reservation.property.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Building2 className="h-12 w-12 text-blue-300" />
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleViewCertificate(reservation.id)}
-                              className="text-amber-700 border-amber-300 hover:bg-amber-50"
-                              data-testid={`button-view-certificate-${reservation.id}`}
-                            >
-                              <Award className="h-4 w-4 mr-1" />
-                              Certificate
-                            </Button>
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap bg-green-100 text-green-700">
-                              Confirmed
-                            </span>
+                            
+                            {/* Property Details */}
+                            <div className="flex-1 p-4 sm:p-5">
+                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="font-bold text-slate-900 text-lg">
+                                      {reservation.property?.name || `Property #${reservation.propertyId}`}
+                                    </h4>
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                                      Active
+                                    </span>
+                                  </div>
+                                  {reservation.property?.location && (
+                                    <p className="text-sm text-slate-500">{reservation.property.location}</p>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Investment Stats */}
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+                                <div className="bg-slate-50 rounded-lg p-3">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units Owned</p>
+                                  <p className="text-lg font-bold text-slate-900">{reservation.units}</p>
+                                </div>
+                                <div className="bg-slate-50 rounded-lg p-3">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Investment</p>
+                                  <p className="text-lg font-bold text-blue-600">
+                                    {formatCurrency(convertAmount(
+                                      typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
+                                      reservation.currency || 'NGN'
+                                    ))}
+                                  </p>
+                                </div>
+                                <div className="bg-slate-50 rounded-lg p-3 col-span-2 sm:col-span-1">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Confirmed</p>
+                                  <p className="text-sm font-semibold text-slate-700">
+                                    {new Date(reservation.createdAt).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {/* Actions */}
+                              <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewCertificate(reservation.id)}
+                                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                                  data-testid={`button-view-certificate-${reservation.id}`}
+                                >
+                                  <Award className="h-4 w-4 mr-2" />
+                                  View Certificate
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (reservation.property) {
+                                      setLocation(`/properties/${reservation.propertyId}`);
+                                    }
+                                  }}
+                                  className="text-slate-600 hover:text-slate-900"
+                                >
+                                  Property Details
+                                  <ArrowRight className="h-4 w-4 ml-1" />
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
