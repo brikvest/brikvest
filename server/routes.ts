@@ -371,9 +371,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycSubmittedAt: new Date(),
       });
 
+      // Auto-extend active reservations by 24 hours (one-time extension)
+      const extendedCount = await storage.extendReservationsOnKycSubmission(userId);
+
       res.json({ 
         message: "KYC submitted successfully",
-        status: "submitted"
+        status: "submitted",
+        reservationsExtended: extendedCount
       });
     } catch (error) {
       console.error("Error submitting KYC:", error);
