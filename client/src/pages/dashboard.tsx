@@ -746,7 +746,7 @@ export default function Portfolio() {
                                 size="sm" 
                                 variant="outline"
                                 className="w-full sm:w-auto border-red-200 text-red-700 hover:bg-red-50"
-                                onClick={() => setShowKycModal(true)}
+                                onClick={() => setKycModalOpen(true)}
                               >
                                 Resubmit KYC
                               </Button>
@@ -768,7 +768,7 @@ export default function Portfolio() {
                                 size="sm" 
                                 variant="outline"
                                 className="w-full sm:w-auto"
-                                onClick={() => setShowKycModal(true)}
+                                onClick={() => setKycModalOpen(true)}
                               >
                                 Start KYC Verification
                               </Button>
