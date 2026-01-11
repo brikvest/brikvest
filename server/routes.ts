@@ -1604,8 +1604,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/properties/:id", requireAdminAuth, async (req, res) => {
     try {
       const propertyId = parseInt(req.params.id);
+      
+      // Get the property first
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      
+      // Get all reservations for this property
+      const allReservations = await storage.getAllReservations();
+      const propertyReservations = allReservations.filter(r => r.propertyId === propertyId);
+      
+      // Check if any reservations have payment received or are confirmed
+      const paidReservations = propertyReservations.filter(r => 
+        r.status === 'payment_received' || r.status === 'confirmed'
+      );
+      
+      if (paidReservations.length > 0) {
+        return res.status(400).json({ 
+          error: `Cannot delete property. There are ${paidReservations.length} reservation(s) with payment received or confirmed. Cancel those investments first.` 
+        });
+      }
+      
+      // Cancel all payment_pending reservations and notify users
+      const pendingReservations = propertyReservations.filter(r => r.status === 'payment_pending');
+      
+      for (const reservation of pendingReservations) {
+        // Cancel the reservation
+        await storage.updateReservation(reservation.id, { status: 'cancelled' });
+        
+        // Send notification email
+        try {
+          await sendEmail({
+            to: reservation.email,
+            subject: "Property Removed - Brikvest",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #ef4444; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                  <h1 style="margin: 0; font-size: 24px;">Property Removed</h1>
+                </div>
+                <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+                  <p style="color: #374151; margin-bottom: 20px;">Dear ${reservation.fullName},</p>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    We regret to inform you that the property <strong>${property.name}</strong> has been removed from our platform.
+                  </p>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    Your reservation for this property has been automatically cancelled. No payment was received, so no refund is necessary.
+                  </p>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    We apologize for any inconvenience this may cause. Please feel free to explore other investment opportunities on our platform.
+                  </p>
+                  <div style="text-align: center; margin-top: 30px;">
+                    <a href="https://www.brikvest.net" style="background-color: #10b981; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">
+                      Browse Properties
+                    </a>
+                  </div>
+                  <p style="color: #9ca3af; font-size: 14px; margin-top: 30px;">
+                    If you have any questions, please contact our support team.
+                  </p>
+                </div>
+              </div>
+            `,
+          });
+          console.log(`[DELETE PROPERTY] Notified ${reservation.email} about cancelled reservation for property ${propertyId}`);
+        } catch (emailError) {
+          console.error(`Error sending cancellation email to ${reservation.email}:`, emailError);
+        }
+      }
+      
+      // Now delete the property
       await storage.deleteProperty(propertyId);
-      res.json({ message: "Property deleted successfully" });
+      
+      res.json({ 
+        message: "Property deleted successfully",
+        cancelledReservations: pendingReservations.length,
+        notifiedUsers: pendingReservations.map(r => r.email)
+      });
     } catch (error) {
       console.error("Error deleting property:", error);
       res.status(500).json({ error: "Failed to delete property" });
