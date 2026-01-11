@@ -693,7 +693,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Ilerioluwa O.</p>
-                  <p className="text-sm text-slate-500">Diaspora Investor</p>
                 </div>
               </div>
             </div>
@@ -715,7 +714,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Chukwudi O.</p>
-                  <p className="text-sm text-slate-500">Property Investor</p>
                 </div>
               </div>
             </div>
@@ -737,7 +735,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Queenet G.</p>
-                  <p className="text-sm text-slate-500">First-time Investor</p>
                 </div>
               </div>
             </div>
@@ -759,7 +756,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Unekwu S.</p>
-                  <p className="text-sm text-slate-500">Verified Investor</p>
                 </div>
               </div>
             </div>
@@ -781,7 +777,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Sani A.</p>
-                  <p className="text-sm text-slate-500">Strategic Investor</p>
                 </div>
               </div>
             </div>
@@ -803,7 +798,6 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="font-semibold text-slate-900">Ikendai A.</p>
-                  <p className="text-sm text-slate-500">Data-driven Investor</p>
                 </div>
               </div>
             </div>
