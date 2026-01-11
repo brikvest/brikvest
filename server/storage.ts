@@ -12,6 +12,7 @@ import {
   marketInsights,
   guzapeListings,
   ownershipCertificates,
+  paymentSubmissions,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -33,7 +34,9 @@ import {
   type GuzapeListing,
   type InsertGuzapeListing,
   type OwnershipCertificate,
-  type InsertOwnershipCertificate
+  type InsertOwnershipCertificate,
+  type PaymentSubmission,
+  type InsertPaymentSubmission
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -119,6 +122,14 @@ export interface IStorage {
   getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined>;
   getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]>;
   getNextCertificateNumber(): Promise<string>;
+  
+  // Payment submissions methods (user-initiated)
+  createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission>;
+  getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]>;
+  getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]>;
+  getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]>;
+  getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined>;
+  updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -776,6 +787,48 @@ export class DatabaseStorage implements IStorage {
     }
     
     return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+  }
+
+  // Payment submissions methods (user-initiated payment proof uploads)
+  async createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission> {
+    const [result] = await db.insert(paymentSubmissions).values(submission).returning();
+    return result;
+  }
+
+  async getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.reservationId, reservationId))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.userId, userId))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.status, 'pending_admin_review'))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined> {
+    const [submission] = await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.id, id));
+    return submission;
+  }
+
+  async updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission> {
+    const [result] = await db.update(paymentSubmissions)
+      .set(updates)
+      .where(eq(paymentSubmissions.id, id))
+      .returning();
+    return result;
   }
 }
 

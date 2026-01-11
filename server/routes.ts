@@ -381,6 +381,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // User payment proof submission endpoint
+  app.post('/api/user/payment-submission', requireAuth, upload.single('paymentProof'), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { reservationId } = req.body;
+      const file = req.file;
+
+      if (!reservationId) {
+        return res.status(400).json({ error: "Reservation ID is required" });
+      }
+
+      if (!file) {
+        return res.status(400).json({ error: "Payment proof document is required" });
+      }
+
+      // Validate file type (image or PDF)
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ 
+          error: "Invalid file type. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+        });
+      }
+
+      const maxFileSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxFileSize) {
+        return res.status(400).json({ error: "File size exceeds 10MB limit." });
+      }
+
+      // Get reservation and verify ownership
+      const reservation = await storage.getReservation(parseInt(reservationId));
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      if (reservation.userId !== userId) {
+        return res.status(403).json({ error: "You can only submit payment for your own reservations" });
+      }
+
+      if (reservation.status !== 'reserved') {
+        return res.status(400).json({ error: "This reservation is not awaiting payment" });
+      }
+
+      // Verify KYC is approved
+      const user = await storage.getUser(userId);
+      if (!user || user.kycStatus !== 'approved') {
+        return res.status(403).json({ 
+          error: "KYC verification must be approved before submitting payment proof" 
+        });
+      }
+
+      // Check for existing pending submission
+      const existingSubmissions = await storage.getPaymentSubmissionsByReservationId(parseInt(reservationId));
+      const hasPending = existingSubmissions.some(s => s.status === 'pending_admin_review');
+      if (hasPending) {
+        return res.status(400).json({ error: "A payment proof is already pending review for this reservation" });
+      }
+
+      // Upload file (PDF to Object Storage, images to Cloudinary)
+      let proofUrl: string;
+      if (file.mimetype === 'application/pdf') {
+        proofUrl = await uploadToObjectStorage(
+          file.buffer,
+          file.originalname,
+          file.mimetype,
+          'payment-proofs'
+        );
+      } else {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          file.originalname,
+          'brikvest/payment-proofs'
+        );
+        proofUrl = result.url;
+      }
+
+      // Create payment submission
+      const submission = await storage.createPaymentSubmission({
+        reservationId: parseInt(reservationId),
+        userId,
+        proofUrl,
+        proofType: file.mimetype === 'application/pdf' ? 'pdf' : 'image',
+        status: 'pending_admin_review'
+      });
+
+      res.json({ 
+        message: "Payment proof submitted successfully. Please wait for admin review.",
+        submission
+      });
+    } catch (error) {
+      console.error("Error submitting payment proof:", error);
+      res.status(500).json({ error: "Failed to submit payment proof" });
+    }
+  });
+
+  // Get user's payment submissions
+  app.get('/api/user/payment-submissions', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const submissions = await storage.getPaymentSubmissionsByUserId(userId);
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
+  // Get payment submissions for a specific reservation
+  app.get('/api/user/reservations/:reservationId/payment-submissions', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const reservationId = parseInt(req.params.reservationId);
+      
+      // Verify ownership
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const submissions = await storage.getPaymentSubmissionsByReservationId(reservationId);
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
   // Admin KYC routes
   app.get('/api/admin/kyc/submissions', requireAdminAuth, async (req, res) => {
     try {
@@ -438,6 +564,206 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating KYC status:", error);
       res.status(500).json({ error: "Failed to update KYC status" });
+    }
+  });
+
+  // Admin Payment Submission routes
+  app.get('/api/admin/payment-submissions', requireAdminAuth, async (req, res) => {
+    try {
+      const submissions = await storage.getAllPendingPaymentSubmissions();
+      
+      // Enrich submissions with reservation and user details
+      const enrichedSubmissions = await Promise.all(
+        submissions.map(async (submission) => {
+          const reservation = await storage.getReservation(submission.reservationId);
+          const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
+          const user = await storage.getUser(submission.userId);
+          return {
+            ...submission,
+            reservation,
+            property,
+            user: user ? {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              kycFullName: user.kycFullName
+            } : null
+          };
+        })
+      );
+      
+      res.json(enrichedSubmissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
+  app.put('/api/admin/payment-submissions/:id/approve', requireAdminAuth, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      
+      const submission = await storage.getPaymentSubmission(submissionId);
+      if (!submission) {
+        return res.status(404).json({ error: "Payment submission not found" });
+      }
+
+      if (submission.status !== 'pending_admin_review') {
+        return res.status(400).json({ error: "This submission has already been processed" });
+      }
+
+      const reservation = await storage.getReservation(submission.reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Associated reservation not found" });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Associated property not found" });
+      }
+
+      const user = await storage.getUser(submission.userId);
+      if (!user) {
+        return res.status(404).json({ error: "Associated user not found" });
+      }
+
+      // Atomically: update submission, update reservation to converted, update property unit counts
+      await storage.updatePaymentSubmission(submissionId, {
+        status: 'approved',
+        reviewedAt: new Date(),
+        adminNotes: req.body.adminNotes || null
+      });
+
+      await storage.updateReservation(reservation.id, {
+        status: 'converted_to_investment',
+        confirmedAt: new Date()
+      });
+
+      // Move units from reserved to sold
+      await storage.updatePropertyUnitCounts(reservation.propertyId, -reservation.units, reservation.units);
+
+      // Generate ownership certificate
+      try {
+        const certNumber = await storage.getNextCertificateNumber();
+        const verificationToken = randomBytes(32).toString('hex');
+        
+        await storage.createOwnershipCertificate({
+          reservationId: reservation.id,
+          userId: user.id,
+          propertyId: reservation.propertyId,
+          certificateNumber: certNumber,
+          verificationToken,
+          ownerName: user.kycFullName || `${user.firstName} ${user.lastName}`,
+          propertyName: property.name,
+          units: reservation.units,
+          amount: reservation.amount?.toString() || '0',
+          currency: reservation.currency || 'NGN'
+        });
+        console.log(`[PAYMENT APPROVED] Generated certificate ${certNumber} for reservation ${reservation.id}`);
+      } catch (certError) {
+        console.error("Error generating certificate:", certError);
+        // Don't fail the whole operation if certificate generation fails
+      }
+
+      // Send confirmation email
+      try {
+        const emailContent = investmentConfirmedEmailTemplate({
+          fullName: user.kycFullName || `${user.firstName} ${user.lastName}`,
+          propertyName: property.name,
+          units: reservation.units,
+          amount: reservation.amount?.toString() || '0',
+          currency: reservation.currency || 'NGN'
+        });
+        await sendEmail({
+          to: user.email,
+          subject: emailContent.subject,
+          html: emailContent.html
+        });
+      } catch (emailError) {
+        console.error("Error sending confirmation email:", emailError);
+      }
+
+      res.json({ 
+        message: "Payment approved and investment confirmed",
+        reservationId: reservation.id
+      });
+    } catch (error) {
+      console.error("Error approving payment:", error);
+      res.status(500).json({ error: "Failed to approve payment" });
+    }
+  });
+
+  app.put('/api/admin/payment-submissions/:id/reject', requireAdminAuth, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const { reason } = req.body;
+
+      if (!reason) {
+        return res.status(400).json({ error: "Rejection reason is required" });
+      }
+
+      const submission = await storage.getPaymentSubmission(submissionId);
+      if (!submission) {
+        return res.status(404).json({ error: "Payment submission not found" });
+      }
+
+      if (submission.status !== 'pending_admin_review') {
+        return res.status(400).json({ error: "This submission has already been processed" });
+      }
+
+      const user = await storage.getUser(submission.userId);
+      const reservation = await storage.getReservation(submission.reservationId);
+      const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
+
+      // Update submission status
+      await storage.updatePaymentSubmission(submissionId, {
+        status: 'rejected',
+        reviewedAt: new Date(),
+        rejectionReason: reason,
+        adminNotes: req.body.adminNotes || null
+      });
+
+      // Send rejection email
+      if (user) {
+        try {
+          await sendEmail({
+            to: user.email,
+            subject: "Payment Proof Rejected - Brikvest",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #ef4444; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                  <h1 style="margin: 0; font-size: 24px;">Payment Proof Rejected</h1>
+                </div>
+                <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+                  <p style="color: #374151; margin-bottom: 20px;">Dear ${user.kycFullName || user.firstName || 'Investor'},</p>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    Unfortunately, your payment proof for <strong>${property?.name || 'your reservation'}</strong> has been rejected.
+                  </p>
+                  <div style="background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 15px; margin-bottom: 20px;">
+                    <p style="color: #991b1b; margin: 0;"><strong>Reason:</strong> ${reason}</p>
+                  </div>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    Please review the feedback above and submit a new payment proof from your dashboard.
+                  </p>
+                  <div style="text-align: center; margin-top: 30px;">
+                    <a href="https://www.brikvest.net/dashboard" style="background-color: #10b981; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">
+                      Go to Dashboard
+                    </a>
+                  </div>
+                </div>
+              </div>
+            `
+          });
+        } catch (emailError) {
+          console.error("Error sending rejection email:", emailError);
+        }
+      }
+
+      res.json({ message: "Payment submission rejected" });
+    } catch (error) {
+      console.error("Error rejecting payment:", error);
+      res.status(500).json({ error: "Failed to reject payment" });
     }
   });
 
