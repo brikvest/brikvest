@@ -9,21 +9,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { loginUserSchema, registerUserSchema } from "@shared/schema";
 import type { LoginUser, RegisterUser } from "@shared/schema";
 
 export default function Login() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const [isRegistering, setIsRegistering] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const { toast } = useToast();
 
+  const getRedirectUrl = () => {
+    const params = new URLSearchParams(searchString);
+    const redirect = params.get("redirect");
+    if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
+      return redirect;
+    }
+    return "/dashboard";
+  };
+
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      setLocation("/dashboard");
+      setLocation(getRedirectUrl());
     }
   }, [isAuthenticated, isLoading, setLocation]);
 
@@ -66,7 +76,7 @@ export default function Login() {
         title: "Welcome back!",
         description: "You have been logged in successfully.",
       });
-      setLocation("/dashboard");
+      setLocation(getRedirectUrl());
     },
     onError: (error: any) => {
       toast({
@@ -97,7 +107,7 @@ export default function Login() {
         title: "Welcome to Brikvest!",
         description: "Your account has been created successfully.",
       });
-      setLocation("/dashboard");
+      setLocation(getRedirectUrl());
     },
     onError: (error: any) => {
       toast({

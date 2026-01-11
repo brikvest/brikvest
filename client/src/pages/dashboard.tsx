@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download } from "lucide-react";
-import { Link, useLocation } from "wouter";
-import { useEffect, useState, useRef } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate } from "@shared/schema";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
@@ -22,9 +22,29 @@ import { CurrencySelector } from "@/components/CurrencySelector";
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { formatCurrency, userCurrency, convertAmount } = useCurrency();
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingPaymentReservationId, setPendingPaymentReservationId] = useState<number | null>(null);
+  
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      const currentUrl = `/dashboard${searchString ? `?${searchString}` : ''}`;
+      setLocation(`/login?redirect=${encodeURIComponent(currentUrl)}`);
+    }
+  }, [isLoading, isAuthenticated, setLocation, searchString]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const paymentFor = params.get("paymentFor");
+    if (paymentFor) {
+      const reservationId = parseInt(paymentFor, 10);
+      if (!isNaN(reservationId)) {
+        setPendingPaymentReservationId(reservationId);
+      }
+    }
+  }, [searchString]);
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [kycFormData, setKycFormData] = useState({
     fullName: '',
@@ -124,6 +144,50 @@ export default function Portfolio() {
     queryKey: [`/api/user/certificates/${selectedReservationId}`],
     enabled: !!selectedReservationId && certificateModalOpen,
   });
+
+  useEffect(() => {
+    if (pendingPaymentReservationId && reservations.length > 0) {
+      const reservation = reservations.find(r => r.id === pendingPaymentReservationId);
+      if (reservation && reservation.status === 'reserved') {
+        setSelectedPaymentReservation(reservation);
+        setPaymentModalOpen(true);
+        setPendingPaymentReservationId(null);
+        const params = new URLSearchParams(searchString);
+        params.delete("paymentFor");
+        const newSearch = params.toString();
+        setLocation(`/dashboard${newSearch ? `?${newSearch}` : ''}`, { replace: true });
+      } else if (reservation && reservation.status !== 'reserved') {
+        toast({
+          title: "Reservation Status Changed",
+          description: "This reservation is no longer awaiting payment.",
+        });
+        setPendingPaymentReservationId(null);
+      }
+    }
+  }, [pendingPaymentReservationId, reservations, setLocation, searchString, toast]);
+
+  const handleOpenPaymentModal = useCallback(async (reservation: InvestmentReservation & { property?: Property }) => {
+    try {
+      const response = await fetch("/api/auth/user", { credentials: "include" });
+      if (!response.ok) {
+        toast({
+          title: "Session Expired",
+          description: "Please sign in again to continue with your payment.",
+        });
+        const redirectUrl = `/dashboard?paymentFor=${reservation.id}`;
+        setLocation(`/login?redirect=${encodeURIComponent(redirectUrl)}`);
+        return;
+      }
+      setSelectedPaymentReservation(reservation);
+      setPaymentModalOpen(true);
+    } catch (error) {
+      toast({
+        title: "Connection Error",
+        description: "Please check your connection and try again.",
+        variant: "destructive",
+      });
+    }
+  }, [setLocation, toast]);
 
   const handleViewCertificate = (reservationId: number) => {
     setSelectedReservationId(reservationId);
@@ -376,12 +440,23 @@ export default function Portfolio() {
     }
   };
 
-  if (isLoading || !user) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-slate-600">Loading your portfolio...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Redirecting to sign in...</p>
         </div>
       </div>
     );
@@ -851,10 +926,7 @@ export default function Portfolio() {
                               <Button 
                                 size="sm" 
                                 className="w-full sm:w-auto"
-                                onClick={() => {
-                                  setSelectedPaymentReservation(reservation);
-                                  setPaymentModalOpen(true);
-                                }}
+                                onClick={() => handleOpenPaymentModal(reservation)}
                               >
                                 Upload Payment Proof
                               </Button>
