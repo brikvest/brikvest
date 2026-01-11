@@ -889,6 +889,20 @@ function AdminInvestmentsTab({
                                     </DropdownMenuItem>
                                   </>
                                 )}
+                                {reservation.status === "payment_received" && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
+                                      disabled={cancelInvestmentMutation.isPending}
+                                      className="text-orange-600 focus:text-orange-600"
+                                      data-testid={`menu-withdraw-${reservation.id}`}
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Withdraw (Refund Required)
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -1345,7 +1359,7 @@ function UserPortfolioTab({
                             )}
                           </TableCell>
                           <TableCell>
-                            {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') ? (
+                            {reservation.status !== 'cancelled' ? (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -1353,15 +1367,28 @@ function UserPortfolioTab({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    onClick={() => handleCancelInvestment(reservation.id)}
-                                    disabled={cancellingId === reservation.id}
-                                    className="text-red-600 focus:text-red-600"
-                                    data-testid={`menu-cancel-portfolio-${reservation.id}`}
-                                  >
-                                    <XCircle className="h-4 w-4 mr-2" />
-                                    {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
-                                  </DropdownMenuItem>
+                                  {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') && (
+                                    <DropdownMenuItem
+                                      onClick={() => handleCancelInvestment(reservation.id)}
+                                      disabled={cancellingId === reservation.id}
+                                      className="text-red-600 focus:text-red-600"
+                                      data-testid={`menu-cancel-portfolio-${reservation.id}`}
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
+                                    </DropdownMenuItem>
+                                  )}
+                                  {reservation.status === 'payment_received' && (
+                                    <DropdownMenuItem
+                                      onClick={() => handleCancelInvestment(reservation.id)}
+                                      disabled={cancellingId === reservation.id}
+                                      className="text-orange-600 focus:text-orange-600"
+                                      data-testid={`menu-withdraw-portfolio-${reservation.id}`}
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Withdraw (Refund Required)
+                                    </DropdownMenuItem>
+                                  )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             ) : (
