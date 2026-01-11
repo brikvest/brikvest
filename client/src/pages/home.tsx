@@ -812,7 +812,7 @@ export default function Home() {
             <div>
               <h4 className="font-semibold mb-4">Company</h4>
               <ul className="space-y-2">
-                <li><a href="#" className="text-slate-300 hover:text-white transition-colors">About Us</a></li>
+                <li><Link href="/about" className="text-slate-300 hover:text-white transition-colors">About Us</Link></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">How It Works</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Security</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Careers</a></li>
