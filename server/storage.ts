@@ -78,6 +78,7 @@ export interface IStorage {
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
+  cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }>;
   
   // Investment group methods
   createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
@@ -326,6 +327,72 @@ export class DatabaseStorage implements IStorage {
       );
     
     return result.rowCount || 0;
+  }
+
+  async cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }> {
+    const now = new Date();
+    
+    const expiredReservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(
+        and(
+          eq(investmentReservations.status, 'payment_pending'),
+          sql`${investmentReservations.expiresAt} IS NOT NULL`,
+          sql`${investmentReservations.expiresAt} < ${now}`
+        )
+      );
+    
+    if (expiredReservations.length === 0) {
+      return { cancelled: 0, unitsReleased: 0 };
+    }
+    
+    let totalCancelled = 0;
+    let totalUnitsReleased = 0;
+    
+    for (const reservation of expiredReservations) {
+      const units = typeof reservation.units === 'string' 
+        ? parseFloat(reservation.units) 
+        : Number(reservation.units) || 0;
+      
+      const [updated] = await db
+        .update(investmentReservations)
+        .set({ status: 'cancelled' })
+        .where(
+          and(
+            eq(investmentReservations.id, reservation.id),
+            eq(investmentReservations.status, 'payment_pending'),
+            sql`${investmentReservations.expiresAt} IS NOT NULL`,
+            sql`${investmentReservations.expiresAt} < ${now}`
+          )
+        )
+        .returning();
+      
+      if (!updated) {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - status changed during cleanup`);
+        continue;
+      }
+      
+      totalCancelled++;
+      
+      if (units > 0 && reservation.propertyId) {
+        await db
+          .update(properties)
+          .set({
+            availableSlots: sql`${properties.availableSlots} + ${units}`,
+            reservedUnits: sql`GREATEST(0, ${properties.reservedUnits} - ${units})`
+          })
+          .where(eq(properties.id, reservation.propertyId));
+        
+        totalUnitsReleased += units;
+      }
+      
+      console.log(`[CLEANUP] Cancelled expired reservation ${reservation.id} (${reservation.email}), released ${units} units`);
+    }
+    
+    console.log(`[CLEANUP] Total: ${totalCancelled} reservations cancelled, ${totalUnitsReleased} units released`);
+    
+    return { cancelled: totalCancelled, unitsReleased: totalUnitsReleased };
   }
 
   async getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]> {

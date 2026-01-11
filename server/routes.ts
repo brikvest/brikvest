@@ -1195,6 +1195,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Cleanup expired reservations (admin only)
+  app.post("/api/admin/cleanup-expired-reservations", requireAdminAuth, async (req, res) => {
+    try {
+      const result = await storage.cleanupExpiredReservations();
+      res.json({
+        message: `Cleanup complete: ${result.cancelled} reservations cancelled, ${result.unitsReleased} units released`,
+        ...result
+      });
+    } catch (error) {
+      console.error("Error cleaning up expired reservations:", error);
+      res.status(500).json({ message: "Failed to cleanup expired reservations" });
+    }
+  });
+
   // Get all properties
   app.get("/api/properties", async (req, res) => {
     try {
@@ -2927,5 +2941,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Run initial cleanup of expired reservations on startup
+  storage.cleanupExpiredReservations()
+    .then(result => {
+      if (result.cancelled > 0) {
+        console.log(`[STARTUP] Cleaned up ${result.cancelled} expired reservation(s), released ${result.unitsReleased} units`);
+      }
+    })
+    .catch(err => console.error('[STARTUP] Failed to cleanup expired reservations:', err));
+  
+  // Schedule cleanup every hour
+  setInterval(() => {
+    storage.cleanupExpiredReservations()
+      .then(result => {
+        if (result.cancelled > 0) {
+          console.log(`[SCHEDULED] Cleaned up ${result.cancelled} expired reservation(s), released ${result.unitsReleased} units`);
+        }
+      })
+      .catch(err => console.error('[SCHEDULED] Failed to cleanup expired reservations:', err));
+  }, 60 * 60 * 1000); // Every hour
+  
   return httpServer;
 }
