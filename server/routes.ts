@@ -1673,6 +1673,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = result.data;
       
+      // Validate units - must be positive
+      const requestedUnits = typeof validatedData.units === 'string' ? parseFloat(validatedData.units) : validatedData.units;
+      if (!requestedUnits || requestedUnits <= 0 || isNaN(requestedUnits)) {
+        return res.status(400).json({ 
+          message: "Please enter a valid number of units (must be greater than 0)" 
+        });
+      }
+      
       // Add userId if user is authenticated
       let reservationData = validatedData;
       if (req.isAuthenticated() && req.user) {
@@ -1694,6 +1702,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ 
           message: `Only ${property.availableSlots} unit${property.availableSlots !== 1 ? 's' : ''} available. Please select a smaller quantity.` 
         });
+      }
+
+      // Idempotency check: prevent duplicate reservations within 60 seconds
+      const recentReservations = await storage.getReservationsByEmail(reservationData.email);
+      const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+      const duplicateReservation = recentReservations.find(r => 
+        r.propertyId === reservationData.propertyId && 
+        r.status === 'reserved' &&
+        new Date(r.createdAt) > oneMinuteAgo
+      );
+      if (duplicateReservation) {
+        console.log(`[RESERVATION] Duplicate reservation prevented for ${reservationData.email} on property ${reservationData.propertyId}`);
+        return res.status(200).json(duplicateReservation); // Return existing reservation instead of error
       }
 
       // Enforce currency consistency - always use property's currency, default to NGN
