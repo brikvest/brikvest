@@ -125,6 +125,9 @@ export const investmentReservations = pgTable("investment_reservations", {
   createdByAdminId: integer("created_by_admin_id").references(() => adminUsers.id), // Admin who created this reservation
   notes: text("notes"), // Admin notes about the reservation
   
+  // Reservation expiration (24 hours from creation for payment_pending status)
+  expiresAt: timestamp("expires_at"), // When the reservation expires if payment not received
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
