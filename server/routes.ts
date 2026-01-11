@@ -397,8 +397,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = parseInt(req.params.userId);
       const { status } = req.body;
 
-      if (!['verified', 'rejected'].includes(status)) {
-        return res.status(400).json({ error: "Invalid status. Must be 'verified' or 'rejected'" });
+      if (!['approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'approved' or 'rejected'" });
       }
 
       // Get user info before updating status
@@ -414,7 +414,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const fullName = user.kycFullName || user.email.split('@')[0];
         
-        if (status === 'verified') {
+        if (status === 'approved') {
           const emailContent = kycApprovedEmailTemplate({ fullName });
           await sendEmail({
             to: user.email,
@@ -485,7 +485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate summary (same logic as user dashboard)
       const confirmedAndReceived = reservations.filter((r: any) => 
-        r.status === 'confirmed' || r.status === 'payment_received'
+        r.status === 'converted_to_investment'
       );
       
       const totalPortfolioValue = confirmedAndReceived.reduce((sum: number, r: any) => {
@@ -495,16 +495,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const propertiesOwned = new Set(
         reservations
-          .filter((r: any) => r.status === 'confirmed')
+          .filter((r: any) => r.status === 'converted_to_investment')
           .map((r: any) => r.propertyId)
       ).size;
 
       const activeReservations = reservations.filter((r: any) => 
-        r.status === 'payment_pending' || r.status === 'payment_received'
+        r.status === 'reserved'
       ).length;
 
       const confirmedInvestments = reservations.filter((r: any) => 
-        r.status === 'confirmed'
+        r.status === 'converted_to_investment'
       ).length;
 
       res.json({
@@ -625,7 +625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount,
         currency: investmentCurrency,
         unitPriceSnapshot,
-        status: 'payment_pending',
+        status: 'reserved',
         paymentMethod: paymentMethod || null,
         paymentReference: paymentReference || null,
         paymentEvidenceUrl: paymentEvidenceUrl || null,
@@ -689,9 +689,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Cannot mark payment received. User account not found." 
         });
       }
-      if (user.kycStatus !== 'verified') {
+      if (user.kycStatus !== 'approved') {
         return res.status(400).json({ 
-          error: "Cannot mark payment received. User KYC must be verified first." 
+          error: "Cannot mark payment received. User KYC must be approved first." 
         });
       }
 
@@ -701,9 +701,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
       const generatedPaymentReference = `BRK-${dateStr}-${randomPart}`;
 
-      // Update reservation status with generated payment reference
+      // Update reservation status with generated payment reference (keeping reserved until admin approves payment)
       await storage.updateReservation(reservationId, {
-        status: 'payment_received',
+        status: 'reserved',
         paymentMethod: paymentMethod || reservation.paymentMethod,
         paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
@@ -760,7 +760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Confirm investment (validates KYC and moves to confirmed)
+  // Confirm investment (validates KYC and moves to converted_to_investment)
   app.put('/api/admin/investments/:id/confirm', requireAdminAuth, async (req, res) => {
     try {
       const reservationId = parseInt(req.params.id);
@@ -773,16 +773,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check KYC status
       if (reservation.userId) {
         const user = await storage.getUser(reservation.userId);
-        if (user && user.kycStatus !== 'verified') {
+        if (user && user.kycStatus !== 'approved') {
           return res.status(400).json({ 
-            error: "Cannot confirm investment. User KYC must be verified first." 
+            error: "Cannot confirm investment. User KYC must be approved first." 
           });
         }
       }
 
-      // Update reservation to confirmed
+      // Update reservation to converted_to_investment
       await storage.updateReservation(reservationId, {
-        status: 'confirmed'
+        status: 'converted_to_investment'
       });
 
       // Move units from reserved to sold
@@ -932,7 +932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get all confirmed reservations
       const allReservations = await storage.getAllReservations();
-      const confirmedReservations = allReservations.filter(r => r.status === 'confirmed');
+      const confirmedReservations = allReservations.filter(r => r.status === 'converted_to_investment');
       
       let generated = 0;
       let errors = 0;
@@ -1007,10 +1007,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Release units back to the property for any active status
-      if (reservation.status === 'payment_pending' || reservation.status === 'payment_received' || reservation.status === 'confirmed') {
+      if (reservation.status === 'reserved' || reservation.status === 'converted_to_investment') {
         const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-        // For confirmed, decrease soldUnits; for pending/received, decrease reservedUnits
-        if (reservation.status === 'confirmed') {
+        // For converted_to_investment, decrease soldUnits; for reserved, decrease reservedUnits
+        if (reservation.status === 'converted_to_investment') {
           await storage.updatePropertyUnitCounts(reservation.propertyId, 0, -units);
         } else {
           await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
@@ -1656,19 +1656,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allReservations = await storage.getAllReservations();
       const propertyReservations = allReservations.filter(r => r.propertyId === propertyId);
       
-      // Check if any reservations have payment received or are confirmed
+      // Check if any reservations are converted to investments
       const paidReservations = propertyReservations.filter(r => 
-        r.status === 'payment_received' || r.status === 'confirmed'
+        r.status === 'converted_to_investment'
       );
       
       if (paidReservations.length > 0) {
         return res.status(400).json({ 
-          error: `Cannot delete property. There are ${paidReservations.length} reservation(s) with payment received or confirmed. Cancel those investments first.` 
+          error: `Cannot delete property. There are ${paidReservations.length} active investment(s). Cancel those investments first.` 
         });
       }
       
-      // Cancel all payment_pending reservations and notify users
-      const pendingReservations = propertyReservations.filter(r => r.status === 'payment_pending');
+      // Cancel all reserved reservations and notify users
+      const pendingReservations = propertyReservations.filter(r => r.status === 'reserved');
       
       for (const reservation of pendingReservations) {
         // Cancel the reservation
@@ -2838,7 +2838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: certificate.amount,
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
-          investmentStatus: reservation?.status || 'confirmed'
+          investmentStatus: reservation?.status || 'converted_to_investment'
         }
       });
     } catch (error) {
@@ -2874,7 +2874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: certificate.amount,
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
-          investmentStatus: reservation?.status || 'confirmed'
+          investmentStatus: reservation?.status || 'converted_to_investment'
         }
       });
     } catch (error) {

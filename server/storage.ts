@@ -177,14 +177,15 @@ export class DatabaseStorage implements IStorage {
 
   async getAllKycSubmissions(): Promise<User[]> {
     return await db.select().from(users)
-      .where(ne(users.kycStatus, 'pending'))
+      .where(ne(users.kycStatus, 'not_started'))
       .orderBy(desc(users.kycSubmittedAt));
   }
 
   async updateUserKycStatus(userId: number, status: string): Promise<void> {
     await db.update(users)
       .set({ 
-        kycStatus: status as 'pending' | 'submitted' | 'verified' | 'rejected',
+        kycStatus: status as 'not_started' | 'submitted' | 'approved' | 'rejected',
+        kycVerifiedAt: status === 'approved' ? new Date() : undefined,
         updatedAt: new Date() 
       })
       .where(eq(users.id, userId));
@@ -337,7 +338,7 @@ export class DatabaseStorage implements IStorage {
       .from(investmentReservations)
       .where(
         and(
-          eq(investmentReservations.status, 'payment_pending'),
+          eq(investmentReservations.status, 'reserved'),
           sql`${investmentReservations.expiresAt} IS NOT NULL`,
           sql`${investmentReservations.expiresAt} < ${now}`
         )
@@ -361,7 +362,7 @@ export class DatabaseStorage implements IStorage {
         .where(
           and(
             eq(investmentReservations.id, reservation.id),
-            eq(investmentReservations.status, 'payment_pending'),
+            eq(investmentReservations.status, 'reserved'),
             sql`${investmentReservations.expiresAt} IS NOT NULL`,
             sql`${investmentReservations.expiresAt} < ${now}`
           )
