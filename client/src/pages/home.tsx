@@ -227,6 +227,9 @@ export default function Home() {
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
                 </a>
+                <Link href="/about" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  About
+                </Link>
               </div>
             </nav>
             <div className="hidden md:flex items-center space-x-4">
@@ -351,6 +354,15 @@ export default function Home() {
                   >
                     How It Works
                   </a>
+
+                  <Link 
+                    href="/about" 
+                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-about"
+                  >
+                    About
+                  </Link>
                 </div>
 
                 {/* User section for authenticated users */}
