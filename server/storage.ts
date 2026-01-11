@@ -81,6 +81,7 @@ export interface IStorage {
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
+  extendReservationsOnKycSubmission(userId: number): Promise<number>;
   cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }>;
   
   // Investment group methods
@@ -339,6 +340,33 @@ export class DatabaseStorage implements IStorage {
       );
     
     return result.rowCount || 0;
+  }
+
+  async extendReservationsOnKycSubmission(userId: number): Promise<number> {
+    const now = new Date();
+    const newExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    
+    const result = await db
+      .update(investmentReservations)
+      .set({ 
+        expiresAt: newExpiry,
+        kycExtendedAt: now,
+        updatedAt: now
+      })
+      .where(
+        and(
+          eq(investmentReservations.userId, userId),
+          eq(investmentReservations.status, 'reserved'),
+          sql`${investmentReservations.kycExtendedAt} IS NULL`
+        )
+      );
+    
+    const count = result.rowCount || 0;
+    if (count > 0) {
+      console.log(`[KYC-EXTENSION] Extended ${count} reservation(s) by 24 hours for user ${userId} due to KYC submission`);
+    }
+    
+    return count;
   }
 
   async cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }> {
