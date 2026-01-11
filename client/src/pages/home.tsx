@@ -666,6 +666,151 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Testimonials Section */}
+      <section className="py-20 bg-gradient-to-br from-blue-50 to-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">What Our Investors Say</h2>
+            <p className="text-slate-600 max-w-2xl mx-auto">
+              Join thousands of investors who are building wealth through fractional real estate ownership
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "I liked how straightforward the process was. With just a couple of clicks, I could own land in Nigeria all the way from abroad. I'm really looking forward to seeing how far this can go."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                  <span className="text-blue-600 font-semibold text-sm">IO</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Ilerioluwa O.</p>
+                  <p className="text-sm text-slate-500">Diaspora Investor</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "What I really like about Brikvest is how much the barrier to entry has been reduced. I started off investing in Abuja, but now I'm also looking to own assets in Lagos. With this low entry point, diversifying my risk in real estate has become a lot easier."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <span className="text-green-600 font-semibold text-sm">CO</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Chukwudi O.</p>
+                  <p className="text-sm text-slate-500">Property Investor</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "The fact that I don't have to go through the stress of due diligence makes Brikvest a no-brainer for me. Being able to open the app, see an asset I like, and just acquire it — it almost feels like shopping on Amazon."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                  <span className="text-purple-600 font-semibold text-sm">QG</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Queenet G.</p>
+                  <p className="text-sm text-slate-500">First-time Investor</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "The transparency is what made the difference for me. As investors, we have access to all the title documents, which makes the whole process more reliable and gives us confidence."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                  <span className="text-orange-600 font-semibold text-sm">US</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Unekwu S.</p>
+                  <p className="text-sm text-slate-500">Verified Investor</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "I like Brikvest a lot. I think it's a very interesting initiative, and I'd love to see it expand globally. I want to be able to make strategic bets on regions that have real estate upside, and Brikvest makes that possible."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
+                  <span className="text-teal-600 font-semibold text-sm">SA</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Sani A.</p>
+                  <p className="text-sm text-slate-500">Strategic Investor</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-1 mb-4">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-600 mb-6 italic">
+                "The low barrier to entry really stands out for me. Also, I can easily review years of asset performance and access all the data I need before making an investment."
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
+                  <span className="text-indigo-600 font-semibold text-sm">IA</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Ikendai A.</p>
+                  <p className="text-sm text-slate-500">Data-driven Investor</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="bg-slate-900 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
