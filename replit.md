@@ -18,7 +18,17 @@ The application employs a modern full-stack architecture with a clear separation
 -   **UI/UX Decisions**: The platform adopts a modern, responsive design using Tailwind CSS and shadcn/ui. Key UI/UX elements include a Stripe-inspired user dashboard, gradient designs for public insights pages, mobile-first responsiveness with slide-in sidebars, and optimized layouts. Sensitive dashboard statistics are blurred until KYC verification is completed.
 -   **Key Features**: Includes fractional property investment, detailed property listings, investment reservations, robust admin property management, multi-currency support with real-time exchange rates, market insights for multiple Abuja locations (Guzape, Jahi, Lugbe) derived from web scraping PropertyPro.ng with data visualization, a comprehensive user dashboard, and a full KYC (Know Your Customer) verification system with document uploads (supporting various image formats and PDFs). The system also handles currency conversion consistently across the platform for accurate financial representation.
 
-## Recent Updates (November 29, 2025)
+## Recent Updates (January 11, 2026)
+-   **24-Hour Reservation Expiration System**: Implemented automatic expiration for investment reservations to prevent indefinite unit holds.
+    - **Schema Update**: Added `expiresAt` field to `investment_reservations` table
+    - **Expiration Setting**: All new reservations automatically expire 24 hours from creation
+    - **Email Notifications**: Updated investment email templates to notify users about 24-hour deadline and required steps (sign in → complete KYC → get approval → pay)
+    - **Automatic Cleanup**: Server runs cleanup on startup and hourly to cancel expired 'payment_pending' reservations
+    - **Admin Endpoint**: POST `/api/admin/cleanup-expired-reservations` for manual cleanup
+    - **Race Condition Protection**: Cleanup uses guarded UPDATE with RETURNING to prevent cancelling reservations whose status changed during cleanup
+    - **Inventory Consistency**: Cancelled reservations properly restore both `availableSlots` and `reservedUnits`
+
+## Previous Updates (November 29, 2025)
 -   **Ownership Certificate System**: Implemented comprehensive ownership certificate generation and verification for confirmed investments.
     - **Certificate Generation**: Auto-generates CERT-YYYY-NNNN format certificates with UUID verification tokens when admin confirms investment
     - **Dashboard Integration**: Investors can view and download certificates from the "My Property Holdings" section via "Certificate" button
