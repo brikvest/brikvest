@@ -441,9 +441,9 @@ function AdminInvestmentsTab({
 
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
-      case "payment_pending": return "bg-yellow-100 text-yellow-800";
-      case "payment_received": return "bg-blue-100 text-blue-800";
-      case "confirmed": return "bg-green-100 text-green-800";
+      case "reserved": return "bg-yellow-100 text-yellow-800";
+      case "converted_to_investment": return "bg-green-100 text-green-800";
+      case "expired": return "bg-orange-100 text-orange-800";
       case "cancelled": return "bg-red-100 text-red-800";
       default: return "bg-gray-100 text-gray-800";
     }
@@ -747,28 +747,20 @@ function AdminInvestmentsTab({
               All ({reservations.length})
             </Button>
             <Button
-              variant={statusFilter === "payment_pending" ? "default" : "outline"}
-              onClick={() => setStatusFilter("payment_pending")}
+              variant={statusFilter === "reserved" ? "default" : "outline"}
+              onClick={() => setStatusFilter("reserved")}
               size="sm"
-              data-testid="filter-payment-pending"
+              data-testid="filter-reserved"
             >
-              Payment Pending ({reservations.filter(r => r.status === "payment_pending").length})
+              Reserved ({reservations.filter(r => r.status === "reserved").length})
             </Button>
             <Button
-              variant={statusFilter === "payment_received" ? "default" : "outline"}
-              onClick={() => setStatusFilter("payment_received")}
-              size="sm"
-              data-testid="filter-payment-received"
-            >
-              Payment Received ({reservations.filter(r => r.status === "payment_received").length})
-            </Button>
-            <Button
-              variant={statusFilter === "confirmed" ? "default" : "outline"}
-              onClick={() => setStatusFilter("confirmed")}
+              variant={statusFilter === "converted_to_investment" ? "default" : "outline"}
+              onClick={() => setStatusFilter("converted_to_investment")}
               size="sm"
               data-testid="filter-confirmed"
             >
-              Confirmed ({reservations.filter(r => r.status === "confirmed").length})
+              Invested ({reservations.filter(r => r.status === "converted_to_investment").length})
             </Button>
           </div>
 
@@ -850,7 +842,7 @@ function AdminInvestmentsTab({
                                   <Eye className="h-4 w-4 mr-2" />
                                   View Details
                                 </DropdownMenuItem>
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                {reservation.status === "reserved" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -862,27 +854,7 @@ function AdminInvestmentsTab({
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
-                                  <DropdownMenuItem
-                                    onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
-                                    disabled={markPaymentReceivedMutation.isPending}
-                                    data-testid={`menu-mark-payment-${reservation.id}`}
-                                  >
-                                    <CheckCircle className="h-4 w-4 mr-2" />
-                                    Mark as Paid
-                                  </DropdownMenuItem>
-                                )}
-                                {reservation.status === "payment_received" && (
-                                  <DropdownMenuItem
-                                    onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
-                                    disabled={confirmInvestmentMutation.isPending}
-                                    data-testid={`menu-confirm-${reservation.id}`}
-                                  >
-                                    <ShieldCheck className="h-4 w-4 mr-2" />
-                                    Confirm Investment
-                                  </DropdownMenuItem>
-                                )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
+                                {(reservation.status === "reserved" || reservation.status === "converted_to_investment") && reservation.status !== "cancelled" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -892,21 +864,7 @@ function AdminInvestmentsTab({
                                       data-testid={`menu-cancel-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      {reservation.status === "confirmed" ? "Revert & Cancel" : "Cancel Investment"}
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                                {reservation.status === "payment_received" && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
-                                      disabled={cancelInvestmentMutation.isPending}
-                                      className="text-orange-600 focus:text-orange-600"
-                                      data-testid={`menu-withdraw-${reservation.id}`}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-2" />
-                                      Withdraw (Refund Required)
+                                      {reservation.status === "converted_to_investment" ? "Revert & Cancel" : "Cancel Reservation"}
                                     </DropdownMenuItem>
                                   </>
                                 )}
@@ -1166,12 +1124,12 @@ function UserPortfolioTab({
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return <Badge className="bg-green-100 text-green-800">Confirmed</Badge>;
-      case 'payment_received':
-        return <Badge className="bg-blue-100 text-blue-800">Payment Received</Badge>;
-      case 'payment_pending':
-        return <Badge className="bg-amber-100 text-amber-800">Payment Pending</Badge>;
+      case 'converted_to_investment':
+        return <Badge className="bg-green-100 text-green-800">Invested</Badge>;
+      case 'reserved':
+        return <Badge className="bg-amber-100 text-amber-800">Reserved</Badge>;
+      case 'expired':
+        return <Badge className="bg-orange-100 text-orange-800">Expired</Badge>;
       case 'cancelled':
         return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
       default:
@@ -1256,8 +1214,8 @@ function UserPortfolioTab({
                 <div>
                   <p className="text-sm text-slate-500">KYC Status</p>
                   <Badge 
-                    variant={portfolioData.user.kycStatus === 'verified' ? 'default' : 'secondary'}
-                    className={portfolioData.user.kycStatus === 'verified' ? 'bg-green-100 text-green-800' : ''}
+                    variant={portfolioData.user.kycStatus === 'approved' ? 'default' : 'secondary'}
+                    className={portfolioData.user.kycStatus === 'approved' ? 'bg-green-100 text-green-800' : ''}
                   >
                     {portfolioData.user.kycStatus || 'Not submitted'}
                   </Badge>
@@ -1359,7 +1317,7 @@ function UserPortfolioTab({
                               <Badge className="bg-green-100 text-green-800">
                                 {reservation.certificate.certificateNumber}
                               </Badge>
-                            ) : reservation.status === 'confirmed' ? (
+                            ) : reservation.status === 'converted_to_investment' ? (
                               <Badge variant="secondary">Pending</Badge>
                             ) : (
                               <span className="text-slate-400">-</span>
@@ -1374,7 +1332,7 @@ function UserPortfolioTab({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') && (
+                                  {(reservation.status === 'reserved' || reservation.status === 'converted_to_investment') && (
                                     <DropdownMenuItem
                                       onClick={() => handleCancelInvestment(reservation.id)}
                                       disabled={cancellingId === reservation.id}
@@ -1382,18 +1340,7 @@ function UserPortfolioTab({
                                       data-testid={`menu-cancel-portfolio-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
-                                    </DropdownMenuItem>
-                                  )}
-                                  {reservation.status === 'payment_received' && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleCancelInvestment(reservation.id)}
-                                      disabled={cancellingId === reservation.id}
-                                      className="text-orange-600 focus:text-orange-600"
-                                      data-testid={`menu-withdraw-portfolio-${reservation.id}`}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-2" />
-                                      Withdraw (Refund Required)
+                                      {reservation.status === 'converted_to_investment' ? 'Revert & Cancel' : 'Cancel Reservation'}
                                     </DropdownMenuItem>
                                   )}
                                 </DropdownMenuContent>
@@ -2518,7 +2465,7 @@ export default function AdminDashboard() {
                               <div className="text-right">
                                 <Badge 
                                   variant={
-                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'approved' ? 'default' : 
                                     kyc.kycStatus === 'rejected' ? 'destructive' : 
                                     'secondary'
                                   }
@@ -2847,7 +2794,7 @@ export default function AdminDashboard() {
                           <SelectContent>
                             <SelectItem value="none">No Badge</SelectItem>
                             <SelectItem value="partnered">Partnered</SelectItem>
-                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
                             <SelectItem value="exclusive">Exclusive</SelectItem>
                           </SelectContent>
                         </Select>
@@ -3165,7 +3112,7 @@ export default function AdminDashboard() {
                               <TableCell>
                                 <Badge 
                                   variant={
-                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'approved' ? 'default' : 
                                     kyc.kycStatus === 'rejected' ? 'destructive' : 
                                     'secondary'
                                   }
@@ -3736,10 +3683,10 @@ export default function AdminDashboard() {
                   <div>
                     <Label className="text-sm font-medium text-slate-600">Reservation Status</Label>
                     <Badge 
-                      variant={viewingReservation.status === 'confirmed' ? 'default' : 'secondary'}
+                      variant={viewingReservation.status === 'converted_to_investment' ? 'default' : 'secondary'}
                       className="mt-1"
                     >
-                      {viewingReservation.status}
+                      {viewingReservation.status === 'converted_to_investment' ? 'Invested' : viewingReservation.status}
                     </Badge>
                   </div>
                 </div>
@@ -4123,7 +4070,7 @@ export default function AdminDashboard() {
                     <p className="text-sm text-slate-600">Current Status</p>
                     <Badge 
                       variant={
-                        viewingKyc.kycStatus === 'verified' ? 'default' : 
+                        viewingKyc.kycStatus === 'approved' ? 'default' : 
                         viewingKyc.kycStatus === 'rejected' ? 'destructive' : 
                         'secondary'
                       }
@@ -4245,7 +4192,7 @@ export default function AdminDashboard() {
                     onClick={() => {
                       updateKycStatusMutation.mutate({ 
                         userId: viewingKyc.id, 
-                        status: 'verified' 
+                        status: 'approved' 
                       });
                       setIsKycDetailOpen(false);
                     }}
@@ -4272,7 +4219,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {viewingKyc.kycStatus === 'verified' && (
+              {viewingKyc.kycStatus === 'approved' && (
                 <div className="bg-green-50 border border-green-200 p-4 rounded-lg text-center">
                   <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
                   <p className="text-green-800 font-medium">This KYC has been verified</p>

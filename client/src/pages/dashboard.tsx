@@ -273,9 +273,9 @@ export default function Portfolio() {
 
   const userData = user as any;
   
-  // Only count confirmed and payment_received investments in total portfolio value
+  // Only count converted investments in total portfolio value
   const totalInvested = reservations
-    .filter(res => res.status === 'confirmed' || res.status === 'payment_received')
+    .filter(res => res.status === 'converted_to_investment')
     .reduce((sum, res) => {
       // Use the reservation's stored amount and currency, then convert to user's selected currency
       const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
@@ -284,17 +284,17 @@ export default function Portfolio() {
       return sum + convertedAmount;
     }, 0);
   
-  // Active reservations are those pending payment or payment received (not yet confirmed)
+  // Active reservations are those awaiting payment proof submission
   const activeReservations = reservations.filter(r => 
-    r.status === "payment_pending" || r.status === "payment_received"
+    r.status === "reserved"
   ).length;
   
-  // Completed investments are fully confirmed
-  const completedInvestments = reservations.filter(r => r.status === "confirmed").length;
-  const isKycVerified = userData.kycStatus === 'verified';
+  // Completed investments are fully converted
+  const completedInvestments = reservations.filter(r => r.status === "converted_to_investment").length;
+  const isKycVerified = userData.kycStatus === 'approved';
   
   // Check if KYC needs update (missing new required fields)
-  const needsKycUpdate = (userData.kycStatus === 'verified' || userData.kycStatus === 'submitted') && 
+  const needsKycUpdate = (userData.kycStatus === 'approved' || userData.kycStatus === 'submitted') && 
     (!userData.kycOccupation || !userData.kycSignatureUrl);
 
   return (
@@ -473,14 +473,14 @@ export default function Portfolio() {
         )}
 
         {/* KYC Verification Banner - Sticky */}
-        {!needsKycUpdate && userData.kycStatus !== 'verified' && (
+        {!needsKycUpdate && userData.kycStatus !== 'approved' && (
           <div className="sticky top-[73px] z-20 bg-blue-600 text-white shadow-md">
             <div className="px-4 sm:px-6 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <AlertCircle className="h-5 w-5 flex-shrink-0" />
                   <p className="text-sm">
-                    {userData.kycStatus === 'pending' && 'Complete identity verification to view your investment details'}
+                    {userData.kycStatus === 'not_started' && 'Complete identity verification to view your investment details'}
                     {userData.kycStatus === 'submitted' && 'Your verification is under review (1-2 business days)'}
                     {userData.kycStatus === 'rejected' && 'Please resubmit your verification documents'}
                   </p>
@@ -537,7 +537,7 @@ export default function Portfolio() {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Properties Owned</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {new Set(reservations.filter(r => r.status === 'confirmed').map(r => r.propertyId)).size}
+                      {new Set(reservations.filter(r => r.status === 'converted_to_investment').map(r => r.propertyId)).size}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
                       {activeReservations} pending
@@ -684,7 +684,7 @@ export default function Portfolio() {
           {/* Pending Reservations */}
           {(() => {
             const pendingReservations = reservations.filter(r => 
-              r.status === 'payment_pending' || r.status === 'payment_received'
+              r.status === 'reserved'
             );
             
             if (pendingReservations.length > 0) {
@@ -695,7 +695,7 @@ export default function Portfolio() {
                       <Clock className="h-5 w-5 text-yellow-600" />
                       Pending Reservations
                     </CardTitle>
-                    <p className="text-sm text-slate-600 mt-1">Complete payment to confirm your investments</p>
+                    <p className="text-sm text-slate-600 mt-1">Upload payment proof to confirm your investments</p>
                   </CardHeader>
                   <CardContent className="p-4 sm:p-6">
                     <div className="space-y-3 sm:space-y-4">
@@ -721,31 +721,26 @@ export default function Portfolio() {
                                 </p>
                               </div>
                             </div>
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start ${
-                                reservation.status === "payment_received"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-yellow-100 text-yellow-700"
-                              }`}
-                            >
-                              {reservation.status === "payment_received" ? "Payment Received" : "Payment Pending"}
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start bg-yellow-100 text-yellow-700">
+                              Awaiting Payment
                             </span>
                           </div>
                           
-                          {reservation.status === "payment_pending" && (
-                            <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
-                              <p className="text-sm font-medium text-slate-900 mb-2">Next Steps:</p>
-                              <p className="text-xs text-slate-600">
-                                Please complete your payment to confirm this investment. Contact support for payment instructions.
+                          {isKycVerified ? (
+                            <div className="mt-4 p-3 bg-white border border-green-200 rounded-lg">
+                              <p className="text-sm font-medium text-green-900 mb-2">Ready to Upload Payment Proof</p>
+                              <p className="text-xs text-green-700 mb-3">
+                                Your KYC is approved. Upload your payment proof to complete this investment.
                               </p>
+                              <Button size="sm" className="w-full sm:w-auto">
+                                Upload Payment Proof
+                              </Button>
                             </div>
-                          )}
-
-                          {reservation.status === "payment_received" && (
-                            <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
-                              <p className="text-sm font-medium text-blue-900 mb-2">Payment received!</p>
-                              <p className="text-xs text-blue-700">
-                                Your payment has been received and is being processed. Your investment will be confirmed shortly.
+                          ) : (
+                            <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
+                              <p className="text-sm font-medium text-slate-900 mb-2">Complete KYC First</p>
+                              <p className="text-xs text-slate-600">
+                                You must complete KYC verification and get approval before uploading payment proof.
                               </p>
                             </div>
                           )}
@@ -761,7 +756,7 @@ export default function Portfolio() {
 
           {/* My Holdings */}
           {(() => {
-            const confirmedInvestments = reservations.filter(r => r.status === 'confirmed');
+            const confirmedInvestments = reservations.filter(r => r.status === 'converted_to_investment');
             
             return (
               <Card className="mb-6 sm:mb-8 shadow-lg">

@@ -136,7 +136,7 @@ export default function Home() {
       amount: amount.toString(),
       unitPriceSnapshot: originalUnitPrice.toString(),
       currency: originalCurrency,
-      status: 'payment_pending',
+      status: 'reserved',
       referralCode: investmentForm.referralCode || undefined,
     };
 
