@@ -37,6 +37,14 @@ The application employs a modern full-stack architecture with a clear separation
     - **Reservation Statuses**: `reserved` → `expired` / `converted_to_investment` / `cancelled` (replaces old payment_pending/payment_received/confirmed)
     - **UI Updates**: All admin and dashboard components updated to use new status values with appropriate badges and gating
 
+-   **KYC-Triggered Reservation Extension**: Auto-extend active reservations when user submits KYC to prevent expiration during admin review.
+    - **Problem Solved**: Reservations expiring before admin approves KYC
+    - **Schema Update**: Added `kycExtendedAt` timestamp field to track extensions
+    - **Extension Logic**: When user submits KYC, all their active 'reserved' reservations get +24 hours from the later of (current expiry, now)
+    - **One-Time Extension**: Each reservation can only be extended once (tracked via kycExtendedAt)
+    - **Preserves Longer Deadlines**: Won't shorten reservations that already have more time remaining
+    - **Audit Logging**: Extensions logged with before/after timestamps
+
 -   **24-Hour Reservation Expiration System**: Implemented automatic expiration for investment reservations to prevent indefinite unit holds.
     - **Schema Update**: Added `expiresAt` field to `investment_reservations` table
     - **Expiration Setting**: All new reservations automatically expire 24 hours from creation
