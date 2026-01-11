@@ -108,8 +108,8 @@ export default function About() {
             <p className="text-lg text-slate-600 leading-relaxed mb-6">
               When you invest through Brikvest, you acquire:
             </p>
-            <div className="grid gap-4">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+            <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide md:grid md:grid-cols-3 md:overflow-x-visible md:pb-0">
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm min-w-[260px] md:min-w-0 snap-start">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                     <Shield className="w-5 h-5 text-blue-600" />
@@ -120,7 +120,7 @@ export default function About() {
                   </div>
                 </div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm min-w-[260px] md:min-w-0 snap-start">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                     <Users className="w-5 h-5 text-green-600" />
@@ -131,7 +131,7 @@ export default function About() {
                   </div>
                 </div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm min-w-[260px] md:min-w-0 snap-start">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
                     <TrendingUp className="w-5 h-5 text-purple-600" />
