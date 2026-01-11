@@ -127,6 +127,7 @@ export const investmentReservations = pgTable("investment_reservations", {
   
   // Reservation expiration (24 hours from creation for payment_pending status)
   expiresAt: timestamp("expires_at"), // When the reservation expires if payment not received
+  kycExtendedAt: timestamp("kyc_extended_at"), // When the reservation was extended due to KYC submission (one-time +24h extension)
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
