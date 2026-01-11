@@ -344,15 +344,12 @@ export class DatabaseStorage implements IStorage {
 
   async extendReservationsOnKycSubmission(userId: number): Promise<number> {
     const now = new Date();
-    const newExpiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const extensionMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     
-    const result = await db
-      .update(investmentReservations)
-      .set({ 
-        expiresAt: newExpiry,
-        kycExtendedAt: now,
-        updatedAt: now
-      })
+    // First, get eligible reservations to extend individually
+    const eligibleReservations = await db
+      .select()
+      .from(investmentReservations)
       .where(
         and(
           eq(investmentReservations.userId, userId),
@@ -361,12 +358,36 @@ export class DatabaseStorage implements IStorage {
         )
       );
     
-    const count = result.rowCount || 0;
-    if (count > 0) {
-      console.log(`[KYC-EXTENSION] Extended ${count} reservation(s) by 24 hours for user ${userId} due to KYC submission`);
+    if (eligibleReservations.length === 0) {
+      return 0;
     }
     
-    return count;
+    let extendedCount = 0;
+    
+    for (const reservation of eligibleReservations) {
+      // Calculate new expiry: add 24h from the later of (current expiry, now)
+      const currentExpiry = reservation.expiresAt ? new Date(reservation.expiresAt) : now;
+      const baseTime = currentExpiry > now ? currentExpiry : now;
+      const newExpiry = new Date(baseTime.getTime() + extensionMs);
+      
+      await db
+        .update(investmentReservations)
+        .set({ 
+          expiresAt: newExpiry,
+          kycExtendedAt: now,
+          updatedAt: now
+        })
+        .where(eq(investmentReservations.id, reservation.id));
+      
+      extendedCount++;
+      console.log(`[KYC-EXTENSION] Extended reservation ${reservation.id} from ${currentExpiry.toISOString()} to ${newExpiry.toISOString()}`);
+    }
+    
+    if (extendedCount > 0) {
+      console.log(`[KYC-EXTENSION] Extended ${extendedCount} reservation(s) by 24 hours for user ${userId} due to KYC submission`);
+    }
+    
+    return extendedCount;
   }
 
   async cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }> {
