@@ -1,9 +1,14 @@
+import { useEffect } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Target, Shield, TrendingUp, Users, Building, CheckCircle } from "lucide-react";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function About() {
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
