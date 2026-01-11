@@ -412,13 +412,29 @@ export class DatabaseStorage implements IStorage {
     let totalUnitsReleased = 0;
     
     for (const reservation of expiredReservations) {
+      // Check if reservation has a pending payment submission - if so, protect it from expiration
+      const pendingSubmissions = await db
+        .select()
+        .from(paymentSubmissions)
+        .where(
+          and(
+            eq(paymentSubmissions.reservationId, reservation.id),
+            eq(paymentSubmissions.status, 'pending_admin_review')
+          )
+        );
+      
+      if (pendingSubmissions.length > 0) {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - has pending payment proof awaiting admin review`);
+        continue;
+      }
+
       const units = typeof reservation.units === 'string' 
         ? parseFloat(reservation.units) 
         : Number(reservation.units) || 0;
       
       const [updated] = await db
         .update(investmentReservations)
-        .set({ status: 'cancelled' })
+        .set({ status: 'expired' })
         .where(
           and(
             eq(investmentReservations.id, reservation.id),

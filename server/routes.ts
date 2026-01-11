@@ -427,6 +427,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "This reservation is not awaiting payment" });
       }
 
+      // Check if reservation has expired
+      if (reservation.expiresAt && new Date(reservation.expiresAt) < new Date()) {
+        return res.status(400).json({ 
+          error: "This reservation has expired. Please create a new reservation to continue." 
+        });
+      }
+
       // Verify KYC is approved
       const user = await storage.getUser(userId);
       if (!user || user.kycStatus !== 'approved') {
