@@ -41,6 +41,49 @@ export default function Portfolio() {
   const [certificateModalOpen, setCertificateModalOpen] = useState(false);
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const certificateRef = useRef<HTMLDivElement>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedPaymentReservation, setSelectedPaymentReservation] = useState<(InvestmentReservation & { property?: Property }) | null>(null);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [uploadingPayment, setUploadingPayment] = useState(false);
+
+  const paymentMethods = {
+    NGN: {
+      title: "Naira Transfer (Nigeria)",
+      icon: "₦",
+      details: [
+        { label: "Bank Name", value: "Zenith Bank" },
+        { label: "Account Name", value: "Brikvest Limited" },
+        { label: "Account Number", value: "1310320691" },
+      ]
+    },
+    USD: {
+      title: "USD Transfer (U.S. Bank / Wire)",
+      icon: "$",
+      details: [
+        { label: "Beneficiary Name", value: "Charles Giadom" },
+        { label: "Address", value: "2100 North Central Road" },
+        { label: "Account Number", value: "483106622433" },
+        { label: "Routing Number", value: "026009593" },
+      ],
+      alternative: {
+        title: "Or via Zelle",
+        details: [
+          { label: "Name", value: "Charles Giadom" },
+          { label: "Phone", value: "+1 (646) 204-4536" },
+        ]
+      }
+    },
+    GBP: {
+      title: "GBP Transfer (United Kingdom)",
+      icon: "£",
+      details: [
+        { label: "Beneficiary Name", value: "Charles Giadom" },
+        { label: "Sort Code", value: "04-00-75" },
+        { label: "Account Number", value: "67385923" },
+        { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
+      ]
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -257,6 +300,79 @@ export default function Portfolio() {
       });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handlePaymentProofUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedPaymentReservation || !paymentProofFile) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a payment proof file to upload.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(paymentProofFile.type)) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please upload a JPEG, PNG, WEBP, or PDF file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const maxSize = 10 * 1024 * 1024;
+    if (paymentProofFile.size > maxSize) {
+      toast({
+        title: "File Too Large",
+        description: "File size must be less than 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUploadingPayment(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('reservationId', selectedPaymentReservation.id.toString());
+      formData.append('paymentProof', paymentProofFile);
+
+      const response = await fetch('/api/user/payment-submission', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Payment proof upload failed');
+      }
+
+      toast({
+        title: "Payment Proof Submitted",
+        description: "Your payment proof is now pending admin review.",
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
+      
+      setPaymentModalOpen(false);
+      setSelectedPaymentReservation(null);
+      setPaymentProofFile(null);
+    } catch (error: any) {
+      console.error('Payment upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: error.message || "There was an error uploading your payment proof. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingPayment(false);
     }
   };
 
@@ -732,7 +848,14 @@ export default function Portfolio() {
                               <p className="text-xs text-green-700 mb-3">
                                 Your KYC is approved. Upload your payment proof to complete this investment.
                               </p>
-                              <Button size="sm" className="w-full sm:w-auto">
+                              <Button 
+                                size="sm" 
+                                className="w-full sm:w-auto"
+                                onClick={() => {
+                                  setSelectedPaymentReservation(reservation);
+                                  setPaymentModalOpen(true);
+                                }}
+                              >
                                 Upload Payment Proof
                               </Button>
                             </div>
@@ -1243,6 +1366,134 @@ export default function Portfolio() {
                 Please contact support if this is unexpected.
               </p>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Proof Upload Modal */}
+      <Dialog open={paymentModalOpen} onOpenChange={(open) => {
+        setPaymentModalOpen(open);
+        if (!open) {
+          setSelectedPaymentReservation(null);
+          setPaymentProofFile(null);
+        }
+      }}>
+        <DialogContent className="max-w-lg max-h-[95vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Upload className="h-5 w-5 text-green-600" />
+              Submit Payment Proof
+            </DialogTitle>
+            <DialogDescription>
+              Transfer the amount to the bank account below, then upload your payment proof.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedPaymentReservation && (
+            <form onSubmit={handlePaymentProofUpload} className="space-y-6">
+              {/* Investment Details */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-semibold text-blue-900 mb-2">Investment Details</h4>
+                <div className="text-sm text-blue-800 space-y-1">
+                  <p><span className="font-medium">Property:</span> {selectedPaymentReservation.property?.name}</p>
+                  <p><span className="font-medium">Units:</span> {selectedPaymentReservation.units}</p>
+                  <p><span className="font-medium">Amount:</span> {formatCurrency(convertAmount(
+                    typeof selectedPaymentReservation.amount === 'string' 
+                      ? parseFloat(selectedPaymentReservation.amount) 
+                      : (selectedPaymentReservation.amount || 0),
+                    selectedPaymentReservation.currency || 'NGN'
+                  ))}</p>
+                </div>
+              </div>
+
+              {/* Bank Details */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-slate-900">Payment Methods</h4>
+                
+                {Object.entries(paymentMethods).map(([currency, method]) => (
+                  <div key={currency} className="p-4 border border-slate-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-lg font-bold text-slate-700">{method.icon}</span>
+                      <h5 className="font-medium text-slate-900">{method.title}</h5>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {method.details.map((detail, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="text-slate-600">{detail.label}:</span>
+                          <span className="font-medium text-slate-900 text-right">{detail.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {'alternative' in method && method.alternative && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <p className="text-sm font-medium text-slate-700 mb-2">{method.alternative.title}</p>
+                        <div className="space-y-1 text-sm">
+                          {method.alternative.details.map((detail, idx) => (
+                            <div key={idx} className="flex justify-between">
+                              <span className="text-slate-600">{detail.label}:</span>
+                              <span className="font-medium text-slate-900">{detail.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* File Upload */}
+              <div>
+                <Label htmlFor="paymentProof" className="text-sm font-medium">
+                  Upload Payment Proof <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="paymentProof"
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)}
+                  className="mt-1 cursor-pointer"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Bank transfer receipt, screenshot, or confirmation (JPG, PNG, WEBP, or PDF, max 10MB)
+                </p>
+                {paymentProofFile && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" />
+                    {paymentProofFile.name} selected
+                  </p>
+                )}
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPaymentModalOpen(false)}
+                  className="flex-1"
+                  disabled={uploadingPayment}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  disabled={uploadingPayment || !paymentProofFile}
+                >
+                  {uploadingPayment ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Submit Payment Proof
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
           )}
         </DialogContent>
       </Dialog>
