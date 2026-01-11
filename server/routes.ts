@@ -613,7 +613,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
       const investmentCurrency = property.currency || 'NGN';
       
-      // Create reservation
+      // Create reservation with 24-hour expiration
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       const reservation = await storage.createInvestmentReservation({
         userId,
         propertyId,
@@ -630,6 +631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentEvidenceUrl: paymentEvidenceUrl || null,
         createdByAdminId: (req.user as any).userId,
         notes: notes || null,
+        expiresAt,
       });
       
       console.log(`[INVESTMENT] Created reservation ${reservation.id} with currency ${investmentCurrency} for property ${property.name}`);
@@ -1345,12 +1347,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Enforce currency consistency - always use property's currency, default to NGN
       const investmentCurrency = property.currency || 'NGN';
+      
+      // Set 24-hour expiration for reservation
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
+        expiresAt,
       };
       
-      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name}`);
+      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name} (expires ${expiresAt.toISOString()})`);
 
       const reservation = await storage.createInvestmentReservation(sanitizedReservationData);
       
