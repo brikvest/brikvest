@@ -632,6 +632,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Associated user not found" });
       }
 
+      // Block approval if KYC is not approved (scenario: user paid outside system without KYC)
+      if (user.kycStatus !== 'approved') {
+        return res.status(400).json({ 
+          error: "KYC must be approved before we can validate and allocate units. Please approve user's KYC first." 
+        });
+      }
+
       // Atomically: update submission, update reservation to converted, update property unit counts
       await storage.updatePaymentSubmission(submissionId, {
         status: 'approved',
