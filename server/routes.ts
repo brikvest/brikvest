@@ -532,7 +532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/admin/kyc/:userId/status', requireAdminAuth, async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
-      const { status } = req.body;
+      const { status, rejectionReason } = req.body;
 
       if (!['approved', 'rejected'].includes(status)) {
         return res.status(400).json({ error: "Invalid status. Must be 'approved' or 'rejected'" });
@@ -544,8 +544,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
 
-      // Update KYC status
-      await storage.updateUserKycStatus(userId, status);
+      // Update KYC status with rejection reason if rejected
+      await storage.updateUserKycStatus(userId, status, rejectionReason);
 
       // Send appropriate email
       try {

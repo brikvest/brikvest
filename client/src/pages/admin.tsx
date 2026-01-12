@@ -1374,6 +1374,8 @@ export default function AdminDashboard() {
   const [viewingProperty, setViewingProperty] = useState<Property | null>(null);
   const [viewingReservation, setViewingReservation] = useState<InvestmentReservation | null>(null);
   const [viewingKyc, setViewingKyc] = useState<UserType | null>(null);
+  const [kycRejectionReason, setKycRejectionReason] = useState("");
+  const [showKycRejectConfirm, setShowKycRejectConfirm] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
@@ -1561,10 +1563,10 @@ export default function AdminDashboard() {
   });
 
   const updateKycStatusMutation = useMutation({
-    mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
+    mutationFn: async ({ userId, status, rejectionReason }: { userId: number; status: string; rejectionReason?: string }) => {
       return await authenticatedRequest(`/api/admin/kyc/${userId}/status`, {
         method: "PUT",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejectionReason }),
       });
     },
     onSuccess: () => {
@@ -4205,17 +4207,53 @@ export default function AdminDashboard() {
                     variant="destructive"
                     className="flex-1"
                     onClick={() => {
-                      updateKycStatusMutation.mutate({ 
-                        userId: viewingKyc.id, 
-                        status: 'rejected' 
-                      });
-                      setIsKycDetailOpen(false);
+                      setKycRejectionReason("");
+                      setShowKycRejectConfirm(true);
                     }}
                     disabled={updateKycStatusMutation.isPending}
                   >
                     <XCircle className="h-4 w-4 mr-2" />
                     Reject KYC
                   </Button>
+                </div>
+              )}
+
+              {/* Rejection Reason Dialog */}
+              {showKycRejectConfirm && (
+                <div className="mt-4 p-4 border border-red-200 bg-red-50 rounded-lg">
+                  <p className="text-sm font-medium text-red-900 mb-2">Provide Rejection Reason</p>
+                  <Textarea
+                    placeholder="Enter the reason for rejecting this KYC (optional but recommended)"
+                    value={kycRejectionReason}
+                    onChange={(e) => setKycRejectionReason(e.target.value)}
+                    className="mb-3"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowKycRejectConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        updateKycStatusMutation.mutate({ 
+                          userId: viewingKyc.id, 
+                          status: 'rejected',
+                          rejectionReason: kycRejectionReason || undefined
+                        });
+                        setShowKycRejectConfirm(false);
+                        setIsKycDetailOpen(false);
+                      }}
+                      disabled={updateKycStatusMutation.isPending}
+                    >
+                      Confirm Rejection
+                    </Button>
+                  </div>
                 </div>
               )}
 

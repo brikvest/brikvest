@@ -45,6 +45,7 @@ export const users = pgTable("users", {
   kycSignatureUrl: text("kyc_signature_url"), // Cloudinary URL for user's signature
   kycSubmittedAt: timestamp("kyc_submitted_at"), // When KYC was submitted
   kycVerifiedAt: timestamp("kyc_verified_at"), // When KYC was verified by admin
+  kycRejectionReason: text("kyc_rejection_reason"), // Reason for KYC rejection if rejected
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -673,7 +673,16 @@ export default function Portfolio() {
                   <p className="text-sm">
                     {userData.kycStatus === 'not_started' && 'Complete identity verification to view your investment details'}
                     {userData.kycStatus === 'submitted' && 'Your verification is under review (1-2 business days)'}
-                    {userData.kycStatus === 'rejected' && 'Please resubmit your verification documents'}
+                    {userData.kycStatus === 'rejected' && (
+                      <>
+                        Please resubmit your verification documents
+                        {userData.kycRejectionReason && (
+                          <span className="block mt-1 text-xs opacity-90">
+                            Reason: {userData.kycRejectionReason}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </p>
                 </div>
                 {userData.kycStatus !== 'submitted' && (
@@ -934,9 +943,14 @@ export default function Portfolio() {
                           ) : userData.kycStatus === 'rejected' ? (
                             <div className="mt-4 p-3 bg-white border border-red-200 rounded-lg">
                               <p className="text-sm font-medium text-red-900 mb-2">KYC Verification Required</p>
-                              <p className="text-xs text-red-700 mb-3">
+                              <p className="text-xs text-red-700 mb-2">
                                 Your KYC was rejected. Please resubmit your verification documents to proceed with payment.
                               </p>
+                              {userData.kycRejectionReason && (
+                                <p className="text-xs text-red-600 bg-red-50 p-2 rounded mb-3 border border-red-100">
+                                  <strong>Reason:</strong> {userData.kycRejectionReason}
+                                </p>
+                              )}
                               <Button 
                                 size="sm" 
                                 variant="outline"
