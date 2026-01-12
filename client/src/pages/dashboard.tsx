@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download } from "lucide-react";
-import { Link, useLocation } from "wouter";
-import { useEffect, useState, useRef } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate } from "@shared/schema";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
@@ -22,9 +22,29 @@ import { CurrencySelector } from "@/components/CurrencySelector";
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { formatCurrency, userCurrency, convertAmount } = useCurrency();
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingPaymentReservationId, setPendingPaymentReservationId] = useState<number | null>(null);
+  
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      const currentUrl = `/dashboard${searchString ? `?${searchString}` : ''}`;
+      setLocation(`/login?redirect=${encodeURIComponent(currentUrl)}`);
+    }
+  }, [isLoading, isAuthenticated, setLocation, searchString]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const paymentFor = params.get("paymentFor");
+    if (paymentFor) {
+      const reservationId = parseInt(paymentFor, 10);
+      if (!isNaN(reservationId)) {
+        setPendingPaymentReservationId(reservationId);
+      }
+    }
+  }, [searchString]);
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [kycFormData, setKycFormData] = useState({
     fullName: '',
@@ -41,6 +61,126 @@ export default function Portfolio() {
   const [certificateModalOpen, setCertificateModalOpen] = useState(false);
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
   const certificateRef = useRef<HTMLDivElement>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedPaymentReservation, setSelectedPaymentReservation] = useState<(InvestmentReservation & { property?: Property }) | null>(null);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [uploadingPayment, setUploadingPayment] = useState(false);
+  
+  const PAYMENT_TIMER_DURATION = 30 * 60 * 1000;
+  const [paymentTimeRemaining, setPaymentTimeRemaining] = useState<number | null>(null);
+  const [paymentTimerExpired, setPaymentTimerExpired] = useState(false);
+
+  const getTimerStorageKey = (reservationId: number) => `brikvest_payment_timer_${reservationId}`;
+
+  const initializePaymentTimer = useCallback((reservationId: number) => {
+    const storageKey = getTimerStorageKey(reservationId);
+    let startTime = localStorage.getItem(storageKey);
+    
+    if (!startTime) {
+      startTime = Date.now().toString();
+      localStorage.setItem(storageKey, startTime);
+    }
+    
+    const elapsed = Date.now() - parseInt(startTime, 10);
+    const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+    
+    setPaymentTimeRemaining(remaining);
+    setPaymentTimerExpired(remaining <= 0);
+  }, []);
+
+  const clearPaymentTimer = useCallback((reservationId: number) => {
+    const storageKey = getTimerStorageKey(reservationId);
+    localStorage.removeItem(storageKey);
+    setPaymentTimeRemaining(null);
+    setPaymentTimerExpired(false);
+  }, []);
+
+  useEffect(() => {
+    if (!paymentModalOpen || !selectedPaymentReservation) {
+      return;
+    }
+
+    initializePaymentTimer(selectedPaymentReservation.id);
+
+    const interval = setInterval(() => {
+      const storageKey = getTimerStorageKey(selectedPaymentReservation.id);
+      const startTime = localStorage.getItem(storageKey);
+      
+      if (startTime) {
+        const elapsed = Date.now() - parseInt(startTime, 10);
+        const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+        setPaymentTimeRemaining(remaining);
+        
+        if (remaining <= 0) {
+          setPaymentTimerExpired(true);
+        }
+      }
+    }, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === getTimerStorageKey(selectedPaymentReservation.id)) {
+        if (e.newValue) {
+          const elapsed = Date.now() - parseInt(e.newValue, 10);
+          const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+          setPaymentTimeRemaining(remaining);
+          setPaymentTimerExpired(remaining <= 0);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [paymentModalOpen, selectedPaymentReservation, initializePaymentTimer]);
+
+  const formatTimeRemaining = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const paymentMethods = {
+    NGN: {
+      title: "Naira Transfer (Nigeria)",
+      icon: "₦",
+      details: [
+        { label: "Bank Name", value: "Zenith Bank" },
+        { label: "Account Name", value: "Brikvest Limited" },
+        { label: "Account Number", value: "1310320691" },
+      ]
+    },
+    USD: {
+      title: "USD Transfer (U.S. Bank / Wire)",
+      icon: "$",
+      details: [
+        { label: "Beneficiary Name", value: "Charles Giadom" },
+        { label: "Address", value: "2100 North Central Road" },
+        { label: "Account Number", value: "483106622433" },
+        { label: "Routing Number", value: "026009593" },
+      ],
+      alternative: {
+        title: "Or via Zelle",
+        details: [
+          { label: "Name", value: "Charles Giadom" },
+          { label: "Phone", value: "+1 (646) 204-4536" },
+        ]
+      }
+    },
+    GBP: {
+      title: "GBP Transfer (United Kingdom)",
+      icon: "£",
+      details: [
+        { label: "Beneficiary Name", value: "Charles Giadom" },
+        { label: "Sort Code", value: "04-00-75" },
+        { label: "Account Number", value: "67385923" },
+        { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
+      ]
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -72,6 +212,17 @@ export default function Portfolio() {
     enabled: isAuthenticated,
   });
 
+  // Fetch user's payment submissions to show status and rejection reasons
+  const { data: paymentSubmissions = [] } = useQuery<any[]>({
+    queryKey: ["/api/user/payment-submissions"],
+    enabled: isAuthenticated,
+  });
+
+  // Helper to get the latest payment submission for a reservation
+  const getPaymentSubmission = (reservationId: number) => {
+    return paymentSubmissions.find(ps => ps.reservationId === reservationId);
+  };
+
   // Fetch certificate for selected reservation
   const { data: certificateData, isLoading: certificateLoading } = useQuery<{
     certificate: OwnershipCertificate;
@@ -81,6 +232,50 @@ export default function Portfolio() {
     queryKey: [`/api/user/certificates/${selectedReservationId}`],
     enabled: !!selectedReservationId && certificateModalOpen,
   });
+
+  useEffect(() => {
+    if (pendingPaymentReservationId && reservations.length > 0) {
+      const reservation = reservations.find(r => r.id === pendingPaymentReservationId);
+      if (reservation && reservation.status === 'reserved') {
+        setSelectedPaymentReservation(reservation);
+        setPaymentModalOpen(true);
+        setPendingPaymentReservationId(null);
+        const params = new URLSearchParams(searchString);
+        params.delete("paymentFor");
+        const newSearch = params.toString();
+        setLocation(`/dashboard${newSearch ? `?${newSearch}` : ''}`, { replace: true });
+      } else if (reservation && reservation.status !== 'reserved') {
+        toast({
+          title: "Reservation Status Changed",
+          description: "This reservation is no longer awaiting payment.",
+        });
+        setPendingPaymentReservationId(null);
+      }
+    }
+  }, [pendingPaymentReservationId, reservations, setLocation, searchString, toast]);
+
+  const handleOpenPaymentModal = useCallback(async (reservation: InvestmentReservation & { property?: Property }) => {
+    try {
+      const response = await fetch("/api/auth/user", { credentials: "include" });
+      if (!response.ok) {
+        toast({
+          title: "Session Expired",
+          description: "Please sign in again to continue with your payment.",
+        });
+        const redirectUrl = `/dashboard?paymentFor=${reservation.id}`;
+        setLocation(`/login?redirect=${encodeURIComponent(redirectUrl)}`);
+        return;
+      }
+      setSelectedPaymentReservation(reservation);
+      setPaymentModalOpen(true);
+    } catch (error) {
+      toast({
+        title: "Connection Error",
+        description: "Please check your connection and try again.",
+        variant: "destructive",
+      });
+    }
+  }, [setLocation, toast]);
 
   const handleViewCertificate = (reservationId: number) => {
     setSelectedReservationId(reservationId);
@@ -260,7 +455,84 @@ export default function Portfolio() {
     }
   };
 
-  if (isLoading || !user) {
+  const handlePaymentProofUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedPaymentReservation || !paymentProofFile) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a payment proof file to upload.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowedTypes.includes(paymentProofFile.type)) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please upload a JPEG, PNG, WEBP, or PDF file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const maxSize = 10 * 1024 * 1024;
+    if (paymentProofFile.size > maxSize) {
+      toast({
+        title: "File Too Large",
+        description: "File size must be less than 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUploadingPayment(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('reservationId', selectedPaymentReservation.id.toString());
+      formData.append('paymentProof', paymentProofFile);
+
+      const response = await fetch('/api/user/payment-submission', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Payment proof upload failed');
+      }
+
+      toast({
+        title: "Payment Proof Submitted",
+        description: "Your payment proof is now pending admin review.",
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/payment-submissions"] });
+      
+      if (selectedPaymentReservation) {
+        clearPaymentTimer(selectedPaymentReservation.id);
+      }
+      setPaymentModalOpen(false);
+      setSelectedPaymentReservation(null);
+      setPaymentProofFile(null);
+    } catch (error: any) {
+      console.error('Payment upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: error.message || "There was an error uploading your payment proof. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingPayment(false);
+    }
+  };
+
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -271,11 +543,22 @@ export default function Portfolio() {
     );
   }
 
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Redirecting to sign in...</p>
+        </div>
+      </div>
+    );
+  }
+
   const userData = user as any;
   
-  // Only count confirmed and payment_received investments in total portfolio value
+  // Only count converted investments in total portfolio value
   const totalInvested = reservations
-    .filter(res => res.status === 'confirmed' || res.status === 'payment_received')
+    .filter(res => res.status === 'converted_to_investment')
     .reduce((sum, res) => {
       // Use the reservation's stored amount and currency, then convert to user's selected currency
       const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
@@ -284,17 +567,17 @@ export default function Portfolio() {
       return sum + convertedAmount;
     }, 0);
   
-  // Active reservations are those pending payment or payment received (not yet confirmed)
+  // Active reservations are those awaiting payment proof submission
   const activeReservations = reservations.filter(r => 
-    r.status === "payment_pending" || r.status === "payment_received"
+    r.status === "reserved"
   ).length;
   
-  // Completed investments are fully confirmed
-  const completedInvestments = reservations.filter(r => r.status === "confirmed").length;
-  const isKycVerified = userData.kycStatus === 'verified';
+  // Completed investments are fully converted
+  const completedInvestments = reservations.filter(r => r.status === "converted_to_investment").length;
+  const isKycVerified = userData.kycStatus === 'approved';
   
   // Check if KYC needs update (missing new required fields)
-  const needsKycUpdate = (userData.kycStatus === 'verified' || userData.kycStatus === 'submitted') && 
+  const needsKycUpdate = (userData.kycStatus === 'approved' || userData.kycStatus === 'submitted') && 
     (!userData.kycOccupation || !userData.kycSignatureUrl);
 
   return (
@@ -473,16 +756,25 @@ export default function Portfolio() {
         )}
 
         {/* KYC Verification Banner - Sticky */}
-        {!needsKycUpdate && userData.kycStatus !== 'verified' && (
+        {!needsKycUpdate && userData.kycStatus !== 'approved' && (
           <div className="sticky top-[73px] z-20 bg-blue-600 text-white shadow-md">
             <div className="px-4 sm:px-6 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <AlertCircle className="h-5 w-5 flex-shrink-0" />
                   <p className="text-sm">
-                    {userData.kycStatus === 'pending' && 'Complete identity verification to view your investment details'}
+                    {userData.kycStatus === 'not_started' && 'Complete identity verification to view your investment details'}
                     {userData.kycStatus === 'submitted' && 'Your verification is under review (1-2 business days)'}
-                    {userData.kycStatus === 'rejected' && 'Please resubmit your verification documents'}
+                    {userData.kycStatus === 'rejected' && (
+                      <>
+                        Please resubmit your verification documents
+                        {userData.kycRejectionReason && (
+                          <span className="block mt-1 text-xs opacity-90">
+                            Reason: {userData.kycRejectionReason}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </p>
                 </div>
                 {userData.kycStatus !== 'submitted' && (
@@ -537,7 +829,7 @@ export default function Portfolio() {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs sm:text-sm text-slate-600 mb-1 font-medium">Properties Owned</p>
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {new Set(reservations.filter(r => r.status === 'confirmed').map(r => r.propertyId)).size}
+                      {new Set(reservations.filter(r => r.status === 'converted_to_investment').map(r => r.propertyId)).size}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
                       {activeReservations} pending
@@ -684,7 +976,7 @@ export default function Portfolio() {
           {/* Pending Reservations */}
           {(() => {
             const pendingReservations = reservations.filter(r => 
-              r.status === 'payment_pending' || r.status === 'payment_received'
+              r.status === 'reserved'
             );
             
             if (pendingReservations.length > 0) {
@@ -695,7 +987,7 @@ export default function Portfolio() {
                       <Clock className="h-5 w-5 text-yellow-600" />
                       Pending Reservations
                     </CardTitle>
-                    <p className="text-sm text-slate-600 mt-1">Complete payment to confirm your investments</p>
+                    <p className="text-sm text-slate-600 mt-1">Upload payment proof to confirm your investments</p>
                   </CardHeader>
                   <CardContent className="p-4 sm:p-6">
                     <div className="space-y-3 sm:space-y-4">
@@ -721,32 +1013,110 @@ export default function Portfolio() {
                                 </p>
                               </div>
                             </div>
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start ${
-                                reservation.status === "payment_received"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-yellow-100 text-yellow-700"
-                              }`}
-                            >
-                              {reservation.status === "payment_received" ? "Payment Received" : "Payment Pending"}
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start bg-yellow-100 text-yellow-700">
+                              Awaiting Payment
                             </span>
                           </div>
                           
-                          {reservation.status === "payment_pending" && (
-                            <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
-                              <p className="text-sm font-medium text-slate-900 mb-2">Next Steps:</p>
-                              <p className="text-xs text-slate-600">
-                                Please complete your payment to confirm this investment. Contact support for payment instructions.
+                          {(() => {
+                            const paymentSub = getPaymentSubmission(reservation.id);
+                            
+                            if (paymentSub?.status === 'pending_admin_review') {
+                              return (
+                                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                  <p className="text-sm font-medium text-blue-900 mb-2">Payment Proof Under Review</p>
+                                  <p className="text-xs text-blue-700">
+                                    Your payment proof has been submitted and is pending admin review. You'll be notified once it's approved.
+                                  </p>
+                                </div>
+                              );
+                            }
+                            
+                            if (paymentSub?.status === 'rejected') {
+                              return (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                  <p className="text-sm font-medium text-red-900 mb-2">Payment Proof Rejected</p>
+                                  {paymentSub.rejectionReason && (
+                                    <p className="text-xs text-red-700 bg-white p-2 rounded mb-3 border border-red-100">
+                                      <strong>Reason:</strong> {paymentSub.rejectionReason}
+                                    </p>
+                                  )}
+                                  <p className="text-xs text-red-700 mb-3">
+                                    Please upload a new payment proof to continue.
+                                  </p>
+                                  <Button 
+                                    size="sm" 
+                                    className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
+                                    onClick={() => handleOpenPaymentModal(reservation)}
+                                  >
+                                    Re-upload Payment Proof
+                                  </Button>
+                                </div>
+                              );
+                            }
+                            
+                            if (isKycVerified) {
+                              return (
+                                <div className="mt-4 p-3 bg-white border border-green-200 rounded-lg">
+                                  <p className="text-sm font-medium text-green-900 mb-2">Ready to Upload Payment Proof</p>
+                                  <p className="text-xs text-green-700 mb-3">
+                                    Your KYC is approved. Upload your payment proof to complete this investment.
+                                  </p>
+                                  <Button 
+                                    size="sm" 
+                                    className="w-full sm:w-auto"
+                                    onClick={() => handleOpenPaymentModal(reservation)}
+                                  >
+                                    Upload Payment Proof
+                                  </Button>
+                                </div>
+                              );
+                            }
+                            
+                            return null;
+                          })()}
+                          
+                          {!isKycVerified && !getPaymentSubmission(reservation.id) && userData.kycStatus === 'rejected' ? (
+                            <div className="mt-4 p-3 bg-white border border-red-200 rounded-lg">
+                              <p className="text-sm font-medium text-red-900 mb-2">KYC Verification Required</p>
+                              <p className="text-xs text-red-700 mb-2">
+                                Your KYC was rejected. Please resubmit your verification documents to proceed with payment.
+                              </p>
+                              {userData.kycRejectionReason && (
+                                <p className="text-xs text-red-600 bg-red-50 p-2 rounded mb-3 border border-red-100">
+                                  <strong>Reason:</strong> {userData.kycRejectionReason}
+                                </p>
+                              )}
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="w-full sm:w-auto border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={() => setKycModalOpen(true)}
+                              >
+                                Resubmit KYC
+                              </Button>
+                            </div>
+                          ) : userData.kycStatus === 'submitted' ? (
+                            <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
+                              <p className="text-sm font-medium text-blue-900 mb-2">KYC Under Review</p>
+                              <p className="text-xs text-blue-700">
+                                Your KYC documents are being reviewed. You'll be able to upload payment proof once approved.
                               </p>
                             </div>
-                          )}
-
-                          {reservation.status === "payment_received" && (
-                            <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
-                              <p className="text-sm font-medium text-blue-900 mb-2">Payment received!</p>
-                              <p className="text-xs text-blue-700">
-                                Your payment has been received and is being processed. Your investment will be confirmed shortly.
+                          ) : (
+                            <div className="mt-4 p-3 bg-white border border-yellow-200 rounded-lg">
+                              <p className="text-sm font-medium text-slate-900 mb-2">Complete KYC First</p>
+                              <p className="text-xs text-slate-600 mb-3">
+                                You must complete KYC verification and get approval before uploading payment proof.
                               </p>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="w-full sm:w-auto"
+                                onClick={() => setKycModalOpen(true)}
+                              >
+                                Start KYC Verification
+                              </Button>
                             </div>
                           )}
                         </div>
@@ -761,7 +1131,7 @@ export default function Portfolio() {
 
           {/* My Holdings */}
           {(() => {
-            const confirmedInvestments = reservations.filter(r => r.status === 'confirmed');
+            const confirmedInvestments = reservations.filter(r => r.status === 'converted_to_investment');
             
             return (
               <Card className="mb-6 sm:mb-8 shadow-lg">
@@ -814,42 +1184,101 @@ export default function Portfolio() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="space-y-3 sm:space-y-4">
+                    <div className="grid gap-4 sm:gap-6">
                       {confirmedInvestments.map((reservation) => (
                         <div
                           key={reservation.id}
-                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:border-blue-300 hover:shadow-md transition-all"
+                          className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-lg transition-all duration-200"
                           data-testid={`holding-${reservation.id}`}
                         >
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-slate-900 mb-1 text-sm sm:text-base">
-                              {reservation.property?.name || `Property #${reservation.propertyId}`}
-                            </h4>
-                            <div className="text-xs sm:text-sm text-slate-600 space-y-0.5">
-                              <p>Units owned: {reservation.units}</p>
-                              <p>Cost basis: {formatCurrency(convertAmount(
-                                typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
-                                reservation.currency || 'NGN'
-                              ))}</p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Confirmed {new Date(reservation.createdAt).toLocaleDateString()}
-                              </p>
+                          <div className="flex flex-col md:flex-row">
+                            {/* Property Image */}
+                            <div className="md:w-48 h-40 md:h-auto bg-gradient-to-br from-blue-100 to-blue-50 flex-shrink-0">
+                              {reservation.property?.imageUrl ? (
+                                <img 
+                                  src={reservation.property.imageUrl} 
+                                  alt={reservation.property.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Building2 className="h-12 w-12 text-blue-300" />
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleViewCertificate(reservation.id)}
-                              className="text-amber-700 border-amber-300 hover:bg-amber-50"
-                              data-testid={`button-view-certificate-${reservation.id}`}
-                            >
-                              <Award className="h-4 w-4 mr-1" />
-                              Certificate
-                            </Button>
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap bg-green-100 text-green-700">
-                              Confirmed
-                            </span>
+                            
+                            {/* Property Details */}
+                            <div className="flex-1 p-4 sm:p-5">
+                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="font-bold text-slate-900 text-lg">
+                                      {reservation.property?.name || `Property #${reservation.propertyId}`}
+                                    </h4>
+                                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                                      Active
+                                    </span>
+                                  </div>
+                                  {reservation.property?.location && (
+                                    <p className="text-sm text-slate-500">{reservation.property.location}</p>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Investment Stats */}
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+                                <div className="bg-slate-50 rounded-lg p-3">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units Owned</p>
+                                  <p className="text-lg font-bold text-slate-900">{reservation.units}</p>
+                                </div>
+                                <div className="bg-slate-50 rounded-lg p-3">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Investment</p>
+                                  <p className="text-lg font-bold text-blue-600">
+                                    {formatCurrency(convertAmount(
+                                      typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
+                                      reservation.currency || 'NGN'
+                                    ))}
+                                  </p>
+                                </div>
+                                <div className="bg-slate-50 rounded-lg p-3 col-span-2 sm:col-span-1">
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Confirmed</p>
+                                  <p className="text-sm font-semibold text-slate-700">
+                                    {new Date(reservation.createdAt).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {/* Actions */}
+                              <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewCertificate(reservation.id)}
+                                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                                  data-testid={`button-view-certificate-${reservation.id}`}
+                                >
+                                  <Award className="h-4 w-4 mr-2" />
+                                  View Certificate
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (reservation.property) {
+                                      setLocation(`/properties/${reservation.propertyId}`);
+                                    }
+                                  }}
+                                  className="text-slate-600 hover:text-slate-900"
+                                >
+                                  Property Details
+                                  <ArrowRight className="h-4 w-4 ml-1" />
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1218,6 +1647,184 @@ export default function Portfolio() {
                 Please contact support if this is unexpected.
               </p>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Proof Upload Modal */}
+      <Dialog open={paymentModalOpen} onOpenChange={(open) => {
+        setPaymentModalOpen(open);
+        if (!open) {
+          setSelectedPaymentReservation(null);
+          setPaymentProofFile(null);
+        }
+      }}>
+        <DialogContent className="max-w-lg max-h-[95vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Upload className="h-5 w-5 text-green-600" />
+              Submit Payment Proof
+            </DialogTitle>
+            <DialogDescription>
+              Transfer the amount to the bank account below, then upload your payment proof.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Payment Timer Display */}
+          {paymentTimeRemaining !== null && (
+            <div className={`p-3 rounded-lg flex items-center justify-between ${
+              paymentTimerExpired 
+                ? 'bg-amber-50 border border-amber-200' 
+                : paymentTimeRemaining < 5 * 60 * 1000 
+                  ? 'bg-red-50 border border-red-200'
+                  : 'bg-green-50 border border-green-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Clock className={`h-4 w-4 ${
+                  paymentTimerExpired 
+                    ? 'text-amber-600' 
+                    : paymentTimeRemaining < 5 * 60 * 1000 
+                      ? 'text-red-600'
+                      : 'text-green-600'
+                }`} />
+                <span className={`text-sm font-medium ${
+                  paymentTimerExpired 
+                    ? 'text-amber-800' 
+                    : paymentTimeRemaining < 5 * 60 * 1000 
+                      ? 'text-red-800'
+                      : 'text-green-800'
+                }`}>
+                  {paymentTimerExpired 
+                    ? 'Session timer ended' 
+                    : 'Time remaining to complete payment'}
+                </span>
+              </div>
+              <span className={`text-lg font-mono font-bold ${
+                paymentTimerExpired 
+                  ? 'text-amber-700' 
+                  : paymentTimeRemaining < 5 * 60 * 1000 
+                    ? 'text-red-700'
+                    : 'text-green-700'
+              }`}>
+                {paymentTimerExpired ? '00:00' : formatTimeRemaining(paymentTimeRemaining)}
+              </span>
+            </div>
+          )}
+
+          {paymentTimerExpired && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Your session timer has ended, but you can still upload your payment proof. 
+                Your reservation remains valid for 24 hours from creation.
+              </p>
+            </div>
+          )}
+
+          {selectedPaymentReservation && (
+            <form onSubmit={handlePaymentProofUpload} className="space-y-6">
+              {/* Investment Details */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-semibold text-blue-900 mb-2">Investment Details</h4>
+                <div className="text-sm text-blue-800 space-y-1">
+                  <p><span className="font-medium">Property:</span> {selectedPaymentReservation.property?.name}</p>
+                  <p><span className="font-medium">Units:</span> {selectedPaymentReservation.units}</p>
+                  <p><span className="font-medium">Amount:</span> {formatCurrency(convertAmount(
+                    typeof selectedPaymentReservation.amount === 'string' 
+                      ? parseFloat(selectedPaymentReservation.amount) 
+                      : (selectedPaymentReservation.amount || 0),
+                    selectedPaymentReservation.currency || 'NGN'
+                  ))}</p>
+                </div>
+              </div>
+
+              {/* Bank Details */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-slate-900">Payment Methods</h4>
+                
+                {Object.entries(paymentMethods).map(([currency, method]) => (
+                  <div key={currency} className="p-4 border border-slate-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-lg font-bold text-slate-700">{method.icon}</span>
+                      <h5 className="font-medium text-slate-900">{method.title}</h5>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {method.details.map((detail, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="text-slate-600">{detail.label}:</span>
+                          <span className="font-medium text-slate-900 text-right">{detail.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {'alternative' in method && method.alternative && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <p className="text-sm font-medium text-slate-700 mb-2">{method.alternative.title}</p>
+                        <div className="space-y-1 text-sm">
+                          {method.alternative.details.map((detail, idx) => (
+                            <div key={idx} className="flex justify-between">
+                              <span className="text-slate-600">{detail.label}:</span>
+                              <span className="font-medium text-slate-900">{detail.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* File Upload */}
+              <div>
+                <Label htmlFor="paymentProof" className="text-sm font-medium">
+                  Upload Payment Proof <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="paymentProof"
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)}
+                  className="mt-1 cursor-pointer"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Bank transfer receipt, screenshot, or confirmation (JPG, PNG, WEBP, or PDF, max 10MB)
+                </p>
+                {paymentProofFile && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" />
+                    {paymentProofFile.name} selected
+                  </p>
+                )}
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPaymentModalOpen(false)}
+                  className="flex-1"
+                  disabled={uploadingPayment}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  disabled={uploadingPayment || !paymentProofFile}
+                >
+                  {uploadingPayment ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Submit Payment Proof
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
           )}
         </DialogContent>
       </Dialog>

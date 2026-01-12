@@ -12,6 +12,7 @@ import {
   marketInsights,
   guzapeListings,
   ownershipCertificates,
+  paymentSubmissions,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -33,7 +34,9 @@ import {
   type GuzapeListing,
   type InsertGuzapeListing,
   type OwnershipCertificate,
-  type InsertOwnershipCertificate
+  type InsertOwnershipCertificate,
+  type PaymentSubmission,
+  type InsertPaymentSubmission
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -50,7 +53,7 @@ export interface IStorage {
   updateUserLastLogin(id: number): Promise<void>;
   updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
   getAllKycSubmissions(): Promise<User[]>;
-  updateUserKycStatus(userId: number, status: string): Promise<void>;
+  updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<void>;
   
   // Admin user methods
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -78,6 +81,8 @@ export interface IStorage {
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
+  extendReservationsOnKycSubmission(userId: number): Promise<number>;
+  cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }>;
   
   // Investment group methods
   createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
@@ -118,6 +123,14 @@ export interface IStorage {
   getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined>;
   getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]>;
   getNextCertificateNumber(): Promise<string>;
+  
+  // Payment submissions methods (user-initiated)
+  createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission>;
+  getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]>;
+  getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]>;
+  getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]>;
+  getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined>;
+  updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -176,14 +189,16 @@ export class DatabaseStorage implements IStorage {
 
   async getAllKycSubmissions(): Promise<User[]> {
     return await db.select().from(users)
-      .where(ne(users.kycStatus, 'pending'))
+      .where(ne(users.kycStatus, 'not_started'))
       .orderBy(desc(users.kycSubmittedAt));
   }
 
-  async updateUserKycStatus(userId: number, status: string): Promise<void> {
+  async updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<void> {
     await db.update(users)
       .set({ 
-        kycStatus: status as 'pending' | 'submitted' | 'verified' | 'rejected',
+        kycStatus: status as 'not_started' | 'submitted' | 'approved' | 'rejected',
+        kycVerifiedAt: status === 'approved' ? new Date() : undefined,
+        kycRejectionReason: status === 'rejected' ? (rejectionReason || null) : null,
         updatedAt: new Date() 
       })
       .where(eq(users.id, userId));
@@ -326,6 +341,136 @@ export class DatabaseStorage implements IStorage {
       );
     
     return result.rowCount || 0;
+  }
+
+  async extendReservationsOnKycSubmission(userId: number): Promise<number> {
+    const now = new Date();
+    const extensionMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    
+    // First, get eligible reservations to extend individually
+    const eligibleReservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(
+        and(
+          eq(investmentReservations.userId, userId),
+          eq(investmentReservations.status, 'reserved'),
+          sql`${investmentReservations.kycExtendedAt} IS NULL`
+        )
+      );
+    
+    if (eligibleReservations.length === 0) {
+      return 0;
+    }
+    
+    let extendedCount = 0;
+    
+    for (const reservation of eligibleReservations) {
+      // Calculate new expiry: add 24h from the later of (current expiry, now)
+      const currentExpiry = reservation.expiresAt ? new Date(reservation.expiresAt) : now;
+      const baseTime = currentExpiry > now ? currentExpiry : now;
+      const newExpiry = new Date(baseTime.getTime() + extensionMs);
+      
+      await db
+        .update(investmentReservations)
+        .set({ 
+          expiresAt: newExpiry,
+          kycExtendedAt: now,
+          updatedAt: now
+        })
+        .where(eq(investmentReservations.id, reservation.id));
+      
+      extendedCount++;
+      console.log(`[KYC-EXTENSION] Extended reservation ${reservation.id} from ${currentExpiry.toISOString()} to ${newExpiry.toISOString()}`);
+    }
+    
+    if (extendedCount > 0) {
+      console.log(`[KYC-EXTENSION] Extended ${extendedCount} reservation(s) by 24 hours for user ${userId} due to KYC submission`);
+    }
+    
+    return extendedCount;
+  }
+
+  async cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }> {
+    const now = new Date();
+    
+    const expiredReservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(
+        and(
+          eq(investmentReservations.status, 'reserved'),
+          sql`${investmentReservations.expiresAt} IS NOT NULL`,
+          sql`${investmentReservations.expiresAt} < ${now}`
+        )
+      );
+    
+    if (expiredReservations.length === 0) {
+      return { cancelled: 0, unitsReleased: 0 };
+    }
+    
+    let totalCancelled = 0;
+    let totalUnitsReleased = 0;
+    
+    for (const reservation of expiredReservations) {
+      // Check if reservation has a pending payment submission - if so, protect it from expiration
+      const pendingSubmissions = await db
+        .select()
+        .from(paymentSubmissions)
+        .where(
+          and(
+            eq(paymentSubmissions.reservationId, reservation.id),
+            eq(paymentSubmissions.status, 'pending_admin_review')
+          )
+        );
+      
+      if (pendingSubmissions.length > 0) {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - has pending payment proof awaiting admin review`);
+        continue;
+      }
+
+      const units = typeof reservation.units === 'string' 
+        ? parseFloat(reservation.units) 
+        : Number(reservation.units) || 0;
+      
+      const [updated] = await db
+        .update(investmentReservations)
+        .set({ status: 'expired' })
+        .where(
+          and(
+            eq(investmentReservations.id, reservation.id),
+            eq(investmentReservations.status, 'reserved'),
+            sql`${investmentReservations.expiresAt} IS NOT NULL`,
+            sql`${investmentReservations.expiresAt} < ${now}`
+          )
+        )
+        .returning();
+      
+      if (!updated) {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - status changed during cleanup`);
+        continue;
+      }
+      
+      totalCancelled++;
+      
+      if (units > 0 && reservation.propertyId) {
+        await db
+          .update(properties)
+          .set({
+            availableSlots: sql`${properties.availableSlots} + ${units}`,
+            reservedUnits: sql`GREATEST(0, ${properties.reservedUnits} - ${units})`
+          })
+          .where(eq(properties.id, reservation.propertyId));
+        
+        totalUnitsReleased += units;
+      }
+      
+      console.log(`[CLEANUP] Cancelled expired reservation ${reservation.id} (${reservation.email}), released ${units} units`);
+    }
+    
+    console.log(`[CLEANUP] Total: ${totalCancelled} reservations cancelled, ${totalUnitsReleased} units released`);
+    
+    return { cancelled: totalCancelled, unitsReleased: totalUnitsReleased };
   }
 
   async getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]> {
@@ -708,6 +853,48 @@ export class DatabaseStorage implements IStorage {
     }
     
     return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+  }
+
+  // Payment submissions methods (user-initiated payment proof uploads)
+  async createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission> {
+    const [result] = await db.insert(paymentSubmissions).values(submission).returning();
+    return result;
+  }
+
+  async getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.reservationId, reservationId))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.userId, userId))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.status, 'pending_admin_review'))
+      .orderBy(desc(paymentSubmissions.submittedAt));
+  }
+
+  async getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined> {
+    const [submission] = await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.id, id));
+    return submission;
+  }
+
+  async updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission> {
+    const [result] = await db.update(paymentSubmissions)
+      .set(updates)
+      .where(eq(paymentSubmissions.id, id))
+      .returning();
+    return result;
   }
 }
 

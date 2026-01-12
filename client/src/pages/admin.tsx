@@ -191,6 +191,13 @@ function AdminInvestmentsTab({
         description: "Payment has been marked as received and investor notified with payment reference",
       });
     },
+    onError: (error: any) => {
+      toast({
+        title: "Cannot mark payment",
+        description: error.message || "Failed to mark payment as received",
+        variant: "destructive",
+      });
+    },
   });
 
   const confirmInvestmentMutation = useMutation({
@@ -434,9 +441,9 @@ function AdminInvestmentsTab({
 
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
-      case "payment_pending": return "bg-yellow-100 text-yellow-800";
-      case "payment_received": return "bg-blue-100 text-blue-800";
-      case "confirmed": return "bg-green-100 text-green-800";
+      case "reserved": return "bg-yellow-100 text-yellow-800";
+      case "converted_to_investment": return "bg-green-100 text-green-800";
+      case "expired": return "bg-orange-100 text-orange-800";
       case "cancelled": return "bg-red-100 text-red-800";
       default: return "bg-gray-100 text-gray-800";
     }
@@ -740,28 +747,20 @@ function AdminInvestmentsTab({
               All ({reservations.length})
             </Button>
             <Button
-              variant={statusFilter === "payment_pending" ? "default" : "outline"}
-              onClick={() => setStatusFilter("payment_pending")}
+              variant={statusFilter === "reserved" ? "default" : "outline"}
+              onClick={() => setStatusFilter("reserved")}
               size="sm"
-              data-testid="filter-payment-pending"
+              data-testid="filter-reserved"
             >
-              Payment Pending ({reservations.filter(r => r.status === "payment_pending").length})
+              Reserved ({reservations.filter(r => r.status === "reserved").length})
             </Button>
             <Button
-              variant={statusFilter === "payment_received" ? "default" : "outline"}
-              onClick={() => setStatusFilter("payment_received")}
-              size="sm"
-              data-testid="filter-payment-received"
-            >
-              Payment Received ({reservations.filter(r => r.status === "payment_received").length})
-            </Button>
-            <Button
-              variant={statusFilter === "confirmed" ? "default" : "outline"}
-              onClick={() => setStatusFilter("confirmed")}
+              variant={statusFilter === "converted_to_investment" ? "default" : "outline"}
+              onClick={() => setStatusFilter("converted_to_investment")}
               size="sm"
               data-testid="filter-confirmed"
             >
-              Confirmed ({reservations.filter(r => r.status === "confirmed").length})
+              Invested ({reservations.filter(r => r.status === "converted_to_investment").length})
             </Button>
           </div>
 
@@ -843,7 +842,7 @@ function AdminInvestmentsTab({
                                   <Eye className="h-4 w-4 mr-2" />
                                   View Details
                                 </DropdownMenuItem>
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "payment_received") && (
+                                {reservation.status === "reserved" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -855,27 +854,7 @@ function AdminInvestmentsTab({
                                     </DropdownMenuItem>
                                   </>
                                 )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending") && (
-                                  <DropdownMenuItem
-                                    onClick={() => markPaymentReceivedMutation.mutate(reservation.id)}
-                                    disabled={markPaymentReceivedMutation.isPending}
-                                    data-testid={`menu-mark-payment-${reservation.id}`}
-                                  >
-                                    <CheckCircle className="h-4 w-4 mr-2" />
-                                    Mark as Paid
-                                  </DropdownMenuItem>
-                                )}
-                                {reservation.status === "payment_received" && (
-                                  <DropdownMenuItem
-                                    onClick={() => confirmInvestmentMutation.mutate(reservation.id)}
-                                    disabled={confirmInvestmentMutation.isPending}
-                                    data-testid={`menu-confirm-${reservation.id}`}
-                                  >
-                                    <ShieldCheck className="h-4 w-4 mr-2" />
-                                    Confirm Investment
-                                  </DropdownMenuItem>
-                                )}
-                                {(reservation.status === "reserved" || reservation.status === "pending" || reservation.status === "payment_pending" || reservation.status === "confirmed") && reservation.status !== "cancelled" && (
+                                {(reservation.status === "reserved" || reservation.status === "converted_to_investment") && reservation.status !== "cancelled" && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -885,21 +864,7 @@ function AdminInvestmentsTab({
                                       data-testid={`menu-cancel-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      {reservation.status === "confirmed" ? "Revert & Cancel" : "Cancel Investment"}
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                                {reservation.status === "payment_received" && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => cancelInvestmentMutation.mutate(reservation.id)}
-                                      disabled={cancelInvestmentMutation.isPending}
-                                      className="text-orange-600 focus:text-orange-600"
-                                      data-testid={`menu-withdraw-${reservation.id}`}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-2" />
-                                      Withdraw (Refund Required)
+                                      {reservation.status === "converted_to_investment" ? "Revert & Cancel" : "Cancel Reservation"}
                                     </DropdownMenuItem>
                                   </>
                                 )}
@@ -1093,6 +1058,246 @@ function AdminInvestmentsTab({
   );
 }
 
+// Payment Reviews Tab Component
+function PaymentReviewsTab({ 
+  authenticatedRequest,
+  getCurrencySymbol,
+  queryClient,
+  toast
+}: {
+  authenticatedRequest: any;
+  getCurrencySymbol: (currency: string) => string;
+  queryClient: any;
+  toast: any;
+}) {
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
+
+  const { data: submissions = [], isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/payment-submissions"],
+    queryFn: async () => {
+      const response = await authenticatedRequest("/api/admin/payment-submissions");
+      return response;
+    },
+  });
+
+  const handleApprove = async (submission: any) => {
+    setApprovingId(submission.id);
+    try {
+      await authenticatedRequest(`/api/admin/payment-submissions/${submission.id}/approve`, {
+        method: "PUT",
+      });
+      toast({
+        title: "Payment Approved",
+        description: `Investment confirmed for ${submission.user?.email}. Certificate generated.`,
+      });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+    } catch (error: any) {
+      toast({
+        title: "Approval Failed",
+        description: error.message || "Failed to approve payment",
+        variant: "destructive",
+      });
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedSubmission || !rejectionReason.trim()) {
+      toast({
+        title: "Rejection Reason Required",
+        description: "Please provide a reason for rejection",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRejectingId(selectedSubmission.id);
+    try {
+      await authenticatedRequest(`/api/admin/payment-submissions/${selectedSubmission.id}/reject`, {
+        method: "PUT",
+        body: JSON.stringify({ reason: rejectionReason }),
+      });
+      toast({
+        title: "Payment Rejected",
+        description: "User has been notified and can re-upload payment proof.",
+      });
+      setShowRejectDialog(false);
+      setRejectionReason("");
+      setSelectedSubmission(null);
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Rejection Failed",
+        description: error.message || "Failed to reject payment",
+        variant: "destructive",
+      });
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-NG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-slate-600">Loading payment submissions...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Payment Reviews</h1>
+        <p className="text-slate-600 mt-2">Review and approve/reject user payment proofs</p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+            <p className="text-slate-600">No pending payment submissions</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {submissions.map((submission: any) => (
+            <Card key={submission.id} className="overflow-hidden">
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm text-slate-500">User</p>
+                    <p className="font-medium">{submission.user?.email}</p>
+                    <p className="text-sm text-slate-600">{submission.user?.kycFullName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Property</p>
+                    <p className="font-medium">{submission.property?.name || 'Unknown'}</p>
+                    <p className="text-sm text-slate-600">{submission.reservation?.units} units</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Amount</p>
+                    <p className="font-medium text-green-600">
+                      {getCurrencySymbol(submission.reservation?.currency || 'NGN')}
+                      {Number(submission.reservation?.amount || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Submitted</p>
+                    <p className="font-medium">{formatDate(submission.submittedAt)}</p>
+                    <Badge variant="outline" className="mt-1">
+                      {submission.proofType === 'pdf' ? 'PDF' : 'Image'}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between pt-4 border-t">
+                  <a 
+                    href={submission.proofUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Payment Proof
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => {
+                        setSelectedSubmission(submission);
+                        setShowRejectDialog(true);
+                      }}
+                      disabled={approvingId === submission.id || rejectingId === submission.id}
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Reject
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleApprove(submission)}
+                      disabled={approvingId === submission.id || rejectingId === submission.id}
+                    >
+                      {approvingId === submission.id ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Approving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Payment Proof</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will notify the user that their payment proof was rejected. 
+              They will be able to upload a new proof.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Label htmlFor="rejection-reason">Rejection Reason (required)</Label>
+            <Textarea
+              id="rejection-reason"
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="e.g., Amount doesn't match, receipt is unclear, wrong account..."
+              className="mt-2"
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setRejectionReason("");
+              setSelectedSubmission(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReject}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={!rejectionReason.trim() || rejectingId !== null}
+            >
+              {rejectingId !== null ? "Rejecting..." : "Reject Payment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // User Portfolio Tab Component
 function UserPortfolioTab({ 
   authenticatedRequest,
@@ -1159,12 +1364,12 @@ function UserPortfolioTab({
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return <Badge className="bg-green-100 text-green-800">Confirmed</Badge>;
-      case 'payment_received':
-        return <Badge className="bg-blue-100 text-blue-800">Payment Received</Badge>;
-      case 'payment_pending':
-        return <Badge className="bg-amber-100 text-amber-800">Payment Pending</Badge>;
+      case 'converted_to_investment':
+        return <Badge className="bg-green-100 text-green-800">Invested</Badge>;
+      case 'reserved':
+        return <Badge className="bg-amber-100 text-amber-800">Reserved</Badge>;
+      case 'expired':
+        return <Badge className="bg-orange-100 text-orange-800">Expired</Badge>;
       case 'cancelled':
         return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
       default:
@@ -1249,8 +1454,8 @@ function UserPortfolioTab({
                 <div>
                   <p className="text-sm text-slate-500">KYC Status</p>
                   <Badge 
-                    variant={portfolioData.user.kycStatus === 'verified' ? 'default' : 'secondary'}
-                    className={portfolioData.user.kycStatus === 'verified' ? 'bg-green-100 text-green-800' : ''}
+                    variant={portfolioData.user.kycStatus === 'approved' ? 'default' : 'secondary'}
+                    className={portfolioData.user.kycStatus === 'approved' ? 'bg-green-100 text-green-800' : ''}
                   >
                     {portfolioData.user.kycStatus || 'Not submitted'}
                   </Badge>
@@ -1352,7 +1557,7 @@ function UserPortfolioTab({
                               <Badge className="bg-green-100 text-green-800">
                                 {reservation.certificate.certificateNumber}
                               </Badge>
-                            ) : reservation.status === 'confirmed' ? (
+                            ) : reservation.status === 'converted_to_investment' ? (
                               <Badge variant="secondary">Pending</Badge>
                             ) : (
                               <span className="text-slate-400">-</span>
@@ -1367,7 +1572,7 @@ function UserPortfolioTab({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {(reservation.status === 'payment_pending' || reservation.status === 'confirmed') && (
+                                  {(reservation.status === 'reserved' || reservation.status === 'converted_to_investment') && (
                                     <DropdownMenuItem
                                       onClick={() => handleCancelInvestment(reservation.id)}
                                       disabled={cancellingId === reservation.id}
@@ -1375,18 +1580,7 @@ function UserPortfolioTab({
                                       data-testid={`menu-cancel-portfolio-${reservation.id}`}
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
-                                      {reservation.status === 'confirmed' ? 'Revert & Cancel' : 'Cancel Investment'}
-                                    </DropdownMenuItem>
-                                  )}
-                                  {reservation.status === 'payment_received' && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleCancelInvestment(reservation.id)}
-                                      disabled={cancellingId === reservation.id}
-                                      className="text-orange-600 focus:text-orange-600"
-                                      data-testid={`menu-withdraw-portfolio-${reservation.id}`}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-2" />
-                                      Withdraw (Refund Required)
+                                      {reservation.status === 'converted_to_investment' ? 'Revert & Cancel' : 'Cancel Reservation'}
                                     </DropdownMenuItem>
                                   )}
                                 </DropdownMenuContent>
@@ -1420,6 +1614,8 @@ export default function AdminDashboard() {
   const [viewingProperty, setViewingProperty] = useState<Property | null>(null);
   const [viewingReservation, setViewingReservation] = useState<InvestmentReservation | null>(null);
   const [viewingKyc, setViewingKyc] = useState<UserType | null>(null);
+  const [kycRejectionReason, setKycRejectionReason] = useState("");
+  const [showKycRejectConfirm, setShowKycRejectConfirm] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isReservationViewOpen, setIsReservationViewOpen] = useState(false);
@@ -1607,10 +1803,10 @@ export default function AdminDashboard() {
   });
 
   const updateKycStatusMutation = useMutation({
-    mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
+    mutationFn: async ({ userId, status, rejectionReason }: { userId: number; status: string; rejectionReason?: string }) => {
       return await authenticatedRequest(`/api/admin/kyc/${userId}/status`, {
         method: "PUT",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, rejectionReason }),
       });
     },
     onSuccess: () => {
@@ -1923,6 +2119,14 @@ export default function AdminDashboard() {
               >
                 <ShieldCheck className="mr-3 h-4 w-4" />
                 KYC Verifications
+              </Button>
+              <Button
+                variant={selectedTab === "payment-reviews" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("payment-reviews")}
+              >
+                <FileText className="mr-3 h-4 w-4" />
+                Payment Reviews
               </Button>
               <Button
                 variant={selectedTab === "user-portfolio" ? "secondary" : "ghost"}
@@ -2511,7 +2715,7 @@ export default function AdminDashboard() {
                               <div className="text-right">
                                 <Badge 
                                   variant={
-                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'approved' ? 'default' : 
                                     kyc.kycStatus === 'rejected' ? 'destructive' : 
                                     'secondary'
                                   }
@@ -2840,7 +3044,7 @@ export default function AdminDashboard() {
                           <SelectContent>
                             <SelectItem value="none">No Badge</SelectItem>
                             <SelectItem value="partnered">Partnered</SelectItem>
-                            <SelectItem value="verified">Verified</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
                             <SelectItem value="exclusive">Exclusive</SelectItem>
                           </SelectContent>
                         </Select>
@@ -3158,7 +3362,7 @@ export default function AdminDashboard() {
                               <TableCell>
                                 <Badge 
                                   variant={
-                                    kyc.kycStatus === 'verified' ? 'default' : 
+                                    kyc.kycStatus === 'approved' ? 'default' : 
                                     kyc.kycStatus === 'rejected' ? 'destructive' : 
                                     'secondary'
                                   }
@@ -3211,6 +3415,16 @@ export default function AdminDashboard() {
                   </Card>
                 )}
               </div>
+            )}
+
+            {/* Payment Reviews */}
+            {selectedTab === "payment-reviews" && (
+              <PaymentReviewsTab
+                authenticatedRequest={authenticatedRequest}
+                getCurrencySymbol={getCurrencySymbol}
+                queryClient={queryClient}
+                toast={toast}
+              />
             )}
 
             {/* User Portfolio Lookup */}
@@ -3729,10 +3943,10 @@ export default function AdminDashboard() {
                   <div>
                     <Label className="text-sm font-medium text-slate-600">Reservation Status</Label>
                     <Badge 
-                      variant={viewingReservation.status === 'confirmed' ? 'default' : 'secondary'}
+                      variant={viewingReservation.status === 'converted_to_investment' ? 'default' : 'secondary'}
                       className="mt-1"
                     >
-                      {viewingReservation.status}
+                      {viewingReservation.status === 'converted_to_investment' ? 'Invested' : viewingReservation.status}
                     </Badge>
                   </div>
                 </div>
@@ -4116,7 +4330,7 @@ export default function AdminDashboard() {
                     <p className="text-sm text-slate-600">Current Status</p>
                     <Badge 
                       variant={
-                        viewingKyc.kycStatus === 'verified' ? 'default' : 
+                        viewingKyc.kycStatus === 'approved' ? 'default' : 
                         viewingKyc.kycStatus === 'rejected' ? 'destructive' : 
                         'secondary'
                       }
@@ -4238,7 +4452,7 @@ export default function AdminDashboard() {
                     onClick={() => {
                       updateKycStatusMutation.mutate({ 
                         userId: viewingKyc.id, 
-                        status: 'verified' 
+                        status: 'approved' 
                       });
                       setIsKycDetailOpen(false);
                     }}
@@ -4251,11 +4465,8 @@ export default function AdminDashboard() {
                     variant="destructive"
                     className="flex-1"
                     onClick={() => {
-                      updateKycStatusMutation.mutate({ 
-                        userId: viewingKyc.id, 
-                        status: 'rejected' 
-                      });
-                      setIsKycDetailOpen(false);
+                      setKycRejectionReason("");
+                      setShowKycRejectConfirm(true);
                     }}
                     disabled={updateKycStatusMutation.isPending}
                   >
@@ -4265,7 +4476,46 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {viewingKyc.kycStatus === 'verified' && (
+              {/* Rejection Reason Dialog */}
+              {showKycRejectConfirm && (
+                <div className="mt-4 p-4 border border-red-200 bg-red-50 rounded-lg">
+                  <p className="text-sm font-medium text-red-900 mb-2">Provide Rejection Reason</p>
+                  <Textarea
+                    placeholder="Enter the reason for rejecting this KYC (optional but recommended)"
+                    value={kycRejectionReason}
+                    onChange={(e) => setKycRejectionReason(e.target.value)}
+                    className="mb-3"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowKycRejectConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        updateKycStatusMutation.mutate({ 
+                          userId: viewingKyc.id, 
+                          status: 'rejected',
+                          rejectionReason: kycRejectionReason || undefined
+                        });
+                        setShowKycRejectConfirm(false);
+                        setIsKycDetailOpen(false);
+                      }}
+                      disabled={updateKycStatusMutation.isPending}
+                    >
+                      Confirm Rejection
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {viewingKyc.kycStatus === 'approved' && (
                 <div className="bg-green-50 border border-green-200 p-4 rounded-lg text-center">
                   <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
                   <p className="text-green-800 font-medium">This KYC has been verified</p>

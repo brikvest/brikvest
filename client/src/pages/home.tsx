@@ -136,7 +136,7 @@ export default function Home() {
       amount: amount.toString(),
       unitPriceSnapshot: originalUnitPrice.toString(),
       currency: originalCurrency,
-      status: 'payment_pending',
+      status: 'reserved',
       referralCode: investmentForm.referralCode || undefined,
     };
 
@@ -227,6 +227,9 @@ export default function Home() {
                 <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   How It Works
                 </a>
+                <Link href="/about" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
+                  About
+                </Link>
               </div>
             </nav>
             <div className="hidden md:flex items-center space-x-4">
@@ -351,6 +354,15 @@ export default function Home() {
                   >
                     How It Works
                   </a>
+
+                  <Link 
+                    href="/about" 
+                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-about"
+                  >
+                    About
+                  </Link>
                 </div>
 
                 {/* User section for authenticated users */}
@@ -675,8 +687,8 @@ export default function Home() {
               Join thousands of investors who are building wealth through fractional real estate ownership
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex gap-6 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide md:grid md:grid-cols-2 lg:grid-cols-3 md:overflow-x-visible md:pb-0">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -684,21 +696,18 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "I liked how straightforward the process was. With just a couple of clicks, I could own land in Nigeria all the way from abroad. I'm really looking forward to seeing how far this can go."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-blue-600 font-semibold text-sm">IO</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Ilerioluwa O.</p>
-                  <p className="text-sm text-slate-500">Diaspora Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Ilerioluwa O.</p>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -706,21 +715,18 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "What I really like about Brikvest is how much the barrier to entry has been reduced. I started off investing in Abuja, but now I'm also looking to own assets in Lagos. With this low entry point, diversifying my risk in real estate has become a lot easier."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-green-600 font-semibold text-sm">CO</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Chukwudi O.</p>
-                  <p className="text-sm text-slate-500">Property Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Chukwudi O.</p>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -728,21 +734,18 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "The fact that I don't have to go through the stress of due diligence makes Brikvest a no-brainer for me. Being able to open the app, see an asset I like, and just acquire it — it almost feels like shopping on Amazon."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-purple-600 font-semibold text-sm">QG</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Queenet G.</p>
-                  <p className="text-sm text-slate-500">First-time Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Queenet G.</p>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -750,21 +753,18 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "The transparency is what made the difference for me. As investors, we have access to all the title documents, which makes the whole process more reliable and gives us confidence."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-orange-600 font-semibold text-sm">US</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Unekwu S.</p>
-                  <p className="text-sm text-slate-500">Verified Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Unekwu S.</p>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -772,21 +772,18 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "I like Brikvest a lot. I think it's a very interesting initiative, and I'd love to see it expand globally. I want to be able to make strategic bets on regions that have real estate upside, and Brikvest makes that possible."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-teal-600 font-semibold text-sm">SA</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Sani A.</p>
-                  <p className="text-sm text-slate-500">Strategic Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Sani A.</p>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col min-w-[300px] md:min-w-0 snap-start">
               <div className="flex items-center gap-1 mb-4">
                 {[...Array(5)].map((_, i) => (
                   <svg key={i} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
@@ -794,17 +791,14 @@ export default function Home() {
                   </svg>
                 ))}
               </div>
-              <p className="text-slate-600 mb-6 italic">
+              <p className="text-slate-600 mb-6 italic flex-grow">
                 "The low barrier to entry really stands out for me. Also, I can easily review years of asset performance and access all the data I need before making an investment."
               </p>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3 mt-auto">
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-indigo-600 font-semibold text-sm">IA</span>
                 </div>
-                <div>
-                  <p className="font-semibold text-slate-900">Ikendai A.</p>
-                  <p className="text-sm text-slate-500">Data-driven Investor</p>
-                </div>
+                <p className="font-semibold text-slate-900">Ikendai A.</p>
               </div>
             </div>
           </div>
@@ -830,7 +824,7 @@ export default function Home() {
             <div>
               <h4 className="font-semibold mb-4">Company</h4>
               <ul className="space-y-2">
-                <li><a href="#" className="text-slate-300 hover:text-white transition-colors">About Us</a></li>
+                <li><Link href="/about" className="text-slate-300 hover:text-white transition-colors">About Us</Link></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">How It Works</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Security</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Careers</a></li>

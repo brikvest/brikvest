@@ -21,13 +21,20 @@ export function investmentEmailTemplate({
             <h2 style="color: #222;">Hello ${fullName},</h2>
 
             <p style="font-size: 16px; color: #444;">
-              Thank you for submitting your interest to invest <strong>₦${amount.toLocaleString()}</strong> in the <strong>${propertyName}</strong> property.
+              Thank you for reserving your investment of <strong>₦${amount.toLocaleString()}</strong> in the <strong>${propertyName}</strong> property.
             </p>
 
+            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; margin: 24px 0; border-radius: 4px;">
+              <p style="margin: 0; font-size: 15px; color: #92400e;">
+                <strong>⏰ Important:</strong> This reservation expires in <strong>24 hours</strong>. Units are temporarily held for you but will be released if payment is not completed within this time.
+              </p>
+            </div>
+
             <p style="font-size: 16px; color: #444;">
-              While we're thrilled to have you on board, please note that we are currently in the process of securing our licensing from the Securities and Exchange Commission (SEC). 
-              As such, we will only begin collecting investment funds once this licensing process is successfully completed. 
-              You'll be notified immediately when the platform is ready to accept payments.
+              <strong>Next Steps:</strong><br>
+              1. Sign in to your Brikvest account<br>
+              2. Complete your KYC verification (if not already done)<br>
+              3. Complete your payment to confirm this investment
             </p>
 
             <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
@@ -227,9 +234,21 @@ export function investmentCreatedEmailTemplate({
             </p>
           </div>
 
+          <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 15px; color: #92400e;">
+              <strong>⏰ Important:</strong> This reservation expires in <strong>24 hours</strong>. Units are temporarily held for you but will be released if payment is not completed within this time.
+            </p>
+          </div>
+
           <p style="font-size: 16px; color: #444;">
             <strong>Next Steps:</strong><br>
-            Please complete your payment to confirm this investment. Once payment is received and verified, your investment will be confirmed and you'll receive full access to your investment details.
+            1. Sign in to your Brikvest account<br>
+            2. Complete your KYC verification (if not already done)<br>
+            3. Complete your payment to confirm this investment
+          </p>
+          
+          <p style="font-size: 14px; color: #666;">
+            Once payment is received and verified, your investment will be confirmed and you'll receive your ownership certificate.
           </p>
 
           <div style="text-align: center; margin: 30px 0;">
