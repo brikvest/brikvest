@@ -533,6 +533,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = parseInt(req.params.userId);
       const { status, rejectionReason } = req.body;
+      const adminUser = (req as any).user;
+
+      console.log(`[AUDIT:KYC] Status update initiated: userId=${userId}, newStatus=${status}, admin=${adminUser.username}`);
 
       if (!['approved', 'rejected'].includes(status)) {
         return res.status(400).json({ error: "Invalid status. Must be 'approved' or 'rejected'" });
@@ -541,11 +544,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get user info before updating status
       const user = await storage.getUser(userId);
       if (!user) {
+        console.log(`[AUDIT:KYC] Status update FAILED: userId=${userId} not found`);
         return res.status(404).json({ error: "User not found" });
       }
 
+      const previousStatus = user.kycStatus;
+      
       // Update KYC status with rejection reason if rejected
       await storage.updateUserKycStatus(userId, status, rejectionReason);
+      
+      if (status === 'approved') {
+        console.log(`[AUDIT:KYC] APPROVED: userId=${userId}, email=${user.email}, fullName="${user.kycFullName}", previousStatus=${previousStatus}, approvedBy=${adminUser.username}`);
+      } else {
+        console.log(`[AUDIT:KYC] REJECTED: userId=${userId}, email=${user.email}, fullName="${user.kycFullName}", previousStatus=${previousStatus}, reason="${rejectionReason || 'N/A'}", rejectedBy=${adminUser.username}`);
+      }
 
       // Send appropriate email
       try {
@@ -558,6 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             subject: emailContent.subject,
             html: emailContent.html,
           });
+          console.log(`[AUDIT:EMAIL] KYC approval sent: to=${user.email}, userId=${userId}`);
         } else if (status === 'rejected') {
           const emailContent = kycRejectedEmailTemplate({ fullName });
           await sendEmail({
@@ -565,15 +578,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             subject: emailContent.subject,
             html: emailContent.html,
           });
+          console.log(`[AUDIT:EMAIL] KYC rejection sent: to=${user.email}, userId=${userId}`);
         }
       } catch (emailError) {
-        console.error("Error sending KYC status email:", emailError);
+        console.error(`[AUDIT:EMAIL] FAILED to send KYC ${status} email to ${user.email}:`, emailError);
         // Don't fail the request if email fails
       }
 
       res.json({ message: `KYC status updated to ${status}` });
     } catch (error) {
-      console.error("Error updating KYC status:", error);
+      console.error("[AUDIT:KYC] Status update ERROR:", error);
       res.status(500).json({ error: "Failed to update KYC status" });
     }
   });
@@ -614,56 +628,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/admin/payment-submissions/:id/approve', requireAdminAuth, async (req, res) => {
     try {
       const submissionId = parseInt(req.params.id);
+      const adminUser = (req as any).user;
+      
+      console.log(`[AUDIT:PAYMENT] Approval initiated: submissionId=${submissionId}, admin=${adminUser.username} (id=${adminUser.userId})`);
       
       const submission = await storage.getPaymentSubmission(submissionId);
       if (!submission) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: submissionId=${submissionId} not found`);
         return res.status(404).json({ error: "Payment submission not found" });
       }
 
       if (submission.status !== 'pending_admin_review') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: submissionId=${submissionId} already processed (status=${submission.status})`);
         return res.status(400).json({ error: "This submission has already been processed" });
       }
 
       const reservation = await storage.getReservation(submission.reservationId);
       if (!reservation) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: reservationId=${submission.reservationId} not found`);
         return res.status(404).json({ error: "Associated reservation not found" });
+      }
+
+      // Extra safeguard: verify reservation is still in valid state
+      if (reservation.status !== 'reserved') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: reservationId=${reservation.id} not in reserved state (status=${reservation.status})`);
+        return res.status(400).json({ 
+          error: `Reservation is in '${reservation.status}' state, cannot approve payment.` 
+        });
       }
 
       const property = await storage.getProperty(reservation.propertyId);
       if (!property) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: propertyId=${reservation.propertyId} not found`);
         return res.status(404).json({ error: "Associated property not found" });
       }
 
       const user = await storage.getUser(submission.userId);
       if (!user) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: userId=${submission.userId} not found`);
         return res.status(404).json({ error: "Associated user not found" });
       }
 
       // Block approval if KYC is not approved (scenario: user paid outside system without KYC)
       if (user.kycStatus !== 'approved') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: userId=${user.id} KYC not approved (kycStatus=${user.kycStatus})`);
         return res.status(400).json({ 
           error: "KYC must be approved before we can validate and allocate units. Please approve user's KYC first." 
         });
       }
 
+      const reservedUnits = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+      console.log(`[AUDIT:PAYMENT] Proceeding with approval: userId=${user.id}, email=${user.email}, propertyId=${property.id}, propertyName="${property.name}", units=${reservedUnits}, amount=${reservation.amount}, currency=${reservation.currency}`);
+
       // Atomically: update submission, update reservation to converted, update property unit counts
       await storage.updatePaymentSubmission(submissionId, {
         status: 'approved',
         reviewedAt: new Date(),
-        adminNotes: req.body.adminNotes || null
+        reviewedByAdminId: adminUser.userId
       });
 
       await storage.updateReservation(reservation.id, {
-        status: 'converted_to_investment',
-        confirmedAt: new Date()
+        status: 'converted_to_investment'
       });
 
       // Move units from reserved to sold
-      await storage.updatePropertyUnitCounts(reservation.propertyId, -reservation.units, reservation.units);
+      await storage.updatePropertyUnitCounts(reservation.propertyId, -reservedUnits, reservedUnits);
+      
+      console.log(`[AUDIT:PAYMENT] APPROVED: submissionId=${submissionId}, reservationId=${reservation.id}, userId=${user.id}, email=${user.email}, units=${reservedUnits}, amount=${reservation.amount}, approvedBy=${adminUser.username}`);
 
       // Generate ownership certificate
+      let certNumber = null;
       try {
-        const certNumber = await storage.getNextCertificateNumber();
+        certNumber = await storage.getNextCertificateNumber();
         const verificationToken = randomBytes(32).toString('hex');
         
         await storage.createOwnershipCertificate({
@@ -678,9 +714,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: reservation.amount?.toString() || '0',
           currency: reservation.currency || 'NGN'
         });
-        console.log(`[PAYMENT APPROVED] Generated certificate ${certNumber} for reservation ${reservation.id}`);
+        console.log(`[AUDIT:CERTIFICATE] Generated: certNumber=${certNumber}, reservationId=${reservation.id}, userId=${user.id}`);
       } catch (certError) {
-        console.error("Error generating certificate:", certError);
+        console.error(`[AUDIT:CERTIFICATE] FAILED to generate for reservationId=${reservation.id}:`, certError);
         // Don't fail the whole operation if certificate generation fails
       }
 
@@ -698,16 +734,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subject: emailContent.subject,
           html: emailContent.html
         });
+        console.log(`[AUDIT:EMAIL] Payment confirmation sent: to=${user.email}, reservationId=${reservation.id}`);
       } catch (emailError) {
-        console.error("Error sending confirmation email:", emailError);
+        console.error(`[AUDIT:EMAIL] FAILED to send payment confirmation to ${user.email}:`, emailError);
+        // Investment is confirmed even if email fails - log for retry
       }
 
       res.json({ 
         message: "Payment approved and investment confirmed",
-        reservationId: reservation.id
+        reservationId: reservation.id,
+        certificateNumber: certNumber
       });
     } catch (error) {
-      console.error("Error approving payment:", error);
+      console.error("[AUDIT:PAYMENT] Approval ERROR:", error);
       res.status(500).json({ error: "Failed to approve payment" });
     }
   });
@@ -734,13 +773,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reservation = await storage.getReservation(submission.reservationId);
       const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
 
+      const adminUser = (req as any).user;
+      console.log(`[AUDIT:PAYMENT] Rejection initiated: submissionId=${submissionId}, reason="${reason}", admin=${adminUser.username}`);
+
       // Update submission status
       await storage.updatePaymentSubmission(submissionId, {
         status: 'rejected',
         reviewedAt: new Date(),
         rejectionReason: reason,
-        adminNotes: req.body.adminNotes || null
+        reviewedByAdminId: adminUser.userId
       });
+      
+      console.log(`[AUDIT:PAYMENT] REJECTED: submissionId=${submissionId}, userId=${submission.userId}, reservationId=${submission.reservationId}, reason="${reason}", rejectedBy=${adminUser.username}`);
 
       // Send rejection email
       if (user) {
@@ -773,14 +817,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               </div>
             `
           });
+          console.log(`[AUDIT:EMAIL] Payment rejection sent: to=${user.email}, submissionId=${submissionId}`);
         } catch (emailError) {
-          console.error("Error sending rejection email:", emailError);
+          console.error(`[AUDIT:EMAIL] FAILED to send payment rejection to ${user.email}:`, emailError);
         }
       }
 
       res.json({ message: "Payment submission rejected" });
     } catch (error) {
-      console.error("Error rejecting payment:", error);
+      console.error("[AUDIT:PAYMENT] Rejection ERROR:", error);
       res.status(500).json({ error: "Failed to reject payment" });
     }
   });
