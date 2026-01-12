@@ -33,7 +33,7 @@ export const users = pgTable("users", {
   preferredCurrency: varchar("preferred_currency", { length: 3 }).default("USD"), // ISO currency code
   
   // KYC (Know Your Customer) verification fields
-  kycStatus: text("kyc_status").notNull().default("pending"), // 'pending', 'submitted', 'verified', 'rejected'
+  kycStatus: text("kyc_status").notNull().default("not_started"), // 'not_started', 'submitted', 'approved', 'rejected'
   kycFullName: text("kyc_full_name"), // Full legal name from government ID
   kycDateOfBirth: timestamp("kyc_date_of_birth"), // Must be 18+ years old
   kycAddress: text("kyc_address"), // Residential address
@@ -45,6 +45,7 @@ export const users = pgTable("users", {
   kycSignatureUrl: text("kyc_signature_url"), // Cloudinary URL for user's signature
   kycSubmittedAt: timestamp("kyc_submitted_at"), // When KYC was submitted
   kycVerifiedAt: timestamp("kyc_verified_at"), // When KYC was verified by admin
+  kycRejectionReason: text("kyc_rejection_reason"), // Reason for KYC rejection if rejected
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -114,7 +115,7 @@ export const investmentReservations = pgTable("investment_reservations", {
   currency: text("currency").notNull().default("NGN"), // Currency for the investment (NGN = Nigerian Naira - platform default)
   unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
   referralCode: text("referral_code"),
-  status: text("status").notNull().default("payment_pending"), // 'payment_pending', 'payment_received', 'confirmed', 'cancelled'
+  status: text("status").notNull().default("reserved"), // 'reserved', 'expired', 'converted_to_investment', 'cancelled'
   
   // Payment tracking (admin-assisted)
   paymentMethod: text("payment_method"), // 'bank_transfer', 'card', 'cash', 'check', etc.
@@ -125,11 +126,15 @@ export const investmentReservations = pgTable("investment_reservations", {
   createdByAdminId: integer("created_by_admin_id").references(() => adminUsers.id), // Admin who created this reservation
   notes: text("notes"), // Admin notes about the reservation
   
+  // Reservation expiration (24 hours from creation for payment_pending status)
+  expiresAt: timestamp("expires_at"), // When the reservation expires if payment not received
+  kycExtendedAt: timestamp("kyc_extended_at"), // When the reservation was extended due to KYC submission (one-time +24h extension)
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Payment records for investment reservations
+// Payment records for investment reservations (legacy - admin recorded)
 export const investmentPayments = pgTable("investment_payments", {
   id: serial("id").primaryKey(),
   reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
@@ -142,6 +147,25 @@ export const investmentPayments = pgTable("investment_payments", {
   status: text("status").notNull().default("received"), // 'received', 'verified', 'refunded'
   notes: text("notes"), // Admin notes about the payment
   recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+// User-submitted payment proofs for admin review
+export const paymentSubmissions = pgTable("payment_submissions", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  proofUrl: text("proof_url").notNull(), // Cloudinary/Object Storage URL for payment proof (image/pdf)
+  proofType: text("proof_type").notNull().default("image"), // 'image', 'pdf'
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  paymentMethod: text("payment_method").notNull().default("bank_transfer"), // 'bank_transfer', 'card', etc.
+  bankReference: text("bank_reference"), // User-provided reference/transaction ID
+  status: text("status").notNull().default("pending_admin_review"), // 'pending_admin_review', 'approved', 'rejected'
+  rejectionReason: text("rejection_reason"), // Reason for rejection if rejected
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const developerBids = pgTable("developer_bids", {
@@ -445,6 +469,13 @@ export const insertInvestmentPaymentSchema = createInsertSchema(investmentPaymen
   recordedAt: true,
 });
 
+export const insertPaymentSubmissionSchema = createInsertSchema(paymentSubmissions).omit({
+  id: true,
+  uploadedAt: true,
+  createdAt: true,
+  reviewedAt: true,
+});
+
 export const insertDeveloperBidSchema = createInsertSchema(developerBids).omit({
   id: true,
   createdAt: true,
@@ -516,6 +547,9 @@ export type InvestmentReservation = typeof investmentReservations.$inferSelect;
 
 export type InsertInvestmentPayment = z.infer<typeof insertInvestmentPaymentSchema>;
 export type InvestmentPayment = typeof investmentPayments.$inferSelect;
+
+export type InsertPaymentSubmission = z.infer<typeof insertPaymentSubmissionSchema>;
+export type PaymentSubmission = typeof paymentSubmissions.$inferSelect;
 
 export type InsertDeveloperBid = z.infer<typeof insertDeveloperBidSchema>;
 export type DeveloperBid = typeof developerBids.$inferSelect;

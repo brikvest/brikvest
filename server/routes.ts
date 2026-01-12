@@ -371,13 +371,150 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycSubmittedAt: new Date(),
       });
 
+      // Auto-extend active reservations by 24 hours (one-time extension)
+      const extendedCount = await storage.extendReservationsOnKycSubmission(userId);
+
       res.json({ 
         message: "KYC submitted successfully",
-        status: "submitted"
+        status: "submitted",
+        reservationsExtended: extendedCount
       });
     } catch (error) {
       console.error("Error submitting KYC:", error);
       res.status(500).json({ error: "Failed to submit KYC verification" });
+    }
+  });
+
+  // User payment proof submission endpoint
+  app.post('/api/user/payment-submission', requireAuth, upload.single('paymentProof'), async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { reservationId } = req.body;
+      const file = req.file;
+
+      if (!reservationId) {
+        return res.status(400).json({ error: "Reservation ID is required" });
+      }
+
+      if (!file) {
+        return res.status(400).json({ error: "Payment proof document is required" });
+      }
+
+      // Validate file type (image or PDF)
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ 
+          error: "Invalid file type. Only JPEG, PNG, WEBP, and PDF files are allowed." 
+        });
+      }
+
+      const maxFileSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxFileSize) {
+        return res.status(400).json({ error: "File size exceeds 10MB limit." });
+      }
+
+      // Get reservation and verify ownership
+      const reservation = await storage.getReservation(parseInt(reservationId));
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      if (reservation.userId !== userId) {
+        return res.status(403).json({ error: "You can only submit payment for your own reservations" });
+      }
+
+      if (reservation.status !== 'reserved') {
+        return res.status(400).json({ error: "This reservation is not awaiting payment" });
+      }
+
+      // Check if reservation has expired
+      if (reservation.expiresAt && new Date(reservation.expiresAt) < new Date()) {
+        return res.status(400).json({ 
+          error: "This reservation has expired. Please create a new reservation to continue." 
+        });
+      }
+
+      // Verify KYC is approved
+      const user = await storage.getUser(userId);
+      if (!user || user.kycStatus !== 'approved') {
+        return res.status(403).json({ 
+          error: "KYC verification must be approved before submitting payment proof" 
+        });
+      }
+
+      // Check for existing pending submission
+      const existingSubmissions = await storage.getPaymentSubmissionsByReservationId(parseInt(reservationId));
+      const hasPending = existingSubmissions.some(s => s.status === 'pending_admin_review');
+      if (hasPending) {
+        return res.status(400).json({ error: "A payment proof is already pending review for this reservation" });
+      }
+
+      // Upload file (PDF to Object Storage, images to Cloudinary)
+      let proofUrl: string;
+      if (file.mimetype === 'application/pdf') {
+        proofUrl = await uploadToObjectStorage(
+          file.buffer,
+          file.originalname,
+          file.mimetype,
+          'payment-proofs'
+        );
+      } else {
+        const result = await uploadToCloudinary(
+          file.buffer,
+          file.originalname,
+          'brikvest/payment-proofs'
+        );
+        proofUrl = result.url;
+      }
+
+      // Create payment submission
+      const submission = await storage.createPaymentSubmission({
+        reservationId: parseInt(reservationId),
+        userId,
+        proofUrl,
+        proofType: file.mimetype === 'application/pdf' ? 'pdf' : 'image',
+        status: 'pending_admin_review'
+      });
+
+      res.json({ 
+        message: "Payment proof submitted successfully. Please wait for admin review.",
+        submission
+      });
+    } catch (error) {
+      console.error("Error submitting payment proof:", error);
+      res.status(500).json({ error: "Failed to submit payment proof" });
+    }
+  });
+
+  // Get user's payment submissions
+  app.get('/api/user/payment-submissions', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const submissions = await storage.getPaymentSubmissionsByUserId(userId);
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
+  // Get payment submissions for a specific reservation
+  app.get('/api/user/reservations/:reservationId/payment-submissions', requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const reservationId = parseInt(req.params.reservationId);
+      
+      // Verify ownership
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const submissions = await storage.getPaymentSubmissionsByReservationId(reservationId);
+      res.json(submissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
     }
   });
 
@@ -395,32 +532,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/admin/kyc/:userId/status', requireAdminAuth, async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
-      const { status } = req.body;
+      const { status, rejectionReason } = req.body;
+      const adminUser = (req as any).user;
 
-      if (!['verified', 'rejected'].includes(status)) {
-        return res.status(400).json({ error: "Invalid status. Must be 'verified' or 'rejected'" });
+      console.log(`[AUDIT:KYC] Status update initiated: userId=${userId}, newStatus=${status}, admin=${adminUser.username}`);
+
+      if (!['approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be 'approved' or 'rejected'" });
       }
 
       // Get user info before updating status
       const user = await storage.getUser(userId);
       if (!user) {
+        console.log(`[AUDIT:KYC] Status update FAILED: userId=${userId} not found`);
         return res.status(404).json({ error: "User not found" });
       }
 
-      // Update KYC status
-      await storage.updateUserKycStatus(userId, status);
+      const previousStatus = user.kycStatus;
+      
+      // Update KYC status with rejection reason if rejected
+      await storage.updateUserKycStatus(userId, status, rejectionReason);
+      
+      if (status === 'approved') {
+        console.log(`[AUDIT:KYC] APPROVED: userId=${userId}, email=${user.email}, fullName="${user.kycFullName}", previousStatus=${previousStatus}, approvedBy=${adminUser.username}`);
+      } else {
+        console.log(`[AUDIT:KYC] REJECTED: userId=${userId}, email=${user.email}, fullName="${user.kycFullName}", previousStatus=${previousStatus}, reason="${rejectionReason || 'N/A'}", rejectedBy=${adminUser.username}`);
+      }
 
       // Send appropriate email
       try {
         const fullName = user.kycFullName || user.email.split('@')[0];
         
-        if (status === 'verified') {
+        if (status === 'approved') {
           const emailContent = kycApprovedEmailTemplate({ fullName });
           await sendEmail({
             to: user.email,
             subject: emailContent.subject,
             html: emailContent.html,
           });
+          console.log(`[AUDIT:EMAIL] KYC approval sent: to=${user.email}, userId=${userId}`);
         } else if (status === 'rejected') {
           const emailContent = kycRejectedEmailTemplate({ fullName });
           await sendEmail({
@@ -428,16 +578,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
             subject: emailContent.subject,
             html: emailContent.html,
           });
+          console.log(`[AUDIT:EMAIL] KYC rejection sent: to=${user.email}, userId=${userId}`);
         }
       } catch (emailError) {
-        console.error("Error sending KYC status email:", emailError);
+        console.error(`[AUDIT:EMAIL] FAILED to send KYC ${status} email to ${user.email}:`, emailError);
         // Don't fail the request if email fails
       }
 
       res.json({ message: `KYC status updated to ${status}` });
     } catch (error) {
-      console.error("Error updating KYC status:", error);
+      console.error("[AUDIT:KYC] Status update ERROR:", error);
       res.status(500).json({ error: "Failed to update KYC status" });
+    }
+  });
+
+  // Admin Payment Submission routes
+  app.get('/api/admin/payment-submissions', requireAdminAuth, async (req, res) => {
+    try {
+      const submissions = await storage.getAllPendingPaymentSubmissions();
+      
+      // Enrich submissions with reservation and user details
+      const enrichedSubmissions = await Promise.all(
+        submissions.map(async (submission) => {
+          const reservation = await storage.getReservation(submission.reservationId);
+          const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
+          const user = await storage.getUser(submission.userId);
+          return {
+            ...submission,
+            reservation,
+            property,
+            user: user ? {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              kycFullName: user.kycFullName
+            } : null
+          };
+        })
+      );
+      
+      res.json(enrichedSubmissions);
+    } catch (error) {
+      console.error("Error fetching payment submissions:", error);
+      res.status(500).json({ error: "Failed to fetch payment submissions" });
+    }
+  });
+
+  app.put('/api/admin/payment-submissions/:id/approve', requireAdminAuth, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const adminUser = (req as any).user;
+      
+      console.log(`[AUDIT:PAYMENT] Approval initiated: submissionId=${submissionId}, admin=${adminUser.username} (id=${adminUser.userId})`);
+      
+      const submission = await storage.getPaymentSubmission(submissionId);
+      if (!submission) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: submissionId=${submissionId} not found`);
+        return res.status(404).json({ error: "Payment submission not found" });
+      }
+
+      if (submission.status !== 'pending_admin_review') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: submissionId=${submissionId} already processed (status=${submission.status})`);
+        return res.status(400).json({ error: "This submission has already been processed" });
+      }
+
+      const reservation = await storage.getReservation(submission.reservationId);
+      if (!reservation) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: reservationId=${submission.reservationId} not found`);
+        return res.status(404).json({ error: "Associated reservation not found" });
+      }
+
+      // Extra safeguard: verify reservation is still in valid state
+      if (reservation.status !== 'reserved') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: reservationId=${reservation.id} not in reserved state (status=${reservation.status})`);
+        return res.status(400).json({ 
+          error: `Reservation is in '${reservation.status}' state, cannot approve payment.` 
+        });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: propertyId=${reservation.propertyId} not found`);
+        return res.status(404).json({ error: "Associated property not found" });
+      }
+
+      const user = await storage.getUser(submission.userId);
+      if (!user) {
+        console.log(`[AUDIT:PAYMENT] Approval FAILED: userId=${submission.userId} not found`);
+        return res.status(404).json({ error: "Associated user not found" });
+      }
+
+      // Block approval if KYC is not approved (scenario: user paid outside system without KYC)
+      if (user.kycStatus !== 'approved') {
+        console.log(`[AUDIT:PAYMENT] Approval BLOCKED: userId=${user.id} KYC not approved (kycStatus=${user.kycStatus})`);
+        return res.status(400).json({ 
+          error: "KYC must be approved before we can validate and allocate units. Please approve user's KYC first." 
+        });
+      }
+
+      const reservedUnits = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+      console.log(`[AUDIT:PAYMENT] Proceeding with approval: userId=${user.id}, email=${user.email}, propertyId=${property.id}, propertyName="${property.name}", units=${reservedUnits}, amount=${reservation.amount}, currency=${reservation.currency}`);
+
+      // Atomically: update submission, update reservation to converted, update property unit counts
+      await storage.updatePaymentSubmission(submissionId, {
+        status: 'approved',
+        reviewedAt: new Date(),
+        reviewedByAdminId: adminUser.userId
+      });
+
+      await storage.updateReservation(reservation.id, {
+        status: 'converted_to_investment'
+      });
+
+      // Move units from reserved to sold
+      await storage.updatePropertyUnitCounts(reservation.propertyId, -reservedUnits, reservedUnits);
+      
+      console.log(`[AUDIT:PAYMENT] APPROVED: submissionId=${submissionId}, reservationId=${reservation.id}, userId=${user.id}, email=${user.email}, units=${reservedUnits}, amount=${reservation.amount}, approvedBy=${adminUser.username}`);
+
+      // Generate ownership certificate
+      let certNumber = null;
+      try {
+        certNumber = await storage.getNextCertificateNumber();
+        const verificationToken = randomBytes(32).toString('hex');
+        
+        await storage.createOwnershipCertificate({
+          reservationId: reservation.id,
+          userId: user.id,
+          propertyId: reservation.propertyId,
+          certificateNumber: certNumber,
+          verificationToken,
+          ownerName: user.kycFullName || `${user.firstName} ${user.lastName}`,
+          propertyName: property.name,
+          units: reservation.units,
+          amount: reservation.amount?.toString() || '0',
+          currency: reservation.currency || 'NGN'
+        });
+        console.log(`[AUDIT:CERTIFICATE] Generated: certNumber=${certNumber}, reservationId=${reservation.id}, userId=${user.id}`);
+      } catch (certError) {
+        console.error(`[AUDIT:CERTIFICATE] FAILED to generate for reservationId=${reservation.id}:`, certError);
+        // Don't fail the whole operation if certificate generation fails
+      }
+
+      // Send confirmation email
+      try {
+        const emailContent = investmentConfirmedEmailTemplate({
+          fullName: user.kycFullName || `${user.firstName} ${user.lastName}`,
+          propertyName: property.name,
+          units: reservation.units,
+          amount: reservation.amount?.toString() || '0',
+          currency: reservation.currency || 'NGN'
+        });
+        await sendEmail({
+          to: user.email,
+          subject: emailContent.subject,
+          html: emailContent.html
+        });
+        console.log(`[AUDIT:EMAIL] Payment confirmation sent: to=${user.email}, reservationId=${reservation.id}`);
+      } catch (emailError) {
+        console.error(`[AUDIT:EMAIL] FAILED to send payment confirmation to ${user.email}:`, emailError);
+        // Investment is confirmed even if email fails - log for retry
+      }
+
+      res.json({ 
+        message: "Payment approved and investment confirmed",
+        reservationId: reservation.id,
+        certificateNumber: certNumber
+      });
+    } catch (error) {
+      console.error("[AUDIT:PAYMENT] Approval ERROR:", error);
+      res.status(500).json({ error: "Failed to approve payment" });
+    }
+  });
+
+  app.put('/api/admin/payment-submissions/:id/reject', requireAdminAuth, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const { reason } = req.body;
+
+      if (!reason) {
+        return res.status(400).json({ error: "Rejection reason is required" });
+      }
+
+      const submission = await storage.getPaymentSubmission(submissionId);
+      if (!submission) {
+        return res.status(404).json({ error: "Payment submission not found" });
+      }
+
+      if (submission.status !== 'pending_admin_review') {
+        return res.status(400).json({ error: "This submission has already been processed" });
+      }
+
+      const user = await storage.getUser(submission.userId);
+      const reservation = await storage.getReservation(submission.reservationId);
+      const property = reservation ? await storage.getProperty(reservation.propertyId) : null;
+
+      const adminUser = (req as any).user;
+      console.log(`[AUDIT:PAYMENT] Rejection initiated: submissionId=${submissionId}, reason="${reason}", admin=${adminUser.username}`);
+
+      // Update submission status
+      await storage.updatePaymentSubmission(submissionId, {
+        status: 'rejected',
+        reviewedAt: new Date(),
+        rejectionReason: reason,
+        reviewedByAdminId: adminUser.userId
+      });
+      
+      console.log(`[AUDIT:PAYMENT] REJECTED: submissionId=${submissionId}, userId=${submission.userId}, reservationId=${submission.reservationId}, reason="${reason}", rejectedBy=${adminUser.username}`);
+
+      // Send rejection email
+      if (user) {
+        try {
+          await sendEmail({
+            to: user.email,
+            subject: "Payment Proof Rejected - Brikvest",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #ef4444; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                  <h1 style="margin: 0; font-size: 24px;">Payment Proof Rejected</h1>
+                </div>
+                <div style="background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px;">
+                  <p style="color: #374151; margin-bottom: 20px;">Dear ${user.kycFullName || user.firstName || 'Investor'},</p>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    Unfortunately, your payment proof for <strong>${property?.name || 'your reservation'}</strong> has been rejected.
+                  </p>
+                  <div style="background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 15px; margin-bottom: 20px;">
+                    <p style="color: #991b1b; margin: 0;"><strong>Reason:</strong> ${reason}</p>
+                  </div>
+                  <p style="color: #6b7280; margin-bottom: 20px;">
+                    Please review the feedback above and submit a new payment proof from your dashboard.
+                  </p>
+                  <div style="text-align: center; margin-top: 30px;">
+                    <a href="https://www.brikvest.net/dashboard" style="background-color: #10b981; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">
+                      Go to Dashboard
+                    </a>
+                  </div>
+                </div>
+              </div>
+            `
+          });
+          console.log(`[AUDIT:EMAIL] Payment rejection sent: to=${user.email}, submissionId=${submissionId}`);
+        } catch (emailError) {
+          console.error(`[AUDIT:EMAIL] FAILED to send payment rejection to ${user.email}:`, emailError);
+        }
+      }
+
+      res.json({ message: "Payment submission rejected" });
+    } catch (error) {
+      console.error("[AUDIT:PAYMENT] Rejection ERROR:", error);
+      res.status(500).json({ error: "Failed to reject payment" });
     }
   });
 
@@ -485,7 +874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate summary (same logic as user dashboard)
       const confirmedAndReceived = reservations.filter((r: any) => 
-        r.status === 'confirmed' || r.status === 'payment_received'
+        r.status === 'converted_to_investment'
       );
       
       const totalPortfolioValue = confirmedAndReceived.reduce((sum: number, r: any) => {
@@ -495,16 +884,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const propertiesOwned = new Set(
         reservations
-          .filter((r: any) => r.status === 'confirmed')
+          .filter((r: any) => r.status === 'converted_to_investment')
           .map((r: any) => r.propertyId)
       ).size;
 
       const activeReservations = reservations.filter((r: any) => 
-        r.status === 'payment_pending' || r.status === 'payment_received'
+        r.status === 'reserved'
       ).length;
 
       const confirmedInvestments = reservations.filter((r: any) => 
-        r.status === 'confirmed'
+        r.status === 'converted_to_investment'
       ).length;
 
       res.json({
@@ -613,7 +1002,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
       const investmentCurrency = property.currency || 'NGN';
       
-      // Create reservation
+      // Create reservation with 24-hour expiration
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       const reservation = await storage.createInvestmentReservation({
         userId,
         propertyId,
@@ -624,12 +1014,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount,
         currency: investmentCurrency,
         unitPriceSnapshot,
-        status: 'payment_pending',
+        status: 'reserved',
         paymentMethod: paymentMethod || null,
         paymentReference: paymentReference || null,
         paymentEvidenceUrl: paymentEvidenceUrl || null,
         createdByAdminId: (req.user as any).userId,
         notes: notes || null,
+        expiresAt,
       });
       
       console.log(`[INVESTMENT] Created reservation ${reservation.id} with currency ${investmentCurrency} for property ${property.name}`);
@@ -673,15 +1064,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
+      // Check if reservation has a user account linked
+      if (!reservation.userId) {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User must be signed in and linked to this reservation." 
+        });
+      }
+
+      // Check KYC status - must be verified before payment can be recorded
+      const user = await storage.getUser(reservation.userId);
+      if (!user) {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User account not found." 
+        });
+      }
+      if (user.kycStatus !== 'approved') {
+        return res.status(400).json({ 
+          error: "Cannot mark payment received. User KYC must be approved first." 
+        });
+      }
+
       // Generate unique payment reference: BRK-YYYYMMDD-XXXXX
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const randomPart = Math.random().toString(36).substring(2, 7).toUpperCase();
       const generatedPaymentReference = `BRK-${dateStr}-${randomPart}`;
 
-      // Update reservation status with generated payment reference
+      // Update reservation status with generated payment reference (keeping reserved until admin approves payment)
       await storage.updateReservation(reservationId, {
-        status: 'payment_received',
+        status: 'reserved',
         paymentMethod: paymentMethod || reservation.paymentMethod,
         paymentReference: generatedPaymentReference,
         paymentEvidenceUrl: paymentEvidenceUrl || reservation.paymentEvidenceUrl,
@@ -738,7 +1149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Confirm investment (validates KYC and moves to confirmed)
+  // Confirm investment (validates KYC and moves to converted_to_investment)
   app.put('/api/admin/investments/:id/confirm', requireAdminAuth, async (req, res) => {
     try {
       const reservationId = parseInt(req.params.id);
@@ -751,16 +1162,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check KYC status
       if (reservation.userId) {
         const user = await storage.getUser(reservation.userId);
-        if (user && user.kycStatus !== 'verified') {
+        if (user && user.kycStatus !== 'approved') {
           return res.status(400).json({ 
-            error: "Cannot confirm investment. User KYC must be verified first." 
+            error: "Cannot confirm investment. User KYC must be approved first." 
           });
         }
       }
 
-      // Update reservation to confirmed
+      // Update reservation to converted_to_investment
       await storage.updateReservation(reservationId, {
-        status: 'confirmed'
+        status: 'converted_to_investment'
       });
 
       // Move units from reserved to sold
@@ -910,7 +1321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get all confirmed reservations
       const allReservations = await storage.getAllReservations();
-      const confirmedReservations = allReservations.filter(r => r.status === 'confirmed');
+      const confirmedReservations = allReservations.filter(r => r.status === 'converted_to_investment');
       
       let generated = 0;
       let errors = 0;
@@ -985,10 +1396,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Release units back to the property for any active status
-      if (reservation.status === 'payment_pending' || reservation.status === 'payment_received' || reservation.status === 'confirmed') {
+      if (reservation.status === 'reserved' || reservation.status === 'converted_to_investment') {
         const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-        // For confirmed, decrease soldUnits; for pending/received, decrease reservedUnits
-        if (reservation.status === 'confirmed') {
+        // For converted_to_investment, decrease soldUnits; for reserved, decrease reservedUnits
+        if (reservation.status === 'converted_to_investment') {
           await storage.updatePropertyUnitCounts(reservation.propertyId, 0, -units);
         } else {
           await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
@@ -1173,6 +1584,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Cleanup expired reservations (admin only)
+  app.post("/api/admin/cleanup-expired-reservations", requireAdminAuth, async (req, res) => {
+    try {
+      const result = await storage.cleanupExpiredReservations();
+      res.json({
+        message: `Cleanup complete: ${result.cancelled} reservations cancelled, ${result.unitsReleased} units released`,
+        ...result
+      });
+    } catch (error) {
+      console.error("Error cleaning up expired reservations:", error);
+      res.status(500).json({ message: "Failed to cleanup expired reservations" });
+    }
+  });
+
   // Get all properties
   app.get("/api/properties", async (req, res) => {
     try {
@@ -1300,6 +1725,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = result.data;
       
+      // Validate units - must be positive
+      const requestedUnits = typeof validatedData.units === 'string' ? parseFloat(validatedData.units) : validatedData.units;
+      if (!requestedUnits || requestedUnits <= 0 || isNaN(requestedUnits)) {
+        return res.status(400).json({ 
+          message: "Please enter a valid number of units (must be greater than 0)" 
+        });
+      }
+      
       // Add userId if user is authenticated
       let reservationData = validatedData;
       if (req.isAuthenticated() && req.user) {
@@ -1323,14 +1756,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Idempotency check: prevent duplicate reservations within 60 seconds
+      const recentReservations = await storage.getReservationsByEmail(reservationData.email);
+      const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+      const duplicateReservation = recentReservations.find(r => 
+        r.propertyId === reservationData.propertyId && 
+        r.status === 'reserved' &&
+        new Date(r.createdAt) > oneMinuteAgo
+      );
+      if (duplicateReservation) {
+        console.log(`[RESERVATION] Duplicate reservation prevented for ${reservationData.email} on property ${reservationData.propertyId}`);
+        return res.status(200).json(duplicateReservation); // Return existing reservation instead of error
+      }
+
       // Enforce currency consistency - always use property's currency, default to NGN
       const investmentCurrency = property.currency || 'NGN';
+      
+      // Set 24-hour expiration for reservation
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
+        expiresAt,
       };
       
-      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name}`);
+      console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name} (expires ${expiresAt.toISOString()})`);
 
       const reservation = await storage.createInvestmentReservation(sanitizedReservationData);
       
@@ -1615,19 +2066,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allReservations = await storage.getAllReservations();
       const propertyReservations = allReservations.filter(r => r.propertyId === propertyId);
       
-      // Check if any reservations have payment received or are confirmed
+      // Check if any reservations are converted to investments
       const paidReservations = propertyReservations.filter(r => 
-        r.status === 'payment_received' || r.status === 'confirmed'
+        r.status === 'converted_to_investment'
       );
       
       if (paidReservations.length > 0) {
         return res.status(400).json({ 
-          error: `Cannot delete property. There are ${paidReservations.length} reservation(s) with payment received or confirmed. Cancel those investments first.` 
+          error: `Cannot delete property. There are ${paidReservations.length} active investment(s). Cancel those investments first.` 
         });
       }
       
-      // Cancel all payment_pending reservations and notify users
-      const pendingReservations = propertyReservations.filter(r => r.status === 'payment_pending');
+      // Cancel all reserved reservations and notify users
+      const pendingReservations = propertyReservations.filter(r => r.status === 'reserved');
       
       for (const reservation of pendingReservations) {
         // Cancel the reservation
@@ -2797,7 +3248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: certificate.amount,
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
-          investmentStatus: reservation?.status || 'confirmed'
+          investmentStatus: reservation?.status || 'converted_to_investment'
         }
       });
     } catch (error) {
@@ -2833,7 +3284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: certificate.amount,
           currency: certificate.currency,
           issuedAt: certificate.issuedAt,
-          investmentStatus: reservation?.status || 'confirmed'
+          investmentStatus: reservation?.status || 'converted_to_investment'
         }
       });
     } catch (error) {
@@ -2900,5 +3351,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Run initial cleanup of expired reservations on startup
+  storage.cleanupExpiredReservations()
+    .then(result => {
+      if (result.cancelled > 0) {
+        console.log(`[STARTUP] Cleaned up ${result.cancelled} expired reservation(s), released ${result.unitsReleased} units`);
+      }
+    })
+    .catch(err => console.error('[STARTUP] Failed to cleanup expired reservations:', err));
+  
+  // Schedule cleanup every hour
+  setInterval(() => {
+    storage.cleanupExpiredReservations()
+      .then(result => {
+        if (result.cancelled > 0) {
+          console.log(`[SCHEDULED] Cleaned up ${result.cancelled} expired reservation(s), released ${result.unitsReleased} units`);
+        }
+      })
+      .catch(err => console.error('[SCHEDULED] Failed to cleanup expired reservations:', err));
+  }, 60 * 60 * 1000); // Every hour
+  
   return httpServer;
 }
