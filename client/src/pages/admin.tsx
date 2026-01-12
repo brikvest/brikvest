@@ -1058,6 +1058,246 @@ function AdminInvestmentsTab({
   );
 }
 
+// Payment Reviews Tab Component
+function PaymentReviewsTab({ 
+  authenticatedRequest,
+  getCurrencySymbol,
+  queryClient,
+  toast
+}: {
+  authenticatedRequest: any;
+  getCurrencySymbol: (currency: string) => string;
+  queryClient: any;
+  toast: any;
+}) {
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
+
+  const { data: submissions = [], isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/payment-submissions"],
+    queryFn: async () => {
+      const response = await authenticatedRequest("/api/admin/payment-submissions");
+      return response;
+    },
+  });
+
+  const handleApprove = async (submission: any) => {
+    setApprovingId(submission.id);
+    try {
+      await authenticatedRequest(`/api/admin/payment-submissions/${submission.id}/approve`, {
+        method: "PUT",
+      });
+      toast({
+        title: "Payment Approved",
+        description: `Investment confirmed for ${submission.user?.email}. Certificate generated.`,
+      });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+    } catch (error: any) {
+      toast({
+        title: "Approval Failed",
+        description: error.message || "Failed to approve payment",
+        variant: "destructive",
+      });
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selectedSubmission || !rejectionReason.trim()) {
+      toast({
+        title: "Rejection Reason Required",
+        description: "Please provide a reason for rejection",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setRejectingId(selectedSubmission.id);
+    try {
+      await authenticatedRequest(`/api/admin/payment-submissions/${selectedSubmission.id}/reject`, {
+        method: "PUT",
+        body: JSON.stringify({ reason: rejectionReason }),
+      });
+      toast({
+        title: "Payment Rejected",
+        description: "User has been notified and can re-upload payment proof.",
+      });
+      setShowRejectDialog(false);
+      setRejectionReason("");
+      setSelectedSubmission(null);
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Rejection Failed",
+        description: error.message || "Failed to reject payment",
+        variant: "destructive",
+      });
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-NG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-slate-600">Loading payment submissions...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Payment Reviews</h1>
+        <p className="text-slate-600 mt-2">Review and approve/reject user payment proofs</p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+            <p className="text-slate-600">No pending payment submissions</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {submissions.map((submission: any) => (
+            <Card key={submission.id} className="overflow-hidden">
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm text-slate-500">User</p>
+                    <p className="font-medium">{submission.user?.email}</p>
+                    <p className="text-sm text-slate-600">{submission.user?.kycFullName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Property</p>
+                    <p className="font-medium">{submission.property?.name || 'Unknown'}</p>
+                    <p className="text-sm text-slate-600">{submission.reservation?.units} units</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Amount</p>
+                    <p className="font-medium text-green-600">
+                      {getCurrencySymbol(submission.reservation?.currency || 'NGN')}
+                      {Number(submission.reservation?.amount || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Submitted</p>
+                    <p className="font-medium">{formatDate(submission.submittedAt)}</p>
+                    <Badge variant="outline" className="mt-1">
+                      {submission.proofType === 'pdf' ? 'PDF' : 'Image'}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between pt-4 border-t">
+                  <a 
+                    href={submission.proofUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Payment Proof
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => {
+                        setSelectedSubmission(submission);
+                        setShowRejectDialog(true);
+                      }}
+                      disabled={approvingId === submission.id || rejectingId === submission.id}
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Reject
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleApprove(submission)}
+                      disabled={approvingId === submission.id || rejectingId === submission.id}
+                    >
+                      {approvingId === submission.id ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Approving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Payment Proof</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will notify the user that their payment proof was rejected. 
+              They will be able to upload a new proof.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Label htmlFor="rejection-reason">Rejection Reason (required)</Label>
+            <Textarea
+              id="rejection-reason"
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="e.g., Amount doesn't match, receipt is unclear, wrong account..."
+              className="mt-2"
+              rows={3}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setRejectionReason("");
+              setSelectedSubmission(null);
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReject}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={!rejectionReason.trim() || rejectingId !== null}
+            >
+              {rejectingId !== null ? "Rejecting..." : "Reject Payment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 // User Portfolio Tab Component
 function UserPortfolioTab({ 
   authenticatedRequest,
@@ -1879,6 +2119,14 @@ export default function AdminDashboard() {
               >
                 <ShieldCheck className="mr-3 h-4 w-4" />
                 KYC Verifications
+              </Button>
+              <Button
+                variant={selectedTab === "payment-reviews" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("payment-reviews")}
+              >
+                <FileText className="mr-3 h-4 w-4" />
+                Payment Reviews
               </Button>
               <Button
                 variant={selectedTab === "user-portfolio" ? "secondary" : "ghost"}
@@ -3167,6 +3415,16 @@ export default function AdminDashboard() {
                   </Card>
                 )}
               </div>
+            )}
+
+            {/* Payment Reviews */}
+            {selectedTab === "payment-reviews" && (
+              <PaymentReviewsTab
+                authenticatedRequest={authenticatedRequest}
+                getCurrencySymbol={getCurrencySymbol}
+                queryClient={queryClient}
+                toast={toast}
+              />
             )}
 
             {/* User Portfolio Lookup */}

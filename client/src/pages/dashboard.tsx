@@ -212,6 +212,17 @@ export default function Portfolio() {
     enabled: isAuthenticated,
   });
 
+  // Fetch user's payment submissions to show status and rejection reasons
+  const { data: paymentSubmissions = [] } = useQuery<any[]>({
+    queryKey: ["/api/user/payment-submissions"],
+    enabled: isAuthenticated,
+  });
+
+  // Helper to get the latest payment submission for a reservation
+  const getPaymentSubmission = (reservationId: number) => {
+    return paymentSubmissions.find(ps => ps.reservationId === reservationId);
+  };
+
   // Fetch certificate for selected reservation
   const { data: certificateData, isLoading: certificateLoading } = useQuery<{
     certificate: OwnershipCertificate;
@@ -501,6 +512,7 @@ export default function Portfolio() {
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/payment-submissions"] });
       
       if (selectedPaymentReservation) {
         clearPaymentTimer(selectedPaymentReservation.id);
@@ -1006,21 +1018,65 @@ export default function Portfolio() {
                             </span>
                           </div>
                           
-                          {isKycVerified ? (
-                            <div className="mt-4 p-3 bg-white border border-green-200 rounded-lg">
-                              <p className="text-sm font-medium text-green-900 mb-2">Ready to Upload Payment Proof</p>
-                              <p className="text-xs text-green-700 mb-3">
-                                Your KYC is approved. Upload your payment proof to complete this investment.
-                              </p>
-                              <Button 
-                                size="sm" 
-                                className="w-full sm:w-auto"
-                                onClick={() => handleOpenPaymentModal(reservation)}
-                              >
-                                Upload Payment Proof
-                              </Button>
-                            </div>
-                          ) : userData.kycStatus === 'rejected' ? (
+                          {(() => {
+                            const paymentSub = getPaymentSubmission(reservation.id);
+                            
+                            if (paymentSub?.status === 'pending_admin_review') {
+                              return (
+                                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                  <p className="text-sm font-medium text-blue-900 mb-2">Payment Proof Under Review</p>
+                                  <p className="text-xs text-blue-700">
+                                    Your payment proof has been submitted and is pending admin review. You'll be notified once it's approved.
+                                  </p>
+                                </div>
+                              );
+                            }
+                            
+                            if (paymentSub?.status === 'rejected') {
+                              return (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                  <p className="text-sm font-medium text-red-900 mb-2">Payment Proof Rejected</p>
+                                  {paymentSub.rejectionReason && (
+                                    <p className="text-xs text-red-700 bg-white p-2 rounded mb-3 border border-red-100">
+                                      <strong>Reason:</strong> {paymentSub.rejectionReason}
+                                    </p>
+                                  )}
+                                  <p className="text-xs text-red-700 mb-3">
+                                    Please upload a new payment proof to continue.
+                                  </p>
+                                  <Button 
+                                    size="sm" 
+                                    className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
+                                    onClick={() => handleOpenPaymentModal(reservation)}
+                                  >
+                                    Re-upload Payment Proof
+                                  </Button>
+                                </div>
+                              );
+                            }
+                            
+                            if (isKycVerified) {
+                              return (
+                                <div className="mt-4 p-3 bg-white border border-green-200 rounded-lg">
+                                  <p className="text-sm font-medium text-green-900 mb-2">Ready to Upload Payment Proof</p>
+                                  <p className="text-xs text-green-700 mb-3">
+                                    Your KYC is approved. Upload your payment proof to complete this investment.
+                                  </p>
+                                  <Button 
+                                    size="sm" 
+                                    className="w-full sm:w-auto"
+                                    onClick={() => handleOpenPaymentModal(reservation)}
+                                  >
+                                    Upload Payment Proof
+                                  </Button>
+                                </div>
+                              );
+                            }
+                            
+                            return null;
+                          })()}
+                          
+                          {!isKycVerified && !getPaymentSubmission(reservation.id) && userData.kycStatus === 'rejected' ? (
                             <div className="mt-4 p-3 bg-white border border-red-200 rounded-lg">
                               <p className="text-sm font-medium text-red-900 mb-2">KYC Verification Required</p>
                               <p className="text-xs text-red-700 mb-2">
