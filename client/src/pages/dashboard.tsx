@@ -65,6 +65,83 @@ export default function Portfolio() {
   const [selectedPaymentReservation, setSelectedPaymentReservation] = useState<(InvestmentReservation & { property?: Property }) | null>(null);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [uploadingPayment, setUploadingPayment] = useState(false);
+  
+  const PAYMENT_TIMER_DURATION = 30 * 60 * 1000;
+  const [paymentTimeRemaining, setPaymentTimeRemaining] = useState<number | null>(null);
+  const [paymentTimerExpired, setPaymentTimerExpired] = useState(false);
+
+  const getTimerStorageKey = (reservationId: number) => `brikvest_payment_timer_${reservationId}`;
+
+  const initializePaymentTimer = useCallback((reservationId: number) => {
+    const storageKey = getTimerStorageKey(reservationId);
+    let startTime = localStorage.getItem(storageKey);
+    
+    if (!startTime) {
+      startTime = Date.now().toString();
+      localStorage.setItem(storageKey, startTime);
+    }
+    
+    const elapsed = Date.now() - parseInt(startTime, 10);
+    const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+    
+    setPaymentTimeRemaining(remaining);
+    setPaymentTimerExpired(remaining <= 0);
+  }, []);
+
+  const clearPaymentTimer = useCallback((reservationId: number) => {
+    const storageKey = getTimerStorageKey(reservationId);
+    localStorage.removeItem(storageKey);
+    setPaymentTimeRemaining(null);
+    setPaymentTimerExpired(false);
+  }, []);
+
+  useEffect(() => {
+    if (!paymentModalOpen || !selectedPaymentReservation) {
+      return;
+    }
+
+    initializePaymentTimer(selectedPaymentReservation.id);
+
+    const interval = setInterval(() => {
+      const storageKey = getTimerStorageKey(selectedPaymentReservation.id);
+      const startTime = localStorage.getItem(storageKey);
+      
+      if (startTime) {
+        const elapsed = Date.now() - parseInt(startTime, 10);
+        const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+        setPaymentTimeRemaining(remaining);
+        
+        if (remaining <= 0) {
+          setPaymentTimerExpired(true);
+        }
+      }
+    }, 1000);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === getTimerStorageKey(selectedPaymentReservation.id)) {
+        if (e.newValue) {
+          const elapsed = Date.now() - parseInt(e.newValue, 10);
+          const remaining = Math.max(0, PAYMENT_TIMER_DURATION - elapsed);
+          setPaymentTimeRemaining(remaining);
+          setPaymentTimerExpired(remaining <= 0);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [paymentModalOpen, selectedPaymentReservation, initializePaymentTimer]);
+
+  const formatTimeRemaining = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const paymentMethods = {
     NGN: {
@@ -425,6 +502,9 @@ export default function Portfolio() {
 
       queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
       
+      if (selectedPaymentReservation) {
+        clearPaymentTimer(selectedPaymentReservation.id);
+      }
       setPaymentModalOpen(false);
       setSelectedPaymentReservation(null);
       setPaymentProofFile(null);
@@ -1533,6 +1613,56 @@ export default function Portfolio() {
               Transfer the amount to the bank account below, then upload your payment proof.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Payment Timer Display */}
+          {paymentTimeRemaining !== null && (
+            <div className={`p-3 rounded-lg flex items-center justify-between ${
+              paymentTimerExpired 
+                ? 'bg-amber-50 border border-amber-200' 
+                : paymentTimeRemaining < 5 * 60 * 1000 
+                  ? 'bg-red-50 border border-red-200'
+                  : 'bg-green-50 border border-green-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Clock className={`h-4 w-4 ${
+                  paymentTimerExpired 
+                    ? 'text-amber-600' 
+                    : paymentTimeRemaining < 5 * 60 * 1000 
+                      ? 'text-red-600'
+                      : 'text-green-600'
+                }`} />
+                <span className={`text-sm font-medium ${
+                  paymentTimerExpired 
+                    ? 'text-amber-800' 
+                    : paymentTimeRemaining < 5 * 60 * 1000 
+                      ? 'text-red-800'
+                      : 'text-green-800'
+                }`}>
+                  {paymentTimerExpired 
+                    ? 'Session timer ended' 
+                    : 'Time remaining to complete payment'}
+                </span>
+              </div>
+              <span className={`text-lg font-mono font-bold ${
+                paymentTimerExpired 
+                  ? 'text-amber-700' 
+                  : paymentTimeRemaining < 5 * 60 * 1000 
+                    ? 'text-red-700'
+                    : 'text-green-700'
+              }`}>
+                {paymentTimerExpired ? '00:00' : formatTimeRemaining(paymentTimeRemaining)}
+              </span>
+            </div>
+          )}
+
+          {paymentTimerExpired && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Your session timer has ended, but you can still upload your payment proof. 
+                Your reservation remains valid for 24 hours from creation.
+              </p>
+            </div>
+          )}
 
           {selectedPaymentReservation && (
             <form onSubmit={handlePaymentProofUpload} className="space-y-6">
