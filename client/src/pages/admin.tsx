@@ -1650,7 +1650,8 @@ export default function AdminDashboard() {
     videoUrl: "",
     gallery: [] as string[],
     status: "active",
-    currency: "NGN"
+    currency: "NGN",
+    unitSize: ""
   });
 
   // Fetch properties
@@ -1885,7 +1886,8 @@ export default function AdminDashboard() {
       videoUrl: "",
       gallery: [] as string[],
       status: "active",
-      currency: "NGN"
+      currency: "NGN",
+      unitSize: ""
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -1960,7 +1962,8 @@ export default function AdminDashboard() {
       videoUrl: "",
       gallery: [],
       status: "active",
-      currency: "NGN"
+      currency: "NGN",
+      unitSize: ""
     });
     return currentForm !== emptyForm;
   };
@@ -2034,6 +2037,7 @@ export default function AdminDashboard() {
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
       status: propertyForm.status, // Include the status field
       currency: propertyForm.currency,
+      unitSize: propertyForm.unitSize || null,
     };
 
 
@@ -2433,7 +2437,8 @@ export default function AdminDashboard() {
                                             developerNotes: property.developerNotes || "",
                                             investmentDetails: property.investmentDetails || "",
                                             status: property.status,
-                                            currency: property.currency || "NGN"
+                                            currency: property.currency || "NGN",
+                                            unitSize: property.unitSize || ""
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -2517,7 +2522,8 @@ export default function AdminDashboard() {
                                         developerNotes: property.developerNotes || "",
                                         investmentDetails: property.investmentDetails || "",
                                         status: property.status,
-                                        currency: property.currency || "USD"
+                                        currency: property.currency || "USD",
+                                        unitSize: property.unitSize || ""
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -3036,6 +3042,17 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
+                        <Label htmlFor="unitSize">Unit Size</Label>
+                        <Input
+                          id="unitSize"
+                          value={propertyForm.unitSize}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, unitSize: e.target.value }))}
+                          placeholder="e.g., 5 sqm per unit"
+                        />
+                        <p className="text-xs text-slate-500">Displayed on the investment card (e.g., "5 sqm per unit")</p>
+                      </div>
+
+                      <div className="space-y-2">
                         <Label htmlFor="badge">Partnership Status</Label>
                         <Select value={propertyForm.badge || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, badge: value === "none" ? null : value }))}>
                           <SelectTrigger>
@@ -3469,7 +3486,8 @@ export default function AdminDashboard() {
                         developerNotes: viewingProperty.developerNotes || "",
                         investmentDetails: viewingProperty.investmentDetails || "",
                         status: viewingProperty.status,
-                        currency: viewingProperty.currency || "NGN"
+                        currency: viewingProperty.currency || "NGN",
+                        unitSize: viewingProperty.unitSize || ""
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -3773,6 +3791,17 @@ export default function AdminDashboard() {
                   required
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-unitSize">Unit Size</Label>
+              <Input
+                id="edit-unitSize"
+                value={propertyForm.unitSize}
+                onChange={(e) => setPropertyForm(prev => ({ ...prev, unitSize: e.target.value }))}
+                placeholder="e.g., 5 sqm per unit"
+              />
+              <p className="text-xs text-slate-500">Displayed on the investment card (e.g., "5 sqm per unit")</p>
             </div>
 
             {/* Property Badge */}
