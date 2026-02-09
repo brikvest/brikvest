@@ -601,17 +601,13 @@ export default function Home() {
                       </div>
                       <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                         <div>
-                          <span className="text-slate-600">Total Value:</span>
-                          <div className="font-semibold">{formatCurrency(property.totalValue)}</div>
+                          <span className="text-slate-600">Price per Unit</span>
+                          <div className="font-semibold text-green-600">{formatCurrency(property.unitPrice || property.minInvestment)}</div>
+                          <span className="text-xs text-slate-500">(minimum investment)</span>
                         </div>
                         <div>
-                          <span className="text-slate-600">Min. Investment:</span>
-                          <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
-                        </div>
-
-                        <div>
-                          <span className="text-slate-600">Available Units:</span>
-                          <div className="font-semibold">{property.availableSlots} / {property.totalSlots}</div>
+                          <span className="text-slate-600">Unit Size</span>
+                          <div className="font-semibold">{property.unitSize || '—'}</div>
                         </div>
                       </div>
 
