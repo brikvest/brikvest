@@ -79,12 +79,6 @@ export default function Home() {
     enabled: !!selectedProperty && propertyDetailModalOpen
   });
 
-  // Seed properties on first load if none exist (only for authenticated users)
-  useEffect(() => {
-    if (isAuthenticated && properties.length === 0 && !propertiesLoading) {
-      apiRequest("/api/seed-properties", { method: "POST" }).catch(console.error);
-    }
-  }, [properties.length, propertiesLoading, isAuthenticated]);
 
   // Investment reservation mutation
   const investmentMutation = useMutation({
