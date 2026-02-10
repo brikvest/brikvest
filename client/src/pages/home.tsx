@@ -636,7 +636,7 @@ export default function Home() {
                         </div>
                         <div>
                           <span className="text-slate-600">Unit Size</span>
-                          <div className="font-semibold">{property.unitSize || '—'}</div>
+                          <div className="font-semibold">{property.totalSquareMeters && property.totalSlots ? `${(parseFloat(property.totalSquareMeters) / property.totalSlots).toFixed(1)} sqm` : '—'}</div>
                         </div>
                       </div>
 
@@ -1027,7 +1027,7 @@ export default function Home() {
                       </div>
                       <div>
                         <span className="text-slate-600">Unit Size:</span>
-                        <div className="font-semibold">{selectedProperty.unitSize || '—'}</div>
+                        <div className="font-semibold">{selectedProperty.totalSquareMeters && selectedProperty.totalSlots ? `${(parseFloat(selectedProperty.totalSquareMeters) / selectedProperty.totalSlots).toFixed(1)} sqm` : '—'}</div>
                       </div>
                     </div>
                     <div className="space-y-3">

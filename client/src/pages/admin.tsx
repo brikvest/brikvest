@@ -1813,7 +1813,7 @@ export default function AdminDashboard() {
     gallery: [] as string[],
     status: "active",
     currency: "NGN",
-    unitSize: ""
+    totalSquareMeters: ""
   });
 
   // Fetch properties
@@ -2049,7 +2049,7 @@ export default function AdminDashboard() {
       gallery: [] as string[],
       status: "active",
       currency: "NGN",
-      unitSize: ""
+      totalSquareMeters: ""
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -2125,7 +2125,7 @@ export default function AdminDashboard() {
       gallery: [],
       status: "active",
       currency: "NGN",
-      unitSize: ""
+      totalSquareMeters: ""
     });
     return currentForm !== emptyForm;
   };
@@ -2199,7 +2199,7 @@ export default function AdminDashboard() {
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
       status: propertyForm.status, // Include the status field
       currency: propertyForm.currency,
-      unitSize: propertyForm.unitSize || null,
+      totalSquareMeters: propertyForm.totalSquareMeters || null,
     };
 
 
@@ -2608,7 +2608,7 @@ export default function AdminDashboard() {
                                             investmentDetails: property.investmentDetails || "",
                                             status: property.status,
                                             currency: property.currency || "NGN",
-                                            unitSize: property.unitSize || ""
+                                            totalSquareMeters: property.totalSquareMeters || ""
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -2693,7 +2693,7 @@ export default function AdminDashboard() {
                                         investmentDetails: property.investmentDetails || "",
                                         status: property.status,
                                         currency: property.currency || "USD",
-                                        unitSize: property.unitSize || ""
+                                        totalSquareMeters: property.totalSquareMeters || ""
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -3212,14 +3212,16 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="unitSize">Unit Size</Label>
+                        <Label htmlFor="totalSquareMeters">Total Square Meters</Label>
                         <Input
-                          id="unitSize"
-                          value={propertyForm.unitSize}
-                          onChange={(e) => setPropertyForm(prev => ({ ...prev, unitSize: e.target.value }))}
-                          placeholder="e.g., 5 sqm per unit"
+                          id="totalSquareMeters"
+                          type="number"
+                          step="0.01"
+                          value={propertyForm.totalSquareMeters}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, totalSquareMeters: e.target.value }))}
+                          placeholder="e.g., 5000"
                         />
-                        <p className="text-xs text-slate-500">Displayed on the investment card (e.g., "5 sqm per unit")</p>
+                        <p className="text-xs text-slate-500">Total land area in sqm. Unit size will be calculated automatically (total sqm / total units).</p>
                       </div>
 
                       <div className="space-y-2">
@@ -3662,7 +3664,7 @@ export default function AdminDashboard() {
                         investmentDetails: viewingProperty.investmentDetails || "",
                         status: viewingProperty.status,
                         currency: viewingProperty.currency || "NGN",
-                        unitSize: viewingProperty.unitSize || ""
+                        totalSquareMeters: viewingProperty.totalSquareMeters || ""
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -3969,14 +3971,16 @@ export default function AdminDashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-unitSize">Unit Size</Label>
+              <Label htmlFor="edit-totalSquareMeters">Total Square Meters</Label>
               <Input
-                id="edit-unitSize"
-                value={propertyForm.unitSize}
-                onChange={(e) => setPropertyForm(prev => ({ ...prev, unitSize: e.target.value }))}
-                placeholder="e.g., 5 sqm per unit"
+                id="edit-totalSquareMeters"
+                type="number"
+                step="0.01"
+                value={propertyForm.totalSquareMeters}
+                onChange={(e) => setPropertyForm(prev => ({ ...prev, totalSquareMeters: e.target.value }))}
+                placeholder="e.g., 5000"
               />
-              <p className="text-xs text-slate-500">Displayed on the investment card (e.g., "5 sqm per unit")</p>
+              <p className="text-xs text-slate-500">Total land area in sqm. Unit size will be calculated automatically (total sqm / total units).</p>
             </div>
 
             {/* Property Badge */}
