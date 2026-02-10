@@ -87,6 +87,8 @@ export default function Login() {
     },
   });
 
+  const [showPendingMessage, setShowPendingMessage] = useState(false);
+
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterUser) => {
       const response = await fetch("/api/register", {
@@ -101,13 +103,13 @@ export default function Login() {
       }
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      toast({
-        title: "Welcome to Brikvest!",
-        description: "Your account has been created successfully.",
-      });
-      setLocation(getRedirectUrl());
+    onSuccess: (data) => {
+      if (data.pendingApproval) {
+        setShowPendingMessage(true);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        setLocation(getRedirectUrl());
+      }
     },
     onError: (error: any) => {
       toast({
@@ -168,6 +170,41 @@ export default function Login() {
     );
   }
 
+  if (showPendingMessage) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-8 pb-8 text-center space-y-4">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">Application Submitted</h2>
+            <p className="text-slate-600">
+              Thank you for applying to join Brikvest. Your membership application is being reviewed by our team.
+            </p>
+            <p className="text-slate-600">
+              You will receive an email once your application has been approved. This usually takes less than 24 hours.
+            </p>
+            <div className="pt-4">
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  setShowPendingMessage(false);
+                  setIsRegistering(false);
+                }}
+                className="text-blue-600 border-blue-600 hover:bg-blue-50"
+              >
+                Back to Sign In
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
@@ -177,7 +214,7 @@ export default function Login() {
           </CardTitle>
           <CardDescription>
             {isRegistering 
-              ? "Create your account to start investing in real estate"
+              ? "Apply for membership to access exclusive real estate investments"
               : "Sign in to your Brikvest account"
             }
           </CardDescription>
