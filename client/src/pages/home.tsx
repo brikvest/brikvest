@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 
 export default function Home() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
@@ -97,6 +98,7 @@ export default function Home() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations"] });
       setInvestmentModalOpen(false);
       setSuccessMessage("Your ownership slot has been reserved successfully! We'll contact you soon with next steps.");
       setSuccessModalOpen(true);
@@ -1024,20 +1026,17 @@ export default function Home() {
                         <div className="font-semibold capitalize">{selectedProperty.propertyType}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Total Property Value:</span>
-                        <div className="font-semibold">{formatCurrency(selectedProperty.totalValue)}</div>
-                      </div>
-                      <div>
-                        <span className="text-slate-600">Total Invested:</span>
-                        <div className="font-semibold text-green-600">
-                          {formatCurrency((selectedProperty.totalSlots - selectedProperty.availableSlots) * selectedProperty.minInvestment)}
-                        </div>
+                        <span className="text-slate-600">Unit Size:</span>
+                        <div className="font-semibold">{selectedProperty.unitSize || '—'}</div>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <span className="text-slate-600">Minimum Investment:</span>
+                        <span className="text-slate-600">Price per Unit:</span>
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 text-xs">(Minimum Investment)</span>
                       </div>
                       <div>
                         <span className="text-slate-600">Available Units:</span>
@@ -1271,10 +1270,13 @@ export default function Home() {
           </DialogHeader>
           <p className="text-slate-600 mb-6">{successMessage}</p>
           <Button 
-            onClick={() => setSuccessModalOpen(false)}
+            onClick={() => {
+              setSuccessModalOpen(false);
+              setLocation("/dashboard");
+            }}
             className="bg-blue-600 hover:bg-blue-700"
           >
-            Close
+            View My Portfolio
           </Button>
         </DialogContent>
       </Dialog>

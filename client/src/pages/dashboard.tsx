@@ -987,7 +987,7 @@ export default function Portfolio() {
                       <Clock className="h-5 w-5 text-yellow-600" />
                       Pending Reservations
                     </CardTitle>
-                    <p className="text-sm text-slate-600 mt-1">Upload payment proof to confirm your investments</p>
+                    <p className="text-sm text-slate-600 mt-1">Make payment and upload proof to confirm your investments</p>
                   </CardHeader>
                   <CardContent className="p-4 sm:p-6">
                     <div className="space-y-3 sm:space-y-4">
@@ -1058,16 +1058,16 @@ export default function Portfolio() {
                             if (isKycVerified) {
                               return (
                                 <div className="mt-4 p-3 bg-white border border-green-200 rounded-lg">
-                                  <p className="text-sm font-medium text-green-900 mb-2">Ready to Upload Payment Proof</p>
+                                  <p className="text-sm font-medium text-green-900 mb-2">Ready to Make Payment</p>
                                   <p className="text-xs text-green-700 mb-3">
-                                    Your KYC is approved. Upload your payment proof to complete this investment.
+                                    Your KYC is approved. Make your payment and upload proof to complete this investment.
                                   </p>
                                   <Button 
                                     size="sm" 
                                     className="w-full sm:w-auto"
                                     onClick={() => handleOpenPaymentModal(reservation)}
                                   >
-                                    Upload Payment Proof
+                                    Make Payment
                                   </Button>
                                 </div>
                               );
@@ -1663,10 +1663,10 @@ export default function Portfolio() {
           <DialogHeader>
             <DialogTitle className="text-xl font-bold flex items-center gap-2">
               <Upload className="h-5 w-5 text-green-600" />
-              Submit Payment Proof
+              Make Payment
             </DialogTitle>
             <DialogDescription>
-              Transfer the amount to the bank account below, then upload your payment proof.
+              Transfer the amount to the bank account below, then scroll down to upload your payment proof.
             </DialogDescription>
           </DialogHeader>
 
@@ -1737,9 +1737,10 @@ export default function Portfolio() {
                 </div>
               </div>
 
-              {/* Bank Details */}
+              {/* Step 1: Bank Details */}
               <div className="space-y-4">
-                <h4 className="font-semibold text-slate-900">Payment Methods</h4>
+                <h4 className="font-semibold text-slate-900">Step 1: Make Payment</h4>
+                <p className="text-xs text-slate-500 -mt-2">Transfer the exact amount to one of the accounts below.</p>
                 
                 {Object.entries(paymentMethods).map(([currency, method]) => (
                   <div key={currency} className="p-4 border border-slate-200 rounded-lg">
@@ -1772,10 +1773,12 @@ export default function Portfolio() {
                 ))}
               </div>
 
-              {/* File Upload */}
-              <div>
+              {/* Step 2: Upload Proof */}
+              <div className="border-t border-slate-200 pt-4">
+                <h4 className="font-semibold text-slate-900 mb-1">Step 2: Upload Payment Proof</h4>
+                <p className="text-xs text-slate-500 mb-3">After making your payment, upload proof below to confirm your investment.</p>
                 <Label htmlFor="paymentProof" className="text-sm font-medium">
-                  Upload Payment Proof <span className="text-red-500">*</span>
+                  Payment Proof <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="paymentProof"
