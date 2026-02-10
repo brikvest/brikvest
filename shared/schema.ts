@@ -94,7 +94,7 @@ export const properties = pgTable("properties", {
   reservedUnits: integer("reserved_units").notNull().default(0), // Units soft-locked for payment_pending reservations
   soldUnits: integer("sold_units").notNull().default(0), // Units confirmed and sold
   unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
-  unitSize: text("unit_size"), // Size per unit (e.g., "5 sqm per unit")
+  totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
   // SPV (Special Purpose Vehicle) identification
