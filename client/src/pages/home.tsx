@@ -1026,20 +1026,17 @@ export default function Home() {
                         <div className="font-semibold capitalize">{selectedProperty.propertyType}</div>
                       </div>
                       <div>
-                        <span className="text-slate-600">Total Property Value:</span>
-                        <div className="font-semibold">{formatCurrency(selectedProperty.totalValue)}</div>
-                      </div>
-                      <div>
-                        <span className="text-slate-600">Total Invested:</span>
-                        <div className="font-semibold text-green-600">
-                          {formatCurrency((selectedProperty.totalSlots - selectedProperty.availableSlots) * selectedProperty.minInvestment)}
-                        </div>
+                        <span className="text-slate-600">Unit Size:</span>
+                        <div className="font-semibold">{selectedProperty.unitSize || '—'}</div>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <span className="text-slate-600">Minimum Investment:</span>
+                        <span className="text-slate-600">Price per Unit:</span>
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 text-xs">(Minimum Investment)</span>
                       </div>
                       <div>
                         <span className="text-slate-600">Available Units:</span>
