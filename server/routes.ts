@@ -73,6 +73,18 @@ function requireAuth(req: any, res: any, next: any) {
   res.status(401).json({ message: "Authentication required" });
 }
 
+// Middleware: requires authenticated user with approved account
+function requireApprovedUser(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  const user = req.user as any;
+  if (user.accountStatus !== 'approved') {
+    return res.status(403).json({ message: "Your account is pending approval. You will receive an email once approved." });
+  }
+  next();
+}
+
 // Generate unique SPV name
 // Pattern: BRK + CITY(3) + DISTRICT(3) + PROPERTYID(padded)
 // Example: BRKABJGUZ00033 for Abuja, Guzape, property ID 33
@@ -125,14 +137,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch (linkError) {
         console.error(`[AUTO-LINK] Failed to link reservations for user ${user.id}:`, linkError);
-        // Don't fail registration if linking fails
       }
 
-      // Auto-login after registration
-      req.login(user, (err: any) => {
-        if (err) return res.status(500).json({ message: "Registration successful but login failed" });
-        const { password: _, ...userWithoutPassword } = user;
-        res.status(201).json(userWithoutPassword);
+      // Send notification email to admin about new registration
+      try {
+        await sendEmail({
+          to: 'info@thepartybank.com',
+          subject: `New Brikvest Member Application - ${firstName} ${lastName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #1a365d;">New Member Application</h2>
+              <p>A new user has registered and is awaiting your approval:</p>
+              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Name</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${firstName} ${lastName}</td></tr>
+                <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Email</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${email}</td></tr>
+                <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Phone</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${phone || 'Not provided'}</td></tr>
+              </table>
+              <p>Please log in to the admin dashboard to approve or decline this application.</p>
+            </div>
+          `
+        });
+        console.log(`[AUDIT:REGISTRATION] New user registered: ${email} (${firstName} ${lastName}), awaiting approval`);
+      } catch (emailErr) {
+        console.error(`[AUDIT:EMAIL] Failed to send admin notification for new registration ${email}:`, emailErr);
+      }
+
+      // Do NOT auto-login - account needs admin approval first
+      const { password: _, ...userWithoutPassword } = user;
+      res.status(201).json({ 
+        ...userWithoutPassword, 
+        pendingApproval: true,
+        message: "Your account has been created and is pending admin approval. You will receive an email once approved."
       });
     } catch (error) {
       console.error("Registration error:", error);
@@ -844,6 +879,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error searching for user:", error);
       res.status(500).json({ error: "Failed to search for user" });
+    }
+  });
+
+  // Get pending user registrations for admin approval
+  app.get('/api/admin/pending-users', requireAdminAuth, async (req, res) => {
+    try {
+      const pendingUsers = await storage.getPendingUsers();
+      const safeUsers = pendingUsers.map(({ password, ...u }) => u);
+      res.json(safeUsers);
+    } catch (error) {
+      console.error("Error fetching pending users:", error);
+      res.status(500).json({ error: "Failed to fetch pending users" });
+    }
+  });
+
+  // Approve user account
+  app.post('/api/admin/users/:id/approve', requireAdminAuth, async (req: any, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.accountStatus === 'approved') {
+        return res.status(400).json({ error: "User is already approved" });
+      }
+
+      const updatedUser = await storage.updateUserAccountStatus(userId, 'approved');
+      const adminUsername = req.user?.username || 'unknown';
+      console.log(`[AUDIT:ACCOUNT] Admin ${adminUsername} APPROVED account for user ${userId} (${user.email})`);
+
+      // Send approval email to user
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: 'Welcome to Brikvest - Your Membership Has Been Approved!',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: linear-gradient(135deg, #1a365d 0%, #2d4a7c 100%); padding: 32px; text-align: center; border-radius: 8px 8px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to Brikvest</h1>
+              </div>
+              <div style="padding: 32px; background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;">
+                <p style="font-size: 16px; color: #334155;">Dear ${user.firstName || 'Member'},</p>
+                <p style="font-size: 16px; color: #334155;">Great news! Your membership application has been <strong style="color: #16a34a;">approved</strong>.</p>
+                <p style="font-size: 16px; color: #334155;">You can now sign in to your account and explore our exclusive property investment opportunities.</p>
+                <div style="text-align: center; margin: 24px 0;">
+                  <a href="https://brikvest.replit.app/login" style="background: #1a365d; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: bold;">Sign In Now</a>
+                </div>
+                <p style="font-size: 14px; color: #64748b; margin-top: 24px;">Welcome to the club. We look forward to helping you build wealth through real estate.</p>
+                <p style="font-size: 14px; color: #64748b;">— The Brikvest Team</p>
+              </div>
+            </div>
+          `
+        });
+        console.log(`[AUDIT:EMAIL] Approval email sent successfully to ${user.email}`);
+      } catch (emailErr) {
+        console.error(`[AUDIT:EMAIL] Failed to send approval email to ${user.email}:`, emailErr);
+      }
+
+      const { password: _, ...safeUser } = updatedUser;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error approving user:", error);
+      res.status(500).json({ error: "Failed to approve user" });
+    }
+  });
+
+  // Reject user account
+  app.post('/api/admin/users/:id/reject', requireAdminAuth, async (req: any, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { reason } = req.body;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updatedUser = await storage.updateUserAccountStatus(userId, 'rejected');
+      const adminUsername = req.user?.username || 'unknown';
+      console.log(`[AUDIT:ACCOUNT] Admin ${adminUsername} REJECTED account for user ${userId} (${user.email}). Reason: ${reason || 'No reason provided'}`);
+
+      // Send rejection email to user
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: 'Brikvest Membership Application Update',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background: linear-gradient(135deg, #1a365d 0%, #2d4a7c 100%); padding: 32px; text-align: center; border-radius: 8px 8px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 28px;">Brikvest</h1>
+              </div>
+              <div style="padding: 32px; background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;">
+                <p style="font-size: 16px; color: #334155;">Dear ${user.firstName || 'Applicant'},</p>
+                <p style="font-size: 16px; color: #334155;">Thank you for your interest in joining Brikvest. Unfortunately, your membership application was not approved at this time.</p>
+                ${reason ? `<p style="font-size: 16px; color: #334155;"><strong>Reason:</strong> ${reason}</p>` : ''}
+                <p style="font-size: 16px; color: #334155;">If you believe this was a mistake or would like more information, please contact us at <a href="mailto:info@thepartybank.com">info@thepartybank.com</a>.</p>
+                <p style="font-size: 14px; color: #64748b; margin-top: 24px;">— The Brikvest Team</p>
+              </div>
+            </div>
+          `
+        });
+        console.log(`[AUDIT:EMAIL] Rejection email sent successfully to ${user.email}`);
+      } catch (emailErr) {
+        console.error(`[AUDIT:EMAIL] Failed to send rejection email to ${user.email}:`, emailErr);
+      }
+
+      const { password: _, ...safeUser } = updatedUser;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error rejecting user:", error);
+      res.status(500).json({ error: "Failed to reject user" });
     }
   });
 
@@ -1598,8 +1744,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all properties
-  app.get("/api/properties", async (req, res) => {
+  // Get all properties (requires approved membership)
+  app.get("/api/properties", requireApprovedUser, async (req: any, res) => {
     try {
       const properties = await storage.getProperties();
       res.json(properties);
@@ -1636,8 +1782,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get property by ID (excludes archived properties for non-admin users)
-  app.get("/api/properties/:id", async (req, res) => {
+  // Get property by ID (requires approved membership, excludes archived for non-admin)
+  app.get("/api/properties/:id", requireApprovedUser, async (req: any, res) => {
     try {
       const propertyId = parseInt(req.params.id);
       const property = await storage.getProperty(propertyId);
@@ -1930,7 +2076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Seed initial properties if none exist
-  app.post("/api/seed-properties", async (req, res) => {
+  app.post("/api/seed-properties", requireAdminAuth, async (req: any, res) => {
     try {
       const existingProperties = await storage.getProperties();
       
@@ -2498,8 +2644,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Enhanced properties endpoint with currency conversion (for buyers - excludes archived)
-  app.get("/api/properties-converted", async (req, res) => {
+  // Enhanced properties endpoint with currency conversion (requires approved membership)
+  app.get("/api/properties-converted", requireApprovedUser, async (req: any, res) => {
     try {
       const properties = await storage.getPublicProperties(); // Only show public properties to buyers
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
@@ -2558,7 +2704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get verification checklist for a property
-  app.get("/api/properties/:id/verification", async (req, res) => {
+  app.get("/api/properties/:id/verification", requireApprovedUser, async (req: any, res) => {
     try {
       const propertyId = parseInt(req.params.id);
       const checklist = await storage.getPropertyVerificationChecklist(propertyId);

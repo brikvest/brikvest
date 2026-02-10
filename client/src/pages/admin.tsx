@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -1054,6 +1054,168 @@ function AdminInvestmentsTab({
         </DialogContent>
       </Dialog>
 
+    </div>
+  );
+}
+
+// User Approvals Tab Component
+function UserApprovalsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const [rejectingUser, setRejectingUser] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const { data: pendingUsers = [], isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/pending-users"],
+    queryFn: () => authenticatedRequest("/api/admin/pending-users"),
+    refetchInterval: 30000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      return await authenticatedRequest(`/api/admin/users/${userId}/approve`, { method: "POST" });
+    },
+    onSuccess: () => {
+      toast({ title: "User Approved", description: "The user has been approved and notified by email." });
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to approve user", variant: "destructive" });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ userId, reason }: { userId: number; reason: string }) => {
+      return await authenticatedRequest(`/api/admin/users/${userId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "User Rejected", description: "The user has been declined and notified by email." });
+      setRejectingUser(null);
+      setRejectReason("");
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to reject user", variant: "destructive" });
+    },
+  });
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center p-12"><RefreshCw className="h-6 w-6 animate-spin text-slate-400" /></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">User Approvals</h2>
+          <p className="text-slate-500 mt-1">Review and approve new member applications</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      {pendingUsers.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center p-12 text-center">
+            <UserCheck className="h-12 w-12 text-slate-300 mb-4" />
+            <h3 className="text-lg font-semibold text-slate-700">No Pending Applications</h3>
+            <p className="text-slate-500 mt-1">All member applications have been reviewed.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center gap-3">
+            <Clock className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <p className="text-amber-800 text-sm font-medium">{pendingUsers.length} pending application{pendingUsers.length !== 1 ? 's' : ''} awaiting your review</p>
+          </div>
+
+          {pendingUsers.map((user: any) => (
+            <Card key={user.id} className="border-l-4 border-l-amber-400">
+              <CardContent className="p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      {user.firstName} {user.lastName}
+                    </h3>
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Mail className="h-4 w-4" />
+                      {user.email}
+                    </div>
+                    {user.phone && (
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <Phone className="h-4 w-4" />
+                        {user.phone}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <Clock className="h-4 w-4" />
+                      Applied {new Date(user.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => approveMutation.mutate(user.id)}
+                      disabled={approveMutation.isPending}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setRejectingUser(user)}
+                      disabled={rejectMutation.isPending}
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Rejection Dialog */}
+      <Dialog open={!!rejectingUser} onOpenChange={(open) => { if (!open) { setRejectingUser(null); setRejectReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Decline Membership Application</DialogTitle>
+            <DialogDescription>
+              Declining {rejectingUser?.firstName} {rejectingUser?.lastName}'s application. They will be notified by email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Reason for declining (optional)</Label>
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g., Incomplete information, unable to verify identity..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectingUser(null); setRejectReason(""); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => rejectMutation.mutate({ userId: rejectingUser.id, reason: rejectReason })}
+              disabled={rejectMutation.isPending}
+            >
+              {rejectMutation.isPending ? "Declining..." : "Confirm Decline"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2131,6 +2293,14 @@ export default function AdminDashboard() {
               >
                 <FileText className="mr-3 h-4 w-4" />
                 Payment Reviews
+              </Button>
+              <Button
+                variant={selectedTab === "user-approvals" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("user-approvals")}
+              >
+                <UserCheck className="mr-3 h-4 w-4" />
+                User Approvals
               </Button>
               <Button
                 variant={selectedTab === "user-portfolio" ? "secondary" : "ghost"}
@@ -3442,6 +3612,11 @@ export default function AdminDashboard() {
                 queryClient={queryClient}
                 toast={toast}
               />
+            )}
+
+            {/* User Approvals */}
+            {selectedTab === "user-approvals" && (
+              <UserApprovalsTab authenticatedRequest={authenticatedRequest} />
             )}
 
             {/* User Portfolio Lookup */}

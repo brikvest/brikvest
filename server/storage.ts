@@ -54,6 +54,8 @@ export interface IStorage {
   updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
   getAllKycSubmissions(): Promise<User[]>;
   updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<void>;
+  getPendingUsers(): Promise<User[]>;
+  updateUserAccountStatus(userId: number, status: string): Promise<User>;
   
   // Admin user methods
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -202,6 +204,18 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date() 
       })
       .where(eq(users.id, userId));
+  }
+
+  async getPendingUsers(): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.accountStatus, 'pending')).orderBy(desc(users.createdAt));
+  }
+
+  async updateUserAccountStatus(userId: number, status: string): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ accountStatus: status, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 
   // Admin user methods

@@ -24,6 +24,7 @@ export const users = pgTable("users", {
   phone: text("phone"),
   referralCode: text("referral_code"),
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
   emailVerified: boolean("email_verified").notNull().default(false),
   resetToken: text("reset_token"),
