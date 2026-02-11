@@ -879,21 +879,21 @@ export class DatabaseStorage implements IStorage {
     return await db.select()
       .from(paymentSubmissions)
       .where(eq(paymentSubmissions.reservationId, reservationId))
-      .orderBy(desc(paymentSubmissions.submittedAt));
+      .orderBy(desc(paymentSubmissions.uploadedAt));
   }
 
   async getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]> {
     return await db.select()
       .from(paymentSubmissions)
       .where(eq(paymentSubmissions.userId, userId))
-      .orderBy(desc(paymentSubmissions.submittedAt));
+      .orderBy(desc(paymentSubmissions.uploadedAt));
   }
 
   async getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]> {
     return await db.select()
       .from(paymentSubmissions)
       .where(eq(paymentSubmissions.status, 'pending_admin_review'))
-      .orderBy(desc(paymentSubmissions.submittedAt));
+      .orderBy(desc(paymentSubmissions.uploadedAt));
   }
 
   async getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined> {
