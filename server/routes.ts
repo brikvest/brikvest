@@ -508,6 +508,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         proofUrl,
         proofType: file.mimetype === 'application/pdf' ? 'pdf' : 'image',
+        amount: typeof reservation.amount === 'string' ? reservation.amount : String(reservation.amount || 0),
+        currency: reservation.currency || 'NGN',
+        paymentMethod: req.body.paymentMethod || 'bank_transfer',
+        bankReference: req.body.bankReference || null,
         status: 'pending_admin_review'
       });
 
