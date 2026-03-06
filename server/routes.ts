@@ -1748,6 +1748,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all properties (admin view - includes all properties)
+  app.get("/api/admin/properties", requireAdminAuth, async (req: any, res) => {
+    try {
+      const properties = await storage.getProperties();
+      res.json(properties);
+    } catch (error) {
+      console.error("Error fetching properties (admin):", error);
+      res.status(500).json({ message: "Failed to fetch properties" });
+    }
+  });
+
   // Get all properties (requires approved membership)
   app.get("/api/properties", requireApprovedUser, async (req: any, res) => {
     try {
