@@ -152,7 +152,7 @@ function AdminInvestmentsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({
         title: "Investment created",
         description: "Investment reservation has been created successfully",
@@ -185,7 +185,7 @@ function AdminInvestmentsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({
         title: "Payment marked",
         description: "Payment has been marked as received and investor notified with payment reference",
@@ -209,7 +209,7 @@ function AdminInvestmentsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({
         title: "Investment confirmed",
         description: "Investment has been confirmed successfully",
@@ -233,7 +233,7 @@ function AdminInvestmentsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({
         title: "Investment cancelled",
         description: "Investment has been cancelled",
@@ -250,7 +250,7 @@ function AdminInvestmentsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       setIsEditReservationOpen(false);
       setEditingReservation(null);
       toast({
@@ -1816,10 +1816,10 @@ export default function AdminDashboard() {
     totalSquareMeters: ""
   });
 
-  // Fetch properties
+  // Fetch properties (admin endpoint)
   const { data: properties = [], isLoading: propertiesLoading } = useQuery({
-    queryKey: ["/api/properties"],
-    queryFn: () => fetch("/api/properties").then(res => res.json())
+    queryKey: ["/api/admin/properties"],
+    queryFn: () => authenticatedRequest("/api/admin/properties")
   });
 
   // Fetch reservations
@@ -1853,12 +1853,10 @@ export default function AdminDashboard() {
 
   // Fetch verification checklist for selected property
   const { data: propertyVerificationData = [], refetch: refetchVerification } = useQuery({
-    queryKey: ["/api/properties", selectedPropertyForVerification?.id, "verification"],
+    queryKey: ["/api/admin/properties", selectedPropertyForVerification?.id, "verification"],
     queryFn: async () => {
       if (!selectedPropertyForVerification) return [];
-      const response = await fetch(`/api/properties/${selectedPropertyForVerification.id}/verification`);
-      if (!response.ok) return [];
-      return response.json();
+      return await authenticatedRequest(`/api/properties/${selectedPropertyForVerification.id}/verification`);
     },
     enabled: !!selectedPropertyForVerification
   });
@@ -1887,7 +1885,7 @@ export default function AdminDashboard() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({ title: "Property created successfully" });
       clearDraft(); // Clear draft on successful creation
       resetPropertyForm();
@@ -1905,7 +1903,7 @@ export default function AdminDashboard() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({ title: "Property updated successfully" });
       setIsEditDialogOpen(false);
       setEditingProperty(null);
@@ -1922,7 +1920,7 @@ export default function AdminDashboard() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       toast({ title: "Property deleted successfully" });
     },
     onError: (error) => {
