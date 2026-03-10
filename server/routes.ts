@@ -2212,6 +2212,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Upload valuation report PDF for a property (Admin only)
+  app.post("/api/admin/properties/:id/valuation-report", requireAdminAuth, upload.single('valuationReport'), async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const file = req.file;
+      
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      if (file.mimetype !== 'application/pdf') {
+        return res.status(400).json({ error: "Only PDF files are allowed for valuation reports" });
+      }
+      
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      
+      const result = await uploadToObjectStorage(
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+        'valuation-reports'
+      );
+      
+      const updated = await storage.updateProperty(propertyId, {
+        ...property,
+        valuationReportUrl: result.url,
+        valuationReportName: file.originalname,
+      });
+      
+      res.json({ message: "Valuation report uploaded successfully", property: updated });
+    } catch (error) {
+      console.error("Error uploading valuation report:", error);
+      res.status(500).json({ error: "Failed to upload valuation report" });
+    }
+  });
+  
+  // Remove valuation report from a property (Admin only)
+  app.delete("/api/admin/properties/:id/valuation-report", requireAdminAuth, async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      
+      const updated = await storage.updateProperty(propertyId, {
+        ...property,
+        valuationReportUrl: null,
+        valuationReportName: null,
+      });
+      
+      res.json({ message: "Valuation report removed", property: updated });
+    } catch (error) {
+      console.error("Error removing valuation report:", error);
+      res.status(500).json({ error: "Failed to remove valuation report" });
+    }
+  });
+  
+  // Get valuation report for a property (only investors who have bought units)
+  app.get("/api/properties/:id/valuation-report", requireApprovedUser, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const userId = req.user.id;
+      
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      
+      if (!property.valuationReportUrl) {
+        return res.status(404).json({ error: "No valuation report available for this property" });
+      }
+      
+      const userReservations = await storage.getReservationsByUserId(userId);
+      const hasInvestment = userReservations.some(
+        r => r.propertyId === propertyId && r.status === 'converted_to_investment'
+      );
+      
+      if (!hasInvestment) {
+        return res.status(403).json({ error: "Only investors in this property can access the valuation report" });
+      }
+      
+      res.json({
+        url: property.valuationReportUrl,
+        name: property.valuationReportName || 'Valuation Report.pdf',
+      });
+    } catch (error) {
+      console.error("Error fetching valuation report:", error);
+      res.status(500).json({ error: "Failed to fetch valuation report" });
+    }
+  });
+
   // Delete property (Admin only)
   app.delete("/api/properties/:id", requireAdminAuth, async (req, res) => {
     try {
