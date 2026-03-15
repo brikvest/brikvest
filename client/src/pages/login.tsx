@@ -142,6 +142,7 @@ export default function Login() {
       return response.json();
     },
     onSuccess: (data) => {
+      try { localStorage.removeItem('brikvest_referral'); } catch {}
       if (data.pendingApproval) {
         setShowPendingMessage(true);
       } else {
