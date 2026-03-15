@@ -2307,6 +2307,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin: Get all valuations for a property
+  app.get("/api/admin/properties/:id/valuations", requireAdminAuth, async (req, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const valuations = await storage.getPropertyValuations(propertyId);
+      res.json(valuations);
+    } catch (error) {
+      console.error("Error fetching valuations:", error);
+      res.status(500).json({ error: "Failed to fetch valuations" });
+    }
+  });
+
+  // Admin: Create a valuation entry for a property
+  app.post("/api/admin/properties/:id/valuations", requireAdminAuth, upload.single('valuationReport'), async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      const { valuationDate, currentValue, appreciationPercentage, notes } = req.body;
+
+      if (!valuationDate || !currentValue) {
+        return res.status(400).json({ error: "Valuation date and current value are required" });
+      }
+
+      let reportUrl = null;
+      let reportName = null;
+
+      if (req.file) {
+        if (req.file.mimetype !== 'application/pdf') {
+          return res.status(400).json({ error: "Only PDF files are allowed" });
+        }
+        const result = await uploadToObjectStorage(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype,
+          'valuation-reports'
+        );
+        reportUrl = result.url;
+        reportName = req.file.originalname;
+      }
+
+      const adminId = req.adminSession?.adminId || null;
+
+      const valuation = await storage.createPropertyValuation({
+        propertyId,
+        valuationDate: new Date(valuationDate),
+        currentValue,
+        appreciationPercentage: appreciationPercentage || null,
+        reportUrl,
+        reportName,
+        notes: notes || null,
+        createdByAdminId: adminId,
+      });
+
+      if (reportUrl) {
+        await storage.updateProperty(propertyId, {
+          ...property,
+          valuationReportUrl: reportUrl,
+          valuationReportName: reportName,
+        });
+      }
+
+      res.json(valuation);
+    } catch (error) {
+      console.error("Error creating valuation:", error);
+      res.status(500).json({ error: "Failed to create valuation" });
+    }
+  });
+
+  // Admin: Delete a valuation entry
+  app.delete("/api/admin/valuations/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deletePropertyValuation(id);
+      res.json({ message: "Valuation deleted" });
+    } catch (error) {
+      console.error("Error deleting valuation:", error);
+      res.status(500).json({ error: "Failed to delete valuation" });
+    }
+  });
+
+  // User: Get valuation history for a property (only if investor has confirmed investment)
+  app.get("/api/properties/:id/valuations", requireApprovedUser, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const userReservations = await storage.getReservationsByUserId(userId);
+      const hasInvestment = userReservations.some(
+        r => r.propertyId === propertyId && r.status === 'converted_to_investment'
+      );
+
+      if (!hasInvestment) {
+        return res.status(403).json({ error: "Only investors in this property can access valuation history" });
+      }
+
+      const valuations = await storage.getPropertyValuations(propertyId);
+      res.json(valuations);
+    } catch (error) {
+      console.error("Error fetching valuations:", error);
+      res.status(500).json({ error: "Failed to fetch valuations" });
+    }
+  });
+
   // Delete property (Admin only)
   app.delete("/api/properties/:id", requireAdminAuth, async (req, res) => {
     try {
