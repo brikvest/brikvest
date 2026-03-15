@@ -1793,6 +1793,8 @@ export default function AdminDashboard() {
   const [verificationStepBeingEdited, setVerificationStepBeingEdited] = useState<any>(null);
   const [isVerificationDialogOpen, setIsVerificationDialogOpen] = useState(false);
   const [uploadingVerificationPhoto, setUploadingVerificationPhoto] = useState(false);
+  const [uploadingValuationReport, setUploadingValuationReport] = useState(false);
+  const [valuationReportFile, setValuationReportFile] = useState<File | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({
     name: "",
@@ -2051,6 +2053,60 @@ export default function AdminDashboard() {
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
+  };
+
+  const handleValuationReportUpload = async (propertyId: number) => {
+    if (!valuationReportFile) return;
+    
+    if (valuationReportFile.type !== 'application/pdf') {
+      toast({ title: "Invalid file type", description: "Only PDF files are allowed", variant: "destructive" });
+      return;
+    }
+    
+    setUploadingValuationReport(true);
+    try {
+      const sessionId = localStorage.getItem("admin_session_id");
+      const formData = new FormData();
+      formData.append('valuationReport', valuationReportFile);
+      
+      const response = await fetch(`/api/admin/properties/${propertyId}/valuation-report`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionId}` },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Upload failed');
+      }
+      
+      const data = await response.json();
+      toast({ title: "Valuation report uploaded successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      setValuationReportFile(null);
+      if (viewingProperty?.id === propertyId) {
+        setViewingProperty({ ...viewingProperty, valuationReportUrl: data.property?.valuationReportUrl, valuationReportName: data.property?.valuationReportName });
+      }
+    } catch (error: any) {
+      toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    } finally {
+      setUploadingValuationReport(false);
+    }
+  };
+
+  const handleRemoveValuationReport = async (propertyId: number) => {
+    try {
+      await authenticatedRequest(`/api/admin/properties/${propertyId}/valuation-report`, {
+        method: 'DELETE',
+      });
+      toast({ title: "Valuation report removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      if (viewingProperty?.id === propertyId) {
+        setViewingProperty({ ...viewingProperty, valuationReportUrl: null, valuationReportName: null });
+      }
+    } catch (error: any) {
+      toast({ title: "Failed to remove report", description: error.message, variant: "destructive" });
+    }
   };
 
   const openDeleteConfirmation = (property: Property) => {
@@ -3824,6 +3880,47 @@ export default function AdminDashboard() {
                   </Button>
                 </div>
               )}
+
+              {/* Valuation Report */}
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Valuation Report</h3>
+                {viewingProperty.valuationReportUrl ? (
+                  <div className="flex items-center gap-3">
+                    <Button variant="outline" asChild>
+                      <a href={viewingProperty.valuationReportUrl} target="_blank" rel="noopener noreferrer">
+                        <FileText className="h-4 w-4 mr-2" />
+                        {viewingProperty.valuationReportName || 'View Report'}
+                      </a>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50"
+                      onClick={() => handleRemoveValuationReport(viewingProperty.id)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => setValuationReportFile(e.target.files?.[0] || null)}
+                      className="max-w-xs"
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!valuationReportFile || uploadingValuationReport}
+                      onClick={() => handleValuationReportUpload(viewingProperty.id)}
+                    >
+                      <Upload className="h-4 w-4 mr-1" />
+                      {uploadingValuationReport ? 'Uploading...' : 'Upload'}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>

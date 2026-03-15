@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate } from "@shared/schema";
@@ -1253,7 +1253,7 @@ export default function Portfolio() {
                               </div>
                               
                               {/* Actions */}
-                              <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+                              <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1263,6 +1263,31 @@ export default function Portfolio() {
                                 >
                                   <Award className="h-4 w-4 mr-2" />
                                   View Certificate
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch(`/api/properties/${reservation.propertyId}/valuation-report`, { credentials: 'include' });
+                                      if (res.status === 404) {
+                                        toast({ title: "No valuation report", description: "A valuation report has not been uploaded for this property yet." });
+                                        return;
+                                      }
+                                      if (!res.ok) {
+                                        const data = await res.json();
+                                        throw new Error(data.error || 'Failed to access report');
+                                      }
+                                      const data = await res.json();
+                                      window.open(data.url, '_blank');
+                                    } catch (error: any) {
+                                      toast({ title: "Error", description: error.message, variant: "destructive" });
+                                    }
+                                  }}
+                                  className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                                >
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  Valuation Report
                                 </Button>
                                 <Button
                                   variant="ghost"
