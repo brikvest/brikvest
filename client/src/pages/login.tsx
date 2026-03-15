@@ -20,7 +20,43 @@ export default function Login() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [referralCode, setReferralCode] = useState("");
+  const [referralValid, setReferralValid] = useState<boolean | null>(null);
+  const [referralName, setReferralName] = useState("");
   const { toast } = useToast();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const ref = params.get("ref");
+    if (ref) {
+      setReferralCode(ref);
+      setIsRegistering(true);
+      try {
+        localStorage.setItem('brikvest_referral', ref);
+      } catch {}
+      fetch(`/api/validate-referral/${encodeURIComponent(ref)}`)
+        .then(r => r.json())
+        .then(data => {
+          setReferralValid(data.valid);
+          if (data.valid) setReferralName(data.referrerName);
+        })
+        .catch(() => {});
+    } else {
+      try {
+        const stored = localStorage.getItem('brikvest_referral');
+        if (stored) {
+          setReferralCode(stored);
+          fetch(`/api/validate-referral/${encodeURIComponent(stored)}`)
+            .then(r => r.json())
+            .then(data => {
+              setReferralValid(data.valid);
+              if (data.valid) setReferralName(data.referrerName);
+            })
+            .catch(() => {});
+        }
+      } catch {}
+    }
+  }, [searchString]);
 
   const getRedirectUrl = () => {
     const params = new URLSearchParams(searchString);
@@ -91,10 +127,12 @@ export default function Login() {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterUser) => {
+      const payload: any = { ...data };
+      if (referralCode) payload.referralCode = referralCode;
       const response = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
         credentials: "include"
       });
       if (!response.ok) {
@@ -362,6 +400,26 @@ export default function Login() {
                 />
                 {registerForm.formState.errors.password && (
                   <p className="text-sm text-red-600">{registerForm.formState.errors.password.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="referralCode">Referral Code (Optional)</Label>
+                <Input
+                  id="referralCode"
+                  placeholder="e.g. BRIK-ABC123"
+                  value={referralCode}
+                  onChange={(e) => {
+                    setReferralCode(e.target.value);
+                    setReferralValid(null);
+                  }}
+                  className={referralValid === true ? "border-green-500" : referralValid === false ? "border-red-400" : ""}
+                />
+                {referralValid === true && (
+                  <p className="text-sm text-green-600">Referred by {referralName}</p>
+                )}
+                {referralValid === false && referralCode && (
+                  <p className="text-sm text-red-500">Invalid referral code</p>
                 )}
               </div>
 

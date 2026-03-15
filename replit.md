@@ -30,6 +30,8 @@ The application employs a modern full-stack architecture with a clear separation
 **Investment Status Flow**: `reserved` → `expired` / `converted_to_investment` / `cancelled`.
 **Payment Submission Flow**: User reserves → completes KYC → uploads payment proof → Admin reviews (approves/rejects). Approval converts reservation to investment and generates a certificate.
 
+**Referral Program**: Users get a unique referral code (BRIK-XXXXXX) on registration. Shareable link: `/login?ref=CODE`. Referral codes stored in localStorage/URL params. On signup with valid code, a `referrals` record is created, rewards calculated per configurable tiers ($20 for 1 referral, $50 for 2+). `referral_rewards` table tracks payout status (pending/approved/paid). User dashboard shows referral stats, link sharing (WhatsApp/Twitter/Facebook/Email), and referral history. Admin endpoints for viewing/managing reward payouts. Anti-abuse: no self-referrals, only new accounts count, code validated before linking.
+
 **Data Integrity Safeguards**: The system automatically links orphaned reservations to user accounts by email on login/registration and uses audit logging to track critical actions.
 
 ## External Dependencies
