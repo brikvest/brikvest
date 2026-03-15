@@ -22,7 +22,8 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   phone: text("phone"),
-  referralCode: text("referral_code"),
+  referralCode: text("referral_code").unique(),
+  referredByUserId: integer("referred_by_user_id"),
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
@@ -552,6 +553,43 @@ export const insertPropertyValuationSchema = createInsertSchema(propertyValuatio
   createdAt: true,
 });
 
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  referrerUserId: integer("referrer_user_id").notNull().references(() => users.id),
+  referredUserId: integer("referred_user_id").notNull().references(() => users.id),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const referralRewards = pgTable("referral_rewards", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  referralCount: integer("referral_count").notNull().default(0),
+  rewardAmount: decimal("reward_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  rewardCurrency: text("reward_currency").notNull().default("USD"),
+  payoutStatus: text("payout_status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertReferralSchema = createInsertSchema(referrals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertReferralRewardSchema = createInsertSchema(referralRewards).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const referralConfigSchema = z.object({
+  tiers: z.array(z.object({
+    count: z.number(),
+    reward: z.number(),
+  })),
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -603,3 +641,9 @@ export type OwnershipCertificate = typeof ownershipCertificates.$inferSelect;
 
 export type InsertPropertyValuation = z.infer<typeof insertPropertyValuationSchema>;
 export type PropertyValuation = typeof propertyValuations.$inferSelect;
+
+export type InsertReferral = z.infer<typeof insertReferralSchema>;
+export type Referral = typeof referrals.$inferSelect;
+
+export type InsertReferralReward = z.infer<typeof insertReferralRewardSchema>;
+export type ReferralReward = typeof referralRewards.$inferSelect;

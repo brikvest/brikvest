@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Gift, Copy, Share2, Users } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate, PropertyValuation } from "@shared/schema";
@@ -19,6 +19,152 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { OwnershipCertificate as CertificateComponent, CertificateDownloadButton } from "@/components/OwnershipCertificate";
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { Badge } from "@/components/ui/badge";
+
+function ReferralDashboard({ toast }: { toast: any }) {
+  const { data: referralData, isLoading } = useQuery<any>({
+    queryKey: ["/api/user/referral"],
+  });
+
+  const [copied, setCopied] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card className="mb-6 sm:mb-8 shadow-lg">
+        <CardContent className="p-6 text-center text-slate-500">Loading referral data...</CardContent>
+      </Card>
+    );
+  }
+
+  if (!referralData) return null;
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const referralLink = `${baseUrl}/login?ref=${referralData.referralCode}`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(referralLink).then(() => {
+      setCopied(true);
+      toast({ title: "Copied!", description: "Referral link copied to clipboard." });
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const shareVia = (platform: string) => {
+    const text = `Join Brikvest and invest in real estate starting from ₦30,000! Use my referral link:`;
+    const encodedText = encodeURIComponent(text);
+    const encodedUrl = encodeURIComponent(referralLink);
+    const urls: Record<string, string> = {
+      whatsapp: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
+      twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+      email: `mailto:?subject=${encodeURIComponent('Join Brikvest - Real Estate Investment')}&body=${encodedText}%20${encodedUrl}`,
+    };
+    window.open(urls[platform], '_blank');
+  };
+
+  const tiers = referralData.tiers || [];
+  const currentReward = referralData.rewardAmount || 0;
+  const referralCount = referralData.referralCount || 0;
+
+  return (
+    <Card className="mb-6 sm:mb-8 shadow-lg">
+      <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
+        <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+          <Gift className="h-5 w-5 text-purple-600" />
+          Referral Program
+        </CardTitle>
+        <p className="text-sm text-slate-600 mt-1">Earn cash rewards by inviting friends to Brikvest</p>
+      </CardHeader>
+      <CardContent className="p-4 sm:p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 text-center">
+            <Users className="h-6 w-6 text-purple-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-slate-900">{referralCount}</p>
+            <p className="text-xs text-slate-600">Successful Referrals</p>
+          </div>
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 text-center">
+            <DollarSign className="h-6 w-6 text-green-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-green-700">${currentReward}</p>
+            <p className="text-xs text-slate-600">Current Reward</p>
+          </div>
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 text-center">
+            <Award className="h-6 w-6 text-blue-600 mx-auto mb-2" />
+            <p className="text-2xl font-bold text-blue-700">${tiers.length > 0 ? tiers[tiers.length - 1].reward : 50}</p>
+            <p className="text-xs text-slate-600">Max Reward</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 rounded-lg p-4 mb-6">
+          <p className="text-sm font-semibold text-slate-700 mb-3">Reward Tiers</p>
+          <div className="space-y-2">
+            {tiers.map((tier: any, idx: number) => (
+              <div key={idx} className={`flex items-center justify-between p-2 rounded ${referralCount >= tier.count ? 'bg-green-100 border border-green-300' : 'bg-white border border-slate-200'}`}>
+                <span className="text-sm text-slate-700">
+                  {referralCount >= tier.count && <CheckCircle className="h-4 w-4 text-green-600 inline mr-1" />}
+                  Refer {tier.count} {tier.count === 1 ? 'person' : 'people'}
+                </span>
+                <span className={`text-sm font-bold ${referralCount >= tier.count ? 'text-green-700' : 'text-slate-500'}`}>
+                  ${tier.reward}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <p className="text-sm font-semibold text-slate-700 mb-2">Your Referral Link</p>
+          <div className="flex gap-2">
+            <Input value={referralLink} readOnly className="text-sm bg-white" />
+            <Button variant="outline" size="sm" onClick={copyLink} className="shrink-0">
+              <Copy className="h-4 w-4 mr-1" />
+              {copied ? "Copied!" : "Copy"}
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Your code: <strong>{referralData.referralCode}</strong></p>
+        </div>
+
+        <div className="mb-6">
+          <p className="text-sm font-semibold text-slate-700 mb-2">Share Via</p>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => shareVia('whatsapp')} className="text-green-600 border-green-300 hover:bg-green-50">
+              WhatsApp
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => shareVia('twitter')} className="text-blue-500 border-blue-300 hover:bg-blue-50">
+              Twitter
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => shareVia('facebook')} className="text-blue-700 border-blue-300 hover:bg-blue-50">
+              Facebook
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => shareVia('email')} className="text-slate-600 border-slate-300 hover:bg-slate-50">
+              Email
+            </Button>
+          </div>
+        </div>
+
+        {referralData.referrals && referralData.referrals.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Your Referrals</p>
+            <div className="space-y-2">
+              {referralData.referrals.map((ref: any) => (
+                <div key={ref.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{ref.referredName}</p>
+                    <p className="text-xs text-slate-500">{ref.referredEmail}</p>
+                  </div>
+                  <div className="text-right">
+                    <Badge variant="outline" className={ref.status === 'completed' ? 'text-green-700 border-green-300 bg-green-50' : 'text-yellow-700 border-yellow-300 bg-yellow-50'}>
+                      {ref.status}
+                    </Badge>
+                    <p className="text-xs text-slate-500 mt-1">{new Date(ref.createdAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -1198,6 +1344,9 @@ export default function Portfolio() {
               toast={toast}
             />
           )}
+
+          {/* Referral Program */}
+          <ReferralDashboard toast={toast} />
 
           {/* Pending Reservations */}
           {(() => {

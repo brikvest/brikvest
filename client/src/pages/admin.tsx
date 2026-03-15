@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -1945,6 +1945,165 @@ function UserPortfolioTab({
   );
 }
 
+function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: rewards = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/referral-rewards"],
+    queryFn: () => authenticatedRequest("/api/admin/referral-rewards"),
+  });
+
+  const updatePayoutMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      return authenticatedRequest(`/api/admin/referral-rewards/${id}/payout`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/referral-rewards"] });
+      toast({ title: "Payout status updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update", variant: "destructive" });
+    },
+  });
+
+  const totalPending = rewards.filter(r => r.payoutStatus === 'pending' && Number(r.rewardAmount) > 0).length;
+  const totalApproved = rewards.filter(r => r.payoutStatus === 'approved').length;
+  const totalPaid = rewards.filter(r => r.payoutStatus === 'paid').length;
+  const totalRewardValue = rewards.reduce((sum: number, r: any) => sum + Number(r.rewardAmount), 0);
+
+  if (isLoading) {
+    return <div className="text-center py-12 text-slate-500">Loading referral rewards...</div>;
+  }
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-slate-800 mb-6">Referral Rewards</h2>
+
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Gift className="h-6 w-6 text-purple-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold">{rewards.length}</p>
+            <p className="text-xs text-slate-600">Total Referrers</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <DollarSign className="h-6 w-6 text-green-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold">${totalRewardValue}</p>
+            <p className="text-xs text-slate-600">Total Rewards</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Clock className="h-6 w-6 text-yellow-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold">{totalPending}</p>
+            <p className="text-xs text-slate-600">Pending Payouts</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <CheckCircle className="h-6 w-6 text-blue-600 mx-auto mb-1" />
+            <p className="text-2xl font-bold">{totalPaid}</p>
+            <p className="text-xs text-slate-600">Paid Out</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {rewards.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-slate-500">
+            <Gift className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+            <p>No referral rewards yet. Users will appear here when they successfully refer others.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="text-left p-3 text-sm font-medium text-slate-600">User</th>
+                    <th className="text-left p-3 text-sm font-medium text-slate-600">Email</th>
+                    <th className="text-center p-3 text-sm font-medium text-slate-600">Referrals</th>
+                    <th className="text-center p-3 text-sm font-medium text-slate-600">Reward</th>
+                    <th className="text-center p-3 text-sm font-medium text-slate-600">Status</th>
+                    <th className="text-center p-3 text-sm font-medium text-slate-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rewards.map((reward: any) => (
+                    <tr key={reward.id} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="p-3 text-sm font-medium text-slate-800">{reward.userName}</td>
+                      <td className="p-3 text-sm text-slate-600">{reward.userEmail}</td>
+                      <td className="p-3 text-sm text-center">{reward.referralCount}</td>
+                      <td className="p-3 text-sm text-center font-semibold text-green-700">${Number(reward.rewardAmount)}</td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          reward.payoutStatus === 'paid' ? 'bg-green-100 text-green-800' :
+                          reward.payoutStatus === 'approved' ? 'bg-blue-100 text-blue-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {reward.payoutStatus}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        {Number(reward.rewardAmount) > 0 && (
+                          <div className="flex gap-1 justify-center">
+                            {reward.payoutStatus === 'pending' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-600 border-blue-300 text-xs"
+                                onClick={() => updatePayoutMutation.mutate({ id: reward.id, status: 'approved' })}
+                                disabled={updatePayoutMutation.isPending}
+                              >
+                                Approve
+                              </Button>
+                            )}
+                            {reward.payoutStatus === 'approved' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-600 border-green-300 text-xs"
+                                onClick={() => updatePayoutMutation.mutate({ id: reward.id, status: 'paid' })}
+                                disabled={updatePayoutMutation.isPending}
+                              >
+                                Mark Paid
+                              </Button>
+                            )}
+                            {reward.payoutStatus !== 'pending' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-slate-500 text-xs"
+                                onClick={() => updatePayoutMutation.mutate({ id: reward.id, status: 'pending' })}
+                                disabled={updatePayoutMutation.isPending}
+                              >
+                                Reset
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
   const { toast } = useToast();
@@ -2543,6 +2702,14 @@ export default function AdminDashboard() {
               >
                 <Eye className="mr-3 h-4 w-4" />
                 User Portfolio
+              </Button>
+              <Button
+                variant={selectedTab === "referral-rewards" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("referral-rewards")}
+              >
+                <Gift className="mr-3 h-4 w-4" />
+                Referral Rewards
               </Button>
             </div>
           </nav>
@@ -3861,6 +4028,11 @@ export default function AdminDashboard() {
                 authenticatedRequest={authenticatedRequest}
                 getCurrencySymbol={getCurrencySymbol}
               />
+            )}
+
+            {/* Referral Rewards Management */}
+            {selectedTab === "referral-rewards" && (
+              <ReferralRewardsTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>

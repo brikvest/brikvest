@@ -450,3 +450,104 @@ export function investmentConfirmedEmailTemplate({
     `,
   };
 }
+
+export function referralSuccessEmailTemplate({
+  referrerName,
+  referredName,
+  referralCount,
+  rewardAmount,
+}: {
+  referrerName: string;
+  referredName: string;
+  referralCount: number;
+  rewardAmount: number;
+}) {
+  return {
+    subject: "Great News! Someone Joined Brikvest Using Your Referral",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <h2 style="color: #222;">Hi ${referrerName},</h2>
+          <p style="font-size: 16px; color: #444;">
+            Great news! <strong>${referredName}</strong> just joined Brikvest using your referral link.
+          </p>
+          <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 15px; color: #166534;">
+              You now have <strong>${referralCount} successful referral${referralCount > 1 ? 's' : ''}</strong>.<br/>
+              Your current reward: <strong>$${rewardAmount}</strong>
+            </p>
+          </div>
+          ${referralCount < 2 ? `
+          <p style="font-size: 14px; color: #666;">
+            Keep going! Refer one more friend to earn <strong>$50 total</strong>.
+          </p>` : `
+          <p style="font-size: 14px; color: #666;">
+            Awesome — you've hit the top referral tier! Keep sharing your link to help grow the Brikvest community.
+          </p>`}
+          <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+          <p style="margin-top: 20px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          © ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
+
+export function welcomeReferralEmailTemplate({
+  userName,
+  referralCode,
+  referralLink,
+}: {
+  userName: string;
+  referralCode: string;
+  referralLink: string;
+}) {
+  return {
+    subject: "Welcome to Brikvest — Earn Rewards by Inviting Friends!",
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <h2 style="color: #222;">Welcome, ${userName}!</h2>
+          <p style="font-size: 16px; color: #444;">
+            Your Brikvest account has been approved. Start building wealth through fractional real estate investing!
+          </p>
+          <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <p style="margin: 0 0 8px; font-size: 16px; font-weight: bold; color: #1e40af;">Invite Friends & Earn Cash Rewards</p>
+            <p style="margin: 0; font-size: 14px; color: #1e40af;">
+              Refer 1 friend &rarr; <strong>$20</strong><br/>
+              Refer 2 friends &rarr; <strong>$50</strong>
+            </p>
+          </div>
+          <p style="font-size: 14px; color: #444;">
+            Your referral code: <strong style="font-size: 16px; color: #1a365d;">${referralCode}</strong>
+          </p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${referralLink}" style="display: inline-block; background: #1a365d; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; font-size: 16px;">
+              Share Your Referral Link
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #888; text-align: center;">
+            Or copy this link: ${referralLink}
+          </p>
+          <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+          <p style="margin-top: 20px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          © ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
