@@ -22,7 +22,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   phone: text("phone"),
-  referralCode: text("referral_code"),
+  referralCode: text("referral_code").unique(),
   referredByUserId: integer("referred_by_user_id"),
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'

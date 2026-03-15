@@ -143,8 +143,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Generate unique referral code for new user
-      const uniqueReferralCode = 'BRIK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Generate unique referral code for new user (retry on collision)
+      let uniqueReferralCode = '';
+      for (let i = 0; i < 5; i++) {
+        const candidate = 'BRIK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const existing = await storage.getUserByReferralCode(candidate);
+        if (!existing) {
+          uniqueReferralCode = candidate;
+          break;
+        }
+      }
+      if (!uniqueReferralCode) {
+        uniqueReferralCode = 'BRIK-' + Date.now().toString(36).toUpperCase();
+      }
 
       // Hash password and create user
       const hashedPassword = await hashPassword(password);
