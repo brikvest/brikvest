@@ -533,6 +533,25 @@ export const insertOwnershipCertificateSchema = createInsertSchema(ownershipCert
   issuedAt: true,
 });
 
+// Property Valuations - historical valuation records per property
+export const propertyValuations = pgTable("property_valuations", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  valuationDate: timestamp("valuation_date").notNull(),
+  currentValue: decimal("current_value", { precision: 20, scale: 2 }).notNull(),
+  appreciationPercentage: decimal("appreciation_percentage", { precision: 8, scale: 2 }),
+  reportUrl: text("report_url"),
+  reportName: text("report_name"),
+  notes: text("notes"),
+  createdByAdminId: integer("created_by_admin_id").references(() => adminUsers.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPropertyValuationSchema = createInsertSchema(propertyValuations).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -581,3 +600,6 @@ export type GuzapeListing = typeof guzapeListings.$inferSelect;
 
 export type InsertOwnershipCertificate = z.infer<typeof insertOwnershipCertificateSchema>;
 export type OwnershipCertificate = typeof ownershipCertificates.$inferSelect;
+
+export type InsertPropertyValuation = z.infer<typeof insertPropertyValuationSchema>;
+export type PropertyValuation = typeof propertyValuations.$inferSelect;

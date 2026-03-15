@@ -13,6 +13,7 @@ import {
   guzapeListings,
   ownershipCertificates,
   paymentSubmissions,
+  propertyValuations,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -36,7 +37,9 @@ import {
   type OwnershipCertificate,
   type InsertOwnershipCertificate,
   type PaymentSubmission,
-  type InsertPaymentSubmission
+  type InsertPaymentSubmission,
+  type PropertyValuation,
+  type InsertPropertyValuation
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -133,6 +136,12 @@ export interface IStorage {
   getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]>;
   getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined>;
   updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission>;
+  
+  // Property valuation methods
+  createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation>;
+  getPropertyValuations(propertyId: number): Promise<PropertyValuation[]>;
+  getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined>;
+  deletePropertyValuation(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -909,6 +918,31 @@ export class DatabaseStorage implements IStorage {
       .where(eq(paymentSubmissions.id, id))
       .returning();
     return result;
+  }
+
+  async createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation> {
+    const [result] = await db.insert(propertyValuations).values(valuation).returning();
+    return result;
+  }
+
+  async getPropertyValuations(propertyId: number): Promise<PropertyValuation[]> {
+    return await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.propertyId, propertyId))
+      .orderBy(propertyValuations.valuationDate);
+  }
+
+  async getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined> {
+    const [result] = await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.propertyId, propertyId))
+      .orderBy(desc(propertyValuations.valuationDate))
+      .limit(1);
+    return result;
+  }
+
+  async deletePropertyValuation(id: number): Promise<void> {
+    await db.delete(propertyValuations).where(eq(propertyValuations.id, id));
   }
 }
 
