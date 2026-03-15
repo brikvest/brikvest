@@ -14,6 +14,8 @@ import {
   ownershipCertificates,
   paymentSubmissions,
   propertyValuations,
+  referrals,
+  referralRewards,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -39,7 +41,11 @@ import {
   type PaymentSubmission,
   type InsertPaymentSubmission,
   type PropertyValuation,
-  type InsertPropertyValuation
+  type InsertPropertyValuation,
+  type Referral,
+  type InsertReferral,
+  type ReferralReward,
+  type InsertReferralReward
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -142,6 +148,17 @@ export interface IStorage {
   getPropertyValuations(propertyId: number): Promise<PropertyValuation[]>;
   getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined>;
   deletePropertyValuation(id: number): Promise<void>;
+  
+  // Referral methods
+  getUserByReferralCode(referralCode: string): Promise<User | undefined>;
+  createReferral(referral: InsertReferral): Promise<Referral>;
+  getReferralsByReferrerId(userId: number): Promise<Referral[]>;
+  getReferralCountByReferrerId(userId: number): Promise<number>;
+  getReferralRewardByUserId(userId: number): Promise<ReferralReward | undefined>;
+  upsertReferralReward(userId: number, referralCount: number, rewardAmount: number): Promise<ReferralReward>;
+  getAllReferralRewards(): Promise<ReferralReward[]>;
+  updateReferralRewardPayoutStatus(id: number, status: string): Promise<ReferralReward>;
+  getAllUsers(): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -943,6 +960,68 @@ export class DatabaseStorage implements IStorage {
 
   async deletePropertyValuation(id: number): Promise<void> {
     await db.delete(propertyValuations).where(eq(propertyValuations.id, id));
+  }
+
+  async getUserByReferralCode(referralCode: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.referralCode, referralCode));
+    return user;
+  }
+
+  async createReferral(referral: InsertReferral): Promise<Referral> {
+    const [result] = await db.insert(referrals).values(referral).returning();
+    return result;
+  }
+
+  async getReferralsByReferrerId(userId: number): Promise<Referral[]> {
+    return await db.select()
+      .from(referrals)
+      .where(eq(referrals.referrerUserId, userId))
+      .orderBy(desc(referrals.createdAt));
+  }
+
+  async getReferralCountByReferrerId(userId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)::int` })
+      .from(referrals)
+      .where(and(eq(referrals.referrerUserId, userId), eq(referrals.status, 'completed')));
+    return result[0]?.count || 0;
+  }
+
+  async getReferralRewardByUserId(userId: number): Promise<ReferralReward | undefined> {
+    const [result] = await db.select().from(referralRewards).where(eq(referralRewards.userId, userId));
+    return result;
+  }
+
+  async upsertReferralReward(userId: number, referralCount: number, rewardAmount: number): Promise<ReferralReward> {
+    const existing = await this.getReferralRewardByUserId(userId);
+    if (existing) {
+      const [result] = await db.update(referralRewards)
+        .set({ referralCount, rewardAmount: rewardAmount.toString(), updatedAt: new Date() })
+        .where(eq(referralRewards.userId, userId))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(referralRewards).values({
+      userId,
+      referralCount,
+      rewardAmount: rewardAmount.toString(),
+    }).returning();
+    return result;
+  }
+
+  async getAllReferralRewards(): Promise<ReferralReward[]> {
+    return await db.select().from(referralRewards).orderBy(desc(referralRewards.updatedAt));
+  }
+
+  async updateReferralRewardPayoutStatus(id: number, status: string): Promise<ReferralReward> {
+    const [result] = await db.update(referralRewards)
+      .set({ payoutStatus: status, updatedAt: new Date() })
+      .where(eq(referralRewards.id, id))
+      .returning();
+    return result;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
   }
 }
 
