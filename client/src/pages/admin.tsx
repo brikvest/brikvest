@@ -19,7 +19,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
-import type { Property, InvestmentReservation, InsertProperty, VerificationStep, MarketInsight, User as UserType } from "@shared/schema";
+import type { Property, InvestmentReservation, InsertProperty, VerificationStep, MarketInsight, User as UserType, PropertyValuation } from "@shared/schema";
 import { FileUploader } from "@/components/FileUploader";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useCurrency } from "@/hooks/useCurrency";
@@ -45,6 +45,186 @@ const convertToJpg = (url: string): string => {
   }
   return url;
 };
+
+function ValuationManagement({ propertyId, authenticatedRequest, queryClient, toast }: {
+  propertyId: number;
+  authenticatedRequest: (url: string, options?: any) => Promise<any>;
+  queryClient: any;
+  toast: any;
+}) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [formData, setFormData] = useState({
+    valuationDate: '',
+    currentValue: '',
+    appreciationPercentage: '',
+    notes: '',
+  });
+  const [reportFile, setReportFile] = useState<File | null>(null);
+
+  const { data: valuations = [], isLoading } = useQuery<PropertyValuation[]>({
+    queryKey: ["/api/admin/properties", propertyId, "valuations"],
+    queryFn: () => authenticatedRequest(`/api/admin/properties/${propertyId}/valuations`),
+  });
+
+  const handleSubmit = async () => {
+    if (!formData.valuationDate || !formData.currentValue) {
+      toast({ title: "Missing fields", description: "Date and current value are required", variant: "destructive" });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const sessionId = localStorage.getItem("admin_session_id");
+      const fd = new FormData();
+      fd.append('valuationDate', formData.valuationDate);
+      fd.append('currentValue', formData.currentValue);
+      if (formData.appreciationPercentage) fd.append('appreciationPercentage', formData.appreciationPercentage);
+      if (formData.notes) fd.append('notes', formData.notes);
+      if (reportFile) fd.append('valuationReport', reportFile);
+
+      const response = await fetch(`/api/admin/properties/${propertyId}/valuations`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionId}` },
+        body: fd,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to create valuation');
+      }
+
+      toast({ title: "Valuation entry added" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties", propertyId, "valuations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      setShowAddForm(false);
+      setFormData({ valuationDate: '', currentValue: '', appreciationPercentage: '', notes: '' });
+      setReportFile(null);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await authenticatedRequest(`/api/admin/valuations/${id}`, { method: 'DELETE' });
+      toast({ title: "Valuation entry deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties", propertyId, "valuations"] });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-900">Valuation History</h3>
+        <Button size="sm" variant="outline" onClick={() => setShowAddForm(!showAddForm)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Add Valuation
+        </Button>
+      </div>
+
+      {showAddForm && (
+        <div className="border border-blue-200 bg-blue-50 rounded-lg p-4 mb-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Valuation Date *</Label>
+              <Input
+                type="date"
+                value={formData.valuationDate}
+                onChange={(e) => setFormData(prev => ({ ...prev, valuationDate: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Current Property Value (₦) *</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 50000000"
+                value={formData.currentValue}
+                onChange={(e) => setFormData(prev => ({ ...prev, currentValue: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Appreciation % (optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 15.5"
+                value={formData.appreciationPercentage}
+                onChange={(e) => setFormData(prev => ({ ...prev, appreciationPercentage: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Valuation Report PDF (optional)</Label>
+              <Input
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setReportFile(e.target.files?.[0] || null)}
+              />
+            </div>
+          </div>
+          <div>
+            <Label>Notes (optional)</Label>
+            <Textarea
+              placeholder="Any notes about this valuation..."
+              value={formData.notes}
+              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              rows={2}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSubmit} disabled={uploading}>
+              {uploading ? 'Saving...' : 'Save Valuation'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-sm text-slate-500">Loading valuations...</p>
+      ) : valuations.length === 0 ? (
+        <p className="text-sm text-slate-500">No valuation records yet. Add the first one to start tracking property value.</p>
+      ) : (
+        <div className="space-y-2">
+          {valuations.map((v) => (
+            <div key={v.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-slate-900">
+                    {new Date(v.valuationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </span>
+                  <span className="text-sm font-bold text-blue-700">
+                    ₦{Number(v.currentValue).toLocaleString()}
+                  </span>
+                  {v.appreciationPercentage && (
+                    <Badge variant="outline" className={Number(v.appreciationPercentage) >= 0 ? 'text-green-700 border-green-300' : 'text-red-700 border-red-300'}>
+                      {Number(v.appreciationPercentage) >= 0 ? '+' : ''}{v.appreciationPercentage}%
+                    </Badge>
+                  )}
+                  {v.reportUrl && (
+                    <a href={v.reportUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs flex items-center gap-1">
+                      <FileText className="h-3 w-3" /> PDF
+                    </a>
+                  )}
+                </div>
+                {v.notes && <p className="text-xs text-slate-500 mt-1">{v.notes}</p>}
+              </div>
+              <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50 h-8 w-8 p-0" onClick={() => handleDelete(v.id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Admin Investments Tab Component
 function AdminInvestmentsTab({ 
@@ -3881,46 +4061,13 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* Valuation Report */}
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-2">Valuation Report</h3>
-                {viewingProperty.valuationReportUrl ? (
-                  <div className="flex items-center gap-3">
-                    <Button variant="outline" asChild>
-                      <a href={viewingProperty.valuationReportUrl} target="_blank" rel="noopener noreferrer">
-                        <FileText className="h-4 w-4 mr-2" />
-                        {viewingProperty.valuationReportName || 'View Report'}
-                      </a>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:bg-red-50"
-                      onClick={() => handleRemoveValuationReport(viewingProperty.id)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Remove
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => setValuationReportFile(e.target.files?.[0] || null)}
-                      className="max-w-xs"
-                    />
-                    <Button
-                      size="sm"
-                      disabled={!valuationReportFile || uploadingValuationReport}
-                      onClick={() => handleValuationReportUpload(viewingProperty.id)}
-                    >
-                      <Upload className="h-4 w-4 mr-1" />
-                      {uploadingValuationReport ? 'Uploading...' : 'Upload'}
-                    </Button>
-                  </div>
-                )}
-              </div>
+              {/* Valuation History Management */}
+              <ValuationManagement
+                propertyId={viewingProperty.id}
+                authenticatedRequest={authenticatedRequest}
+                queryClient={queryClient}
+                toast={toast}
+              />
             </div>
           )}
         </DialogContent>
