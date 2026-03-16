@@ -57,6 +57,8 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
   const [formData, setFormData] = useState({
     valuationDate: '',
     currentValue: '',
+    rawAssetValue: '',
+    investorBasisValue: '',
     appreciationPercentage: '',
     notes: '',
   });
@@ -79,6 +81,8 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
       const fd = new FormData();
       fd.append('valuationDate', formData.valuationDate);
       fd.append('currentValue', formData.currentValue);
+      if (formData.rawAssetValue) fd.append('rawAssetValue', formData.rawAssetValue);
+      if (formData.investorBasisValue) fd.append('investorBasisValue', formData.investorBasisValue);
       if (formData.appreciationPercentage) fd.append('appreciationPercentage', formData.appreciationPercentage);
       if (formData.notes) fd.append('notes', formData.notes);
       if (reportFile) fd.append('valuationReport', reportFile);
@@ -98,7 +102,7 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties", propertyId, "valuations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
       setShowAddForm(false);
-      setFormData({ valuationDate: '', currentValue: '', appreciationPercentage: '', notes: '' });
+      setFormData({ valuationDate: '', currentValue: '', rawAssetValue: '', investorBasisValue: '', appreciationPercentage: '', notes: '' });
       setReportFile(null);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -146,6 +150,29 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
                 value={formData.currentValue}
                 onChange={(e) => setFormData(prev => ({ ...prev, currentValue: e.target.value }))}
               />
+              <p className="text-xs text-slate-400 mt-1">General reference value</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Raw Asset / Land Value (₦)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 12500000"
+                value={formData.rawAssetValue}
+                onChange={(e) => setFormData(prev => ({ ...prev, rawAssetValue: e.target.value }))}
+              />
+              <p className="text-xs text-slate-400 mt-1">Market value of the land — used for Land Appreciation graph</p>
+            </div>
+            <div>
+              <Label>Investor Basis Value (₦)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 16250000"
+                value={formData.investorBasisValue}
+                onChange={(e) => setFormData(prev => ({ ...prev, investorBasisValue: e.target.value }))}
+              />
+              <p className="text-xs text-slate-400 mt-1">Investor-facing value (incl. SPV/legal/deal costs) — used for Investment Performance graph</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -195,13 +222,12 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
           {valuations.map((v) => (
             <div key={v.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
               <div className="flex-1">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-sm font-medium text-slate-900">
                     {new Date(v.valuationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                   </span>
-                  <span className="text-sm font-bold text-blue-700">
-                    ₦{Number(v.currentValue).toLocaleString()}
-                  </span>
+                  <span className="text-xs text-slate-500">Land: ₦{Number(v.rawAssetValue || v.currentValue).toLocaleString()}</span>
+                  <span className="text-xs text-slate-500">Investor: ₦{Number(v.investorBasisValue || v.currentValue).toLocaleString()}</span>
                   {v.appreciationPercentage && (
                     <Badge variant="outline" className={Number(v.appreciationPercentage) >= 0 ? 'text-green-700 border-green-300' : 'text-red-700 border-red-300'}>
                       {Number(v.appreciationPercentage) >= 0 ? '+' : ''}{v.appreciationPercentage}%

@@ -32,7 +32,9 @@ The application employs a modern full-stack architecture with a clear separation
 
 **Referral Program**: Users get a unique referral code (BRIK-XXXXXX) on registration. Shareable link: `/login?ref=CODE`. Referral codes stored in localStorage/URL params. On signup with valid code, a `referrals` record is created, rewards calculated per configurable tiers ($20 for 1 referral, $50 for 2+). `referral_rewards` table tracks payout status (pending/approved/paid). User dashboard shows referral stats, link sharing (WhatsApp/Twitter/Facebook/Email), and referral history. Admin endpoints for viewing/managing reward payouts. Anti-abuse: no self-referrals, only new accounts count, code validated before linking.
 
-**Data Integrity Safeguards**: The system automatically links orphaned reservations to user accounts by email on login/registration and uses audit logging to track critical actions.
+**Valuation System (Dual-Value Model)**: The `property_valuations` table stores two distinct value types per entry: `rawAssetValue` (actual land/market value, powers the Land Appreciation graph) and `investorBasisValue` (investor-facing value including SPV/legal/deal costs, powers the Investment Performance graph). This separation allows land to appreciate while investor performance may be flat or negative due to cost overhead. Old records are backfill-compatible (fallback to `currentValue` if new fields are null). Admin form clearly labels both fields with help text.
+
+**Data Integrity Safeguards**: The system automatically links orphaned reservations to user accounts by email on login/registration and uses audit logging to track critical actions. Referral codes have a unique DB constraint, and referral pairs have a unique index on `(referrer_user_id, referred_user_id)` to prevent double-counting.
 
 ## External Dependencies
 *   **Database & ORM**: `@neondatabase/serverless`, `drizzle-orm`.

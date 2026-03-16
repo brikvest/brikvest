@@ -211,7 +211,8 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         const vals = valuationsByProperty[pid] || [];
         const applicable = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= dateStr);
         if (applicable.length > 0) {
-          totalValue += Number(applicable[applicable.length - 1].currentValue);
+          const latest = applicable[applicable.length - 1];
+          totalValue += Number(latest.rawAssetValue || latest.currentValue);
           count++;
         }
       });
@@ -265,10 +266,12 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         }
 
         const entryVal = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= invDate);
-        const entryValue = entryVal.length > 0 ? Number(entryVal[entryVal.length - 1].currentValue) : Number(inv.property?.totalValue || 0);
+        const entryLatest = entryVal.length > 0 ? entryVal[entryVal.length - 1] : null;
+        const entryValue = entryLatest ? Number(entryLatest.investorBasisValue || entryLatest.currentValue) : Number(inv.property?.totalValue || 0);
 
         const currentVal = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= dateStr);
-        const currentValue = currentVal.length > 0 ? Number(currentVal[currentVal.length - 1].currentValue) : entryValue;
+        const currentLatest = currentVal.length > 0 ? currentVal[currentVal.length - 1] : null;
+        const currentValue = currentLatest ? Number(currentLatest.investorBasisValue || currentLatest.currentValue) : entryValue;
 
         if (entryValue > 0) {
           const growthRatio = currentValue / entryValue;
