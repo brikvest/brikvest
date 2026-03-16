@@ -2492,7 +2492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Property not found" });
       }
 
-      const { valuationDate, currentValue, appreciationPercentage, notes } = req.body;
+      const { valuationDate, currentValue, rawAssetValue, investorBasisValue, appreciationPercentage, notes } = req.body;
 
       if (!valuationDate || !currentValue) {
         return res.status(400).json({ error: "Valuation date and current value are required" });
@@ -2521,6 +2521,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyId,
         valuationDate: new Date(valuationDate),
         currentValue,
+        rawAssetValue: rawAssetValue || currentValue,
+        investorBasisValue: investorBasisValue || currentValue,
         appreciationPercentage: appreciationPercentage || null,
         reportUrl,
         reportName,

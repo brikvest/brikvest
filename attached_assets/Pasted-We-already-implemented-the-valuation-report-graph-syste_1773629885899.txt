@@ -1,0 +1,183 @@
+We already implemented the valuation report + graph system previously.
+
+This task is NOT to rebuild it from scratch.
+This task is to UPDATE the existing implementation so the numbers and graph logic reflect the real business model correctly.
+
+Please inspect the current codebase first, find the existing valuation report / land appreciation / investment performance implementation, and modify it directly.
+
+GOAL
+
+We need to separate:
+1. raw asset / land valuation value
+2. investor pricing / performance value
+
+Reason:
+The price at which investors buy into a property is not always the same as the raw land value, because the investor-facing price may include additional costs such as:
+- SPV costs
+- legal costs
+- valuation costs
+- structuring/admin costs
+- platform/deal packaging costs
+
+Because of this:
+- the land can appreciate
+- while investor performance may still be flat or negative
+- and the investor graph must reflect that correctly
+
+IMPORTANT BUSINESS RULE
+
+Do NOT use the same value for both:
+- Land Appreciation graph
+- Investment Performance graph
+
+These two graphs must now be powered by different value bases.
+
+--------------------------------------------------
+CHANGES TO MAKE
+--------------------------------------------------
+
+1. UPDATE THE DATA MODEL
+
+Modify the existing valuation/performance data model so each valuation entry can store separate values such as:
+
+- valuationDate
+- rawAssetValue (actual market / land valuation value)
+- investorBasisValue (value to be used for investor performance calculations)
+- reportUrl
+- notes
+
+If the naming can be improved to match the project conventions, that is fine, but the concept must remain clearly separated.
+
+Important:
+- rawAssetValue = actual valuation / market value of the land/property
+- investorBasisValue = investor-facing performance basis after considering SPV/legal/valuation/deal costs
+
+Do not remove existing useful fields unless truly necessary.
+Preserve compatibility with the current implementation as much as possible.
+
+--------------------------------------------------
+2. UPDATE ADMIN FLOW
+--------------------------------------------------
+
+In the admin valuation management flow, update the form/UI so admin can enter BOTH:
+
+- Raw Asset Value
+- Investor Basis Value
+
+Admin should still be able to:
+- upload valuation report PDF
+- enter valuation date
+- add notes
+- save multiple valuation records over time
+
+Make sure the admin understands the difference in the labels/help text.
+
+Suggested meaning in UI:
+- Raw Asset Value → used for land appreciation
+- Investor Basis Value → used for investor performance graph
+
+--------------------------------------------------
+3. UPDATE LAND APPRECIATION GRAPH
+--------------------------------------------------
+
+The Land Appreciation graph should use ONLY:
+- rawAssetValue
+- valuationDate
+
+This graph should represent how the land/property itself is performing over time.
+
+Do not use investorBasisValue here.
+
+--------------------------------------------------
+4. UPDATE INVESTMENT PERFORMANCE GRAPH
+--------------------------------------------------
+
+The Investment Performance graph should use:
+- investor’s actual investment date
+- investor’s initial investment amount / entry basis
+- investorBasisValue history from the date they entered onward
+
+Important:
+The graph must start from the investor’s actual entry date.
+Do not start from the first valuation ever recorded if the investor entered later.
+
+This graph should reflect investor performance, not raw land appreciation.
+
+Example:
+- Initial Investment: ₦325,000
+- Current Value: ₦300,000
+- Return: -7.69%
+
+That means:
+even if raw asset value increased from acquisition price,
+the investor can still show a loss if the investor entry basis was higher.
+
+--------------------------------------------------
+5. CALCULATION LOGIC
+--------------------------------------------------
+
+Please update the logic so:
+
+A. LAND APPRECIATION
+Uses rawAssetValue over time
+
+B. INVESTMENT PERFORMANCE
+Uses investorBasisValue for the current value calculation
+
+The system must support cases where:
+- raw asset value has increased
+- but investor performance is negative
+
+Example scenario:
+- raw land value at acquisition: ₦250,000
+- investor entry price: ₦325,000
+- current raw valuation: ₦300,000
+- current investor basis value: ₦300,000
+
+Expected result:
+- Land Appreciation graph shows increase from ₦250,000 to ₦300,000
+- Investment Performance graph shows decrease from ₦325,000 to ₦300,000
+
+This is correct and should be supported.
+
+--------------------------------------------------
+6. PRESERVE EXISTING IMPLEMENTATION
+--------------------------------------------------
+
+Because this was already built before:
+- do not create a disconnected new module unless necessary
+- update the current schema/services/components/endpoints
+- keep existing routes and architecture where possible
+- migrate existing logic cleanly
+
+--------------------------------------------------
+7. HANDLE OLD DATA SAFELY
+--------------------------------------------------
+
+If old records only have one value, handle migration/backward compatibility carefully.
+
+Use the cleanest approach:
+- migration
+- fallback logic
+- or default mapping
+
+But make sure the updated system works safely with existing records.
+
+--------------------------------------------------
+8. DELIVERABLES
+--------------------------------------------------
+
+Please implement and show:
+
+1. updated schema/model changes
+2. any migration needed
+3. updated admin valuation form
+4. updated backend logic/services
+5. updated Land Appreciation graph logic
+6. updated Investment Performance graph logic
+7. any fallback handling for old data
+8. brief explanation of the new calculation logic
+
+Again:
+This is an update to an existing implementation, not a fresh build.
+Please inspect what already exists and modify it properly.

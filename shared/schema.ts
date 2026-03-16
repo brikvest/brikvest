@@ -540,6 +540,8 @@ export const propertyValuations = pgTable("property_valuations", {
   propertyId: integer("property_id").notNull().references(() => properties.id),
   valuationDate: timestamp("valuation_date").notNull(),
   currentValue: decimal("current_value", { precision: 20, scale: 2 }).notNull(),
+  rawAssetValue: decimal("raw_asset_value", { precision: 20, scale: 2 }),
+  investorBasisValue: decimal("investor_basis_value", { precision: 20, scale: 2 }),
   appreciationPercentage: decimal("appreciation_percentage", { precision: 8, scale: 2 }),
   reportUrl: text("report_url"),
   reportName: text("report_name"),
