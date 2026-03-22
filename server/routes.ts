@@ -2539,6 +2539,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json(valuation);
+
+      try {
+        const reservations = await storage.getReservationsByProperty(propertyId);
+        const confirmedInvestors = reservations.filter(r => r.status === 'converted_to_investment' && r.userId);
+        const uniqueUserIds = Array.from(new Set(confirmedInvestors.map(r => r.userId!)));
+        const formattedDate = new Date(valuationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        const { valuationUpdateEmailTemplate } = await import('./emailTemplates');
+
+        for (const userId of uniqueUserIds) {
+          try {
+            const investor = await storage.getUser(userId);
+            if (!investor) continue;
+            const emailData = valuationUpdateEmailTemplate({
+              firstName: investor.firstName || 'Investor',
+              propertyName: property.name,
+              valuationDate: formattedDate,
+              hasReport: !!reportUrl,
+            });
+            await sendEmail({
+              to: investor.email,
+              subject: emailData.subject,
+              html: emailData.html,
+            });
+          } catch (emailErr) {
+            console.error(`[AUDIT:EMAIL] Failed to send valuation update email to userId ${userId}:`, emailErr);
+          }
+        }
+        console.log(`[AUDIT:VALUATION] Notified ${uniqueUserIds.length} investor(s) about valuation update for property ${propertyId} (${property.name})`);
+      } catch (notifyErr) {
+        console.error(`[AUDIT:EMAIL] Failed to notify investors about valuation update:`, notifyErr);
+      }
     } catch (error) {
       console.error("Error creating valuation:", error);
       res.status(500).json({ error: "Failed to create valuation" });
