@@ -551,3 +551,61 @@ export function welcomeReferralEmailTemplate({
     `,
   };
 }
+
+export function valuationUpdateEmailTemplate({
+  firstName,
+  propertyName,
+  valuationDate,
+  hasReport,
+}: {
+  firstName: string;
+  propertyName: string;
+  valuationDate: string;
+  hasReport: boolean;
+}) {
+  return {
+    subject: `Property Update – ${propertyName} – Brikvest`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <h2 style="color: #222; margin-bottom: 6px;">Hi ${firstName},</h2>
+
+          <p style="font-size: 16px; color: #444; line-height: 1.6;">
+            A new valuation update has been recorded for <strong>${propertyName}</strong> as of <strong>${valuationDate}</strong>.
+          </p>
+
+          ${hasReport ? `
+          <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 14px 18px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 15px; color: #1e40af;">
+              A valuation report has been attached. You can view or download it from your dashboard.
+            </p>
+          </div>
+          ` : ''}
+
+          <p style="font-size: 16px; color: #444; line-height: 1.6;">
+            Head over to your portfolio to see your updated performance charts and any new reports.
+          </p>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://www.brikvest.net/dashboard"
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+              View My Portfolio
+            </a>
+          </div>
+
+          <p style="margin-top: 30px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          &copy; ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
