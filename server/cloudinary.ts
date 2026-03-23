@@ -78,6 +78,36 @@ export const uploadToCloudinary = async (
   });
 };
 
+export const uploadVideoToCloudinary = async (
+  buffer: Buffer,
+  originalName: string,
+  folder: string = 'brikvest/videos'
+): Promise<{ url: string; publicId: string }> => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'video',
+        public_id: `${Date.now()}-${originalName.split('.')[0]}`,
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else if (result) {
+          resolve({
+            url: result.secure_url,
+            publicId: result.public_id,
+          });
+        } else {
+          reject(new Error('Upload failed'));
+        }
+      }
+    );
+
+    uploadStream.end(buffer);
+  });
+};
+
 // Upload to Replit Object Storage (for PDFs and documents)
 export const uploadToObjectStorage = async (
   buffer: Buffer,
