@@ -2589,6 +2589,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/admin/valuations/:id/notify", requireAdminAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const valuation = await storage.getPropertyValuation(id);
+      if (!valuation) {
+        return res.status(404).json({ error: "Valuation not found" });
+      }
+
+      const property = await storage.getProperty(valuation.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      const reservations = await storage.getReservationsByProperty(valuation.propertyId);
+      const confirmedInvestors = reservations.filter(r => r.status === 'converted_to_investment' && r.userId);
+      const uniqueUserIds = Array.from(new Set(confirmedInvestors.map(r => r.userId!)));
+
+      if (uniqueUserIds.length === 0) {
+        return res.json({ message: "No confirmed investors to notify", sent: 0 });
+      }
+
+      const formattedDate = new Date(valuation.valuationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const { valuationUpdateEmailTemplate } = await import('./emailTemplates');
+
+      let sent = 0;
+      for (const userId of uniqueUserIds) {
+        try {
+          const investor = await storage.getUser(userId);
+          if (!investor) continue;
+          const emailData = valuationUpdateEmailTemplate({
+            firstName: investor.firstName || 'Investor',
+            propertyName: property.name,
+            valuationDate: formattedDate,
+            hasReport: !!valuation.reportUrl,
+          });
+          await sendEmail({
+            to: investor.email,
+            subject: emailData.subject,
+            html: emailData.html,
+          });
+          sent++;
+        } catch (emailErr) {
+          console.error(`[AUDIT:EMAIL] Failed to send valuation notification to userId ${userId}:`, emailErr);
+        }
+      }
+
+      console.log(`[AUDIT:VALUATION] Resent notifications to ${sent}/${uniqueUserIds.length} investor(s) for valuation ${id} on property ${property.name}`);
+      res.json({ message: `Notifications sent to ${sent} investor(s)`, sent });
+    } catch (error) {
+      console.error("Error resending valuation notifications:", error);
+      res.status(500).json({ error: "Failed to send notifications" });
+    }
+  });
+
   // User: Get valuation history for a property (only if investor has confirmed investment)
   app.get("/api/properties/:id/valuations", requireApprovedUser, async (req: any, res) => {
     try {

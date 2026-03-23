@@ -54,6 +54,7 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
 }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [notifyingId, setNotifyingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     valuationDate: '',
     currentValue: '',
@@ -118,6 +119,18 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties", propertyId, "valuations"] });
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleNotify = async (id: number) => {
+    setNotifyingId(id);
+    try {
+      const result = await authenticatedRequest(`/api/admin/valuations/${id}/notify`, { method: 'POST' });
+      toast({ title: "Notifications sent", description: result.message });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to send notifications", variant: "destructive" });
+    } finally {
+      setNotifyingId(null);
     }
   };
 
@@ -241,9 +254,14 @@ function ValuationManagement({ propertyId, authenticatedRequest, queryClient, to
                 </div>
                 {v.notes && <p className="text-xs text-slate-500 mt-1">{v.notes}</p>}
               </div>
-              <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50 h-8 w-8 p-0" onClick={() => handleDelete(v.id)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50 h-8 w-8 p-0" onClick={() => handleNotify(v.id)} disabled={notifyingId === v.id} title="Notify investors">
+                  {notifyingId === v.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                </Button>
+                <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50 h-8 w-8 p-0" onClick={() => handleDelete(v.id)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
