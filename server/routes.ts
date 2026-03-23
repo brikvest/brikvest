@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
-import { upload, uploadToCloudinary, uploadToObjectStorage } from "./cloudinary";
+import { upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import { 
   investmentEmailTemplate, 
@@ -2778,7 +2778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid file type. Please upload a video file." });
       }
 
-      const result = await uploadToCloudinary(
+      const result = await uploadVideoToCloudinary(
         req.file.buffer,
         req.file.originalname,
         'brikvest/videos'
