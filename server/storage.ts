@@ -145,6 +145,7 @@ export interface IStorage {
   
   // Property valuation methods
   createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation>;
+  getPropertyValuation(id: number): Promise<PropertyValuation | undefined>;
   getPropertyValuations(propertyId: number): Promise<PropertyValuation[]>;
   getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined>;
   deletePropertyValuation(id: number): Promise<void>;
@@ -940,6 +941,13 @@ export class DatabaseStorage implements IStorage {
   async createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation> {
     const [result] = await db.insert(propertyValuations).values(valuation).returning();
     return result;
+  }
+
+  async getPropertyValuation(id: number): Promise<PropertyValuation | undefined> {
+    const [valuation] = await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.id, id));
+    return valuation;
   }
 
   async getPropertyValuations(propertyId: number): Promise<PropertyValuation[]> {
