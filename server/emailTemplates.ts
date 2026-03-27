@@ -42,9 +42,12 @@ export function investmentEmailTemplate({
             <p style="font-size: 16px; color: #444;"><strong>Your Unique Referral Code:</strong> <span style="color: #000; font-weight: bold;">${referralCode}</span></p>
             
             <p style="font-size: 14px; color: #666;">
-              Share this code with at least 5 friends. Each friend must commit to invest ₦100,000 or more. Once all 5 investments are verified, 
-              you'll receive <strong>10% of each investment</strong> — either as equity in ${propertyName} or cash rewards, based on your preference.
+              Share your code with friends and earn rewards when they join:
             </p>
+            <ul style="font-size: 14px; color: #666; line-height: 1.8; margin: 8px 0;">
+              <li>Refer <strong>1 person</strong> — earn <strong>$20</strong></li>
+              <li>Refer <strong>2 or more</strong> — earn <strong>$50</strong></li>
+            </ul>
 
             <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
 
