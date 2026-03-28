@@ -1784,25 +1784,56 @@ export default function Portfolio() {
                             <p className="text-sm text-red-600 mt-1">Reason: {listing.adminReviewNote}</p>
                           )}
                         </div>
-                        {["pending_review", "approved"].includes(listing.status) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600 border-red-300 hover:bg-red-50 self-start"
-                            onClick={async () => {
-                              try {
-                                await apiRequest("POST", `/api/resale-listings/${listing.id}/cancel`);
-                                queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/mine"] });
-                                toast({ title: "Listing cancelled", description: "Your units have been unlocked." });
-                              } catch (error: any) {
-                                toast({ title: "Error", description: error?.message || "Failed to cancel", variant: "destructive" });
-                              }
-                            }}
-                          >
-                            <XCircle className="h-4 w-4 mr-1" />
-                            Cancel
-                          </Button>
-                        )}
+                        <div className="flex gap-2 self-start flex-wrap">
+                          {listing.status === "approved" && listing.shareToken && (
+                            <div className="flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                                onClick={() => {
+                                  const url = `${window.location.origin}/listing/${listing.shareToken}`;
+                                  navigator.clipboard.writeText(url);
+                                  toast({ title: "Link copied!", description: "Share this link with potential buyers." });
+                                }}
+                              >
+                                <Copy className="h-4 w-4 mr-1" />
+                                Copy Link
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-green-600 border-green-300 hover:bg-green-50"
+                                onClick={() => {
+                                  const url = `${window.location.origin}/listing/${listing.shareToken}`;
+                                  const text = `Check out this investment opportunity on Brikvest: ${property?.name || "Property"} - ${listing.units} units`;
+                                  window.open(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`, "_blank");
+                                }}
+                              >
+                                <Share2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                          {["pending_review", "approved"].includes(listing.status) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 border-red-300 hover:bg-red-50"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest("POST", `/api/resale-listings/${listing.id}/cancel`);
+                                  queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/mine"] });
+                                  toast({ title: "Listing cancelled", description: "Your units have been unlocked." });
+                                } catch (error: any) {
+                                  toast({ title: "Error", description: error?.message || "Failed to cancel", variant: "destructive" });
+                                }
+                              }}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

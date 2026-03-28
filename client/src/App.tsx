@@ -13,6 +13,7 @@ import Insights from "@/pages/insights";
 import CertificateVerification from "@/pages/verify";
 import About from "@/pages/about";
 import Marketplace from "@/pages/marketplace";
+import PublicListing from "@/pages/public-listing";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/verify/:token" component={CertificateVerification} />
       <Route path="/about" component={About} />
       <Route path="/marketplace" component={Marketplace} />
+      <Route path="/listing/:shareToken" component={PublicListing} />
       <Route component={NotFound} />
     </Switch>
   );

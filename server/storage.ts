@@ -182,6 +182,7 @@ export interface IStorage {
   getAllResaleListings(): Promise<ResaleListing[]>;
   getActiveResaleListings(): Promise<ResaleListing[]>;
   getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]>;
+  getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined>;
   
   // Resale bid methods
   createResaleBid(bid: InsertResaleBid): Promise<ResaleBid>;
@@ -1127,6 +1128,12 @@ export class DatabaseStorage implements IStorage {
         inArray(resaleListings.status, ["pending_review", "approved"])
       ))
       .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings)
+      .where(eq(resaleListings.shareToken, shareToken));
+    return result;
   }
 
   async createResaleBid(bid: InsertResaleBid): Promise<ResaleBid> {

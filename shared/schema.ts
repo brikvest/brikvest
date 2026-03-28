@@ -593,6 +593,7 @@ export const resaleListings = pgTable("resale_listings", {
   highestBidId: integer("highest_bid_id"), // Current winning bid
   winnerId: integer("winner_id").references(() => users.id), // The buyer (fixed price) or winning bidder
   paymentDeadline: timestamp("payment_deadline"), // Winner must pay by this time
+  shareToken: text("share_token").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

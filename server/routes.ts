@@ -4179,6 +4179,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      const shareToken = randomBytes(12).toString("hex");
+
       const listing = await storage.createResaleListing({
         sellerId: user.id,
         propertyId: reservation.propertyId,
@@ -4188,6 +4190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         askingPrice: askingPrice ? askingPrice.toString() : null,
         minimumPrice: minimumPrice ? minimumPrice.toString() : null,
         currency: reservation.currency || "NGN",
+        shareToken,
       });
 
       await logResaleAudit({
@@ -4445,6 +4448,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error fetching property resale listings:", error);
       res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // ==================== PUBLIC LISTING ROUTE ====================
+
+  app.get("/api/public/listing/:shareToken", async (req, res) => {
+    try {
+      const { shareToken } = req.params;
+      const listing = await storage.getResaleListingByShareToken(shareToken);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (!["approved", "awaiting_payment", "sold"].includes(listing.status)) {
+        return res.status(404).json({ message: "Listing is not available" });
+      }
+
+      const property = await storage.getProperty(listing.propertyId);
+      const seller = await storage.getUser(listing.sellerId);
+
+      let highestBidAmount: string | null = null;
+      let bidCount = 0;
+      if (listing.sellingType === "bidding") {
+        const highestBid = await storage.getHighestBidForListing(listing.id);
+        highestBidAmount = highestBid?.amount || null;
+        const bids = await storage.getBidsByListing(listing.id);
+        bidCount = bids.filter(b => b.status === "active").length;
+      }
+
+      res.json({
+        id: listing.id,
+        units: listing.units,
+        sellingType: listing.sellingType,
+        askingPrice: listing.askingPrice,
+        minimumPrice: listing.minimumPrice,
+        currency: listing.currency,
+        status: listing.status,
+        biddingEndsAt: listing.biddingEndsAt,
+        createdAt: listing.createdAt,
+        shareToken: listing.shareToken,
+        propertyName: property?.name || "Property",
+        propertyLocation: property?.location || "",
+        propertyImageUrl: property?.imageUrl || null,
+        propertyType: property?.propertyType || "",
+        propertyDescription: property?.description || "",
+        sellerName: seller?.fullName || "Anonymous",
+        highestBidAmount,
+        bidCount,
+      });
+    } catch (error: any) {
+      console.error("Error fetching public listing:", error);
+      res.status(500).json({ message: "Failed to fetch listing" });
     }
   });
 
