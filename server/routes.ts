@@ -3983,6 +3983,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== RESALE HELPER FUNCTIONS ====================
 
+  async function logResaleAudit(params: {
+    listingId?: number;
+    bidId?: number;
+    paymentId?: number;
+    propertyId?: number;
+    action: string;
+    actorType: "user" | "admin" | "system";
+    actorId?: number;
+    actorName?: string;
+    sellerId?: number;
+    buyerId?: number;
+    units?: string;
+    amount?: string;
+    currency?: string;
+    details?: string;
+    metadata?: Record<string, any>;
+  }) {
+    try {
+      await storage.createResaleAuditLog({
+        listingId: params.listingId || null,
+        bidId: params.bidId || null,
+        paymentId: params.paymentId || null,
+        propertyId: params.propertyId || null,
+        action: params.action,
+        actorType: params.actorType,
+        actorId: params.actorId || null,
+        actorName: params.actorName || null,
+        sellerId: params.sellerId || null,
+        buyerId: params.buyerId || null,
+        units: params.units || null,
+        amount: params.amount || null,
+        currency: params.currency || null,
+        details: params.details || null,
+        metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+      });
+    } catch (err) {
+      console.error("[AUDIT] Failed to log resale audit:", err);
+    }
+  }
+
   async function handleNextBidderFallback(
     listing: any,
     failedBuyerId: number,
@@ -4050,7 +4090,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const nextBidder = await storage.getUser(nextBid.bidderId);
 
-    // Send emails: expired notification to failed buyer, offer to next bidder
+    await logResaleAudit({
+      listingId: listing.id,
+      bidId: nextBid.id,
+      propertyId: listing.propertyId,
+      action: "next_bidder_offered",
+      actorType: "system",
+      sellerId: listing.sellerId,
+      buyerId: nextBid.bidderId,
+      units: listing.units,
+      amount: nextBid.amount,
+      currency: listing.currency,
+      details: `${reason}. Next bidder #${nextBid.bidderId} offered the slot with ${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}. Failed buyer: #${failedBuyerId}`,
+      metadata: { failedBuyerId, reason },
+    });
+
     try {
       const failedBuyer = await storage.getUser(failedBuyerId);
       const property = await storage.getProperty(listing.propertyId);
@@ -4136,6 +4190,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currency: reservation.currency || "NGN",
       });
 
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: reservation.propertyId,
+        action: "listing_created",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: user.id,
+        units: units.toString(),
+        amount: askingPrice?.toString(),
+        currency: reservation.currency || "NGN",
+        details: `${sellingType} listing created for ${units} units of ${property?.name || "property"}`,
+        metadata: { sellingType, reservationId, minimumPrice },
+      });
+
       res.status(201).json(listing);
     } catch (error: any) {
       console.error("Error creating resale listing:", error);
@@ -4175,6 +4244,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updated = await storage.updateResaleListing(listingId, { status: "cancelled" });
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: "listing_cancelled_by_seller",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: user.id,
+        units: listing.units,
+        details: `Seller cancelled listing (was ${listing.status})`,
+      });
+
       res.json(updated);
     } catch (error: any) {
       console.error("Error cancelling resale listing:", error);
@@ -4245,10 +4327,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reviewedAt: new Date(),
       });
 
-      // Send email notification to seller
+      const seller = await storage.getUser(listing.sellerId);
+      const property = await storage.getProperty(listing.propertyId);
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: action === "approve" ? "listing_approved" : "listing_rejected",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        units: listing.units,
+        details: action === "approve"
+          ? `Listing approved for ${listing.units} units of ${property?.name || "property"}`
+          : `Listing rejected. Reason: ${note || "No reason provided"}`,
+        metadata: { adminNote: note },
+      });
+
       try {
-        const seller = await storage.getUser(listing.sellerId);
-        const property = await storage.getProperty(listing.propertyId);
         if (seller && property) {
           if (action === "approve") {
             await sendListingApprovedEmail(seller.email, seller.fullName || seller.email, property.name, listing.units, listing.sellingType);
@@ -4317,6 +4414,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reviewedByAdminId: (req.session as any).adminUserId,
         reviewedAt: new Date(),
         updatedAt: new Date(),
+      });
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: "listing_cancelled_by_admin",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        units: listing.units,
+        details: `Listing force-cancelled by admin. Reason: ${note || "No reason"}`,
       });
 
       res.json({ message: "Listing cancelled successfully", listing: updated });
@@ -4485,6 +4594,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.updateResaleListing(listingId, listingUpdates);
 
+      await logResaleAudit({
+        listingId,
+        bidId: bid.id,
+        propertyId: listing.propertyId,
+        action: "bid_placed",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        units: listing.units,
+        amount: amount.toString(),
+        currency: listing.currency,
+        details: `Bid of ${listing.currency} ${amount.toLocaleString()} placed${listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt ? " (anti-snipe: auction extended 5min)" : ""}`,
+        metadata: { previousHighestBid: highestBid?.amount, antiSnipeTriggered: !!listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt },
+      });
+
       // Send email notifications
       try {
         const seller = await storage.getUser(listing.sellerId);
@@ -4562,7 +4688,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentDeadline,
       });
 
-      // Send payment required email to buyer
+      await logResaleAudit({
+        listingId,
+        propertyId: listing.propertyId,
+        action: "fixed_price_purchase",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        units: listing.units,
+        amount: listing.askingPrice || "0",
+        currency: listing.currency,
+        details: `Fixed-price purchase accepted. Payment deadline: ${paymentDeadline.toISOString()}`,
+      });
+
       try {
         const property = await storage.getProperty(listing.propertyId);
         if (property) {
@@ -4639,7 +4779,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentDeadline,
       });
 
-      // Send auction won email to winner
+      await logResaleAudit({
+        listingId,
+        bidId: highestBid.id,
+        propertyId: listing.propertyId,
+        action: "bidding_ended_winner_selected",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        buyerId: highestBid.bidderId,
+        units: listing.units,
+        amount: highestBid.amount,
+        currency: listing.currency,
+        details: `Bidding ended. Winner: User #${highestBid.bidderId} with ${listing.currency} ${parseFloat(highestBid.amount).toLocaleString()}. Payment deadline: ${paymentDeadline.toISOString()}`,
+        metadata: { totalBids: allBids.length },
+      });
+
       try {
         const winner = await storage.getUser(highestBid.bidderId);
         const property = await storage.getProperty(listing.propertyId);
@@ -4799,6 +4955,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         attemptNumber,
       });
 
+      await logResaleAudit({
+        listingId: parseInt(listingId),
+        paymentId: payment.id,
+        propertyId: listing.propertyId,
+        action: "payment_submitted",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        amount: finalAmount,
+        currency: listing.currency || "NGN",
+        details: `Payment proof submitted (attempt ${attemptNumber}/${MAX_PAYMENT_ATTEMPTS}). Bank ref: ${bankReference || "N/A"}`,
+        metadata: { attemptNumber, bankReference, hasProof: !!proofUrl },
+      });
+
       res.json({
         message: "Payment confirmation submitted. Please wait for admin verification.",
         payment,
@@ -4930,7 +5102,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        // Send transfer complete emails to both buyer and seller
+        await logResaleAudit({
+          listingId: payment.listingId,
+          paymentId: paymentId,
+          propertyId: listing.propertyId,
+          action: "payment_approved_transfer_complete",
+          actorType: "admin",
+          actorId: (req.session as any).adminUserId,
+          actorName: `Admin #${(req.session as any).adminUserId}`,
+          sellerId: listing.sellerId,
+          buyerId: payment.buyerId,
+          units: listing.units,
+          amount: payment.amount,
+          currency: payment.currency || "NGN",
+          details: `Payment approved. Units transferred from seller #${listing.sellerId} to buyer #${payment.buyerId}. Listing marked as sold.`,
+          metadata: { bankReference: payment.bankReference },
+        });
+
         try {
           const seller = await storage.getUser(listing.sellerId);
           const property2 = property || await storage.getProperty(listing.propertyId);
@@ -4968,7 +5156,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const allListingPayments = await storage.getResalePaymentsByListing(payment.listingId);
         const buyerRejections = allListingPayments.filter(p => p.buyerId === payment.buyerId && p.status === "rejected");
 
-        // Send payment rejected email to buyer
+        await logResaleAudit({
+          listingId: payment.listingId,
+          paymentId: paymentId,
+          propertyId: listing.propertyId,
+          action: "payment_rejected",
+          actorType: "admin",
+          actorId: (req.session as any).adminUserId,
+          actorName: `Admin #${(req.session as any).adminUserId}`,
+          sellerId: listing.sellerId,
+          buyerId: payment.buyerId,
+          amount: payment.amount,
+          currency: payment.currency || "NGN",
+          details: `Payment rejected. Reason: ${rejectionReason || "Not verified"}. Attempts used: ${buyerRejections.length}/${MAX_PAYMENT_ATTEMPTS}`,
+          metadata: { rejectionReason, attemptsUsed: buyerRejections.length },
+        });
+
         try {
           const buyerUser = await storage.getUser(payment.buyerId);
           const property3 = await storage.getProperty(listing.propertyId);
@@ -5040,11 +5243,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      await logResaleAudit({
+        listingId,
+        propertyId: listing.propertyId,
+        action: "payment_deadline_expired",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        buyerId: failedBuyerId,
+        units: listing.units,
+        details: `Payment deadline expired for buyer #${failedBuyerId}. Admin triggered next-bidder fallback.`,
+      });
+
       const fallbackResult = await handleNextBidderFallback(listing, failedBuyerId, "Payment deadline expired");
       res.json({ message: fallbackResult });
     } catch (error: any) {
       console.error("Error expiring payment:", error);
       res.status(500).json({ message: "Failed to process payment expiry" });
+    }
+  });
+
+  // ==================== RESALE AUDIT LOG ADMIN ROUTES ====================
+
+  app.get("/api/admin/resale-audit-logs", requireAdminAuth, async (req: any, res) => {
+    try {
+      const { listingId, propertyId, limit: limitParam } = req.query;
+      let logs;
+      if (listingId) {
+        logs = await storage.getResaleAuditLogsByListing(parseInt(listingId));
+      } else if (propertyId) {
+        logs = await storage.getResaleAuditLogsByProperty(parseInt(propertyId));
+      } else {
+        logs = await storage.getAllResaleAuditLogs(limitParam ? parseInt(limitParam) : 500);
+      }
+
+      const enriched = await Promise.all(logs.map(async (log) => {
+        const seller = log.sellerId ? await storage.getUser(log.sellerId) : null;
+        const buyer = log.buyerId ? await storage.getUser(log.buyerId) : null;
+        const property = log.propertyId ? await storage.getProperty(log.propertyId) : null;
+        return {
+          ...log,
+          sellerName: seller?.fullName || seller?.email || null,
+          buyerName: buyer?.fullName || buyer?.email || null,
+          propertyName: property?.name || null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching resale audit logs:", error);
+      res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  app.get("/api/admin/resale-audit-logs/listing/:id", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const logs = await storage.getResaleAuditLogsByListing(listingId);
+      const listing = await storage.getResaleListing(listingId);
+
+      const enriched = await Promise.all(logs.map(async (log) => {
+        const seller = log.sellerId ? await storage.getUser(log.sellerId) : null;
+        const buyer = log.buyerId ? await storage.getUser(log.buyerId) : null;
+        const property = log.propertyId ? await storage.getProperty(log.propertyId) : null;
+        return {
+          ...log,
+          sellerName: seller?.fullName || seller?.email || null,
+          buyerName: buyer?.fullName || buyer?.email || null,
+          propertyName: property?.name || null,
+        };
+      }));
+
+      res.json({ listing, timeline: enriched });
+    } catch (error: any) {
+      console.error("Error fetching listing audit trail:", error);
+      res.status(500).json({ message: "Failed to fetch listing audit trail" });
     }
   });
 

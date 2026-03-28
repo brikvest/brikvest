@@ -54,7 +54,10 @@ import {
   type InsertResaleBid,
   resalePayments,
   type ResalePayment,
-  type InsertResalePayment
+  type InsertResalePayment,
+  resaleAuditLogs,
+  type ResaleAuditLog,
+  type InsertResaleAuditLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
@@ -199,6 +202,12 @@ export interface IStorage {
 
   // Expired payment deadline listings
   getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]>;
+
+  // Resale audit log methods
+  createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog>;
+  getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]>;
+  getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]>;
+  getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1215,6 +1224,31 @@ export class DatabaseStorage implements IStorage {
           lt(resaleListings.paymentDeadline, new Date())
         )
       );
+  }
+
+  async createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog> {
+    const [result] = await db.insert(resaleAuditLogs).values(log).returning();
+    return result;
+  }
+
+  async getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.listingId, listingId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.propertyId, propertyId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]> {
+    const query = db.select().from(resaleAuditLogs).orderBy(desc(resaleAuditLogs.createdAt));
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
   }
 }
 

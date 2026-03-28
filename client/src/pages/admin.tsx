@@ -2607,6 +2607,195 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   );
 }
 
+function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const [filterListingId, setFilterListingId] = useState("");
+  const [selectedListingId, setSelectedListingId] = useState<number | null>(null);
+
+  const queryUrl = filterListingId
+    ? `/api/admin/resale-audit-logs?listingId=${filterListingId}`
+    : "/api/admin/resale-audit-logs";
+
+  const { data: logs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-audit-logs", filterListingId],
+    queryFn: async () => {
+      const res = await authenticatedRequest(queryUrl);
+      return res.json();
+    },
+  });
+
+  const { data: listingTimeline } = useQuery<any>({
+    queryKey: ["/api/admin/resale-audit-logs/listing", selectedListingId],
+    queryFn: async () => {
+      if (!selectedListingId) return null;
+      const res = await authenticatedRequest(`/api/admin/resale-audit-logs/listing/${selectedListingId}`);
+      return res.json();
+    },
+    enabled: !!selectedListingId,
+  });
+
+  const getActionBadge = (action: string) => {
+    const config: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+      listing_created: { label: "Listing Created", variant: "outline" },
+      listing_approved: { label: "Approved", variant: "default" },
+      listing_rejected: { label: "Rejected", variant: "destructive" },
+      listing_cancelled_by_seller: { label: "Seller Cancelled", variant: "secondary" },
+      listing_cancelled_by_admin: { label: "Admin Cancelled", variant: "destructive" },
+      bid_placed: { label: "Bid Placed", variant: "outline" },
+      fixed_price_purchase: { label: "Fixed Price Buy", variant: "default" },
+      bidding_ended_winner_selected: { label: "Winner Selected", variant: "default" },
+      payment_submitted: { label: "Payment Submitted", variant: "outline" },
+      payment_approved_transfer_complete: { label: "Transfer Complete", variant: "default" },
+      payment_rejected: { label: "Payment Rejected", variant: "destructive" },
+      payment_deadline_expired: { label: "Deadline Expired", variant: "destructive" },
+      next_bidder_offered: { label: "Next Bidder", variant: "secondary" },
+    };
+    const c = config[action] || { label: action, variant: "outline" as const };
+    return <Badge variant={c.variant}>{c.label}</Badge>;
+  };
+
+  const getActorBadge = (actorType: string) => {
+    if (actorType === "admin") return <Badge variant="destructive" className="text-xs">Admin</Badge>;
+    if (actorType === "system") return <Badge variant="secondary" className="text-xs">System</Badge>;
+    return <Badge variant="outline" className="text-xs">User</Badge>;
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading audit logs...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h1 className="text-3xl font-bold text-slate-900">Resale Audit Trail</h1>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Filter by Listing ID..."
+            value={filterListingId}
+            onChange={(e) => setFilterListingId(e.target.value)}
+            className="w-48"
+          />
+        </div>
+      </div>
+
+      <div className="text-sm text-slate-500 mb-2">
+        {logs.length} audit event{logs.length !== 1 ? "s" : ""} recorded
+      </div>
+
+      {/* Timeline for a specific listing */}
+      {selectedListingId && listingTimeline && (
+        <Dialog open={!!selectedListingId} onOpenChange={() => setSelectedListingId(null)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Listing #{selectedListingId} — Full Timeline</DialogTitle>
+              {listingTimeline.listing && (
+                <DialogDescription>
+                  {listingTimeline.listing.sellingType === "bidding" ? "Auction" : "Fixed Price"} · 
+                  {listingTimeline.listing.units} units · 
+                  Status: {listingTimeline.listing.status}
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="space-y-3">
+              {listingTimeline.timeline?.map((entry: any, idx: number) => (
+                <div key={entry.id} className="flex gap-3 items-start">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-3 h-3 rounded-full ${idx === 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                    {idx < listingTimeline.timeline.length - 1 && <div className="w-0.5 h-full bg-slate-200 min-h-[40px]" />}
+                  </div>
+                  <div className="flex-1 pb-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      {getActionBadge(entry.action)}
+                      {getActorBadge(entry.actorType)}
+                      <span className="text-xs text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-sm text-slate-700">{entry.details}</p>
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-1">
+                      {entry.actorName && <span>By: {entry.actorName}</span>}
+                      {entry.sellerName && <span>Seller: {entry.sellerName}</span>}
+                      {entry.buyerName && <span>Buyer: {entry.buyerName}</span>}
+                      {entry.amount && <span>Amount: {entry.currency} {parseFloat(entry.amount).toLocaleString()}</span>}
+                      {entry.units && <span>Units: {entry.units}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {(!listingTimeline.timeline || listingTimeline.timeline.length === 0) && (
+                <p className="text-slate-500 text-sm">No audit events for this listing.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Main audit log table */}
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[160px]">Timestamp</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Property</TableHead>
+                <TableHead>Listing</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead>Parties</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                    No audit events recorded yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                logs.map((log: any) => (
+                  <TableRow key={log.id} className="hover:bg-slate-50">
+                    <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{getActionBadge(log.action)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        {getActorBadge(log.actorType)}
+                        {log.actorName && <span className="text-xs text-slate-500">{log.actorName}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{log.propertyName || "-"}</TableCell>
+                    <TableCell>
+                      {log.listingId ? (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-0 h-auto text-blue-600"
+                          onClick={() => setSelectedListingId(log.listingId)}
+                        >
+                          #{log.listingId}
+                        </Button>
+                      ) : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600 max-w-[300px] truncate" title={log.details || ""}>
+                      {log.details || "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="space-y-0.5">
+                        {log.sellerName && <div>Seller: {log.sellerName}</div>}
+                        {log.buyerName && <div>Buyer: {log.buyerName}</div>}
+                        {log.amount && <div>{log.currency} {parseFloat(log.amount).toLocaleString()}</div>}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -3392,6 +3581,14 @@ export default function AdminDashboard() {
               >
                 <Banknote className="mr-3 h-4 w-4" />
                 Resale Payments
+              </Button>
+              <Button
+                variant={selectedTab === "resale-audit" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-audit")}
+              >
+                <FileText className="mr-3 h-4 w-4" />
+                Resale Audit Trail
               </Button>
             </div>
           </nav>
@@ -4737,6 +4934,9 @@ export default function AdminDashboard() {
             )}
             {selectedTab === "resale-payments" && (
               <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "resale-audit" && (
+              <ResaleAuditTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>

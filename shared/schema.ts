@@ -626,6 +626,31 @@ export const resalePayments = pgTable("resale_payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const resaleAuditLogs = pgTable("resale_audit_logs", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").references(() => resaleListings.id),
+  bidId: integer("bid_id").references(() => resaleBids.id),
+  paymentId: integer("payment_id").references(() => resalePayments.id),
+  propertyId: integer("property_id").references(() => properties.id),
+  action: text("action").notNull(),
+  actorType: text("actor_type").notNull(), // 'user', 'admin', 'system'
+  actorId: integer("actor_id"),
+  actorName: text("actor_name"),
+  sellerId: integer("seller_id"),
+  buyerId: integer("buyer_id"),
+  units: text("units"),
+  amount: text("amount"),
+  currency: text("currency"),
+  details: text("details"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertResaleAuditLogSchema = createInsertSchema(resaleAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertResalePaymentSchema = createInsertSchema(resalePayments).omit({
   id: true,
   status: true,
@@ -735,3 +760,6 @@ export type ResaleBid = typeof resaleBids.$inferSelect;
 
 export type InsertResalePayment = z.infer<typeof insertResalePaymentSchema>;
 export type ResalePayment = typeof resalePayments.$inferSelect;
+
+export type InsertResaleAuditLog = z.infer<typeof insertResaleAuditLogSchema>;
+export type ResaleAuditLog = typeof resaleAuditLogs.$inferSelect;
