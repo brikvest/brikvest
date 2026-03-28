@@ -607,6 +607,32 @@ export const resaleBids = pgTable("resale_bids", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const resalePayments = pgTable("resale_payments", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").notNull().references(() => resaleListings.id),
+  buyerId: integer("buyer_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  paymentMethod: text("payment_method").notNull().default("bank_transfer"),
+  bankReference: text("bank_reference"),
+  proofUrl: text("proof_url"),
+  proofType: text("proof_type"),
+  status: text("status").notNull().default("pending_verification"), // 'pending_verification', 'approved', 'rejected'
+  rejectionReason: text("rejection_reason"),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertResalePaymentSchema = createInsertSchema(resalePayments).omit({
+  id: true,
+  status: true,
+  reviewedByAdminId: true,
+  reviewedAt: true,
+  rejectionReason: true,
+  createdAt: true,
+});
+
 export const insertResaleBidSchema = createInsertSchema(resaleBids).omit({
   id: true,
   status: true,
@@ -704,3 +730,6 @@ export type ResaleListing = typeof resaleListings.$inferSelect;
 
 export type InsertResaleBid = z.infer<typeof insertResaleBidSchema>;
 export type ResaleBid = typeof resaleBids.$inferSelect;
+
+export type InsertResalePayment = z.infer<typeof insertResalePaymentSchema>;
+export type ResalePayment = typeof resalePayments.$inferSelect;

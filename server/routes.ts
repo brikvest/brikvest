@@ -4407,6 +4407,256 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get listings where the current user is the winner (awaiting payment)
+  app.get("/api/resale-listings/won", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const allListings = await storage.getAllResaleListings();
+      const wonListings = allListings.filter(l => l.winnerId === user.id && l.status === "awaiting_payment");
+      const enriched = await Promise.all(wonListings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const seller = await storage.getUser(listing.sellerId);
+        let highestBidAmount = null;
+        if (listing.highestBidId) {
+          const bid = await storage.getResaleBid(listing.highestBidId);
+          if (bid) highestBidAmount = bid.amount;
+        }
+        return {
+          ...listing,
+          propertyName: property?.name || `Property #${listing.propertyId}`,
+          propertyLocation: property?.location,
+          sellerName: seller?.fullName || seller?.email || "Unknown",
+          highestBidAmount,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching won listings:", error);
+      res.status(500).json({ message: "Failed to fetch won listings" });
+    }
+  });
+
+  // Buyer: Submit resale payment confirmation
+  app.post("/api/resale-payments", requireApprovedUser, upload.single('paymentProof'), async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const { listingId, bankReference } = req.body;
+      const file = req.file;
+
+      if (!listingId) {
+        return res.status(400).json({ message: "Listing ID is required" });
+      }
+
+      const listing = await storage.getResaleListing(parseInt(listingId));
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status !== "awaiting_payment") {
+        return res.status(400).json({ message: "This listing is not awaiting payment" });
+      }
+
+      if (listing.winnerId !== user.id) {
+        return res.status(403).json({ message: "You are not the designated buyer for this listing" });
+      }
+
+      if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
+        return res.status(400).json({ message: "Payment deadline has passed" });
+      }
+
+      const existingPayments = await storage.getResalePaymentsByListing(parseInt(listingId));
+      const hasPending = existingPayments.some(p => p.status === "pending_verification");
+      if (hasPending) {
+        return res.status(400).json({ message: "A payment is already pending verification for this listing" });
+      }
+
+      let proofUrl: string | null = null;
+      let proofType: string | null = null;
+      if (file) {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, WEBP, and PDF files are allowed." });
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          return res.status(400).json({ message: "File size exceeds 10MB limit." });
+        }
+        if (file.mimetype === 'application/pdf') {
+          proofUrl = await uploadToObjectStorage(file.buffer, file.originalname, file.mimetype, 'resale-payment-proofs');
+        } else {
+          const result = await uploadToCloudinary(file.buffer, file.originalname, 'brikvest/resale-payment-proofs');
+          proofUrl = result.url;
+        }
+        proofType = file.mimetype === 'application/pdf' ? 'pdf' : 'image';
+      }
+
+      let finalAmount = listing.askingPrice || "0";
+      if (listing.sellingType === "bidding" && listing.highestBidId) {
+        const winningBid = await storage.getResaleBid(listing.highestBidId);
+        if (winningBid) finalAmount = winningBid.amount;
+      }
+
+      const payment = await storage.createResalePayment({
+        listingId: parseInt(listingId),
+        buyerId: user.id,
+        amount: finalAmount,
+        currency: listing.currency || "NGN",
+        paymentMethod: "bank_transfer",
+        bankReference: bankReference || null,
+        proofUrl,
+        proofType,
+      });
+
+      res.json({
+        message: "Payment confirmation submitted. Please wait for admin verification.",
+        payment,
+      });
+    } catch (error: any) {
+      console.error("Error submitting resale payment:", error);
+      res.status(500).json({ message: "Failed to submit payment confirmation" });
+    }
+  });
+
+  // Buyer: Get their resale payments
+  app.get("/api/resale-payments/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const payments = await storage.getResalePaymentsByBuyer(user.id);
+      res.json(payments);
+    } catch (error: any) {
+      console.error("Error fetching resale payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // Get resale payment for a specific listing (buyer check)
+  app.get("/api/resale-payments/listing/:listingId", requireApprovedUser, async (req: any, res) => {
+    try {
+      const payments = await storage.getResalePaymentsByListing(parseInt(req.params.listingId));
+      res.json(payments);
+    } catch (error: any) {
+      console.error("Error fetching listing payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // Admin: Get all resale payments
+  app.get("/api/admin/resale-payments", requireAdminAuth, async (req: any, res) => {
+    try {
+      const payments = await storage.getAllResalePayments();
+      const enriched = await Promise.all(payments.map(async (payment) => {
+        const listing = await storage.getResaleListing(payment.listingId);
+        const buyer = await storage.getUser(payment.buyerId);
+        const property = listing ? await storage.getProperty(listing.propertyId) : null;
+        const seller = listing ? await storage.getUser(listing.sellerId) : null;
+        return {
+          ...payment,
+          buyerName: buyer?.fullName || buyer?.email || `User #${payment.buyerId}`,
+          buyerEmail: buyer?.email,
+          sellerName: seller?.fullName || seller?.email || "Unknown",
+          sellerEmail: seller?.email,
+          propertyName: property?.name || "Unknown",
+          listingUnits: listing?.units,
+          listingType: listing?.sellingType,
+          listingStatus: listing?.status,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching admin resale payments:", error);
+      res.status(500).json({ message: "Failed to fetch resale payments" });
+    }
+  });
+
+  // Admin: Approve or reject resale payment
+  app.post("/api/admin/resale-payments/:id/review", requireAdminAuth, async (req: any, res) => {
+    try {
+      const paymentId = parseInt(req.params.id);
+      const { action, rejectionReason } = req.body;
+
+      if (!["approve", "reject"].includes(action)) {
+        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
+      }
+
+      const payment = await storage.getResalePayment(paymentId);
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+
+      if (payment.status !== "pending_verification") {
+        return res.status(400).json({ message: "Only pending payments can be reviewed" });
+      }
+
+      const listing = await storage.getResaleListing(payment.listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Associated listing not found" });
+      }
+
+      if (action === "approve") {
+        await storage.updateResalePayment(paymentId, {
+          status: "approved",
+          reviewedByAdminId: (req.session as any).adminUserId,
+          reviewedAt: new Date(),
+        });
+
+        await storage.updateResaleListing(payment.listingId, {
+          status: "sold",
+          updatedAt: new Date(),
+        });
+
+        const sellerReservation = await storage.getReservation(listing.reservationId);
+        if (sellerReservation) {
+          const currentUnits = parseFloat(String(sellerReservation.units || 0));
+          const soldUnits = parseFloat(String(listing.units));
+          const remainingUnits = currentUnits - soldUnits;
+
+          if (remainingUnits <= 0) {
+            await storage.updateReservation(listing.reservationId, {
+              status: "sold_via_resale",
+              units: "0",
+            });
+          } else {
+            await storage.updateReservation(listing.reservationId, {
+              units: String(remainingUnits),
+            });
+          }
+        }
+
+        const property = await storage.getProperty(listing.propertyId);
+        const buyer = await storage.getUser(payment.buyerId);
+
+        if (property && buyer) {
+          await storage.createInvestmentReservation({
+            propertyId: listing.propertyId,
+            userId: payment.buyerId,
+            units: String(listing.units),
+            amount: payment.amount,
+            currency: payment.currency || "NGN",
+            status: "converted_to_investment",
+            expiresAt: new Date(),
+          });
+        }
+
+        res.json({
+          message: "Payment approved. Units transferred to buyer, listing marked as sold.",
+        });
+      } else {
+        await storage.updateResalePayment(paymentId, {
+          status: "rejected",
+          rejectionReason: rejectionReason || "Payment could not be verified",
+          reviewedByAdminId: (req.session as any).adminUserId,
+          reviewedAt: new Date(),
+        });
+
+        res.json({
+          message: "Payment rejected. Buyer has been notified.",
+        });
+      }
+    } catch (error: any) {
+      console.error("Error reviewing resale payment:", error);
+      res.status(500).json({ message: "Failed to review payment" });
+    }
+  });
+
   // Run initial cleanup of expired reservations on startup
   storage.cleanupExpiredReservations()
     .then(result => {

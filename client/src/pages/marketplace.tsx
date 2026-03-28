@@ -6,13 +6,52 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Building2, Tag, Gavel, ArrowLeft, Clock, Users, TrendingUp, DollarSign, MapPin, AlertCircle, CheckCircle } from "lucide-react";
+import { Building2, Tag, Gavel, ArrowLeft, Clock, Users, DollarSign, MapPin, CheckCircle, Upload, CreditCard, Copy, Banknote, XCircle, Loader2 } from "lucide-react";
 import { useLocation, Link } from "wouter";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+
+const paymentMethods: Record<string, any> = {
+  NGN: {
+    title: "Naira Transfer (Nigeria)",
+    icon: "₦",
+    details: [
+      { label: "Bank Name", value: "Zenith Bank" },
+      { label: "Account Name", value: "Brikvest Limited" },
+      { label: "Account Number", value: "1310320691" },
+    ]
+  },
+  USD: {
+    title: "USD Transfer (U.S. Bank / Wire)",
+    icon: "$",
+    details: [
+      { label: "Beneficiary Name", value: "Charles Giadom" },
+      { label: "Address", value: "2100 North Central Road" },
+      { label: "Account Number", value: "483106622433" },
+      { label: "Routing Number", value: "026009593" },
+    ],
+    alternative: {
+      title: "Or via Zelle",
+      details: [
+        { label: "Name", value: "Charles Giadom" },
+        { label: "Phone", value: "+1 (646) 204-4536" },
+      ]
+    }
+  },
+  GBP: {
+    title: "GBP Transfer (United Kingdom)",
+    icon: "£",
+    details: [
+      { label: "Beneficiary Name", value: "Charles Giadom" },
+      { label: "Sort Code", value: "04-00-75" },
+      { label: "Account Number", value: "67385923" },
+      { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
+    ]
+  }
+};
 
 export default function Marketplace() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -23,6 +62,11 @@ export default function Marketplace() {
   const [bidAmount, setBidAmount] = useState("");
   const [bidDialogOpen, setBidDialogOpen] = useState(false);
   const [buyDialogOpen, setBuyDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentListing, setPaymentListing] = useState<any>(null);
+  const [bankReference, setBankReference] = useState("");
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -37,6 +81,16 @@ export default function Marketplace() {
 
   const { data: myBids = [] } = useQuery<any[]>({
     queryKey: ["/api/resale-bids/mine"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: wonListings = [] } = useQuery<any[]>({
+    queryKey: ["/api/resale-listings/won"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: myResalePayments = [] } = useQuery<any[]>({
+    queryKey: ["/api/resale-payments/mine"],
     enabled: isAuthenticated,
   });
 
@@ -71,13 +125,50 @@ export default function Marketplace() {
     mutationFn: async (listingId: number) => {
       return apiRequest("POST", `/api/marketplace/listings/${listingId}/buy`);
     },
-    onSuccess: () => {
+    onSuccess: (_, listingId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/listings"] });
-      toast({ title: "Purchase initiated!", description: "You have 48 hours to complete payment." });
+      queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/won"] });
+      toast({ title: "Purchase initiated!", description: "Please complete payment within 48 hours." });
       setBuyDialogOpen(false);
+      const listing = listings.find((l: any) => l.id === listingId);
+      if (listing) {
+        setPaymentListing({ ...listing, status: "awaiting_payment", winnerId: user?.id });
+        setPaymentDialogOpen(true);
+      }
     },
     onError: (error: any) => {
       toast({ title: "Purchase failed", description: error?.message || "Failed to buy", variant: "destructive" });
+    },
+  });
+
+  const paymentMutation = useMutation({
+    mutationFn: async ({ listingId, bankRef, file }: { listingId: number; bankRef: string; file: File | null }) => {
+      const formData = new FormData();
+      formData.append("listingId", String(listingId));
+      if (bankRef) formData.append("bankReference", bankRef);
+      if (file) formData.append("paymentProof", file);
+      const res = await fetch("/api/resale-payments", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to submit payment");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/resale-payments/mine"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/marketplace/listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/mine"] });
+      toast({ title: "Payment submitted!", description: "Your payment is pending admin verification." });
+      setPaymentDialogOpen(false);
+      setBankReference("");
+      setPaymentProofFile(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Submission failed", description: error?.message || "Failed to submit payment", variant: "destructive" });
     },
   });
 
@@ -95,6 +186,27 @@ export default function Marketplace() {
       activeBidsMap.set(bid.listingId, bid);
     }
   });
+
+  const pendingPaymentListingIds = new Set(
+    myResalePayments.filter((p: any) => p.status === "pending_verification").map((p: any) => p.listingId)
+  );
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied!", description: `${text} copied to clipboard` });
+  };
+
+  const getPaymentAmount = (listing: any) => {
+    if (listing.sellingType === "fixed_price") {
+      return parseFloat(listing.askingPrice || 0);
+    }
+    if (listing.highestBidAmount) {
+      return parseFloat(listing.highestBidAmount);
+    }
+    const wonBid = myBids.find((b: any) => b.listingId === listing.id && b.status === "won");
+    if (wonBid) return parseFloat(wonBid.amount);
+    return parseFloat(listing.askingPrice || 0);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -119,6 +231,107 @@ export default function Marketplace() {
           <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">Resale Marketplace</h2>
           <p className="text-slate-600 mt-1">Browse and purchase units from existing investors</p>
         </div>
+
+        {/* Awaiting Payment Section */}
+        {(() => {
+          if (wonListings.length === 0) return null;
+          const filteredListings = wonListings;
+
+          return (
+            <Card className="mb-8 border-orange-200 bg-orange-50/50">
+              <CardHeader className="border-b border-orange-200">
+                <CardTitle className="text-lg flex items-center gap-2 text-orange-800">
+                  <CreditCard className="h-5 w-5" />
+                  Pending Payments ({filteredListings.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  {filteredListings.map((listing: any) => {
+                    const hasPendingPayment = pendingPaymentListingIds.has(listing.id);
+                    const paymentAmount = getPaymentAmount(listing);
+                    const deadline = listing.paymentDeadline ? new Date(listing.paymentDeadline) : null;
+                    const isExpired = deadline && deadline < new Date();
+                    const rejectedPayment = myResalePayments.find(
+                      (p: any) => p.listingId === listing.id && p.status === "rejected"
+                    );
+
+                    return (
+                      <div key={listing.id} className="bg-white border border-orange-200 rounded-lg p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-slate-900">{listing.propertyName || `Property #${listing.propertyId}`}</p>
+                            <p className="text-sm text-slate-600">
+                              {listing.units} units — {formatCurrency(convertAmount(paymentAmount, listing.currency || 'NGN'))}
+                            </p>
+                            {deadline && !isExpired && (
+                              <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Payment due by {deadline.toLocaleDateString()} at {deadline.toLocaleTimeString()}
+                              </p>
+                            )}
+                            {isExpired && (
+                              <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                                <XCircle className="h-3 w-3" />
+                                Payment deadline has passed
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {hasPendingPayment ? (
+                              <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                Pending Verification
+                              </Badge>
+                            ) : rejectedPayment ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <Badge className="bg-red-100 text-red-700 border-red-300">
+                                  Payment Rejected
+                                </Badge>
+                                {rejectedPayment.rejectionReason && (
+                                  <p className="text-xs text-red-600">{rejectedPayment.rejectionReason}</p>
+                                )}
+                                {!isExpired && (
+                                  <Button
+                                    size="sm"
+                                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                                    onClick={() => {
+                                      setPaymentListing(listing);
+                                      setBankReference("");
+                                      setPaymentProofFile(null);
+                                      setPaymentDialogOpen(true);
+                                    }}
+                                  >
+                                    <Banknote className="h-3.5 w-3.5 mr-1" />
+                                    Retry Payment
+                                  </Button>
+                                )}
+                              </div>
+                            ) : !isExpired ? (
+                              <Button
+                                size="sm"
+                                className="bg-orange-600 hover:bg-orange-700 text-white"
+                                onClick={() => {
+                                  setPaymentListing(listing);
+                                  setBankReference("");
+                                  setPaymentProofFile(null);
+                                  setPaymentDialogOpen(true);
+                                }}
+                              >
+                                <Banknote className="h-3.5 w-3.5 mr-1" />
+                                Make Payment
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {listingsLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -410,7 +623,7 @@ export default function Marketplace() {
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
               <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <span>After confirming, you will have <strong>48 hours</strong> to complete payment. If payment is not received, the purchase will be cancelled.</span>
+              <span>After confirming, you will need to transfer the payment to our bank account and confirm it within <strong>48 hours</strong>.</span>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
@@ -422,10 +635,173 @@ export default function Marketplace() {
                   buyMutation.mutate(selectedListing.id);
                 }}
               >
-                {buyMutation.isPending ? "Processing..." : "Confirm Purchase"}
+                {buyMutation.isPending ? "Processing..." : "Confirm & View Payment Details"}
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog - Bank Details + I've Made Payment */}
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="h-5 w-5 text-orange-600" />
+              Complete Payment
+            </DialogTitle>
+            <DialogDescription>
+              Transfer the exact amount to Brikvest's bank account below
+            </DialogDescription>
+          </DialogHeader>
+
+          {paymentListing && (
+            <div className="space-y-5 mt-2">
+              {/* Amount To Pay */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                <p className="text-sm text-blue-600 mb-1">Amount to Pay</p>
+                <p className="text-3xl font-bold text-blue-800">
+                  {paymentListing.currency || "NGN"} {getPaymentAmount(paymentListing).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-blue-500 mt-1">
+                  {paymentListing.units} units in {paymentListing.propertyName || `Property #${paymentListing.propertyId}`}
+                </p>
+              </div>
+
+              {/* Bank Details */}
+              {(() => {
+                const currency = paymentListing.currency || "NGN";
+                const method = paymentMethods[currency] || paymentMethods.NGN;
+
+                return (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      {method.title}
+                    </h4>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg divide-y divide-slate-200">
+                      {method.details.map((detail: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-4 py-3">
+                          <div>
+                            <p className="text-xs text-slate-500">{detail.label}</p>
+                            <p className="font-medium text-slate-900">{detail.value}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(detail.value)}
+                            className="text-blue-600 hover:text-blue-700 h-8"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {method.alternative && (
+                      <div className="mt-3">
+                        <h5 className="text-sm font-medium text-slate-700 mb-2">{method.alternative.title}</h5>
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg divide-y divide-slate-200">
+                          {method.alternative.details.map((detail: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between px-4 py-3">
+                              <div>
+                                <p className="text-xs text-slate-500">{detail.label}</p>
+                                <p className="font-medium text-slate-900">{detail.value}</p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard(detail.value)}
+                                className="text-blue-600 hover:text-blue-700 h-8"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Payment Deadline */}
+              {paymentListing.paymentDeadline && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
+                  <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Complete payment by <strong>{new Date(paymentListing.paymentDeadline).toLocaleDateString()}</strong> at <strong>{new Date(paymentListing.paymentDeadline).toLocaleTimeString()}</strong>
+                  </span>
+                </div>
+              )}
+
+              <div className="border-t border-slate-200 pt-4">
+                <h4 className="font-semibold text-slate-900 mb-3">After making your transfer:</h4>
+                <div className="space-y-3">
+                  <div>
+                    <Label>Bank Reference / Transaction ID</Label>
+                    <Input
+                      placeholder="Enter your transfer reference number"
+                      value={bankReference}
+                      onChange={(e) => setBankReference(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Payment Proof (optional)</Label>
+                    <p className="text-xs text-slate-500 mb-2">Upload a screenshot or receipt of your bank transfer</p>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)}
+                    />
+                    <Button
+                      variant="outline"
+                      className="w-full border-dashed"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      {paymentProofFile ? paymentProofFile.name : "Choose file (JPEG, PNG, PDF)"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setPaymentDialogOpen(false)}
+                >
+                  I'll Pay Later
+                </Button>
+                <Button
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  disabled={paymentMutation.isPending}
+                  onClick={() => {
+                    if (!bankReference.trim()) {
+                      toast({ title: "Reference required", description: "Please enter your bank transfer reference number", variant: "destructive" });
+                      return;
+                    }
+                    paymentMutation.mutate({
+                      listingId: paymentListing.id,
+                      bankRef: bankReference,
+                      file: paymentProofFile,
+                    });
+                  }}
+                >
+                  {paymentMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting...</>
+                  ) : (
+                    <><CheckCircle className="h-4 w-4 mr-2" /> I've Made Payment</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -51,7 +51,10 @@ import {
   type ResaleListing,
   type InsertResaleListing,
   type ResaleBid,
-  type InsertResaleBid
+  type InsertResaleBid,
+  resalePayments,
+  type ResalePayment,
+  type InsertResalePayment
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -184,6 +187,14 @@ export interface IStorage {
   getBidsByUser(userId: number): Promise<ResaleBid[]>;
   getResaleBid(id: number): Promise<ResaleBid | undefined>;
   updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid>;
+
+  // Resale payment methods
+  createResalePayment(payment: InsertResalePayment): Promise<ResalePayment>;
+  getResalePayment(id: number): Promise<ResalePayment | undefined>;
+  getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]>;
+  getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]>;
+  getAllResalePayments(): Promise<ResalePayment[]>;
+  updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1139,6 +1150,41 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.update(resaleBids)
       .set(updates)
       .where(eq(resaleBids.id, id))
+      .returning();
+    return result;
+  }
+
+  async createResalePayment(payment: InsertResalePayment): Promise<ResalePayment> {
+    const [result] = await db.insert(resalePayments).values(payment).returning();
+    return result;
+  }
+
+  async getResalePayment(id: number): Promise<ResalePayment | undefined> {
+    const [result] = await db.select().from(resalePayments).where(eq(resalePayments.id, id));
+    return result;
+  }
+
+  async getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.listingId, listingId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.buyerId, buyerId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getAllResalePayments(): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment> {
+    const [result] = await db.update(resalePayments)
+      .set(updates)
+      .where(eq(resalePayments.id, id))
       .returning();
     return result;
   }

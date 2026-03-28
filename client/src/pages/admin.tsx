@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel, Banknote, Loader2, AlertTriangle } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -2186,6 +2186,209 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   );
 }
 
+function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+
+  const { data: payments = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-payments"],
+    queryFn: () => authenticatedRequest("/api/admin/resale-payments"),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action, reason }: { id: number; action: string; reason?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-payments/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, rejectionReason: reason }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      toast({ title: "Payment reviewed", description: data?.message || "Payment has been processed" });
+      setReviewingId(null);
+      setRejectionReason("");
+    },
+    onError: () => {
+      toast({ title: "Review failed", variant: "destructive" });
+    },
+  });
+
+  const pendingCount = payments.filter((p: any) => p.status === "pending_verification").length;
+
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    pending_verification: { label: "Pending Verification", color: "bg-yellow-100 text-yellow-800" },
+    approved: { label: "Approved", color: "bg-green-100 text-green-700" },
+    rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale payments...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Resale Payments</h1>
+          <p className="text-slate-600 mt-1">Review and verify buyer payments for resale transactions</p>
+        </div>
+        {pendingCount > 0 && (
+          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 text-sm px-3 py-1">
+            {pendingCount} pending verification
+          </Badge>
+        )}
+      </div>
+
+      {payments.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Banknote className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">No resale payments yet</h3>
+            <p className="text-slate-600">Payments will appear here when buyers confirm their transfers</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {payments.map((payment: any) => {
+            const status = statusConfig[payment.status] || { label: payment.status, color: "bg-slate-100 text-slate-600" };
+
+            return (
+              <Card key={payment.id} className="overflow-hidden">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <h3 className="font-bold text-slate-900">{payment.propertyName}</h3>
+                        <Badge className={status.color}>{status.label}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {payment.listingType === "fixed_price" ? "Fixed Price" : "Auction"}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                        <div>
+                          <p className="text-slate-500">Buyer</p>
+                          <p className="font-medium text-slate-900">{payment.buyerName}</p>
+                          {payment.buyerEmail && <p className="text-xs text-slate-400">{payment.buyerEmail}</p>}
+                        </div>
+                        <div>
+                          <p className="text-slate-500">Seller</p>
+                          <p className="font-medium text-slate-900">{payment.sellerName}</p>
+                          {payment.sellerEmail && <p className="text-xs text-slate-400">{payment.sellerEmail}</p>}
+                        </div>
+                        <div>
+                          <p className="text-slate-500">Amount</p>
+                          <p className="font-bold text-blue-700">
+                            {payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500">Units</p>
+                          <p className="font-medium">{payment.listingUnits}</p>
+                        </div>
+                        {payment.bankReference && (
+                          <div>
+                            <p className="text-slate-500">Bank Reference</p>
+                            <p className="font-medium font-mono text-sm">{payment.bankReference}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-slate-500">Submitted</p>
+                          <p className="font-medium">{new Date(payment.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+
+                      {payment.proofUrl && (
+                        <div className="mt-2">
+                          <a
+                            href={payment.proofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 underline"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            View Payment Proof ({payment.proofType || 'file'})
+                          </a>
+                        </div>
+                      )}
+
+                      {payment.rejectionReason && payment.status === "rejected" && (
+                        <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">
+                          <strong>Rejection reason:</strong> {payment.rejectionReason}
+                        </div>
+                      )}
+                    </div>
+
+                    {payment.status === "pending_verification" && (
+                      <div className="flex flex-col gap-2 min-w-[220px]">
+                        {reviewingId === payment.id ? (
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white flex-1"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => {
+                                  reviewMutation.mutate({ id: payment.id, action: "approve" });
+                                }}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                Approve & Transfer
+                              </Button>
+                            </div>
+                            <Input
+                              placeholder="Rejection reason..."
+                              value={rejectionReason}
+                              onChange={(e) => setRejectionReason(e.target.value)}
+                              className="text-sm"
+                            />
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="w-full"
+                              disabled={reviewMutation.isPending}
+                              onClick={() => {
+                                reviewMutation.mutate({ id: payment.id, action: "reject", reason: rejectionReason });
+                              }}
+                            >
+                              <XCircle className="h-3.5 w-3.5 mr-1" />
+                              Reject Payment
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="w-full text-xs"
+                              onClick={() => { setReviewingId(null); setRejectionReason(""); }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setReviewingId(payment.id)}
+                          >
+                            Review Payment
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2963,6 +3166,14 @@ export default function AdminDashboard() {
               >
                 <Repeat className="mr-3 h-4 w-4" />
                 Resale Listings
+              </Button>
+              <Button
+                variant={selectedTab === "resale-payments" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-payments")}
+              >
+                <Banknote className="mr-3 h-4 w-4" />
+                Resale Payments
               </Button>
             </div>
           </nav>
@@ -4305,6 +4516,9 @@ export default function AdminDashboard() {
             )}
             {selectedTab === "resale-listings" && (
               <ResaleListingsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "resale-payments" && (
+              <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>
