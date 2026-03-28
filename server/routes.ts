@@ -8,6 +8,20 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
+import {
+  sendListingApprovedEmail,
+  sendListingRejectedEmail,
+  sendNewBidNotificationEmail,
+  sendOutbidEmail,
+  sendHighestBidderEmail,
+  sendAuctionWonEmail,
+  sendFixedPricePurchaseEmail,
+  sendPaymentApprovedEmail,
+  sendPaymentRejectedEmail,
+  sendTransferCompleteToSellerEmail,
+  sendPaymentExpiredEmail,
+  sendNextBidderOfferedEmail,
+} from "./resaleEmails";
 import { 
   investmentEmailTemplate, 
   kycApprovedEmailTemplate, 
@@ -4035,6 +4049,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     const nextBidder = await storage.getUser(nextBid.bidderId);
+
+    // Send emails: expired notification to failed buyer, offer to next bidder
+    try {
+      const failedBuyer = await storage.getUser(failedBuyerId);
+      const property = await storage.getProperty(listing.propertyId);
+      if (failedBuyer && property) {
+        await sendPaymentExpiredEmail(failedBuyer.email, failedBuyer.fullName || failedBuyer.email, property.name);
+      }
+      if (nextBidder && property) {
+        await sendNextBidderOfferedEmail(
+          nextBidder.email, nextBidder.fullName || nextBidder.email, property.name,
+          listing.units, nextBid.amount, listing.currency, paymentDeadline
+        );
+      }
+    } catch (emailErr) {
+      console.error("[RESALE-EMAIL] Failed to send fallback emails:", emailErr);
+    }
+
     return `${reason}. Slot offered to next highest bidder: ${nextBidder?.fullName || nextBidder?.email || `User #${nextBid.bidderId}`} (${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}).`;
   }
 
@@ -4212,6 +4244,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reviewedByAdminId: (req.session as any).adminUserId,
         reviewedAt: new Date(),
       });
+
+      // Send email notification to seller
+      try {
+        const seller = await storage.getUser(listing.sellerId);
+        const property = await storage.getProperty(listing.propertyId);
+        if (seller && property) {
+          if (action === "approve") {
+            await sendListingApprovedEmail(seller.email, seller.fullName || seller.email, property.name, listing.units, listing.sellingType);
+          } else {
+            await sendListingRejectedEmail(seller.email, seller.fullName || seller.email, property.name, listing.units, note);
+          }
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send listing review email:", emailErr);
+      }
 
       res.json(updated);
     } catch (error: any) {
@@ -4438,6 +4485,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.updateResaleListing(listingId, listingUpdates);
 
+      // Send email notifications
+      try {
+        const seller = await storage.getUser(listing.sellerId);
+        const property = await storage.getProperty(listing.propertyId);
+        const allBids = await storage.getBidsByListing(listingId);
+
+        if (seller && property) {
+          await sendNewBidNotificationEmail(
+            seller.email, seller.fullName || seller.email, property.name,
+            user.fullName || user.email, amount.toString(), listing.currency, allBids.length
+          );
+        }
+
+        // Notify outbid user
+        if (highestBid && highestBid.bidderId !== user.id) {
+          const outbidUser = await storage.getUser(highestBid.bidderId);
+          if (outbidUser && property) {
+            await sendOutbidEmail(
+              outbidUser.email, outbidUser.fullName || outbidUser.email, property.name,
+              highestBid.amount, amount.toString(), listing.currency
+            );
+          }
+        }
+
+        // Confirm highest bidder status to new bidder
+        if (property) {
+          await sendHighestBidderEmail(user.email, user.fullName || user.email, property.name, amount.toString(), listing.currency);
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send bid notification emails:", emailErr);
+      }
+
       res.status(201).json({
         ...bid,
         auctionExtended: !!listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt,
@@ -4482,6 +4561,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         winnerId: user.id,
         paymentDeadline,
       });
+
+      // Send payment required email to buyer
+      try {
+        const property = await storage.getProperty(listing.propertyId);
+        if (property) {
+          await sendFixedPricePurchaseEmail(
+            user.email, user.fullName || user.email, property.name,
+            listing.units, listing.askingPrice || "0", listing.currency, paymentDeadline
+          );
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send fixed-price purchase email:", emailErr);
+      }
 
       res.json(updated);
     } catch (error: any) {
@@ -4546,6 +4638,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         highestBidId: highestBid.id,
         paymentDeadline,
       });
+
+      // Send auction won email to winner
+      try {
+        const winner = await storage.getUser(highestBid.bidderId);
+        const property = await storage.getProperty(listing.propertyId);
+        if (winner && property) {
+          await sendAuctionWonEmail(
+            winner.email, winner.fullName || winner.email, property.name,
+            listing.units, highestBid.amount, listing.currency, paymentDeadline
+          );
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send auction won email:", emailErr);
+      }
 
       res.json({ message: "Bidding ended. Winner selected.", listing: updated });
     } catch (error: any) {
@@ -4824,6 +4930,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        // Send transfer complete emails to both buyer and seller
+        try {
+          const seller = await storage.getUser(listing.sellerId);
+          const property2 = property || await storage.getProperty(listing.propertyId);
+          const buyer2 = buyer || await storage.getUser(payment.buyerId);
+          if (buyer2 && property2) {
+            await sendPaymentApprovedEmail(
+              buyer2.email, buyer2.fullName || buyer2.email, property2.name,
+              listing.units, payment.amount, payment.currency || "NGN"
+            );
+          }
+          if (seller && property2 && buyer2) {
+            await sendTransferCompleteToSellerEmail(
+              seller.email, seller.fullName || seller.email, property2.name,
+              listing.units, payment.amount, payment.currency || "NGN",
+              buyer2.fullName || buyer2.email
+            );
+          }
+        } catch (emailErr) {
+          console.error("[RESALE-EMAIL] Failed to send transfer complete emails:", emailErr);
+        }
+
         res.json({
           message: "Payment approved. Units transferred to buyer, listing marked as sold.",
         });
@@ -4840,8 +4968,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const allListingPayments = await storage.getResalePaymentsByListing(payment.listingId);
         const buyerRejections = allListingPayments.filter(p => p.buyerId === payment.buyerId && p.status === "rejected");
 
+        // Send payment rejected email to buyer
+        try {
+          const buyerUser = await storage.getUser(payment.buyerId);
+          const property3 = await storage.getProperty(listing.propertyId);
+          if (buyerUser && property3) {
+            await sendPaymentRejectedEmail(
+              buyerUser.email, buyerUser.fullName || buyerUser.email, property3.name,
+              payment.amount, payment.currency || "NGN",
+              rejectionReason || "Payment could not be verified",
+              MAX_PAYMENT_ATTEMPTS - buyerRejections.length
+            );
+          }
+        } catch (emailErr) {
+          console.error("[RESALE-EMAIL] Failed to send payment rejected email:", emailErr);
+        }
+
         if (buyerRejections.length >= MAX_PAYMENT_ATTEMPTS) {
-          // Buyer exhausted retries — trigger next-bidder fallback
           const fallbackResult = await handleNextBidderFallback(listing, payment.buyerId, "Payment retries exhausted");
           res.json({
             message: `Payment rejected. Buyer exceeded ${MAX_PAYMENT_ATTEMPTS} attempts. ${fallbackResult}`,
