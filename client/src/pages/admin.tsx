@@ -2198,7 +2198,8 @@ export default function AdminDashboard() {
     gallery: [] as string[],
     status: "active",
     currency: "NGN",
-    totalSquareMeters: ""
+    totalSquareMeters: "",
+    isTransferable: false,
   });
 
   // Fetch properties (admin endpoint)
@@ -2432,7 +2433,8 @@ export default function AdminDashboard() {
       gallery: [] as string[],
       status: "active",
       currency: "NGN",
-      totalSquareMeters: ""
+      totalSquareMeters: "",
+      isTransferable: false,
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -2562,7 +2564,8 @@ export default function AdminDashboard() {
       gallery: [],
       status: "active",
       currency: "NGN",
-      totalSquareMeters: ""
+      totalSquareMeters: "",
+      isTransferable: false,
     });
     return currentForm !== emptyForm;
   };
@@ -2634,9 +2637,10 @@ export default function AdminDashboard() {
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
       developerNotes: propertyForm.developerNotes, // Use admin's actual input  
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
-      status: propertyForm.status, // Include the status field
+      status: propertyForm.status,
       currency: propertyForm.currency,
       totalSquareMeters: propertyForm.totalSquareMeters || null,
+      isTransferable: propertyForm.isTransferable,
     };
 
 
@@ -3053,7 +3057,8 @@ export default function AdminDashboard() {
                                             investmentDetails: property.investmentDetails || "",
                                             status: property.status,
                                             currency: property.currency || "NGN",
-                                            totalSquareMeters: property.totalSquareMeters || ""
+                                            totalSquareMeters: property.totalSquareMeters || "",
+                                            isTransferable: property.isTransferable || false,
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -3138,7 +3143,8 @@ export default function AdminDashboard() {
                                         investmentDetails: property.investmentDetails || "",
                                         status: property.status,
                                         currency: property.currency || "USD",
-                                        totalSquareMeters: property.totalSquareMeters || ""
+                                        totalSquareMeters: property.totalSquareMeters || "",
+                                        isTransferable: property.isTransferable || false,
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -3578,6 +3584,20 @@ export default function AdminDashboard() {
                               <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                             </SelectContent>
                           </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 py-2">
+                        <input
+                          type="checkbox"
+                          id="isTransferable"
+                          checked={propertyForm.isTransferable}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, isTransferable: e.target.checked }))}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        <div>
+                          <Label htmlFor="isTransferable" className="cursor-pointer">Allow P2P Unit Transfers</Label>
+                          <p className="text-xs text-slate-500">If enabled, investors can list their units for resale to other members</p>
                         </div>
                       </div>
 
@@ -4114,7 +4134,8 @@ export default function AdminDashboard() {
                         investmentDetails: viewingProperty.investmentDetails || "",
                         status: viewingProperty.status,
                         currency: viewingProperty.currency || "NGN",
-                        totalSquareMeters: viewingProperty.totalSquareMeters || ""
+                        totalSquareMeters: viewingProperty.totalSquareMeters || "",
+                        isTransferable: viewingProperty.isTransferable || false,
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -4348,6 +4369,20 @@ export default function AdminDashboard() {
                     <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 py-2">
+              <input
+                type="checkbox"
+                id="edit-isTransferable"
+                checked={propertyForm.isTransferable}
+                onChange={(e) => setPropertyForm(prev => ({ ...prev, isTransferable: e.target.checked }))}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <div>
+                <Label htmlFor="edit-isTransferable" className="cursor-pointer">Allow P2P Unit Transfers</Label>
+                <p className="text-xs text-slate-500">If enabled, investors can list their units for resale to other members</p>
               </div>
             </div>
 

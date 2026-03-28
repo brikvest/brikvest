@@ -98,6 +98,7 @@ export const properties = pgTable("properties", {
   totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
+  isTransferable: boolean("is_transferable").notNull().default(false),
   valuationReportUrl: text("valuation_report_url"),
   valuationReportName: text("valuation_report_name"),
   
