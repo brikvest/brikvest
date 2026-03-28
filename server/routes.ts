@@ -4146,6 +4146,267 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== MARKETPLACE ROUTES ====================
+
+  // Get all approved resale listings (marketplace) - enriched with property & bid info
+  app.get("/api/marketplace/listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const listings = await storage.getActiveResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const seller = await storage.getUser(listing.sellerId);
+        const highestBid = listing.sellingType === "bidding" 
+          ? await storage.getHighestBidForListing(listing.id) 
+          : undefined;
+        const bidCount = listing.sellingType === "bidding"
+          ? (await storage.getBidsByListing(listing.id)).filter(b => b.status === "active").length
+          : 0;
+        return {
+          ...listing,
+          propertyName: property?.name,
+          propertyLocation: property?.location,
+          propertyImageUrl: property?.imageUrl,
+          propertyType: property?.propertyType,
+          sellerName: seller?.fullName || "Anonymous",
+          highestBidAmount: highestBid?.amount || null,
+          bidCount,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching marketplace listings:", error);
+      res.status(500).json({ message: "Failed to fetch marketplace listings" });
+    }
+  });
+
+  // Get single listing detail with bids
+  app.get("/api/marketplace/listings/:id", requireApprovedUser, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing || !["approved", "awaiting_payment", "sold"].includes(listing.status)) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      const property = await storage.getProperty(listing.propertyId);
+      const seller = await storage.getUser(listing.sellerId);
+      const bids = listing.sellingType === "bidding" 
+        ? await storage.getBidsByListing(listing.id)
+        : [];
+      const highestBid = bids.find(b => b.status === "active" || b.status === "won");
+
+      const enrichedBids = await Promise.all(bids.map(async (bid) => {
+        const bidder = await storage.getUser(bid.bidderId);
+        return {
+          ...bid,
+          bidderName: bidder?.fullName || "Anonymous",
+        };
+      }));
+
+      res.json({
+        ...listing,
+        propertyName: property?.name,
+        propertyLocation: property?.location,
+        propertyImageUrl: property?.imageUrl,
+        propertyType: property?.propertyType,
+        sellerName: seller?.fullName || "Anonymous",
+        highestBidAmount: highestBid?.amount || null,
+        bidCount: bids.filter(b => b.status === "active").length,
+        bids: enrichedBids,
+      });
+    } catch (error: any) {
+      console.error("Error fetching listing detail:", error);
+      res.status(500).json({ message: "Failed to fetch listing" });
+    }
+  });
+
+  // Place a bid on a bidding listing
+  app.post("/api/marketplace/listings/:id/bid", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+      const { amount } = req.body;
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ message: "Invalid bid amount" });
+      }
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "This listing is not accepting bids" });
+      }
+      if (listing.sellingType !== "bidding") {
+        return res.status(400).json({ message: "This is not a bidding listing" });
+      }
+      if (listing.sellerId === user.id) {
+        return res.status(400).json({ message: "You cannot bid on your own listing" });
+      }
+      if (listing.biddingEndsAt && new Date(listing.biddingEndsAt) < new Date()) {
+        return res.status(400).json({ message: "Bidding has ended for this listing" });
+      }
+
+      const bidAmount = parseFloat(amount);
+
+      if (listing.minimumPrice && bidAmount < parseFloat(listing.minimumPrice)) {
+        return res.status(400).json({ message: `Bid must be at least ${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()} (reserve price)` });
+      }
+
+      const highestBid = await storage.getHighestBidForListing(listingId);
+      if (highestBid && bidAmount <= parseFloat(highestBid.amount)) {
+        return res.status(400).json({ message: `Bid must be higher than the current highest bid of ${listing.currency} ${parseFloat(highestBid.amount).toLocaleString()}` });
+      }
+
+      // Mark previous highest bid as outbid
+      if (highestBid) {
+        await storage.updateResaleBid(highestBid.id, { status: "outbid" });
+      }
+
+      const bid = await storage.createResaleBid({
+        listingId,
+        bidderId: user.id,
+        amount: amount.toString(),
+        currency: listing.currency,
+      });
+
+      // Update listing with highest bid reference
+      await storage.updateResaleListing(listingId, { highestBidId: bid.id });
+
+      res.status(201).json(bid);
+    } catch (error: any) {
+      console.error("Error placing bid:", error);
+      res.status(500).json({ message: "Failed to place bid" });
+    }
+  });
+
+  // Buy fixed-price listing
+  app.post("/api/marketplace/listings/:id/buy", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "This listing is no longer available" });
+      }
+      if (listing.sellingType !== "fixed_price") {
+        return res.status(400).json({ message: "This listing requires bidding, not direct purchase" });
+      }
+      if (listing.sellerId === user.id) {
+        return res.status(400).json({ message: "You cannot buy your own listing" });
+      }
+
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "awaiting_payment",
+        winnerId: user.id,
+        paymentDeadline,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error buying listing:", error);
+      res.status(500).json({ message: "Failed to process purchase" });
+    }
+  });
+
+  // End bidding on a listing (admin action)
+  app.post("/api/admin/resale-listings/:id/end-bidding", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.sellingType !== "bidding") {
+        return res.status(400).json({ message: "Not a bidding listing" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "Listing is not active" });
+      }
+
+      const highestBid = await storage.getHighestBidForListing(listingId);
+      if (!highestBid) {
+        // No bids — just cancel the listing
+        await storage.updateResaleListing(listingId, { status: "cancelled" });
+        return res.json({ message: "No bids received. Listing cancelled.", listing: await storage.getResaleListing(listingId) });
+      }
+
+      // Check reserve price
+      if (listing.minimumPrice && parseFloat(highestBid.amount) < parseFloat(listing.minimumPrice)) {
+        // Reserve not met — mark all bids as lost
+        const allBids = await storage.getBidsByListing(listingId);
+        for (const bid of allBids) {
+          if (bid.status === "active") {
+            await storage.updateResaleBid(bid.id, { status: "lost" });
+          }
+        }
+        await storage.updateResaleListing(listingId, { status: "cancelled" });
+        return res.json({ message: "Reserve price not met. Listing cancelled.", listing: await storage.getResaleListing(listingId) });
+      }
+
+      // Winner found
+      await storage.updateResaleBid(highestBid.id, { status: "won" });
+
+      // Mark all other active bids as lost
+      const allBids = await storage.getBidsByListing(listingId);
+      for (const bid of allBids) {
+        if (bid.id !== highestBid.id && (bid.status === "active" || bid.status === "outbid")) {
+          await storage.updateResaleBid(bid.id, { status: "lost" });
+        }
+      }
+
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "awaiting_payment",
+        winnerId: highestBid.bidderId,
+        highestBidId: highestBid.id,
+        paymentDeadline,
+      });
+
+      res.json({ message: "Bidding ended. Winner selected.", listing: updated });
+    } catch (error: any) {
+      console.error("Error ending bidding:", error);
+      res.status(500).json({ message: "Failed to end bidding" });
+    }
+  });
+
+  // Get user's bids
+  app.get("/api/resale-bids/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const bids = await storage.getBidsByUser(user.id);
+      const enriched = await Promise.all(bids.map(async (bid) => {
+        const listing = await storage.getResaleListing(bid.listingId);
+        const property = listing ? await storage.getProperty(listing.propertyId) : null;
+        return {
+          ...bid,
+          listing: listing ? {
+            id: listing.id,
+            units: listing.units,
+            sellingType: listing.sellingType,
+            status: listing.status,
+            currency: listing.currency,
+          } : null,
+          propertyName: property?.name || "Unknown",
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching user bids:", error);
+      res.status(500).json({ message: "Failed to fetch bids" });
+    }
+  });
+
   // Run initial cleanup of expired reservations on startup
   storage.cleanupExpiredReservations()
     .then(result => {

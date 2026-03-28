@@ -1534,24 +1534,34 @@ export default function Portfolio() {
                       <CardTitle className="text-lg sm:text-xl">My Property Holdings</CardTitle>
                       <p className="text-sm text-slate-600 mt-1">Your confirmed real estate investments</p>
                     </div>
-                    {reservations.length > 0 && (
+                    <div className="flex flex-wrap gap-2 self-start sm:self-auto">
                       <Button
                         variant="ghost"
-                        onClick={() => {
-                          setLocation('/');
-                          setTimeout(() => {
-                            const element = document.getElementById('properties');
-                            if (element) {
-                              element.scrollIntoView({ behavior: 'smooth' });
-                            }
-                          }, 100);
-                        }}
-                        className="text-blue-600 hover:text-blue-700 text-sm self-start sm:self-auto"
+                        onClick={() => setLocation('/marketplace')}
+                        className="text-purple-600 hover:text-purple-700 text-sm"
                       >
-                        View All Properties
-                        <ArrowRight className="h-4 w-4 ml-2" />
+                        <Tag className="h-4 w-4 mr-1" />
+                        Marketplace
                       </Button>
-                    )}
+                      {reservations.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setLocation('/');
+                            setTimeout(() => {
+                              const element = document.getElementById('properties');
+                              if (element) {
+                                element.scrollIntoView({ behavior: 'smooth' });
+                              }
+                            }, 100);
+                          }}
+                          className="text-blue-600 hover:text-blue-700 text-sm"
+                        >
+                          View All Properties
+                          <ArrowRight className="h-4 w-4 ml-2" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-4 sm:p-6">

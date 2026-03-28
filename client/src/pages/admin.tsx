@@ -2015,6 +2015,22 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
     },
   });
 
+  const endBiddingMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/end-bidding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      toast({ title: "Bidding ended", description: data?.message || "Bidding has been closed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to end bidding", variant: "destructive" });
+    },
+  });
+
   const [reviewNote, setReviewNote] = useState("");
   const [reviewingId, setReviewingId] = useState<number | null>(null);
 
@@ -2023,8 +2039,9 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     pending_review: { label: "Pending Review", color: "bg-yellow-100 text-yellow-800" },
-    approved: { label: "Approved", color: "bg-green-100 text-green-700" },
+    approved: { label: "Live", color: "bg-green-100 text-green-700" },
     rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+    awaiting_payment: { label: "Awaiting Payment", color: "bg-orange-100 text-orange-700" },
     sold: { label: "Sold", color: "bg-blue-100 text-blue-700" },
     cancelled: { label: "Cancelled", color: "bg-slate-100 text-slate-600" },
   };
@@ -2083,6 +2100,21 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                         <p className="text-sm text-slate-500 mt-1 italic">Note: {listing.adminReviewNote}</p>
                       )}
                     </div>
+
+                    {listing.status === "approved" && listing.sellingType === "bidding" && (
+                      <div className="flex flex-col gap-2 min-w-[200px]">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                          disabled={endBiddingMutation.isPending}
+                          onClick={() => endBiddingMutation.mutate(listing.id)}
+                        >
+                          <Gavel className="h-3.5 w-3.5 mr-1" />
+                          {endBiddingMutation.isPending ? "Ending..." : "End Bidding"}
+                        </Button>
+                      </div>
+                    )}
 
                     {listing.status === "pending_review" && (
                       <div className="flex flex-col gap-2 min-w-[200px]">

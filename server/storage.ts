@@ -17,6 +17,7 @@ import {
   referrals,
   referralRewards,
   resaleListings,
+  resaleBids,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -48,7 +49,9 @@ import {
   type ReferralReward,
   type InsertReferralReward,
   type ResaleListing,
-  type InsertResaleListing
+  type InsertResaleListing,
+  type ResaleBid,
+  type InsertResaleBid
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -173,6 +176,14 @@ export interface IStorage {
   getAllResaleListings(): Promise<ResaleListing[]>;
   getActiveResaleListings(): Promise<ResaleListing[]>;
   getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]>;
+  
+  // Resale bid methods
+  createResaleBid(bid: InsertResaleBid): Promise<ResaleBid>;
+  getBidsByListing(listingId: number): Promise<ResaleBid[]>;
+  getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined>;
+  getBidsByUser(userId: number): Promise<ResaleBid[]>;
+  getResaleBid(id: number): Promise<ResaleBid | undefined>;
+  updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1092,6 +1103,44 @@ export class DatabaseStorage implements IStorage {
         inArray(resaleListings.status, ["pending_review", "approved"])
       ))
       .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async createResaleBid(bid: InsertResaleBid): Promise<ResaleBid> {
+    const [result] = await db.insert(resaleBids).values(bid).returning();
+    return result;
+  }
+
+  async getBidsByListing(listingId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.listingId, listingId))
+      .orderBy(desc(resaleBids.amount));
+  }
+
+  async getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids)
+      .where(and(eq(resaleBids.listingId, listingId), eq(resaleBids.status, "active")))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getBidsByUser(userId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.bidderId, userId))
+      .orderBy(desc(resaleBids.createdAt));
+  }
+
+  async getResaleBid(id: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids).where(eq(resaleBids.id, id));
+    return result;
+  }
+
+  async updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid> {
+    const [result] = await db.update(resaleBids)
+      .set(updates)
+      .where(eq(resaleBids.id, id))
+      .returning();
+    return result;
   }
 }
 

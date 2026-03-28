@@ -585,12 +585,32 @@ export const resaleListings = pgTable("resale_listings", {
   askingPrice: decimal("asking_price", { precision: 20, scale: 2 }), // For fixed price listings
   minimumPrice: decimal("minimum_price", { precision: 20, scale: 2 }), // For bidding listings (reserve price)
   currency: text("currency").notNull().default("NGN"),
-  status: text("status").notNull().default("pending_review"), // 'pending_review', 'approved', 'rejected', 'sold', 'cancelled'
+  status: text("status").notNull().default("pending_review"), // 'pending_review', 'approved', 'rejected', 'sold', 'cancelled', 'awaiting_payment'
   adminReviewNote: text("admin_review_note"),
   reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
   reviewedAt: timestamp("reviewed_at"),
+  biddingEndsAt: timestamp("bidding_ends_at"), // When bidding closes
+  highestBidId: integer("highest_bid_id"), // Current winning bid
+  winnerId: integer("winner_id").references(() => users.id), // The buyer (fixed price) or winning bidder
+  paymentDeadline: timestamp("payment_deadline"), // Winner must pay by this time
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const resaleBids = pgTable("resale_bids", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").notNull().references(() => resaleListings.id),
+  bidderId: integer("bidder_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("active"), // 'active', 'outbid', 'won', 'lost'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertResaleBidSchema = createInsertSchema(resaleBids).omit({
+  id: true,
+  status: true,
+  createdAt: true,
 });
 
 export const insertResaleListingSchema = createInsertSchema(resaleListings).omit({
@@ -681,3 +701,6 @@ export type ReferralReward = typeof referralRewards.$inferSelect;
 
 export type InsertResaleListing = z.infer<typeof insertResaleListingSchema>;
 export type ResaleListing = typeof resaleListings.$inferSelect;
+
+export type InsertResaleBid = z.infer<typeof insertResaleBidSchema>;
+export type ResaleBid = typeof resaleBids.$inferSelect;
