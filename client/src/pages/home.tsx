@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User } from "lucide-react";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User, Gavel, Tag, Building2, DollarSign, ArrowRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation, VerificationStep } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
@@ -29,6 +30,7 @@ export default function Home() {
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [propertiesTab, setPropertiesTab] = useState<"properties" | "resale">("properties");
 
   // Form states
   const [investmentForm, setInvestmentForm] = useState({
@@ -65,6 +67,11 @@ export default function Home() {
   }>({
     queryKey: ["/api/statistics"],
     refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const { data: resaleListings = [], isLoading: resaleLoading } = useQuery<any[]>({
+    queryKey: ["/api/marketplace/listings"],
+    enabled: isAuthenticated && propertiesTab === "resale",
   });
 
   // Fetch verification data for selected property
@@ -555,15 +562,49 @@ export default function Home() {
             </div>
           ) : (
           <>
-          <div className="text-center mb-16">
+          <div className="text-center mb-8">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-              Featured Investment Properties
+              Investment Opportunities
             </h2>
             <p className="text-xl text-slate-600 max-w-3xl mx-auto">
-              Carefully selected properties with strong growth potential and steady returns
+              Explore primary property listings and secondary market resale opportunities
             </p>
           </div>
 
+          <div className="flex justify-center mb-10">
+            <div className="inline-flex bg-slate-100 rounded-xl p-1.5 gap-1">
+              <button
+                onClick={() => setPropertiesTab("properties")}
+                className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                  propertiesTab === "properties"
+                    ? "bg-white text-blue-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                }`}
+              >
+                <Building2 className="h-4 w-4" />
+                Properties
+              </button>
+              <button
+                onClick={() => setPropertiesTab("resale")}
+                className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                  propertiesTab === "resale"
+                    ? "bg-white text-purple-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                }`}
+              >
+                <Gavel className="h-4 w-4" />
+                P2P Marketplace
+                {resaleListings.length > 0 && (
+                  <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                    {resaleListings.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {propertiesTab === "properties" && (
+            <>
           {propertiesLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {[...Array(6)].map((_, i) => (
@@ -650,6 +691,129 @@ export default function Home() {
                 </Card>
               ))}
             </div>
+          )}
+            </>
+          )}
+
+          {propertiesTab === "resale" && (
+            <>
+              {resaleLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="animate-pulse">
+                      <div className="h-48 bg-slate-200 rounded-t-lg" />
+                      <CardContent className="p-6 space-y-3">
+                        <div className="h-5 bg-slate-200 rounded w-3/4" />
+                        <div className="h-4 bg-slate-200 rounded w-1/2" />
+                        <div className="h-10 bg-slate-200 rounded" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : resaleListings.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="w-20 h-20 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Gavel className="h-10 w-10 text-purple-300" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No resale listings yet</h3>
+                  <p className="text-slate-600 max-w-md mx-auto">
+                    The secondary market is empty right now. Check back later for resale opportunities from existing investors.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {resaleListings.map((listing: any) => {
+                    const timeLeft = listing.sellingType === "bidding" && listing.biddingEndsAt
+                      ? (() => {
+                          const diff = new Date(listing.biddingEndsAt).getTime() - Date.now();
+                          if (diff <= 0) return "Ended";
+                          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                          const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                          if (days > 0) return `${days}d ${hours}h left`;
+                          if (hours > 0) return `${hours}h ${mins}m left`;
+                          return `${mins}m left`;
+                        })()
+                      : null;
+
+                    return (
+                      <Link key={listing.id} href="/marketplace">
+                        <Card className="overflow-hidden border border-slate-200 hover:shadow-xl transition-all duration-200 cursor-pointer group">
+                          <div className="h-48 bg-gradient-to-br from-purple-50 to-blue-50 relative">
+                            {listing.propertyImageUrl ? (
+                              <img src={listing.propertyImageUrl} alt={listing.propertyName} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Building2 className="h-16 w-16 text-purple-200" />
+                              </div>
+                            )}
+                            <div className="absolute top-3 left-3">
+                              <Badge className={`${listing.sellingType === "bidding" ? "bg-purple-600 hover:bg-purple-600" : "bg-green-600 hover:bg-green-600"} text-white`}>
+                                {listing.sellingType === "bidding" ? (
+                                  <><Gavel className="h-3 w-3 mr-1" /> Auction</>
+                                ) : (
+                                  <><Tag className="h-3 w-3 mr-1" /> Fixed Price</>
+                                )}
+                              </Badge>
+                            </div>
+                            {timeLeft && (
+                              <div className="absolute top-3 right-3">
+                                <Badge variant="secondary" className={`${timeLeft === "Ended" ? "bg-red-100 text-red-700" : "bg-white/90 text-slate-700"} backdrop-blur-sm`}>
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  {timeLeft}
+                                </Badge>
+                              </div>
+                            )}
+                          </div>
+                          <CardContent className="p-6">
+                            <h3 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-purple-700 transition-colors">
+                              {listing.propertyName}
+                            </h3>
+                            {listing.propertyLocation && (
+                              <p className="text-sm text-slate-500 flex items-center gap-1 mb-4">
+                                <MapPin className="h-3.5 w-3.5" /> {listing.propertyLocation}
+                              </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                              <div className="bg-slate-50 rounded-lg p-3">
+                                <p className="text-xs text-slate-500 mb-0.5">Units Available</p>
+                                <p className="font-bold text-slate-900">{listing.units}</p>
+                              </div>
+                              <div className="bg-slate-50 rounded-lg p-3">
+                                <p className="text-xs text-slate-500 mb-0.5">
+                                  {listing.sellingType === "fixed_price" ? "Price" : "Highest Bid"}
+                                </p>
+                                <p className="font-bold text-blue-600 text-sm">
+                                  {listing.sellingType === "fixed_price"
+                                    ? formatCurrencyFromHook(convertAmount(parseFloat(listing.askingPrice || 0), listing.currency || "NGN"))
+                                    : listing.highestBidAmount
+                                      ? formatCurrencyFromHook(convertAmount(parseFloat(listing.highestBidAmount), listing.currency || "NGN"))
+                                      : "No bids yet"
+                                  }
+                                </p>
+                              </div>
+                            </div>
+                            {listing.sellingType === "bidding" && (
+                              <div className="flex items-center gap-3 text-xs text-slate-500 mb-4">
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3.5 w-3.5" /> {listing.bidCount} bid{listing.bidCount !== 1 ? "s" : ""}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-slate-400">Seller: {listing.sellerName}</p>
+                              <span className="text-purple-600 text-sm font-medium flex items-center gap-1 group-hover:gap-2 transition-all">
+                                View <ArrowRight className="h-3.5 w-3.5" />
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
           </>
           )}
