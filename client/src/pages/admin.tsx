@@ -1992,6 +1992,11 @@ function UserPortfolioTab({
 function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelNote, setCancelNote] = useState("");
 
   const { data: listings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/resale-listings"],
@@ -2008,7 +2013,10 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
       toast({ title: "Listing reviewed" });
+      setReviewingId(null);
+      setReviewNote("");
     },
     onError: () => {
       toast({ title: "Failed to review listing", variant: "destructive" });
@@ -2026,16 +2034,35 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
       queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
       toast({ title: "Bidding ended", description: data?.message || "Bidding has been closed" });
     },
-    onError: () => {
-      toast({ title: "Failed to end bidding", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Failed to end bidding", description: error?.message, variant: "destructive" });
     },
   });
 
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const cancelMutation = useMutation({
+    mutationFn: async ({ id, note }: { id: number; note?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      toast({ title: "Listing cancelled", description: data?.message || "Listing has been cancelled" });
+      setCancellingId(null);
+      setCancelNote("");
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to cancel listing", description: error?.message, variant: "destructive" });
+    },
+  });
 
   const pendingCount = listings.filter((l: any) => l.status === "pending_review").length;
   const approvedCount = listings.filter((l: any) => l.status === "approved").length;
+  const awaitingCount = listings.filter((l: any) => l.status === "awaiting_payment").length;
+  const soldCount = listings.filter((l: any) => l.status === "sold").length;
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     pending_review: { label: "Pending Review", color: "bg-yellow-100 text-yellow-800" },
@@ -2046,63 +2073,195 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
     cancelled: { label: "Cancelled", color: "bg-slate-100 text-slate-600" },
   };
 
+  const filteredListings = statusFilter === "all"
+    ? listings
+    : listings.filter((l: any) => l.status === statusFilter);
+
   if (isLoading) {
     return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale listings...</div>;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Resale Listings</h1>
-          <p className="text-slate-500">Review and manage P2P unit transfer requests</p>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Resale Listings</h1>
+        <p className="text-slate-500">Review and manage P2P unit resale requests</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{listings.length}</p><p className="text-xs text-slate-500">Total</p></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-yellow-600">{pendingCount}</p><p className="text-xs text-slate-500">Pending</p></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-green-600">{approvedCount}</p><p className="text-xs text-slate-500">Live</p></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-blue-600">{listings.filter((l: any) => l.status === "sold").length}</p><p className="text-xs text-slate-500">Sold</p></CardContent></Card>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "all" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold">{listings.length}</p>
+            <p className="text-xs text-slate-500">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("pending_review")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "pending_review" ? "ring-2 ring-yellow-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+            <p className="text-xs text-slate-500">Pending</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("approved")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "approved" ? "ring-2 ring-green-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
+            <p className="text-xs text-slate-500">Live</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("awaiting_payment")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "awaiting_payment" ? "ring-2 ring-orange-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-orange-600">{awaitingCount}</p>
+            <p className="text-xs text-slate-500">Awaiting Pay</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("sold")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "sold" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-blue-600">{soldCount}</p>
+            <p className="text-xs text-slate-500">Sold</p>
+          </CardContent>
+        </Card>
       </div>
 
-      {listings.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-slate-500">No resale listings yet.</CardContent></Card>
+      {filteredListings.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-slate-500">
+          {statusFilter === "all" ? "No resale listings yet." : `No ${statusConfig[statusFilter]?.label || statusFilter} listings.`}
+        </CardContent></Card>
       ) : (
-        <div className="space-y-3">
-          {listings.map((listing: any) => {
+        <div className="space-y-4">
+          {filteredListings.map((listing: any) => {
             const si = statusConfig[listing.status] || { label: listing.status, color: "bg-slate-100 text-slate-600" };
+            const canCancel = ["pending_review", "approved", "awaiting_payment"].includes(listing.status);
 
             return (
-              <Card key={listing.id}>
-                <CardContent className="p-4">
-                  <div className="flex flex-col md:flex-row md:items-center gap-3 justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-semibold text-slate-900">{listing.propertyName}</h4>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${si.color}`}>{si.label}</span>
+              <Card key={listing.id} className="overflow-hidden">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4">
+                    {/* Header row */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-slate-900 text-lg">{listing.propertyName}</h4>
+                        <Badge className={si.color}>{si.label}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {listing.sellingType === "fixed_price" ? (
+                            <><Tag className="h-3 w-3 mr-1" /> Fixed Price</>
+                          ) : (
+                            <><Gavel className="h-3 w-3 mr-1" /> Auction</>
+                          )}
+                        </Badge>
                       </div>
-                      <div className="text-sm text-slate-600 space-y-0.5">
-                        <p>Seller: {listing.sellerName} {listing.sellerEmail ? `(${listing.sellerEmail})` : ''}</p>
-                        <div className="flex flex-wrap gap-4">
-                          <span>{listing.units} units</span>
-                          <span className="flex items-center gap-1">
-                            {listing.sellingType === "fixed_price" ? (
-                              <><Tag className="h-3.5 w-3.5" /> Fixed: {listing.currency} {parseFloat(listing.askingPrice || 0).toLocaleString()}</>
-                            ) : (
-                              <><Gavel className="h-3.5 w-3.5" /> Auction{listing.minimumPrice ? ` (Min: ${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()})` : " (No reserve)"}</>
-                            )}
-                          </span>
-                          <span>Submitted {new Date(listing.createdAt).toLocaleDateString()}</span>
+                      <p className="text-xs text-slate-400">ID #{listing.id} · {new Date(listing.createdAt).toLocaleDateString()}</p>
+                    </div>
+
+                    {/* Details grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Seller</p>
+                        <p className="font-semibold text-slate-900">{listing.sellerName}</p>
+                        {listing.sellerEmail && <p className="text-xs text-slate-400">{listing.sellerEmail}</p>}
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units & Price</p>
+                        <p className="font-semibold text-slate-900">{listing.units} units</p>
+                        {listing.sellingType === "fixed_price" ? (
+                          <p className="text-sm text-blue-700 font-bold">{listing.currency} {parseFloat(listing.askingPrice || 0).toLocaleString()}</p>
+                        ) : (
+                          <p className="text-xs text-slate-500">
+                            Reserve: {listing.minimumPrice ? `${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()}` : "None"}
+                          </p>
+                        )}
+                      </div>
+                      {listing.sellingType === "bidding" && (
+                        <div className="bg-purple-50 rounded-lg p-3">
+                          <p className="text-xs text-purple-500 uppercase tracking-wide mb-1">Bidding Activity</p>
+                          <p className="font-semibold text-purple-900">{listing.bidCount || 0} bid{(listing.bidCount || 0) !== 1 ? "s" : ""}</p>
+                          {listing.highestBidAmount && (
+                            <p className="text-sm text-purple-700 font-bold">
+                              Highest: {listing.currency} {parseFloat(listing.highestBidAmount).toLocaleString()}
+                            </p>
+                          )}
+                          {listing.highestBidderName && (
+                            <p className="text-xs text-purple-500">by {listing.highestBidderName}</p>
+                          )}
                         </div>
-                      </div>
-                      {listing.adminReviewNote && (
-                        <p className="text-sm text-slate-500 mt-1 italic">Note: {listing.adminReviewNote}</p>
+                      )}
+                      {listing.winnerId && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">
+                            {listing.status === "sold" ? "Buyer" : "Winner"}
+                          </p>
+                          <p className="font-semibold text-blue-900">{listing.winnerName || `User #${listing.winnerId}`}</p>
+                          {listing.winnerEmail && <p className="text-xs text-blue-400">{listing.winnerEmail}</p>}
+                          {listing.paymentDeadline && listing.status === "awaiting_payment" && (
+                            <p className="text-xs text-orange-600 mt-1">
+                              Deadline: {new Date(listing.paymentDeadline).toLocaleDateString()} {new Date(listing.paymentDeadline).toLocaleTimeString()}
+                            </p>
+                          )}
+                          {listing.paymentStatus === "pending_verification" && (
+                            <Badge className="mt-1 bg-yellow-100 text-yellow-800 text-xs">Payment Submitted</Badge>
+                          )}
+                        </div>
+                      )}
+                      {listing.propertyLocation && (
+                        <div className="bg-slate-50 rounded-lg p-3">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Location</p>
+                          <p className="font-medium text-slate-900 flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5" /> {listing.propertyLocation}
+                          </p>
+                        </div>
                       )}
                     </div>
 
-                    {listing.status === "approved" && listing.sellingType === "bidding" && (
-                      <div className="flex flex-col gap-2 min-w-[200px]">
+                    {listing.adminReviewNote && (
+                      <p className="text-sm text-slate-500 italic bg-slate-50 rounded px-3 py-2">
+                        Admin note: {listing.adminReviewNote}
+                      </p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
+                      {/* Pending Review: Approve / Reject */}
+                      {listing.status === "pending_review" && (
+                        <>
+                          {reviewingId === listing.id ? (
+                            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-end">
+                              <Input
+                                placeholder="Optional note..."
+                                value={reviewNote}
+                                onChange={(e) => setReviewNote(e.target.value)}
+                                className="text-sm sm:w-48"
+                              />
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => reviewMutation.mutate({ id: listing.id, action: "approve", note: reviewNote })}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => reviewMutation.mutate({ id: listing.id, action: "reject", note: reviewNote })}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setReviewNote(""); }}>
+                                Back
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => setReviewingId(listing.id)}>
+                              <Shield className="h-3.5 w-3.5 mr-1" />
+                              Review Listing
+                            </Button>
+                          )}
+                        </>
+                      )}
+
+                      {/* Approved + Bidding: End Bidding */}
+                      {listing.status === "approved" && listing.sellingType === "bidding" && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -2113,68 +2272,53 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                           <Gavel className="h-3.5 w-3.5 mr-1" />
                           {endBiddingMutation.isPending ? "Ending..." : "End Bidding"}
                         </Button>
-                      </div>
-                    )}
+                      )}
 
-                    {listing.status === "pending_review" && (
-                      <div className="flex flex-col gap-2 min-w-[200px]">
-                        {reviewingId === listing.id ? (
-                          <div className="space-y-2">
-                            <Input
-                              placeholder="Optional note..."
-                              value={reviewNote}
-                              onChange={(e) => setReviewNote(e.target.value)}
-                              className="text-sm"
-                            />
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700 text-white flex-1"
-                                disabled={reviewMutation.isPending}
-                                onClick={() => {
-                                  reviewMutation.mutate({ id: listing.id, action: "approve", note: reviewNote });
-                                  setReviewingId(null);
-                                  setReviewNote("");
-                                }}
-                              >
-                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                Approve
-                              </Button>
+                      {/* Cancel action (for non-sold, non-cancelled) */}
+                      {canCancel && (
+                        <>
+                          {cancellingId === listing.id ? (
+                            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-end">
+                              <Input
+                                placeholder="Reason for cancellation..."
+                                value={cancelNote}
+                                onChange={(e) => setCancelNote(e.target.value)}
+                                className="text-sm sm:w-52"
+                              />
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                className="flex-1"
-                                disabled={reviewMutation.isPending}
-                                onClick={() => {
-                                  reviewMutation.mutate({ id: listing.id, action: "reject", note: reviewNote });
-                                  setReviewingId(null);
-                                  setReviewNote("");
-                                }}
+                                disabled={cancelMutation.isPending}
+                                onClick={() => cancelMutation.mutate({ id: listing.id, note: cancelNote })}
                               >
-                                <XCircle className="h-3.5 w-3.5 mr-1" />
-                                Reject
+                                {cancelMutation.isPending ? "Cancelling..." : "Confirm Cancel"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setCancellingId(null); setCancelNote(""); }}>
+                                Back
                               </Button>
                             </div>
+                          ) : (
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="w-full text-xs"
-                              onClick={() => { setReviewingId(null); setReviewNote(""); }}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => setCancellingId(listing.id)}
                             >
-                              Cancel
+                              <XCircle className="h-3.5 w-3.5 mr-1" />
+                              Cancel Listing
                             </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setReviewingId(listing.id)}
-                          >
-                            Review
-                          </Button>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </>
+                      )}
+
+                      {/* Sold indicator */}
+                      {listing.status === "sold" && (
+                        <Badge className="bg-green-100 text-green-800 border-green-300">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Transfer Complete
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -2191,6 +2335,7 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   const queryClient = useQueryClient();
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: payments = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/resale-payments"],
@@ -2218,12 +2363,18 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   });
 
   const pendingCount = payments.filter((p: any) => p.status === "pending_verification").length;
+  const approvedCount = payments.filter((p: any) => p.status === "approved").length;
+  const rejectedCount = payments.filter((p: any) => p.status === "rejected").length;
 
   const statusConfig: Record<string, { label: string; color: string }> = {
     pending_verification: { label: "Pending Verification", color: "bg-yellow-100 text-yellow-800" },
-    approved: { label: "Approved", color: "bg-green-100 text-green-700" },
+    approved: { label: "Approved — Transferred", color: "bg-green-100 text-green-700" },
     rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
   };
+
+  const filteredPayments = statusFilter === "all"
+    ? payments
+    : payments.filter((p: any) => p.status === statusFilter);
 
   if (isLoading) {
     return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale payments...</div>;
@@ -2231,148 +2382,184 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Resale Payments</h1>
-          <p className="text-slate-600 mt-1">Review and verify buyer payments for resale transactions</p>
-        </div>
-        {pendingCount > 0 && (
-          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 text-sm px-3 py-1">
-            {pendingCount} pending verification
-          </Badge>
-        )}
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Resale Payments</h1>
+        <p className="text-slate-600 mt-1">Review and verify buyer payments for resale transactions</p>
       </div>
 
-      {payments.length === 0 ? (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "all" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold">{payments.length}</p>
+            <p className="text-xs text-slate-500">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("pending_verification")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "pending_verification" ? "ring-2 ring-yellow-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+            <p className="text-xs text-slate-500">Pending</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("approved")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "approved" ? "ring-2 ring-green-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
+            <p className="text-xs text-slate-500">Approved</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("rejected")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "rejected" ? "ring-2 ring-red-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-red-600">{rejectedCount}</p>
+            <p className="text-xs text-slate-500">Rejected</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {filteredPayments.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <Banknote className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">No resale payments yet</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              {statusFilter === "all" ? "No resale payments yet" : `No ${statusConfig[statusFilter]?.label || statusFilter} payments`}
+            </h3>
             <p className="text-slate-600">Payments will appear here when buyers confirm their transfers</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
-          {payments.map((payment: any) => {
+          {filteredPayments.map((payment: any) => {
             const status = statusConfig[payment.status] || { label: payment.status, color: "bg-slate-100 text-slate-600" };
 
             return (
-              <Card key={payment.id} className="overflow-hidden">
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                    <div className="space-y-2 flex-1">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="font-bold text-slate-900">{payment.propertyName}</h3>
+              <Card key={payment.id} className={`overflow-hidden ${payment.status === "pending_verification" ? "border-yellow-300 bg-yellow-50/30" : ""}`}>
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-lg">{payment.propertyName}</h3>
                         <Badge className={status.color}>{status.label}</Badge>
                         <Badge variant="outline" className="text-xs">
                           {payment.listingType === "fixed_price" ? "Fixed Price" : "Auction"}
                         </Badge>
                       </div>
+                      <p className="text-xs text-slate-400">Payment #{payment.id} · {new Date(payment.createdAt).toLocaleDateString()}</p>
+                    </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                        <div>
-                          <p className="text-slate-500">Buyer</p>
-                          <p className="font-medium text-slate-900">{payment.buyerName}</p>
-                          {payment.buyerEmail && <p className="text-xs text-slate-400">{payment.buyerEmail}</p>}
-                        </div>
-                        <div>
-                          <p className="text-slate-500">Seller</p>
-                          <p className="font-medium text-slate-900">{payment.sellerName}</p>
-                          {payment.sellerEmail && <p className="text-xs text-slate-400">{payment.sellerEmail}</p>}
-                        </div>
-                        <div>
-                          <p className="text-slate-500">Amount</p>
-                          <p className="font-bold text-blue-700">
-                            {payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-slate-500">Units</p>
-                          <p className="font-medium">{payment.listingUnits}</p>
-                        </div>
-                        {payment.bankReference && (
-                          <div>
-                            <p className="text-slate-500">Bank Reference</p>
-                            <p className="font-medium font-mono text-sm">{payment.bankReference}</p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-slate-500">Submitted</p>
-                          <p className="font-medium">{new Date(payment.createdAt).toLocaleDateString()}</p>
-                        </div>
+                    {/* Full transaction details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Buyer</p>
+                        <p className="font-semibold text-slate-900">{payment.buyerName}</p>
+                        {payment.buyerEmail && <p className="text-xs text-slate-400">{payment.buyerEmail}</p>}
                       </div>
-
-                      {payment.proofUrl && (
-                        <div className="mt-2">
-                          <a
-                            href={payment.proofUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 underline"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            View Payment Proof ({payment.proofType || 'file'})
-                          </a>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Seller</p>
+                        <p className="font-semibold text-slate-900">{payment.sellerName}</p>
+                        {payment.sellerEmail && <p className="text-xs text-slate-400">{payment.sellerEmail}</p>}
+                      </div>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">Expected Amount</p>
+                        <p className="font-bold text-blue-800 text-lg">
+                          {payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units Transferring</p>
+                        <p className="font-semibold text-slate-900">{payment.listingUnits} units</p>
+                      </div>
+                      {payment.bankReference && (
+                        <div className="bg-white border border-slate-200 rounded-lg p-3">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Bank Reference</p>
+                          <p className="font-semibold font-mono text-slate-900">{payment.bankReference}</p>
                         </div>
                       )}
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Payment Method</p>
+                        <p className="font-medium text-slate-900">{payment.paymentMethod === "bank_transfer" ? "Bank Transfer" : payment.paymentMethod}</p>
+                      </div>
+                    </div>
 
-                      {payment.rejectionReason && payment.status === "rejected" && (
-                        <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">
-                          <strong>Rejection reason:</strong> {payment.rejectionReason}
-                        </div>
+                    {/* Proof + review info */}
+                    <div className="flex flex-wrap gap-4 items-center">
+                      {payment.proofUrl && (
+                        <a
+                          href={payment.proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View Payment Proof ({payment.proofType || 'file'})
+                        </a>
+                      )}
+                      {!payment.proofUrl && payment.status === "pending_verification" && (
+                        <p className="text-sm text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          No proof uploaded — verify via bank reference only
+                        </p>
                       )}
                     </div>
 
+                    {payment.rejectionReason && payment.status === "rejected" && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                        <strong>Rejection reason:</strong> {payment.rejectionReason}
+                      </div>
+                    )}
+
+                    {payment.status === "approved" && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Payment verified. Units transferred from seller to buyer. Listing marked as sold.
+                        {payment.reviewedAt && (
+                          <span className="text-xs text-green-500 ml-auto">
+                            Approved {new Date(payment.reviewedAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions for pending payments */}
                     {payment.status === "pending_verification" && (
-                      <div className="flex flex-col gap-2 min-w-[220px]">
+                      <div className="border-t border-slate-200 pt-3">
                         {reviewingId === payment.id ? (
-                          <div className="space-y-2">
-                            <div className="flex gap-2">
+                          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                              disabled={reviewMutation.isPending}
+                              onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve" })}
+                            >
+                              <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                              {reviewMutation.isPending ? "Processing..." : "Approve & Transfer Units"}
+                            </Button>
+                            <div className="flex gap-2 items-end flex-1">
+                              <Input
+                                placeholder="Rejection reason..."
+                                value={rejectionReason}
+                                onChange={(e) => setRejectionReason(e.target.value)}
+                                className="text-sm flex-1"
+                              />
                               <Button
                                 size="sm"
-                                className="bg-green-600 hover:bg-green-700 text-white flex-1"
+                                variant="destructive"
                                 disabled={reviewMutation.isPending}
-                                onClick={() => {
-                                  reviewMutation.mutate({ id: payment.id, action: "approve" });
-                                }}
+                                onClick={() => reviewMutation.mutate({ id: payment.id, action: "reject", reason: rejectionReason })}
                               >
-                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                Approve & Transfer
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
                               </Button>
                             </div>
-                            <Input
-                              placeholder="Rejection reason..."
-                              value={rejectionReason}
-                              onChange={(e) => setRejectionReason(e.target.value)}
-                              className="text-sm"
-                            />
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="w-full"
-                              disabled={reviewMutation.isPending}
-                              onClick={() => {
-                                reviewMutation.mutate({ id: payment.id, action: "reject", reason: rejectionReason });
-                              }}
-                            >
-                              <XCircle className="h-3.5 w-3.5 mr-1" />
-                              Reject Payment
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="w-full text-xs"
-                              onClick={() => { setReviewingId(null); setRejectionReason(""); }}
-                            >
-                              Cancel
+                            <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setRejectionReason(""); }}>
+                              Back
                             </Button>
                           </div>
                         ) : (
                           <Button
                             size="sm"
-                            variant="outline"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
                             onClick={() => setReviewingId(payment.id)}
                           >
+                            <Shield className="h-3.5 w-3.5 mr-1" />
                             Review Payment
                           </Button>
                         )}

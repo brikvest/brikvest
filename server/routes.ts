@@ -4086,11 +4086,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(listings.map(async (listing) => {
         const seller = await storage.getUser(listing.sellerId);
         const property = await storage.getProperty(listing.propertyId);
+        const bids = await storage.getBidsByListing(listing.id);
+        const highestBid = bids.length > 0 ? bids[0] : null;
+        const winner = listing.winnerId ? await storage.getUser(listing.winnerId) : null;
+        const payments = await storage.getResalePaymentsByListing(listing.id);
+        const pendingPayment = payments.find(p => p.status === "pending_verification");
+        const approvedPayment = payments.find(p => p.status === "approved");
+
         return {
           ...listing,
           sellerName: seller?.fullName || seller?.email || `User #${listing.sellerId}`,
           sellerEmail: seller?.email,
           propertyName: property?.name || `Property #${listing.propertyId}`,
+          propertyLocation: property?.location,
+          bidCount: bids.length,
+          highestBidAmount: highestBid?.amount || null,
+          highestBidderName: highestBid ? (await storage.getUser(highestBid.bidderId))?.fullName || `User #${highestBid.bidderId}` : null,
+          winnerName: winner?.fullName || winner?.email || null,
+          winnerEmail: winner?.email || null,
+          hasPendingPayment: !!pendingPayment,
+          hasApprovedPayment: !!approvedPayment,
+          paymentStatus: pendingPayment ? "pending_verification" : approvedPayment ? "approved" : null,
         };
       }));
       res.json(enriched);
@@ -4130,6 +4146,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error reviewing resale listing:", error);
       res.status(500).json({ message: "Failed to review listing" });
+    }
+  });
+
+  // Admin: Force cancel a listing
+  app.post("/api/admin/resale-listings/:id/cancel", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const { note } = req.body || {};
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status === "sold") {
+        return res.status(400).json({ message: "Cannot cancel a completed sale" });
+      }
+
+      if (listing.status === "cancelled") {
+        return res.status(400).json({ message: "Listing is already cancelled" });
+      }
+
+      // If awaiting_payment, mark all pending payments as rejected
+      if (listing.status === "awaiting_payment") {
+        const payments = await storage.getResalePaymentsByListing(listingId);
+        for (const payment of payments) {
+          if (payment.status === "pending_verification") {
+            await storage.updateResalePayment(payment.id, {
+              status: "rejected",
+              rejectionReason: "Listing cancelled by admin",
+              reviewedByAdminId: (req.session as any).adminUserId,
+              reviewedAt: new Date(),
+            });
+          }
+        }
+      }
+
+      // If bidding, mark all active bids as lost
+      if (listing.sellingType === "bidding") {
+        const bids = await storage.getBidsByListing(listingId);
+        for (const bid of bids) {
+          if (bid.status === "active" || bid.status === "outbid") {
+            await storage.updateResaleBid(bid.id, { status: "lost" });
+          }
+        }
+      }
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "cancelled",
+        adminReviewNote: note || "Cancelled by admin",
+        reviewedByAdminId: (req.session as any).adminUserId,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      res.json({ message: "Listing cancelled successfully", listing: updated });
+    } catch (error: any) {
+      console.error("Error cancelling listing:", error);
+      res.status(500).json({ message: "Failed to cancel listing" });
     }
   });
 
