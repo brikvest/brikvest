@@ -98,6 +98,7 @@ export const properties = pgTable("properties", {
   totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
+  isTransferable: boolean("is_transferable").notNull().default(false),
   valuationReportUrl: text("valuation_report_url"),
   valuationReportName: text("valuation_report_name"),
   
@@ -574,6 +575,108 @@ export const referralRewards = pgTable("referral_rewards", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const resaleListings = pgTable("resale_listings", {
+  id: serial("id").primaryKey(),
+  sellerId: integer("seller_id").notNull().references(() => users.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  units: decimal("units", { precision: 15, scale: 2 }).notNull(),
+  sellingType: text("selling_type").notNull(), // 'fixed_price' or 'bidding'
+  askingPrice: decimal("asking_price", { precision: 20, scale: 2 }), // For fixed price listings
+  minimumPrice: decimal("minimum_price", { precision: 20, scale: 2 }), // For bidding listings (reserve price)
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending_review"), // 'pending_review', 'approved', 'rejected', 'sold', 'cancelled', 'awaiting_payment'
+  adminReviewNote: text("admin_review_note"),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  biddingEndsAt: timestamp("bidding_ends_at"), // When bidding closes
+  highestBidId: integer("highest_bid_id"), // Current winning bid
+  winnerId: integer("winner_id").references(() => users.id), // The buyer (fixed price) or winning bidder
+  paymentDeadline: timestamp("payment_deadline"), // Winner must pay by this time
+  shareToken: text("share_token").unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const resaleBids = pgTable("resale_bids", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").notNull().references(() => resaleListings.id),
+  bidderId: integer("bidder_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("active"), // 'active', 'outbid', 'won', 'lost', 'failed_payment'
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const resalePayments = pgTable("resale_payments", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").notNull().references(() => resaleListings.id),
+  buyerId: integer("buyer_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  paymentMethod: text("payment_method").notNull().default("bank_transfer"),
+  bankReference: text("bank_reference"),
+  proofUrl: text("proof_url"),
+  proofType: text("proof_type"),
+  status: text("status").notNull().default("pending_verification"), // 'pending_verification', 'approved', 'rejected'
+  rejectionReason: text("rejection_reason"),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const resaleAuditLogs = pgTable("resale_audit_logs", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").references(() => resaleListings.id),
+  bidId: integer("bid_id").references(() => resaleBids.id),
+  paymentId: integer("payment_id").references(() => resalePayments.id),
+  propertyId: integer("property_id").references(() => properties.id),
+  action: text("action").notNull(),
+  actorType: text("actor_type").notNull(), // 'user', 'admin', 'system'
+  actorId: integer("actor_id"),
+  actorName: text("actor_name"),
+  sellerId: integer("seller_id"),
+  buyerId: integer("buyer_id"),
+  units: text("units"),
+  amount: text("amount"),
+  currency: text("currency"),
+  details: text("details"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertResaleAuditLogSchema = createInsertSchema(resaleAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertResalePaymentSchema = createInsertSchema(resalePayments).omit({
+  id: true,
+  status: true,
+  reviewedByAdminId: true,
+  reviewedAt: true,
+  rejectionReason: true,
+  createdAt: true,
+});
+
+export const insertResaleBidSchema = createInsertSchema(resaleBids).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+});
+
+export const insertResaleListingSchema = createInsertSchema(resaleListings).omit({
+  id: true,
+  status: true,
+  adminReviewNote: true,
+  reviewedByAdminId: true,
+  reviewedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertReferralSchema = createInsertSchema(referrals).omit({
   id: true,
   createdAt: true,
@@ -649,3 +752,15 @@ export type Referral = typeof referrals.$inferSelect;
 
 export type InsertReferralReward = z.infer<typeof insertReferralRewardSchema>;
 export type ReferralReward = typeof referralRewards.$inferSelect;
+
+export type InsertResaleListing = z.infer<typeof insertResaleListingSchema>;
+export type ResaleListing = typeof resaleListings.$inferSelect;
+
+export type InsertResaleBid = z.infer<typeof insertResaleBidSchema>;
+export type ResaleBid = typeof resaleBids.$inferSelect;
+
+export type InsertResalePayment = z.infer<typeof insertResalePaymentSchema>;
+export type ResalePayment = typeof resalePayments.$inferSelect;
+
+export type InsertResaleAuditLog = z.infer<typeof insertResaleAuditLogSchema>;
+export type ResaleAuditLog = typeof resaleAuditLogs.$inferSelect;
