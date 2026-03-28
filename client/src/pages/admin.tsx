@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel, Banknote, Loader2, AlertTriangle } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -1989,6 +1989,813 @@ function UserPortfolioTab({
   );
 }
 
+function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancelNote, setCancelNote] = useState("");
+
+  const { data: listings = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-listings"],
+    queryFn: () => authenticatedRequest("/api/admin/resale-listings"),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action, note }: { id: number; action: string; note?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, note }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      toast({ title: "Listing reviewed" });
+      setReviewingId(null);
+      setReviewNote("");
+    },
+    onError: () => {
+      toast({ title: "Failed to review listing", variant: "destructive" });
+    },
+  });
+
+  const endBiddingMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/end-bidding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      toast({ title: "Bidding ended", description: data?.message || "Bidding has been closed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to end bidding", description: error?.message, variant: "destructive" });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async ({ id, note }: { id: number; note?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      toast({ title: "Listing cancelled", description: data?.message || "Listing has been cancelled" });
+      setCancellingId(null);
+      setCancelNote("");
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to cancel listing", description: error?.message, variant: "destructive" });
+    },
+  });
+
+  const expirePaymentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/expire-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      toast({ title: "Payment expired", description: data?.message || "Processed expired payment" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to expire payment", description: error?.message, variant: "destructive" });
+    },
+  });
+
+  const pendingCount = listings.filter((l: any) => l.status === "pending_review").length;
+  const approvedCount = listings.filter((l: any) => l.status === "approved").length;
+  const awaitingCount = listings.filter((l: any) => l.status === "awaiting_payment").length;
+  const soldCount = listings.filter((l: any) => l.status === "sold").length;
+
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    pending_review: { label: "Pending Review", color: "bg-yellow-100 text-yellow-800" },
+    approved: { label: "Live", color: "bg-green-100 text-green-700" },
+    rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+    awaiting_payment: { label: "Awaiting Payment", color: "bg-orange-100 text-orange-700" },
+    sold: { label: "Sold", color: "bg-blue-100 text-blue-700" },
+    cancelled: { label: "Cancelled", color: "bg-slate-100 text-slate-600" },
+  };
+
+  const filteredListings = statusFilter === "all"
+    ? listings
+    : listings.filter((l: any) => l.status === statusFilter);
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale listings...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Resale Listings</h1>
+        <p className="text-slate-500">Review and manage P2P unit resale requests</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "all" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold">{listings.length}</p>
+            <p className="text-xs text-slate-500">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("pending_review")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "pending_review" ? "ring-2 ring-yellow-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+            <p className="text-xs text-slate-500">Pending</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("approved")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "approved" ? "ring-2 ring-green-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
+            <p className="text-xs text-slate-500">Live</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("awaiting_payment")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "awaiting_payment" ? "ring-2 ring-orange-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-orange-600">{awaitingCount}</p>
+            <p className="text-xs text-slate-500">Awaiting Pay</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("sold")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "sold" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-blue-600">{soldCount}</p>
+            <p className="text-xs text-slate-500">Sold</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {filteredListings.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-slate-500">
+          {statusFilter === "all" ? "No resale listings yet." : `No ${statusConfig[statusFilter]?.label || statusFilter} listings.`}
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-4">
+          {filteredListings.map((listing: any) => {
+            const si = statusConfig[listing.status] || { label: listing.status, color: "bg-slate-100 text-slate-600" };
+            const canCancel = ["pending_review", "approved", "awaiting_payment"].includes(listing.status);
+
+            return (
+              <Card key={listing.id} className="overflow-hidden">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4">
+                    {/* Header row */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-slate-900 text-lg">{listing.propertyName}</h4>
+                        <Badge className={si.color}>{si.label}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {listing.sellingType === "fixed_price" ? (
+                            <><Tag className="h-3 w-3 mr-1" /> Fixed Price</>
+                          ) : (
+                            <><Gavel className="h-3 w-3 mr-1" /> Auction</>
+                          )}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-400">ID #{listing.id} · {new Date(listing.createdAt).toLocaleDateString()}</p>
+                    </div>
+
+                    {/* Details grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Seller</p>
+                        <p className="font-semibold text-slate-900">{listing.sellerName}</p>
+                        {listing.sellerEmail && <p className="text-xs text-slate-400">{listing.sellerEmail}</p>}
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units & Price</p>
+                        <p className="font-semibold text-slate-900">{listing.units} units</p>
+                        {listing.sellingType === "fixed_price" ? (
+                          <p className="text-sm text-blue-700 font-bold">{listing.currency} {parseFloat(listing.askingPrice || 0).toLocaleString()}</p>
+                        ) : (
+                          <p className="text-xs text-slate-500">
+                            Reserve: {listing.minimumPrice ? `${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()}` : "None"}
+                          </p>
+                        )}
+                      </div>
+                      {listing.sellingType === "bidding" && (
+                        <div className="bg-purple-50 rounded-lg p-3">
+                          <p className="text-xs text-purple-500 uppercase tracking-wide mb-1">Bidding Activity</p>
+                          <p className="font-semibold text-purple-900">{listing.bidCount || 0} bid{(listing.bidCount || 0) !== 1 ? "s" : ""}</p>
+                          {listing.highestBidAmount && (
+                            <p className="text-sm text-purple-700 font-bold">
+                              Highest: {listing.currency} {parseFloat(listing.highestBidAmount).toLocaleString()}
+                            </p>
+                          )}
+                          {listing.highestBidderName && (
+                            <p className="text-xs text-purple-500">by {listing.highestBidderName}</p>
+                          )}
+                        </div>
+                      )}
+                      {listing.winnerId && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">
+                            {listing.status === "sold" ? "Buyer" : "Winner"}
+                          </p>
+                          <p className="font-semibold text-blue-900">{listing.winnerName || `User #${listing.winnerId}`}</p>
+                          {listing.winnerEmail && <p className="text-xs text-blue-400">{listing.winnerEmail}</p>}
+                          {listing.paymentDeadline && listing.status === "awaiting_payment" && (
+                            <p className="text-xs text-orange-600 mt-1">
+                              Deadline: {new Date(listing.paymentDeadline).toLocaleDateString()} {new Date(listing.paymentDeadline).toLocaleTimeString()}
+                            </p>
+                          )}
+                          {listing.paymentStatus === "pending_verification" && (
+                            <Badge className="mt-1 bg-yellow-100 text-yellow-800 text-xs">Payment Submitted</Badge>
+                          )}
+                        </div>
+                      )}
+                      {listing.propertyLocation && (
+                        <div className="bg-slate-50 rounded-lg p-3">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Location</p>
+                          <p className="font-medium text-slate-900 flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5" /> {listing.propertyLocation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {listing.adminReviewNote && (
+                      <p className="text-sm text-slate-500 italic bg-slate-50 rounded px-3 py-2">
+                        Admin note: {listing.adminReviewNote}
+                      </p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
+                      {/* Pending Review: Approve / Reject */}
+                      {listing.status === "pending_review" && (
+                        <>
+                          {reviewingId === listing.id ? (
+                            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-end">
+                              <Input
+                                placeholder="Optional note..."
+                                value={reviewNote}
+                                onChange={(e) => setReviewNote(e.target.value)}
+                                className="text-sm sm:w-48"
+                              />
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => reviewMutation.mutate({ id: listing.id, action: "approve", note: reviewNote })}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => reviewMutation.mutate({ id: listing.id, action: "reject", note: reviewNote })}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setReviewNote(""); }}>
+                                Back
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => setReviewingId(listing.id)}>
+                              <Shield className="h-3.5 w-3.5 mr-1" />
+                              Review Listing
+                            </Button>
+                          )}
+                        </>
+                      )}
+
+                      {/* Approved + Bidding: End Bidding */}
+                      {listing.status === "approved" && listing.sellingType === "bidding" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                          disabled={endBiddingMutation.isPending}
+                          onClick={() => endBiddingMutation.mutate(listing.id)}
+                        >
+                          <Gavel className="h-3.5 w-3.5 mr-1" />
+                          {endBiddingMutation.isPending ? "Ending..." : "End Bidding"}
+                        </Button>
+                      )}
+
+                      {/* Awaiting Payment: Expire Payment (offer to next bidder) */}
+                      {listing.status === "awaiting_payment" && listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date() && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                          disabled={expirePaymentMutation.isPending}
+                          onClick={() => expirePaymentMutation.mutate(listing.id)}
+                        >
+                          <Clock className="h-3.5 w-3.5 mr-1" />
+                          {expirePaymentMutation.isPending ? "Processing..." : "Expire & Next Bidder"}
+                        </Button>
+                      )}
+
+                      {/* Cancel action (for non-sold, non-cancelled) */}
+                      {canCancel && (
+                        <>
+                          {cancellingId === listing.id ? (
+                            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:items-end">
+                              <Input
+                                placeholder="Reason for cancellation..."
+                                value={cancelNote}
+                                onChange={(e) => setCancelNote(e.target.value)}
+                                className="text-sm sm:w-52"
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={cancelMutation.isPending}
+                                onClick={() => cancelMutation.mutate({ id: listing.id, note: cancelNote })}
+                              >
+                                {cancelMutation.isPending ? "Cancelling..." : "Confirm Cancel"}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => { setCancellingId(null); setCancelNote(""); }}>
+                                Back
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => setCancellingId(listing.id)}
+                            >
+                              <XCircle className="h-3.5 w-3.5 mr-1" />
+                              Cancel Listing
+                            </Button>
+                          )}
+                        </>
+                      )}
+
+                      {/* Sold indicator */}
+                      {listing.status === "sold" && (
+                        <Badge className="bg-green-100 text-green-800 border-green-300">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Transfer Complete
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const { data: payments = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-payments"],
+    queryFn: () => authenticatedRequest("/api/admin/resale-payments"),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action, reason }: { id: number; action: string; reason?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-payments/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, rejectionReason: reason }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      toast({ title: "Payment reviewed", description: data?.message || "Payment has been processed" });
+      setReviewingId(null);
+      setRejectionReason("");
+    },
+    onError: () => {
+      toast({ title: "Review failed", variant: "destructive" });
+    },
+  });
+
+  const pendingCount = payments.filter((p: any) => p.status === "pending_verification").length;
+  const approvedCount = payments.filter((p: any) => p.status === "approved").length;
+  const rejectedCount = payments.filter((p: any) => p.status === "rejected").length;
+
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    pending_verification: { label: "Pending Verification", color: "bg-yellow-100 text-yellow-800" },
+    approved: { label: "Approved — Transferred", color: "bg-green-100 text-green-700" },
+    rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+  };
+
+  const filteredPayments = statusFilter === "all"
+    ? payments
+    : payments.filter((p: any) => p.status === statusFilter);
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale payments...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Resale Payments</h1>
+        <p className="text-slate-600 mt-1">Review and verify buyer payments for resale transactions</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "all" ? "ring-2 ring-blue-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold">{payments.length}</p>
+            <p className="text-xs text-slate-500">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("pending_verification")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "pending_verification" ? "ring-2 ring-yellow-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+            <p className="text-xs text-slate-500">Pending</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("approved")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "approved" ? "ring-2 ring-green-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-green-600">{approvedCount}</p>
+            <p className="text-xs text-slate-500">Approved</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("rejected")}>
+          <CardContent className={`p-3 text-center ${statusFilter === "rejected" ? "ring-2 ring-red-500 rounded-lg" : ""}`}>
+            <p className="text-2xl font-bold text-red-600">{rejectedCount}</p>
+            <p className="text-xs text-slate-500">Rejected</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {filteredPayments.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Banknote className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              {statusFilter === "all" ? "No resale payments yet" : `No ${statusConfig[statusFilter]?.label || statusFilter} payments`}
+            </h3>
+            <p className="text-slate-600">Payments will appear here when buyers confirm their transfers</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {filteredPayments.map((payment: any) => {
+            const status = statusConfig[payment.status] || { label: payment.status, color: "bg-slate-100 text-slate-600" };
+
+            return (
+              <Card key={payment.id} className={`overflow-hidden ${payment.status === "pending_verification" ? "border-yellow-300 bg-yellow-50/30" : ""}`}>
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-lg">{payment.propertyName}</h3>
+                        <Badge className={status.color}>{status.label}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {payment.listingType === "fixed_price" ? "Fixed Price" : "Auction"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-400">Payment #{payment.id} · {new Date(payment.createdAt).toLocaleDateString()}</p>
+                    </div>
+
+                    {/* Full transaction details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Buyer</p>
+                        <p className="font-semibold text-slate-900">{payment.buyerName}</p>
+                        {payment.buyerEmail && <p className="text-xs text-slate-400">{payment.buyerEmail}</p>}
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Seller</p>
+                        <p className="font-semibold text-slate-900">{payment.sellerName}</p>
+                        {payment.sellerEmail && <p className="text-xs text-slate-400">{payment.sellerEmail}</p>}
+                      </div>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">Expected Amount</p>
+                        <p className="font-bold text-blue-800 text-lg">
+                          {payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Units Transferring</p>
+                        <p className="font-semibold text-slate-900">{payment.listingUnits} units</p>
+                      </div>
+                      {payment.bankReference && (
+                        <div className="bg-white border border-slate-200 rounded-lg p-3">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Bank Reference</p>
+                          <p className="font-semibold font-mono text-slate-900">{payment.bankReference}</p>
+                        </div>
+                      )}
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Payment Method</p>
+                        <p className="font-medium text-slate-900">{payment.paymentMethod === "bank_transfer" ? "Bank Transfer" : payment.paymentMethod}</p>
+                      </div>
+                    </div>
+
+                    {/* Proof + review info */}
+                    <div className="flex flex-wrap gap-4 items-center">
+                      {payment.proofUrl && (
+                        <a
+                          href={payment.proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View Payment Proof ({payment.proofType || 'file'})
+                        </a>
+                      )}
+                      {!payment.proofUrl && payment.status === "pending_verification" && (
+                        <p className="text-sm text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          No proof uploaded — verify via bank reference only
+                        </p>
+                      )}
+                    </div>
+
+                    {payment.rejectionReason && payment.status === "rejected" && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                        <strong>Rejection reason:</strong> {payment.rejectionReason}
+                      </div>
+                    )}
+
+                    {payment.status === "approved" && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Payment verified. Units transferred from seller to buyer. Listing marked as sold.
+                        {payment.reviewedAt && (
+                          <span className="text-xs text-green-500 ml-auto">
+                            Approved {new Date(payment.reviewedAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions for pending payments */}
+                    {payment.status === "pending_verification" && (
+                      <div className="border-t border-slate-200 pt-3">
+                        {reviewingId === payment.id ? (
+                          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                              disabled={reviewMutation.isPending}
+                              onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve" })}
+                            >
+                              <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                              {reviewMutation.isPending ? "Processing..." : "Approve & Transfer Units"}
+                            </Button>
+                            <div className="flex gap-2 items-end flex-1">
+                              <Input
+                                placeholder="Rejection reason..."
+                                value={rejectionReason}
+                                onChange={(e) => setRejectionReason(e.target.value)}
+                                className="text-sm flex-1"
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => reviewMutation.mutate({ id: payment.id, action: "reject", reason: rejectionReason })}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setRejectionReason(""); }}>
+                              Back
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => setReviewingId(payment.id)}
+                          >
+                            <Shield className="h-3.5 w-3.5 mr-1" />
+                            Review Payment
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const [filterListingId, setFilterListingId] = useState("");
+  const [selectedListingId, setSelectedListingId] = useState<number | null>(null);
+
+  const queryUrl = filterListingId
+    ? `/api/admin/resale-audit-logs?listingId=${filterListingId}`
+    : "/api/admin/resale-audit-logs";
+
+  const { data: logs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-audit-logs", filterListingId],
+    queryFn: async () => {
+      const res = await authenticatedRequest(queryUrl);
+      return res.json();
+    },
+  });
+
+  const { data: listingTimeline } = useQuery<any>({
+    queryKey: ["/api/admin/resale-audit-logs/listing", selectedListingId],
+    queryFn: async () => {
+      if (!selectedListingId) return null;
+      const res = await authenticatedRequest(`/api/admin/resale-audit-logs/listing/${selectedListingId}`);
+      return res.json();
+    },
+    enabled: !!selectedListingId,
+  });
+
+  const getActionBadge = (action: string) => {
+    const config: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+      listing_created: { label: "Listing Created", variant: "outline" },
+      listing_approved: { label: "Approved", variant: "default" },
+      listing_rejected: { label: "Rejected", variant: "destructive" },
+      listing_cancelled_by_seller: { label: "Seller Cancelled", variant: "secondary" },
+      listing_cancelled_by_admin: { label: "Admin Cancelled", variant: "destructive" },
+      bid_placed: { label: "Bid Placed", variant: "outline" },
+      fixed_price_purchase: { label: "Fixed Price Buy", variant: "default" },
+      bidding_ended_winner_selected: { label: "Winner Selected", variant: "default" },
+      payment_submitted: { label: "Payment Submitted", variant: "outline" },
+      payment_approved_transfer_complete: { label: "Transfer Complete", variant: "default" },
+      payment_rejected: { label: "Payment Rejected", variant: "destructive" },
+      payment_deadline_expired: { label: "Deadline Expired", variant: "destructive" },
+      next_bidder_offered: { label: "Next Bidder", variant: "secondary" },
+    };
+    const c = config[action] || { label: action, variant: "outline" as const };
+    return <Badge variant={c.variant}>{c.label}</Badge>;
+  };
+
+  const getActorBadge = (actorType: string) => {
+    if (actorType === "admin") return <Badge variant="destructive" className="text-xs">Admin</Badge>;
+    if (actorType === "system") return <Badge variant="secondary" className="text-xs">System</Badge>;
+    return <Badge variant="outline" className="text-xs">User</Badge>;
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading audit logs...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h1 className="text-3xl font-bold text-slate-900">Resale Audit Trail</h1>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Filter by Listing ID..."
+            value={filterListingId}
+            onChange={(e) => setFilterListingId(e.target.value)}
+            className="w-48"
+          />
+        </div>
+      </div>
+
+      <div className="text-sm text-slate-500 mb-2">
+        {logs.length} audit event{logs.length !== 1 ? "s" : ""} recorded
+      </div>
+
+      {/* Timeline for a specific listing */}
+      {selectedListingId && listingTimeline && (
+        <Dialog open={!!selectedListingId} onOpenChange={() => setSelectedListingId(null)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Listing #{selectedListingId} — Full Timeline</DialogTitle>
+              {listingTimeline.listing && (
+                <DialogDescription>
+                  {listingTimeline.listing.sellingType === "bidding" ? "Auction" : "Fixed Price"} · 
+                  {listingTimeline.listing.units} units · 
+                  Status: {listingTimeline.listing.status}
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="space-y-3">
+              {listingTimeline.timeline?.map((entry: any, idx: number) => (
+                <div key={entry.id} className="flex gap-3 items-start">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-3 h-3 rounded-full ${idx === 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                    {idx < listingTimeline.timeline.length - 1 && <div className="w-0.5 h-full bg-slate-200 min-h-[40px]" />}
+                  </div>
+                  <div className="flex-1 pb-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      {getActionBadge(entry.action)}
+                      {getActorBadge(entry.actorType)}
+                      <span className="text-xs text-slate-400">{new Date(entry.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-sm text-slate-700">{entry.details}</p>
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-500 mt-1">
+                      {entry.actorName && <span>By: {entry.actorName}</span>}
+                      {entry.sellerName && <span>Seller: {entry.sellerName}</span>}
+                      {entry.buyerName && <span>Buyer: {entry.buyerName}</span>}
+                      {entry.amount && <span>Amount: {entry.currency} {parseFloat(entry.amount).toLocaleString()}</span>}
+                      {entry.units && <span>Units: {entry.units}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {(!listingTimeline.timeline || listingTimeline.timeline.length === 0) && (
+                <p className="text-slate-500 text-sm">No audit events for this listing.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Main audit log table */}
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[160px]">Timestamp</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Property</TableHead>
+                <TableHead>Listing</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead>Parties</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                    No audit events recorded yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                logs.map((log: any) => (
+                  <TableRow key={log.id} className="hover:bg-slate-50">
+                    <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell>{getActionBadge(log.action)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        {getActorBadge(log.actorType)}
+                        {log.actorName && <span className="text-xs text-slate-500">{log.actorName}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{log.propertyName || "-"}</TableCell>
+                    <TableCell>
+                      {log.listingId ? (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-0 h-auto text-blue-600"
+                          onClick={() => setSelectedListingId(log.listingId)}
+                        >
+                          #{log.listingId}
+                        </Button>
+                      ) : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-600 max-w-[300px] truncate" title={log.details || ""}>
+                      {log.details || "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="space-y-0.5">
+                        {log.sellerName && <div>Seller: {log.sellerName}</div>}
+                        {log.buyerName && <div>Buyer: {log.buyerName}</div>}
+                        {log.amount && <div>{log.currency} {parseFloat(log.amount).toLocaleString()}</div>}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2198,7 +3005,8 @@ export default function AdminDashboard() {
     gallery: [] as string[],
     status: "active",
     currency: "NGN",
-    totalSquareMeters: ""
+    totalSquareMeters: "",
+    isTransferable: false,
   });
 
   // Fetch properties (admin endpoint)
@@ -2432,7 +3240,8 @@ export default function AdminDashboard() {
       gallery: [] as string[],
       status: "active",
       currency: "NGN",
-      totalSquareMeters: ""
+      totalSquareMeters: "",
+      isTransferable: false,
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -2562,7 +3371,8 @@ export default function AdminDashboard() {
       gallery: [],
       status: "active",
       currency: "NGN",
-      totalSquareMeters: ""
+      totalSquareMeters: "",
+      isTransferable: false,
     });
     return currentForm !== emptyForm;
   };
@@ -2634,9 +3444,10 @@ export default function AdminDashboard() {
       partnershipDocumentUrl: propertyForm.partnershipDocumentUrl || null,
       developerNotes: propertyForm.developerNotes, // Use admin's actual input  
       investmentDetails: propertyForm.investmentDetails, // Use admin's actual input
-      status: propertyForm.status, // Include the status field
+      status: propertyForm.status,
       currency: propertyForm.currency,
       totalSquareMeters: propertyForm.totalSquareMeters || null,
+      isTransferable: propertyForm.isTransferable,
     };
 
 
@@ -2754,6 +3565,30 @@ export default function AdminDashboard() {
               >
                 <Gift className="mr-3 h-4 w-4" />
                 Referral Rewards
+              </Button>
+              <Button
+                variant={selectedTab === "resale-listings" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-listings")}
+              >
+                <Repeat className="mr-3 h-4 w-4" />
+                Resale Listings
+              </Button>
+              <Button
+                variant={selectedTab === "resale-payments" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-payments")}
+              >
+                <Banknote className="mr-3 h-4 w-4" />
+                Resale Payments
+              </Button>
+              <Button
+                variant={selectedTab === "resale-audit" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-audit")}
+              >
+                <FileText className="mr-3 h-4 w-4" />
+                Resale Audit Trail
               </Button>
             </div>
           </nav>
@@ -3053,7 +3888,8 @@ export default function AdminDashboard() {
                                             investmentDetails: property.investmentDetails || "",
                                             status: property.status,
                                             currency: property.currency || "NGN",
-                                            totalSquareMeters: property.totalSquareMeters || ""
+                                            totalSquareMeters: property.totalSquareMeters || "",
+                                            isTransferable: property.isTransferable || false,
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -3138,7 +3974,8 @@ export default function AdminDashboard() {
                                         investmentDetails: property.investmentDetails || "",
                                         status: property.status,
                                         currency: property.currency || "USD",
-                                        totalSquareMeters: property.totalSquareMeters || ""
+                                        totalSquareMeters: property.totalSquareMeters || "",
+                                        isTransferable: property.isTransferable || false,
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -3578,6 +4415,20 @@ export default function AdminDashboard() {
                               <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                             </SelectContent>
                           </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 py-2">
+                        <input
+                          type="checkbox"
+                          id="isTransferable"
+                          checked={propertyForm.isTransferable}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, isTransferable: e.target.checked }))}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        <div>
+                          <Label htmlFor="isTransferable" className="cursor-pointer">Allow P2P Unit Transfers</Label>
+                          <p className="text-xs text-slate-500">If enabled, investors can list their units for resale to other members</p>
                         </div>
                       </div>
 
@@ -4078,6 +4929,15 @@ export default function AdminDashboard() {
             {selectedTab === "referral-rewards" && (
               <ReferralRewardsTab authenticatedRequest={authenticatedRequest} />
             )}
+            {selectedTab === "resale-listings" && (
+              <ResaleListingsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "resale-payments" && (
+              <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "resale-audit" && (
+              <ResaleAuditTab authenticatedRequest={authenticatedRequest} />
+            )}
           </div>
         </div>
       </div>
@@ -4114,7 +4974,8 @@ export default function AdminDashboard() {
                         investmentDetails: viewingProperty.investmentDetails || "",
                         status: viewingProperty.status,
                         currency: viewingProperty.currency || "NGN",
-                        totalSquareMeters: viewingProperty.totalSquareMeters || ""
+                        totalSquareMeters: viewingProperty.totalSquareMeters || "",
+                        isTransferable: viewingProperty.isTransferable || false,
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -4348,6 +5209,20 @@ export default function AdminDashboard() {
                     <SelectItem value="archived">📦 Archived (Hidden)</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 py-2">
+              <input
+                type="checkbox"
+                id="edit-isTransferable"
+                checked={propertyForm.isTransferable}
+                onChange={(e) => setPropertyForm(prev => ({ ...prev, isTransferable: e.target.checked }))}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <div>
+                <Label htmlFor="edit-isTransferable" className="cursor-pointer">Allow P2P Unit Transfers</Label>
+                <p className="text-xs text-slate-500">If enabled, investors can list their units for resale to other members</p>
               </div>
             </div>
 

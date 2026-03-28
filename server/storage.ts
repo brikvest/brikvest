@@ -16,6 +16,8 @@ import {
   propertyValuations,
   referrals,
   referralRewards,
+  resaleListings,
+  resaleBids,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -45,10 +47,20 @@ import {
   type Referral,
   type InsertReferral,
   type ReferralReward,
-  type InsertReferralReward
+  type InsertReferralReward,
+  type ResaleListing,
+  type InsertResaleListing,
+  type ResaleBid,
+  type InsertResaleBid,
+  resalePayments,
+  type ResalePayment,
+  type InsertResalePayment,
+  resaleAuditLogs,
+  type ResaleAuditLog,
+  type InsertResaleAuditLog
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -160,6 +172,43 @@ export interface IStorage {
   getAllReferralRewards(): Promise<ReferralReward[]>;
   updateReferralRewardPayoutStatus(id: number, status: string): Promise<ReferralReward>;
   getAllUsers(): Promise<User[]>;
+  
+  // Resale listing methods
+  createResaleListing(listing: InsertResaleListing): Promise<ResaleListing>;
+  getResaleListingsByUser(userId: number): Promise<ResaleListing[]>;
+  getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]>;
+  getResaleListing(id: number): Promise<ResaleListing | undefined>;
+  updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing>;
+  getAllResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]>;
+  getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined>;
+  
+  // Resale bid methods
+  createResaleBid(bid: InsertResaleBid): Promise<ResaleBid>;
+  getBidsByListing(listingId: number): Promise<ResaleBid[]>;
+  getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined>;
+  getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined>;
+  getBidsByUser(userId: number): Promise<ResaleBid[]>;
+  getResaleBid(id: number): Promise<ResaleBid | undefined>;
+  updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid>;
+
+  // Resale payment methods
+  createResalePayment(payment: InsertResalePayment): Promise<ResalePayment>;
+  getResalePayment(id: number): Promise<ResalePayment | undefined>;
+  getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]>;
+  getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]>;
+  getAllResalePayments(): Promise<ResalePayment[]>;
+  updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment>;
+
+  // Expired payment deadline listings
+  getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]>;
+
+  // Resale audit log methods
+  createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog>;
+  getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]>;
+  getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]>;
+  getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1030,6 +1079,183 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async createResaleListing(listing: InsertResaleListing): Promise<ResaleListing> {
+    const [result] = await db.insert(resaleListings).values(listing).returning();
+    return result;
+  }
+
+  async getResaleListingsByUser(userId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.sellerId, userId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.propertyId, propertyId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListing(id: number): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings).where(eq(resaleListings.id, id));
+    return result;
+  }
+
+  async updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing> {
+    const [result] = await db.update(resaleListings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(resaleListings.id, id))
+      .returning();
+    return result;
+  }
+
+  async getAllResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings).orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.status, "approved"))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(and(
+        eq(resaleListings.reservationId, reservationId),
+        inArray(resaleListings.status, ["pending_review", "approved"])
+      ))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings)
+      .where(eq(resaleListings.shareToken, shareToken));
+    return result;
+  }
+
+  async createResaleBid(bid: InsertResaleBid): Promise<ResaleBid> {
+    const [result] = await db.insert(resaleBids).values(bid).returning();
+    return result;
+  }
+
+  async getBidsByListing(listingId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.listingId, listingId))
+      .orderBy(desc(resaleBids.amount));
+  }
+
+  async getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids)
+      .where(and(eq(resaleBids.listingId, listingId), eq(resaleBids.status, "active")))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getBidsByUser(userId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.bidderId, userId))
+      .orderBy(desc(resaleBids.createdAt));
+  }
+
+  async getResaleBid(id: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids).where(eq(resaleBids.id, id));
+    return result;
+  }
+
+  async updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid> {
+    const [result] = await db.update(resaleBids)
+      .set(updates)
+      .where(eq(resaleBids.id, id))
+      .returning();
+    return result;
+  }
+
+  async createResalePayment(payment: InsertResalePayment): Promise<ResalePayment> {
+    const [result] = await db.insert(resalePayments).values(payment).returning();
+    return result;
+  }
+
+  async getResalePayment(id: number): Promise<ResalePayment | undefined> {
+    const [result] = await db.select().from(resalePayments).where(eq(resalePayments.id, id));
+    return result;
+  }
+
+  async getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.listingId, listingId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.buyerId, buyerId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getAllResalePayments(): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment> {
+    const [result] = await db.update(resalePayments)
+      .set(updates)
+      .where(eq(resalePayments.id, id))
+      .returning();
+    return result;
+  }
+
+  async getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined> {
+    const conditions = [
+      eq(resaleBids.listingId, listingId),
+    ];
+    if (excludeBidderIds.length > 0) {
+      conditions.push(notInArray(resaleBids.bidderId, excludeBidderIds));
+    }
+    const [result] = await db.select().from(resaleBids)
+      .where(and(...conditions))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(
+        and(
+          eq(resaleListings.status, "awaiting_payment"),
+          lt(resaleListings.paymentDeadline, new Date())
+        )
+      );
+  }
+
+  async createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog> {
+    const [result] = await db.insert(resaleAuditLogs).values(log).returning();
+    return result;
+  }
+
+  async getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.listingId, listingId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.propertyId, propertyId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]> {
+    const query = db.select().from(resaleAuditLogs).orderBy(desc(resaleAuditLogs.createdAt));
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
   }
 }
 

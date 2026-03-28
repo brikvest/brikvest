@@ -8,6 +8,20 @@ import passport from "passport";
 import { randomBytes } from "crypto";
 import { upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
+import {
+  sendListingApprovedEmail,
+  sendListingRejectedEmail,
+  sendNewBidNotificationEmail,
+  sendOutbidEmail,
+  sendHighestBidderEmail,
+  sendAuctionWonEmail,
+  sendFixedPricePurchaseEmail,
+  sendPaymentApprovedEmail,
+  sendPaymentRejectedEmail,
+  sendTransferCompleteToSellerEmail,
+  sendPaymentExpiredEmail,
+  sendNextBidderOfferedEmail,
+} from "./resaleEmails";
 import { 
   investmentEmailTemplate, 
   kycApprovedEmailTemplate, 
@@ -3966,7 +3980,1404 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
-  
+
+  // ==================== RESALE HELPER FUNCTIONS ====================
+
+  async function logResaleAudit(params: {
+    listingId?: number;
+    bidId?: number;
+    paymentId?: number;
+    propertyId?: number;
+    action: string;
+    actorType: "user" | "admin" | "system";
+    actorId?: number;
+    actorName?: string;
+    sellerId?: number;
+    buyerId?: number;
+    units?: string;
+    amount?: string;
+    currency?: string;
+    details?: string;
+    metadata?: Record<string, any>;
+  }) {
+    try {
+      await storage.createResaleAuditLog({
+        listingId: params.listingId || null,
+        bidId: params.bidId || null,
+        paymentId: params.paymentId || null,
+        propertyId: params.propertyId || null,
+        action: params.action,
+        actorType: params.actorType,
+        actorId: params.actorId || null,
+        actorName: params.actorName || null,
+        sellerId: params.sellerId || null,
+        buyerId: params.buyerId || null,
+        units: params.units || null,
+        amount: params.amount || null,
+        currency: params.currency || null,
+        details: params.details || null,
+        metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+      });
+    } catch (err) {
+      console.error("[AUDIT] Failed to log resale audit:", err);
+    }
+  }
+
+  async function handleNextBidderFallback(
+    listing: any,
+    failedBuyerId: number,
+    reason: string
+  ): Promise<string> {
+    // Only auction listings have fallback bidders
+    if (listing.sellingType !== "bidding") {
+      // Fixed-price listing — just return to approved (re-list)
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return "Fixed-price listing returned to active status.";
+    }
+
+    // Collect all failed bidder IDs for this listing
+    const allBids = await storage.getBidsByListing(listing.id);
+    const failedBidderIds = allBids
+      .filter(b => b.status === "failed_payment" || b.bidderId === failedBuyerId)
+      .map(b => b.bidderId);
+    const uniqueFailedIds = [...new Set(failedBidderIds)];
+
+    // Find next highest bidder excluding failed ones
+    const nextBid = await storage.getNextHighestBidForListing(listing.id, uniqueFailedIds);
+
+    if (!nextBid) {
+      // No more bidders — return listing to active or cancel
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        highestBidId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return `${reason}. No more bidders available — listing returned to active status.`;
+    }
+
+    // Check reserve price
+    if (listing.minimumPrice && parseFloat(nextBid.amount) < parseFloat(listing.minimumPrice)) {
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        highestBidId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return `${reason}. Next bidder's amount is below reserve price — listing returned to active status.`;
+    }
+
+    // Mark next bidder as the winner
+    await storage.updateResaleBid(nextBid.id, { status: "won" });
+
+    const paymentDeadline = new Date();
+    paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+    await storage.updateResaleListing(listing.id, {
+      status: "awaiting_payment",
+      winnerId: nextBid.bidderId,
+      highestBidId: nextBid.id,
+      paymentDeadline,
+      updatedAt: new Date(),
+    });
+
+    const nextBidder = await storage.getUser(nextBid.bidderId);
+
+    await logResaleAudit({
+      listingId: listing.id,
+      bidId: nextBid.id,
+      propertyId: listing.propertyId,
+      action: "next_bidder_offered",
+      actorType: "system",
+      sellerId: listing.sellerId,
+      buyerId: nextBid.bidderId,
+      units: listing.units,
+      amount: nextBid.amount,
+      currency: listing.currency,
+      details: `${reason}. Next bidder #${nextBid.bidderId} offered the slot with ${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}. Failed buyer: #${failedBuyerId}`,
+      metadata: { failedBuyerId, reason },
+    });
+
+    try {
+      const failedBuyer = await storage.getUser(failedBuyerId);
+      const property = await storage.getProperty(listing.propertyId);
+      if (failedBuyer && property) {
+        await sendPaymentExpiredEmail(failedBuyer.email, failedBuyer.fullName || failedBuyer.email, property.name);
+      }
+      if (nextBidder && property) {
+        await sendNextBidderOfferedEmail(
+          nextBidder.email, nextBidder.fullName || nextBidder.email, property.name,
+          listing.units, nextBid.amount, listing.currency, paymentDeadline
+        );
+      }
+    } catch (emailErr) {
+      console.error("[RESALE-EMAIL] Failed to send fallback emails:", emailErr);
+    }
+
+    return `${reason}. Slot offered to next highest bidder: ${nextBidder?.fullName || nextBidder?.email || `User #${nextBid.bidderId}`} (${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}).`;
+  }
+
+  // ==================== RESALE LISTING ROUTES ====================
+
+  // Create a resale listing (seller side)
+  app.post("/api/resale-listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const { reservationId, units, sellingType, askingPrice, minimumPrice } = req.body;
+
+      if (!reservationId || !units || !sellingType) {
+        return res.status(400).json({ message: "Missing required fields: reservationId, units, sellingType" });
+      }
+
+      if (!["fixed_price", "bidding"].includes(sellingType)) {
+        return res.status(400).json({ message: "sellingType must be 'fixed_price' or 'bidding'" });
+      }
+
+      if (sellingType === "fixed_price" && !askingPrice) {
+        return res.status(400).json({ message: "askingPrice is required for fixed price listings" });
+      }
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+
+      if (reservation.userId !== user.id) {
+        return res.status(403).json({ message: "You can only sell units from your own investments" });
+      }
+
+      if (reservation.status !== "converted_to_investment") {
+        return res.status(400).json({ message: "Only confirmed investments can be listed for resale" });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property || !property.isTransferable) {
+        return res.status(400).json({ message: "This property does not allow unit transfers" });
+      }
+
+      const requestedUnits = parseFloat(units);
+      const ownedUnits = parseFloat(reservation.units);
+
+      if (requestedUnits <= 0 || requestedUnits > ownedUnits) {
+        return res.status(400).json({ message: `You can sell between 0 and ${ownedUnits} units` });
+      }
+
+      const existingListings = await storage.getActiveResaleListingsForReservation(reservationId);
+      const lockedUnits = existingListings.reduce((sum, l) => sum + parseFloat(l.units), 0);
+      const availableUnits = ownedUnits - lockedUnits;
+
+      if (requestedUnits > availableUnits) {
+        return res.status(400).json({ 
+          message: `Only ${availableUnits} units available for listing (${lockedUnits} already listed)` 
+        });
+      }
+
+      const shareToken = randomBytes(12).toString("hex");
+
+      const listing = await storage.createResaleListing({
+        sellerId: user.id,
+        propertyId: reservation.propertyId,
+        reservationId,
+        units: units.toString(),
+        sellingType,
+        askingPrice: askingPrice ? askingPrice.toString() : null,
+        minimumPrice: minimumPrice ? minimumPrice.toString() : null,
+        currency: reservation.currency || "NGN",
+        shareToken,
+      });
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: reservation.propertyId,
+        action: "listing_created",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: user.id,
+        units: units.toString(),
+        amount: askingPrice?.toString(),
+        currency: reservation.currency || "NGN",
+        details: `${sellingType} listing created for ${units} units of ${property?.name || "property"}`,
+        metadata: { sellingType, reservationId, minimumPrice },
+      });
+
+      res.status(201).json(listing);
+    } catch (error: any) {
+      console.error("Error creating resale listing:", error);
+      res.status(500).json({ message: "Failed to create resale listing" });
+    }
+  });
+
+  // Get current user's resale listings
+  app.get("/api/resale-listings/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listings = await storage.getResaleListingsByUser(user.id);
+      res.json(listings);
+    } catch (error: any) {
+      console.error("Error fetching user resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // Cancel a resale listing (seller can cancel pending or approved listings)
+  app.post("/api/resale-listings/:id/cancel", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.sellerId !== user.id) {
+        return res.status(403).json({ message: "You can only cancel your own listings" });
+      }
+
+      if (!["pending_review", "approved"].includes(listing.status)) {
+        return res.status(400).json({ message: "Only pending or approved listings can be cancelled" });
+      }
+
+      const updated = await storage.updateResaleListing(listingId, { status: "cancelled" });
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: "listing_cancelled_by_seller",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: user.id,
+        units: listing.units,
+        details: `Seller cancelled listing (was ${listing.status})`,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error cancelling resale listing:", error);
+      res.status(500).json({ message: "Failed to cancel listing" });
+    }
+  });
+
+  // Admin: Get all resale listings (enriched with seller & property info)
+  app.get("/api/admin/resale-listings", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listings = await storage.getAllResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const seller = await storage.getUser(listing.sellerId);
+        const property = await storage.getProperty(listing.propertyId);
+        const bids = await storage.getBidsByListing(listing.id);
+        const highestBid = bids.length > 0 ? bids[0] : null;
+        const winner = listing.winnerId ? await storage.getUser(listing.winnerId) : null;
+        const payments = await storage.getResalePaymentsByListing(listing.id);
+        const pendingPayment = payments.find(p => p.status === "pending_verification");
+        const approvedPayment = payments.find(p => p.status === "approved");
+
+        return {
+          ...listing,
+          sellerName: seller?.fullName || seller?.email || `User #${listing.sellerId}`,
+          sellerEmail: seller?.email,
+          propertyName: property?.name || `Property #${listing.propertyId}`,
+          propertyLocation: property?.location,
+          bidCount: bids.length,
+          highestBidAmount: highestBid?.amount || null,
+          highestBidderName: highestBid ? (await storage.getUser(highestBid.bidderId))?.fullName || `User #${highestBid.bidderId}` : null,
+          winnerName: winner?.fullName || winner?.email || null,
+          winnerEmail: winner?.email || null,
+          hasPendingPayment: !!pendingPayment,
+          hasApprovedPayment: !!approvedPayment,
+          paymentStatus: pendingPayment ? "pending_verification" : approvedPayment ? "approved" : null,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching all resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // Admin: Approve or reject a resale listing
+  app.post("/api/admin/resale-listings/:id/review", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const { action, note } = req.body;
+
+      if (!["approve", "reject"].includes(action)) {
+        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
+      }
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status !== "pending_review") {
+        return res.status(400).json({ message: "Only pending listings can be reviewed" });
+      }
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: action === "approve" ? "approved" : "rejected",
+        adminReviewNote: note || null,
+        reviewedByAdminId: (req.session as any).adminUserId,
+        reviewedAt: new Date(),
+      });
+
+      const seller = await storage.getUser(listing.sellerId);
+      const property = await storage.getProperty(listing.propertyId);
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: action === "approve" ? "listing_approved" : "listing_rejected",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        units: listing.units,
+        details: action === "approve"
+          ? `Listing approved for ${listing.units} units of ${property?.name || "property"}`
+          : `Listing rejected. Reason: ${note || "No reason provided"}`,
+        metadata: { adminNote: note },
+      });
+
+      try {
+        if (seller && property) {
+          if (action === "approve") {
+            await sendListingApprovedEmail(seller.email, seller.fullName || seller.email, property.name, listing.units, listing.sellingType);
+          } else {
+            await sendListingRejectedEmail(seller.email, seller.fullName || seller.email, property.name, listing.units, note);
+          }
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send listing review email:", emailErr);
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error reviewing resale listing:", error);
+      res.status(500).json({ message: "Failed to review listing" });
+    }
+  });
+
+  // Admin: Force cancel a listing
+  app.post("/api/admin/resale-listings/:id/cancel", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const { note } = req.body || {};
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status === "sold") {
+        return res.status(400).json({ message: "Cannot cancel a completed sale" });
+      }
+
+      if (listing.status === "cancelled") {
+        return res.status(400).json({ message: "Listing is already cancelled" });
+      }
+
+      // If awaiting_payment, mark all pending payments as rejected
+      if (listing.status === "awaiting_payment") {
+        const payments = await storage.getResalePaymentsByListing(listingId);
+        for (const payment of payments) {
+          if (payment.status === "pending_verification") {
+            await storage.updateResalePayment(payment.id, {
+              status: "rejected",
+              rejectionReason: "Listing cancelled by admin",
+              reviewedByAdminId: (req.session as any).adminUserId,
+              reviewedAt: new Date(),
+            });
+          }
+        }
+      }
+
+      // If bidding, mark all active bids as lost
+      if (listing.sellingType === "bidding") {
+        const bids = await storage.getBidsByListing(listingId);
+        for (const bid of bids) {
+          if (bid.status === "active" || bid.status === "outbid") {
+            await storage.updateResaleBid(bid.id, { status: "lost" });
+          }
+        }
+      }
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "cancelled",
+        adminReviewNote: note || "Cancelled by admin",
+        reviewedByAdminId: (req.session as any).adminUserId,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await logResaleAudit({
+        listingId: listing.id,
+        propertyId: listing.propertyId,
+        action: "listing_cancelled_by_admin",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        units: listing.units,
+        details: `Listing force-cancelled by admin. Reason: ${note || "No reason"}`,
+      });
+
+      res.json({ message: "Listing cancelled successfully", listing: updated });
+    } catch (error: any) {
+      console.error("Error cancelling listing:", error);
+      res.status(500).json({ message: "Failed to cancel listing" });
+    }
+  });
+
+  // Public (approved users): Get active resale listings for a property
+  app.get("/api/properties/:id/resale-listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const listings = await storage.getResaleListingsByProperty(propertyId);
+      const activeListings = listings.filter(l => l.status === "approved");
+      res.json(activeListings);
+    } catch (error: any) {
+      console.error("Error fetching property resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // ==================== PUBLIC LISTING ROUTE ====================
+
+  app.get("/api/public/listing/:shareToken", async (req, res) => {
+    try {
+      const { shareToken } = req.params;
+      const listing = await storage.getResaleListingByShareToken(shareToken);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (!["approved", "awaiting_payment", "sold"].includes(listing.status)) {
+        return res.status(404).json({ message: "Listing is not available" });
+      }
+
+      const property = await storage.getProperty(listing.propertyId);
+      const seller = await storage.getUser(listing.sellerId);
+
+      let highestBidAmount: string | null = null;
+      let bidCount = 0;
+      if (listing.sellingType === "bidding") {
+        const highestBid = await storage.getHighestBidForListing(listing.id);
+        highestBidAmount = highestBid?.amount || null;
+        const bids = await storage.getBidsByListing(listing.id);
+        bidCount = bids.filter(b => b.status === "active").length;
+      }
+
+      res.json({
+        id: listing.id,
+        units: listing.units,
+        sellingType: listing.sellingType,
+        askingPrice: listing.askingPrice,
+        minimumPrice: listing.minimumPrice,
+        currency: listing.currency,
+        status: listing.status,
+        biddingEndsAt: listing.biddingEndsAt,
+        createdAt: listing.createdAt,
+        shareToken: listing.shareToken,
+        propertyName: property?.name || "Property",
+        propertyLocation: property?.location || "",
+        propertyImageUrl: property?.imageUrl || null,
+        propertyType: property?.propertyType || "",
+        propertyDescription: property?.description || "",
+        sellerName: seller?.fullName || "Anonymous",
+        highestBidAmount,
+        bidCount,
+      });
+    } catch (error: any) {
+      console.error("Error fetching public listing:", error);
+      res.status(500).json({ message: "Failed to fetch listing" });
+    }
+  });
+
+  // ==================== MARKETPLACE ROUTES ====================
+
+  // Get all approved resale listings (marketplace) - enriched with property & bid info
+  app.get("/api/marketplace/listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const listings = await storage.getActiveResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const seller = await storage.getUser(listing.sellerId);
+        const highestBid = listing.sellingType === "bidding" 
+          ? await storage.getHighestBidForListing(listing.id) 
+          : undefined;
+        const bidCount = listing.sellingType === "bidding"
+          ? (await storage.getBidsByListing(listing.id)).filter(b => b.status === "active").length
+          : 0;
+        return {
+          ...listing,
+          propertyName: property?.name,
+          propertyLocation: property?.location,
+          propertyImageUrl: property?.imageUrl,
+          propertyType: property?.propertyType,
+          sellerName: seller?.fullName || "Anonymous",
+          highestBidAmount: highestBid?.amount || null,
+          bidCount,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching marketplace listings:", error);
+      res.status(500).json({ message: "Failed to fetch marketplace listings" });
+    }
+  });
+
+  // Get single listing detail with bids
+  app.get("/api/marketplace/listings/:id", requireApprovedUser, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing || !["approved", "awaiting_payment", "sold"].includes(listing.status)) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      const property = await storage.getProperty(listing.propertyId);
+      const seller = await storage.getUser(listing.sellerId);
+      const bids = listing.sellingType === "bidding" 
+        ? await storage.getBidsByListing(listing.id)
+        : [];
+      const highestBid = bids.find(b => b.status === "active" || b.status === "won");
+
+      const enrichedBids = await Promise.all(bids.map(async (bid) => {
+        const bidder = await storage.getUser(bid.bidderId);
+        return {
+          ...bid,
+          bidderName: bidder?.fullName || "Anonymous",
+        };
+      }));
+
+      res.json({
+        ...listing,
+        propertyName: property?.name,
+        propertyLocation: property?.location,
+        propertyImageUrl: property?.imageUrl,
+        propertyType: property?.propertyType,
+        sellerName: seller?.fullName || "Anonymous",
+        highestBidAmount: highestBid?.amount || null,
+        bidCount: bids.filter(b => b.status === "active").length,
+        bids: enrichedBids,
+      });
+    } catch (error: any) {
+      console.error("Error fetching listing detail:", error);
+      res.status(500).json({ message: "Failed to fetch listing" });
+    }
+  });
+
+  // Place a bid on a bidding listing
+  app.post("/api/marketplace/listings/:id/bid", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+      const { amount } = req.body;
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ message: "Invalid bid amount" });
+      }
+
+      // KYC verification required to bid
+      if (user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "You must complete KYC verification before placing bids" });
+      }
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "This listing is not accepting bids" });
+      }
+      if (listing.sellingType !== "bidding") {
+        return res.status(400).json({ message: "This is not a bidding listing" });
+      }
+      // Prevent seller from bidding on their own listing
+      if (listing.sellerId === user.id) {
+        return res.status(400).json({ message: "You cannot bid on your own listing" });
+      }
+      if (listing.biddingEndsAt && new Date(listing.biddingEndsAt) < new Date()) {
+        return res.status(400).json({ message: "Bidding has ended for this listing" });
+      }
+
+      const bidAmount = parseFloat(amount);
+
+      if (listing.minimumPrice && bidAmount < parseFloat(listing.minimumPrice)) {
+        return res.status(400).json({ message: `Bid must be at least ${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()} (reserve price)` });
+      }
+
+      const highestBid = await storage.getHighestBidForListing(listingId);
+      if (highestBid && bidAmount <= parseFloat(highestBid.amount)) {
+        return res.status(400).json({ message: `Bid must be higher than the current highest bid of ${listing.currency} ${parseFloat(highestBid.amount).toLocaleString()}` });
+      }
+
+      // Mark previous highest bid as outbid
+      if (highestBid) {
+        await storage.updateResaleBid(highestBid.id, { status: "outbid" });
+      }
+
+      const bid = await storage.createResaleBid({
+        listingId,
+        bidderId: user.id,
+        amount: amount.toString(),
+        currency: listing.currency,
+      });
+
+      // Update listing with highest bid reference
+      const listingUpdates: any = { highestBidId: bid.id };
+
+      // Anti-sniping: if bid placed within last 5 minutes of auction, extend by 5 minutes
+      if (listing.biddingEndsAt) {
+        const now = new Date();
+        const endsAt = new Date(listing.biddingEndsAt);
+        const fiveMinutes = 5 * 60 * 1000;
+        if (endsAt.getTime() - now.getTime() < fiveMinutes && endsAt.getTime() > now.getTime()) {
+          const newEndTime = new Date(now.getTime() + fiveMinutes);
+          listingUpdates.biddingEndsAt = newEndTime;
+        }
+      }
+
+      await storage.updateResaleListing(listingId, listingUpdates);
+
+      await logResaleAudit({
+        listingId,
+        bidId: bid.id,
+        propertyId: listing.propertyId,
+        action: "bid_placed",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        units: listing.units,
+        amount: amount.toString(),
+        currency: listing.currency,
+        details: `Bid of ${listing.currency} ${amount.toLocaleString()} placed${listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt ? " (anti-snipe: auction extended 5min)" : ""}`,
+        metadata: { previousHighestBid: highestBid?.amount, antiSnipeTriggered: !!listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt },
+      });
+
+      // Send email notifications
+      try {
+        const seller = await storage.getUser(listing.sellerId);
+        const property = await storage.getProperty(listing.propertyId);
+        const allBids = await storage.getBidsByListing(listingId);
+
+        if (seller && property) {
+          await sendNewBidNotificationEmail(
+            seller.email, seller.fullName || seller.email, property.name,
+            user.fullName || user.email, amount.toString(), listing.currency, allBids.length
+          );
+        }
+
+        // Notify outbid user
+        if (highestBid && highestBid.bidderId !== user.id) {
+          const outbidUser = await storage.getUser(highestBid.bidderId);
+          if (outbidUser && property) {
+            await sendOutbidEmail(
+              outbidUser.email, outbidUser.fullName || outbidUser.email, property.name,
+              highestBid.amount, amount.toString(), listing.currency
+            );
+          }
+        }
+
+        // Confirm highest bidder status to new bidder
+        if (property) {
+          await sendHighestBidderEmail(user.email, user.fullName || user.email, property.name, amount.toString(), listing.currency);
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send bid notification emails:", emailErr);
+      }
+
+      res.status(201).json({
+        ...bid,
+        auctionExtended: !!listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt,
+      });
+    } catch (error: any) {
+      console.error("Error placing bid:", error);
+      res.status(500).json({ message: "Failed to place bid" });
+    }
+  });
+
+  // Buy fixed-price listing
+  app.post("/api/marketplace/listings/:id/buy", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+
+      // KYC verification required to buy
+      if (user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "You must complete KYC verification before purchasing units" });
+      }
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "This listing is no longer available" });
+      }
+      if (listing.sellingType !== "fixed_price") {
+        return res.status(400).json({ message: "This listing requires bidding, not direct purchase" });
+      }
+      // Prevent seller from buying their own listing
+      if (listing.sellerId === user.id) {
+        return res.status(400).json({ message: "You cannot buy your own listing" });
+      }
+
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "awaiting_payment",
+        winnerId: user.id,
+        paymentDeadline,
+      });
+
+      await logResaleAudit({
+        listingId,
+        propertyId: listing.propertyId,
+        action: "fixed_price_purchase",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        units: listing.units,
+        amount: listing.askingPrice || "0",
+        currency: listing.currency,
+        details: `Fixed-price purchase accepted. Payment deadline: ${paymentDeadline.toISOString()}`,
+      });
+
+      try {
+        const property = await storage.getProperty(listing.propertyId);
+        if (property) {
+          await sendFixedPricePurchaseEmail(
+            user.email, user.fullName || user.email, property.name,
+            listing.units, listing.askingPrice || "0", listing.currency, paymentDeadline
+          );
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send fixed-price purchase email:", emailErr);
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error buying listing:", error);
+      res.status(500).json({ message: "Failed to process purchase" });
+    }
+  });
+
+  // End bidding on a listing (admin action)
+  app.post("/api/admin/resale-listings/:id/end-bidding", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.sellingType !== "bidding") {
+        return res.status(400).json({ message: "Not a bidding listing" });
+      }
+      if (listing.status !== "approved") {
+        return res.status(400).json({ message: "Listing is not active" });
+      }
+
+      const highestBid = await storage.getHighestBidForListing(listingId);
+      if (!highestBid) {
+        // No bids — just cancel the listing
+        await storage.updateResaleListing(listingId, { status: "cancelled" });
+        return res.json({ message: "No bids received. Listing cancelled.", listing: await storage.getResaleListing(listingId) });
+      }
+
+      // Check reserve price
+      if (listing.minimumPrice && parseFloat(highestBid.amount) < parseFloat(listing.minimumPrice)) {
+        // Reserve not met — mark all bids as lost
+        const allBids = await storage.getBidsByListing(listingId);
+        for (const bid of allBids) {
+          if (bid.status === "active") {
+            await storage.updateResaleBid(bid.id, { status: "lost" });
+          }
+        }
+        await storage.updateResaleListing(listingId, { status: "cancelled" });
+        return res.json({ message: "Reserve price not met. Listing cancelled.", listing: await storage.getResaleListing(listingId) });
+      }
+
+      // Winner found
+      await storage.updateResaleBid(highestBid.id, { status: "won" });
+
+      // Mark all other active bids as lost
+      const allBids = await storage.getBidsByListing(listingId);
+      for (const bid of allBids) {
+        if (bid.id !== highestBid.id && (bid.status === "active" || bid.status === "outbid")) {
+          await storage.updateResaleBid(bid.id, { status: "lost" });
+        }
+      }
+
+      const paymentDeadline = new Date();
+      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: "awaiting_payment",
+        winnerId: highestBid.bidderId,
+        highestBidId: highestBid.id,
+        paymentDeadline,
+      });
+
+      await logResaleAudit({
+        listingId,
+        bidId: highestBid.id,
+        propertyId: listing.propertyId,
+        action: "bidding_ended_winner_selected",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        buyerId: highestBid.bidderId,
+        units: listing.units,
+        amount: highestBid.amount,
+        currency: listing.currency,
+        details: `Bidding ended. Winner: User #${highestBid.bidderId} with ${listing.currency} ${parseFloat(highestBid.amount).toLocaleString()}. Payment deadline: ${paymentDeadline.toISOString()}`,
+        metadata: { totalBids: allBids.length },
+      });
+
+      try {
+        const winner = await storage.getUser(highestBid.bidderId);
+        const property = await storage.getProperty(listing.propertyId);
+        if (winner && property) {
+          await sendAuctionWonEmail(
+            winner.email, winner.fullName || winner.email, property.name,
+            listing.units, highestBid.amount, listing.currency, paymentDeadline
+          );
+        }
+      } catch (emailErr) {
+        console.error("[RESALE-EMAIL] Failed to send auction won email:", emailErr);
+      }
+
+      res.json({ message: "Bidding ended. Winner selected.", listing: updated });
+    } catch (error: any) {
+      console.error("Error ending bidding:", error);
+      res.status(500).json({ message: "Failed to end bidding" });
+    }
+  });
+
+  // Get user's bids
+  app.get("/api/resale-bids/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const bids = await storage.getBidsByUser(user.id);
+      const enriched = await Promise.all(bids.map(async (bid) => {
+        const listing = await storage.getResaleListing(bid.listingId);
+        const property = listing ? await storage.getProperty(listing.propertyId) : null;
+        return {
+          ...bid,
+          listing: listing ? {
+            id: listing.id,
+            units: listing.units,
+            sellingType: listing.sellingType,
+            status: listing.status,
+            currency: listing.currency,
+          } : null,
+          propertyName: property?.name || "Unknown",
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching user bids:", error);
+      res.status(500).json({ message: "Failed to fetch bids" });
+    }
+  });
+
+  // Get listings where the current user is the winner (awaiting payment)
+  app.get("/api/resale-listings/won", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const allListings = await storage.getAllResaleListings();
+      const wonListings = allListings.filter(l => l.winnerId === user.id && l.status === "awaiting_payment");
+      const enriched = await Promise.all(wonListings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const seller = await storage.getUser(listing.sellerId);
+        let highestBidAmount = null;
+        if (listing.highestBidId) {
+          const bid = await storage.getResaleBid(listing.highestBidId);
+          if (bid) highestBidAmount = bid.amount;
+        }
+        return {
+          ...listing,
+          propertyName: property?.name || `Property #${listing.propertyId}`,
+          propertyLocation: property?.location,
+          sellerName: seller?.fullName || seller?.email || "Unknown",
+          highestBidAmount,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching won listings:", error);
+      res.status(500).json({ message: "Failed to fetch won listings" });
+    }
+  });
+
+  // Buyer: Submit resale payment confirmation
+  app.post("/api/resale-payments", requireApprovedUser, upload.single('paymentProof'), async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const { listingId, bankReference } = req.body;
+      const file = req.file;
+
+      if (!listingId) {
+        return res.status(400).json({ message: "Listing ID is required" });
+      }
+
+      const listing = await storage.getResaleListing(parseInt(listingId));
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status !== "awaiting_payment") {
+        return res.status(400).json({ message: "This listing is not awaiting payment" });
+      }
+
+      if (listing.winnerId !== user.id) {
+        return res.status(403).json({ message: "You are not the designated buyer for this listing" });
+      }
+
+      if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
+        return res.status(400).json({ message: "Payment deadline has passed. The listing may be offered to the next bidder." });
+      }
+
+      const existingPayments = await storage.getResalePaymentsByListing(parseInt(listingId));
+      const hasPending = existingPayments.some(p => p.status === "pending_verification");
+      if (hasPending) {
+        return res.status(400).json({ message: "A payment is already pending verification for this listing" });
+      }
+
+      // Payment retry limit: max 3 attempts per buyer per listing
+      const MAX_PAYMENT_ATTEMPTS = 3;
+      const buyerAttempts = existingPayments.filter(p => p.buyerId === user.id);
+      const rejectedAttempts = buyerAttempts.filter(p => p.status === "rejected");
+      if (rejectedAttempts.length >= MAX_PAYMENT_ATTEMPTS) {
+        return res.status(400).json({ 
+          message: `You have exceeded the maximum of ${MAX_PAYMENT_ATTEMPTS} payment attempts for this listing. The slot will be offered to the next bidder.` 
+        });
+      }
+
+      let proofUrl: string | null = null;
+      let proofType: string | null = null;
+      if (file) {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+        if (!allowedTypes.includes(file.mimetype)) {
+          return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, WEBP, and PDF files are allowed." });
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          return res.status(400).json({ message: "File size exceeds 10MB limit." });
+        }
+        if (file.mimetype === 'application/pdf') {
+          proofUrl = await uploadToObjectStorage(file.buffer, file.originalname, file.mimetype, 'resale-payment-proofs');
+        } else {
+          const result = await uploadToCloudinary(file.buffer, file.originalname, 'brikvest/resale-payment-proofs');
+          proofUrl = result.url;
+        }
+        proofType = file.mimetype === 'application/pdf' ? 'pdf' : 'image';
+      }
+
+      let finalAmount = listing.askingPrice || "0";
+      if (listing.sellingType === "bidding" && listing.highestBidId) {
+        const winningBid = await storage.getResaleBid(listing.highestBidId);
+        if (winningBid) finalAmount = winningBid.amount;
+      }
+
+      const attemptNumber = rejectedAttempts.length + 1;
+
+      const payment = await storage.createResalePayment({
+        listingId: parseInt(listingId),
+        buyerId: user.id,
+        amount: finalAmount,
+        currency: listing.currency || "NGN",
+        paymentMethod: "bank_transfer",
+        bankReference: bankReference || null,
+        proofUrl,
+        proofType,
+        attemptNumber,
+      });
+
+      await logResaleAudit({
+        listingId: parseInt(listingId),
+        paymentId: payment.id,
+        propertyId: listing.propertyId,
+        action: "payment_submitted",
+        actorType: "user",
+        actorId: user.id,
+        actorName: user.fullName || user.email,
+        sellerId: listing.sellerId,
+        buyerId: user.id,
+        amount: finalAmount,
+        currency: listing.currency || "NGN",
+        details: `Payment proof submitted (attempt ${attemptNumber}/${MAX_PAYMENT_ATTEMPTS}). Bank ref: ${bankReference || "N/A"}`,
+        metadata: { attemptNumber, bankReference, hasProof: !!proofUrl },
+      });
+
+      res.json({
+        message: "Payment confirmation submitted. Please wait for admin verification.",
+        payment,
+        attemptsRemaining: MAX_PAYMENT_ATTEMPTS - attemptNumber,
+      });
+    } catch (error: any) {
+      console.error("Error submitting resale payment:", error);
+      res.status(500).json({ message: "Failed to submit payment confirmation" });
+    }
+  });
+
+  // Buyer: Get their resale payments
+  app.get("/api/resale-payments/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const payments = await storage.getResalePaymentsByBuyer(user.id);
+      res.json(payments);
+    } catch (error: any) {
+      console.error("Error fetching resale payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // Get resale payment for a specific listing (buyer check)
+  app.get("/api/resale-payments/listing/:listingId", requireApprovedUser, async (req: any, res) => {
+    try {
+      const payments = await storage.getResalePaymentsByListing(parseInt(req.params.listingId));
+      res.json(payments);
+    } catch (error: any) {
+      console.error("Error fetching listing payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // Admin: Get all resale payments
+  app.get("/api/admin/resale-payments", requireAdminAuth, async (req: any, res) => {
+    try {
+      const payments = await storage.getAllResalePayments();
+      const enriched = await Promise.all(payments.map(async (payment) => {
+        const listing = await storage.getResaleListing(payment.listingId);
+        const buyer = await storage.getUser(payment.buyerId);
+        const property = listing ? await storage.getProperty(listing.propertyId) : null;
+        const seller = listing ? await storage.getUser(listing.sellerId) : null;
+        return {
+          ...payment,
+          buyerName: buyer?.fullName || buyer?.email || `User #${payment.buyerId}`,
+          buyerEmail: buyer?.email,
+          sellerName: seller?.fullName || seller?.email || "Unknown",
+          sellerEmail: seller?.email,
+          propertyName: property?.name || "Unknown",
+          listingUnits: listing?.units,
+          listingType: listing?.sellingType,
+          listingStatus: listing?.status,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching admin resale payments:", error);
+      res.status(500).json({ message: "Failed to fetch resale payments" });
+    }
+  });
+
+  // Admin: Approve or reject resale payment
+  app.post("/api/admin/resale-payments/:id/review", requireAdminAuth, async (req: any, res) => {
+    try {
+      const paymentId = parseInt(req.params.id);
+      const { action, rejectionReason } = req.body;
+
+      if (!["approve", "reject"].includes(action)) {
+        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
+      }
+
+      const payment = await storage.getResalePayment(paymentId);
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+
+      if (payment.status !== "pending_verification") {
+        return res.status(400).json({ message: "Only pending payments can be reviewed" });
+      }
+
+      const listing = await storage.getResaleListing(payment.listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Associated listing not found" });
+      }
+
+      if (action === "approve") {
+        await storage.updateResalePayment(paymentId, {
+          status: "approved",
+          reviewedByAdminId: (req.session as any).adminUserId,
+          reviewedAt: new Date(),
+        });
+
+        await storage.updateResaleListing(payment.listingId, {
+          status: "sold",
+          updatedAt: new Date(),
+        });
+
+        const sellerReservation = await storage.getReservation(listing.reservationId);
+        if (sellerReservation) {
+          const currentUnits = parseFloat(String(sellerReservation.units || 0));
+          const soldUnits = parseFloat(String(listing.units));
+          const remainingUnits = currentUnits - soldUnits;
+
+          if (remainingUnits <= 0) {
+            await storage.updateReservation(listing.reservationId, {
+              status: "sold_via_resale",
+              units: "0",
+            });
+          } else {
+            await storage.updateReservation(listing.reservationId, {
+              units: String(remainingUnits),
+            });
+          }
+        }
+
+        const property = await storage.getProperty(listing.propertyId);
+        const buyer = await storage.getUser(payment.buyerId);
+
+        if (property && buyer) {
+          await storage.createInvestmentReservation({
+            propertyId: listing.propertyId,
+            userId: payment.buyerId,
+            units: String(listing.units),
+            amount: payment.amount,
+            currency: payment.currency || "NGN",
+            status: "converted_to_investment",
+            expiresAt: new Date(),
+          });
+        }
+
+        await logResaleAudit({
+          listingId: payment.listingId,
+          paymentId: paymentId,
+          propertyId: listing.propertyId,
+          action: "payment_approved_transfer_complete",
+          actorType: "admin",
+          actorId: (req.session as any).adminUserId,
+          actorName: `Admin #${(req.session as any).adminUserId}`,
+          sellerId: listing.sellerId,
+          buyerId: payment.buyerId,
+          units: listing.units,
+          amount: payment.amount,
+          currency: payment.currency || "NGN",
+          details: `Payment approved. Units transferred from seller #${listing.sellerId} to buyer #${payment.buyerId}. Listing marked as sold.`,
+          metadata: { bankReference: payment.bankReference },
+        });
+
+        try {
+          const seller = await storage.getUser(listing.sellerId);
+          const property2 = property || await storage.getProperty(listing.propertyId);
+          const buyer2 = buyer || await storage.getUser(payment.buyerId);
+          if (buyer2 && property2) {
+            await sendPaymentApprovedEmail(
+              buyer2.email, buyer2.fullName || buyer2.email, property2.name,
+              listing.units, payment.amount, payment.currency || "NGN"
+            );
+          }
+          if (seller && property2 && buyer2) {
+            await sendTransferCompleteToSellerEmail(
+              seller.email, seller.fullName || seller.email, property2.name,
+              listing.units, payment.amount, payment.currency || "NGN",
+              buyer2.fullName || buyer2.email
+            );
+          }
+        } catch (emailErr) {
+          console.error("[RESALE-EMAIL] Failed to send transfer complete emails:", emailErr);
+        }
+
+        res.json({
+          message: "Payment approved. Units transferred to buyer, listing marked as sold.",
+        });
+      } else {
+        await storage.updateResalePayment(paymentId, {
+          status: "rejected",
+          rejectionReason: rejectionReason || "Payment could not be verified",
+          reviewedByAdminId: (req.session as any).adminUserId,
+          reviewedAt: new Date(),
+        });
+
+        // Check if buyer has exhausted retry attempts
+        const MAX_PAYMENT_ATTEMPTS = 3;
+        const allListingPayments = await storage.getResalePaymentsByListing(payment.listingId);
+        const buyerRejections = allListingPayments.filter(p => p.buyerId === payment.buyerId && p.status === "rejected");
+
+        await logResaleAudit({
+          listingId: payment.listingId,
+          paymentId: paymentId,
+          propertyId: listing.propertyId,
+          action: "payment_rejected",
+          actorType: "admin",
+          actorId: (req.session as any).adminUserId,
+          actorName: `Admin #${(req.session as any).adminUserId}`,
+          sellerId: listing.sellerId,
+          buyerId: payment.buyerId,
+          amount: payment.amount,
+          currency: payment.currency || "NGN",
+          details: `Payment rejected. Reason: ${rejectionReason || "Not verified"}. Attempts used: ${buyerRejections.length}/${MAX_PAYMENT_ATTEMPTS}`,
+          metadata: { rejectionReason, attemptsUsed: buyerRejections.length },
+        });
+
+        try {
+          const buyerUser = await storage.getUser(payment.buyerId);
+          const property3 = await storage.getProperty(listing.propertyId);
+          if (buyerUser && property3) {
+            await sendPaymentRejectedEmail(
+              buyerUser.email, buyerUser.fullName || buyerUser.email, property3.name,
+              payment.amount, payment.currency || "NGN",
+              rejectionReason || "Payment could not be verified",
+              MAX_PAYMENT_ATTEMPTS - buyerRejections.length
+            );
+          }
+        } catch (emailErr) {
+          console.error("[RESALE-EMAIL] Failed to send payment rejected email:", emailErr);
+        }
+
+        if (buyerRejections.length >= MAX_PAYMENT_ATTEMPTS) {
+          const fallbackResult = await handleNextBidderFallback(listing, payment.buyerId, "Payment retries exhausted");
+          res.json({
+            message: `Payment rejected. Buyer exceeded ${MAX_PAYMENT_ATTEMPTS} attempts. ${fallbackResult}`,
+          });
+        } else {
+          res.json({
+            message: `Payment rejected. Buyer can retry (${MAX_PAYMENT_ATTEMPTS - buyerRejections.length} attempt(s) remaining).`,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error("Error reviewing resale payment:", error);
+      res.status(500).json({ message: "Failed to review payment" });
+    }
+  });
+
+  // Admin: Handle expired payment deadline — offer to next bidder
+  app.post("/api/admin/resale-listings/:id/expire-payment", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "awaiting_payment") {
+        return res.status(400).json({ message: "Listing is not in awaiting_payment status" });
+      }
+
+      const failedBuyerId = listing.winnerId;
+      if (!failedBuyerId) {
+        return res.status(400).json({ message: "No winner to expire" });
+      }
+
+      // Mark the current winner's bid as failed_payment
+      if (listing.highestBidId) {
+        const winnerBid = await storage.getResaleBid(listing.highestBidId);
+        if (winnerBid && winnerBid.bidderId === failedBuyerId) {
+          await storage.updateResaleBid(winnerBid.id, { status: "failed_payment", failureReason: "Payment deadline expired" });
+        }
+      }
+
+      // Reject any pending payments
+      const payments = await storage.getResalePaymentsByListing(listingId);
+      for (const p of payments) {
+        if (p.status === "pending_verification" && p.buyerId === failedBuyerId) {
+          await storage.updateResalePayment(p.id, {
+            status: "rejected",
+            rejectionReason: "Payment deadline expired",
+            reviewedByAdminId: (req.session as any).adminUserId,
+            reviewedAt: new Date(),
+          });
+        }
+      }
+
+      await logResaleAudit({
+        listingId,
+        propertyId: listing.propertyId,
+        action: "payment_deadline_expired",
+        actorType: "admin",
+        actorId: (req.session as any).adminUserId,
+        actorName: `Admin #${(req.session as any).adminUserId}`,
+        sellerId: listing.sellerId,
+        buyerId: failedBuyerId,
+        units: listing.units,
+        details: `Payment deadline expired for buyer #${failedBuyerId}. Admin triggered next-bidder fallback.`,
+      });
+
+      const fallbackResult = await handleNextBidderFallback(listing, failedBuyerId, "Payment deadline expired");
+      res.json({ message: fallbackResult });
+    } catch (error: any) {
+      console.error("Error expiring payment:", error);
+      res.status(500).json({ message: "Failed to process payment expiry" });
+    }
+  });
+
+  // ==================== RESALE AUDIT LOG ADMIN ROUTES ====================
+
+  app.get("/api/admin/resale-audit-logs", requireAdminAuth, async (req: any, res) => {
+    try {
+      const { listingId, propertyId, limit: limitParam } = req.query;
+      let logs;
+      if (listingId) {
+        logs = await storage.getResaleAuditLogsByListing(parseInt(listingId));
+      } else if (propertyId) {
+        logs = await storage.getResaleAuditLogsByProperty(parseInt(propertyId));
+      } else {
+        logs = await storage.getAllResaleAuditLogs(limitParam ? parseInt(limitParam) : 500);
+      }
+
+      const enriched = await Promise.all(logs.map(async (log) => {
+        const seller = log.sellerId ? await storage.getUser(log.sellerId) : null;
+        const buyer = log.buyerId ? await storage.getUser(log.buyerId) : null;
+        const property = log.propertyId ? await storage.getProperty(log.propertyId) : null;
+        return {
+          ...log,
+          sellerName: seller?.fullName || seller?.email || null,
+          buyerName: buyer?.fullName || buyer?.email || null,
+          propertyName: property?.name || null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching resale audit logs:", error);
+      res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  app.get("/api/admin/resale-audit-logs/listing/:id", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const logs = await storage.getResaleAuditLogsByListing(listingId);
+      const listing = await storage.getResaleListing(listingId);
+
+      const enriched = await Promise.all(logs.map(async (log) => {
+        const seller = log.sellerId ? await storage.getUser(log.sellerId) : null;
+        const buyer = log.buyerId ? await storage.getUser(log.buyerId) : null;
+        const property = log.propertyId ? await storage.getProperty(log.propertyId) : null;
+        return {
+          ...log,
+          sellerName: seller?.fullName || seller?.email || null,
+          buyerName: buyer?.fullName || buyer?.email || null,
+          propertyName: property?.name || null,
+        };
+      }));
+
+      res.json({ listing, timeline: enriched });
+    } catch (error: any) {
+      console.error("Error fetching listing audit trail:", error);
+      res.status(500).json({ message: "Failed to fetch listing audit trail" });
+    }
+  });
+
   // Run initial cleanup of expired reservations on startup
   storage.cleanupExpiredReservations()
     .then(result => {
@@ -3986,6 +5397,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .catch(err => console.error('[SCHEDULED] Failed to cleanup expired reservations:', err));
   }, 60 * 60 * 1000); // Every hour
+
+  // Auto-process expired resale payment deadlines every 30 minutes
+  async function processExpiredResalePayments() {
+    try {
+      const expiredListings = await storage.getExpiredAwaitingPaymentListings();
+      for (const listing of expiredListings) {
+        if (!listing.winnerId) continue;
+
+        console.log(`[RESALE-EXPIRY] Processing expired payment for listing #${listing.id}`);
+
+        // Mark winner's bid as failed
+        if (listing.highestBidId) {
+          const winnerBid = await storage.getResaleBid(listing.highestBidId);
+          if (winnerBid && winnerBid.bidderId === listing.winnerId) {
+            await storage.updateResaleBid(winnerBid.id, { status: "failed_payment", failureReason: "Payment deadline expired (auto)" });
+          }
+        }
+
+        // Reject pending payments
+        const payments = await storage.getResalePaymentsByListing(listing.id);
+        for (const p of payments) {
+          if (p.status === "pending_verification") {
+            await storage.updateResalePayment(p.id, {
+              status: "rejected",
+              rejectionReason: "Payment deadline expired (auto-processed)",
+              reviewedAt: new Date(),
+            });
+          }
+        }
+
+        const result = await handleNextBidderFallback(listing, listing.winnerId, "Payment deadline expired");
+        console.log(`[RESALE-EXPIRY] Listing #${listing.id}: ${result}`);
+      }
+      if (expiredListings.length > 0) {
+        console.log(`[RESALE-EXPIRY] Processed ${expiredListings.length} expired listing(s)`);
+      }
+    } catch (err) {
+      console.error('[RESALE-EXPIRY] Failed to process expired payments:', err);
+    }
+  }
+
+  processExpiredResalePayments();
+  setInterval(processExpiredResalePayments, 30 * 60 * 1000); // Every 30 minutes
   
   return httpServer;
 }
