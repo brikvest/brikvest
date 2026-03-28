@@ -16,6 +16,7 @@ import {
   propertyValuations,
   referrals,
   referralRewards,
+  resaleListings,
   type User, 
   type InsertUser,
   type AdminUser,
@@ -45,7 +46,9 @@ import {
   type Referral,
   type InsertReferral,
   type ReferralReward,
-  type InsertReferralReward
+  type InsertReferralReward,
+  type ResaleListing,
+  type InsertResaleListing
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
@@ -160,6 +163,16 @@ export interface IStorage {
   getAllReferralRewards(): Promise<ReferralReward[]>;
   updateReferralRewardPayoutStatus(id: number, status: string): Promise<ReferralReward>;
   getAllUsers(): Promise<User[]>;
+  
+  // Resale listing methods
+  createResaleListing(listing: InsertResaleListing): Promise<ResaleListing>;
+  getResaleListingsByUser(userId: number): Promise<ResaleListing[]>;
+  getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]>;
+  getResaleListing(id: number): Promise<ResaleListing | undefined>;
+  updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing>;
+  getAllResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1030,6 +1043,55 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async createResaleListing(listing: InsertResaleListing): Promise<ResaleListing> {
+    const [result] = await db.insert(resaleListings).values(listing).returning();
+    return result;
+  }
+
+  async getResaleListingsByUser(userId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.sellerId, userId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.propertyId, propertyId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListing(id: number): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings).where(eq(resaleListings.id, id));
+    return result;
+  }
+
+  async updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing> {
+    const [result] = await db.update(resaleListings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(resaleListings.id, id))
+      .returning();
+    return result;
+  }
+
+  async getAllResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings).orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.status, "approved"))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(and(
+        eq(resaleListings.reservationId, reservationId),
+        inArray(resaleListings.status, ["pending_review", "approved"])
+      ))
+      .orderBy(desc(resaleListings.createdAt));
   }
 }
 

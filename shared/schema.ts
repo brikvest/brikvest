@@ -575,6 +575,34 @@ export const referralRewards = pgTable("referral_rewards", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const resaleListings = pgTable("resale_listings", {
+  id: serial("id").primaryKey(),
+  sellerId: integer("seller_id").notNull().references(() => users.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  units: decimal("units", { precision: 15, scale: 2 }).notNull(),
+  sellingType: text("selling_type").notNull(), // 'fixed_price' or 'bidding'
+  askingPrice: decimal("asking_price", { precision: 20, scale: 2 }), // For fixed price listings
+  minimumPrice: decimal("minimum_price", { precision: 20, scale: 2 }), // For bidding listings (reserve price)
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("pending_review"), // 'pending_review', 'approved', 'rejected', 'sold', 'cancelled'
+  adminReviewNote: text("admin_review_note"),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertResaleListingSchema = createInsertSchema(resaleListings).omit({
+  id: true,
+  status: true,
+  adminReviewNote: true,
+  reviewedByAdminId: true,
+  reviewedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertReferralSchema = createInsertSchema(referrals).omit({
   id: true,
   createdAt: true,
@@ -650,3 +678,6 @@ export type Referral = typeof referrals.$inferSelect;
 
 export type InsertReferralReward = z.infer<typeof insertReferralRewardSchema>;
 export type ReferralReward = typeof referralRewards.$inferSelect;
+
+export type InsertResaleListing = z.infer<typeof insertResaleListingSchema>;
+export type ResaleListing = typeof resaleListings.$inferSelect;

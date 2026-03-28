@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -1989,6 +1989,171 @@ function UserPortfolioTab({
   );
 }
 
+function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: listings = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/resale-listings"],
+    queryFn: () => authenticatedRequest("/api/admin/resale-listings"),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action, note }: { id: number; action: string; note?: string }) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, note }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      toast({ title: "Listing reviewed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to review listing", variant: "destructive" });
+    },
+  });
+
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+
+  const pendingCount = listings.filter((l: any) => l.status === "pending_review").length;
+  const approvedCount = listings.filter((l: any) => l.status === "approved").length;
+
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    pending_review: { label: "Pending Review", color: "bg-yellow-100 text-yellow-800" },
+    approved: { label: "Approved", color: "bg-green-100 text-green-700" },
+    rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+    sold: { label: "Sold", color: "bg-blue-100 text-blue-700" },
+    cancelled: { label: "Cancelled", color: "bg-slate-100 text-slate-600" },
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-slate-500">Loading resale listings...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Resale Listings</h1>
+          <p className="text-slate-500">Review and manage P2P unit transfer requests</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold">{listings.length}</p><p className="text-xs text-slate-500">Total</p></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-yellow-600">{pendingCount}</p><p className="text-xs text-slate-500">Pending</p></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-green-600">{approvedCount}</p><p className="text-xs text-slate-500">Live</p></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-blue-600">{listings.filter((l: any) => l.status === "sold").length}</p><p className="text-xs text-slate-500">Sold</p></CardContent></Card>
+      </div>
+
+      {listings.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-slate-500">No resale listings yet.</CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {listings.map((listing: any) => {
+            const si = statusConfig[listing.status] || { label: listing.status, color: "bg-slate-100 text-slate-600" };
+
+            return (
+              <Card key={listing.id}>
+                <CardContent className="p-4">
+                  <div className="flex flex-col md:flex-row md:items-center gap-3 justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-semibold text-slate-900">{listing.propertyName}</h4>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${si.color}`}>{si.label}</span>
+                      </div>
+                      <div className="text-sm text-slate-600 space-y-0.5">
+                        <p>Seller: {listing.sellerName} {listing.sellerEmail ? `(${listing.sellerEmail})` : ''}</p>
+                        <div className="flex flex-wrap gap-4">
+                          <span>{listing.units} units</span>
+                          <span className="flex items-center gap-1">
+                            {listing.sellingType === "fixed_price" ? (
+                              <><Tag className="h-3.5 w-3.5" /> Fixed: {listing.currency} {parseFloat(listing.askingPrice || 0).toLocaleString()}</>
+                            ) : (
+                              <><Gavel className="h-3.5 w-3.5" /> Auction{listing.minimumPrice ? ` (Min: ${listing.currency} ${parseFloat(listing.minimumPrice).toLocaleString()})` : " (No reserve)"}</>
+                            )}
+                          </span>
+                          <span>Submitted {new Date(listing.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      {listing.adminReviewNote && (
+                        <p className="text-sm text-slate-500 mt-1 italic">Note: {listing.adminReviewNote}</p>
+                      )}
+                    </div>
+
+                    {listing.status === "pending_review" && (
+                      <div className="flex flex-col gap-2 min-w-[200px]">
+                        {reviewingId === listing.id ? (
+                          <div className="space-y-2">
+                            <Input
+                              placeholder="Optional note..."
+                              value={reviewNote}
+                              onChange={(e) => setReviewNote(e.target.value)}
+                              className="text-sm"
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white flex-1"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => {
+                                  reviewMutation.mutate({ id: listing.id, action: "approve", note: reviewNote });
+                                  setReviewingId(null);
+                                  setReviewNote("");
+                                }}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="flex-1"
+                                disabled={reviewMutation.isPending}
+                                onClick={() => {
+                                  reviewMutation.mutate({ id: listing.id, action: "reject", note: reviewNote });
+                                  setReviewingId(null);
+                                  setReviewNote("");
+                                }}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="w-full text-xs"
+                              onClick={() => { setReviewingId(null); setReviewNote(""); }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setReviewingId(listing.id)}
+                          >
+                            Review
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2758,6 +2923,14 @@ export default function AdminDashboard() {
               >
                 <Gift className="mr-3 h-4 w-4" />
                 Referral Rewards
+              </Button>
+              <Button
+                variant={selectedTab === "resale-listings" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("resale-listings")}
+              >
+                <Repeat className="mr-3 h-4 w-4" />
+                Resale Listings
               </Button>
             </div>
           </nav>
@@ -4097,6 +4270,9 @@ export default function AdminDashboard() {
             {/* Referral Rewards Management */}
             {selectedTab === "referral-rewards" && (
               <ReferralRewardsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "resale-listings" && (
+              <ResaleListingsTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>

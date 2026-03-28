@@ -3967,6 +3967,185 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   
+  // ==================== RESALE LISTING ROUTES ====================
+
+  // Create a resale listing (seller side)
+  app.post("/api/resale-listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const { reservationId, units, sellingType, askingPrice, minimumPrice } = req.body;
+
+      if (!reservationId || !units || !sellingType) {
+        return res.status(400).json({ message: "Missing required fields: reservationId, units, sellingType" });
+      }
+
+      if (!["fixed_price", "bidding"].includes(sellingType)) {
+        return res.status(400).json({ message: "sellingType must be 'fixed_price' or 'bidding'" });
+      }
+
+      if (sellingType === "fixed_price" && !askingPrice) {
+        return res.status(400).json({ message: "askingPrice is required for fixed price listings" });
+      }
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+
+      if (reservation.userId !== user.id) {
+        return res.status(403).json({ message: "You can only sell units from your own investments" });
+      }
+
+      if (reservation.status !== "converted_to_investment") {
+        return res.status(400).json({ message: "Only confirmed investments can be listed for resale" });
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property || !property.isTransferable) {
+        return res.status(400).json({ message: "This property does not allow unit transfers" });
+      }
+
+      const requestedUnits = parseFloat(units);
+      const ownedUnits = parseFloat(reservation.units);
+
+      if (requestedUnits <= 0 || requestedUnits > ownedUnits) {
+        return res.status(400).json({ message: `You can sell between 0 and ${ownedUnits} units` });
+      }
+
+      const existingListings = await storage.getActiveResaleListingsForReservation(reservationId);
+      const lockedUnits = existingListings.reduce((sum, l) => sum + parseFloat(l.units), 0);
+      const availableUnits = ownedUnits - lockedUnits;
+
+      if (requestedUnits > availableUnits) {
+        return res.status(400).json({ 
+          message: `Only ${availableUnits} units available for listing (${lockedUnits} already listed)` 
+        });
+      }
+
+      const listing = await storage.createResaleListing({
+        sellerId: user.id,
+        propertyId: reservation.propertyId,
+        reservationId,
+        units: units.toString(),
+        sellingType,
+        askingPrice: askingPrice ? askingPrice.toString() : null,
+        minimumPrice: minimumPrice ? minimumPrice.toString() : null,
+        currency: reservation.currency || "NGN",
+      });
+
+      res.status(201).json(listing);
+    } catch (error: any) {
+      console.error("Error creating resale listing:", error);
+      res.status(500).json({ message: "Failed to create resale listing" });
+    }
+  });
+
+  // Get current user's resale listings
+  app.get("/api/resale-listings/mine", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listings = await storage.getResaleListingsByUser(user.id);
+      res.json(listings);
+    } catch (error: any) {
+      console.error("Error fetching user resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // Cancel a resale listing (seller can cancel pending or approved listings)
+  app.post("/api/resale-listings/:id/cancel", requireApprovedUser, async (req: any, res) => {
+    try {
+      const user = req.user as any;
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.sellerId !== user.id) {
+        return res.status(403).json({ message: "You can only cancel your own listings" });
+      }
+
+      if (!["pending_review", "approved"].includes(listing.status)) {
+        return res.status(400).json({ message: "Only pending or approved listings can be cancelled" });
+      }
+
+      const updated = await storage.updateResaleListing(listingId, { status: "cancelled" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error cancelling resale listing:", error);
+      res.status(500).json({ message: "Failed to cancel listing" });
+    }
+  });
+
+  // Admin: Get all resale listings (enriched with seller & property info)
+  app.get("/api/admin/resale-listings", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listings = await storage.getAllResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const seller = await storage.getUser(listing.sellerId);
+        const property = await storage.getProperty(listing.propertyId);
+        return {
+          ...listing,
+          sellerName: seller?.fullName || seller?.email || `User #${listing.sellerId}`,
+          sellerEmail: seller?.email,
+          propertyName: property?.name || `Property #${listing.propertyId}`,
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching all resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
+  // Admin: Approve or reject a resale listing
+  app.post("/api/admin/resale-listings/:id/review", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const { action, note } = req.body;
+
+      if (!["approve", "reject"].includes(action)) {
+        return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
+      }
+
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (listing.status !== "pending_review") {
+        return res.status(400).json({ message: "Only pending listings can be reviewed" });
+      }
+
+      const updated = await storage.updateResaleListing(listingId, {
+        status: action === "approve" ? "approved" : "rejected",
+        adminReviewNote: note || null,
+        reviewedByAdminId: (req.session as any).adminUserId,
+        reviewedAt: new Date(),
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error reviewing resale listing:", error);
+      res.status(500).json({ message: "Failed to review listing" });
+    }
+  });
+
+  // Public (approved users): Get active resale listings for a property
+  app.get("/api/properties/:id/resale-listings", requireApprovedUser, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const listings = await storage.getResaleListingsByProperty(propertyId);
+      const activeListings = listings.filter(l => l.status === "approved");
+      res.json(activeListings);
+    } catch (error: any) {
+      console.error("Error fetching property resale listings:", error);
+      res.status(500).json({ message: "Failed to fetch resale listings" });
+    }
+  });
+
   // Run initial cleanup of expired reservations on startup
   storage.cleanupExpiredReservations()
     .then(result => {

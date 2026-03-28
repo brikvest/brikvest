@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Gift, Copy, Share2, Users } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Gift, Copy, Share2, Users, Tag, Gavel, XCircle } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate, PropertyValuation } from "@shared/schema";
@@ -530,6 +530,16 @@ export default function Portfolio() {
   const [selectedPaymentReservation, setSelectedPaymentReservation] = useState<(InvestmentReservation & { property?: Property }) | null>(null);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const [uploadingPayment, setUploadingPayment] = useState(false);
+
+  const [resaleModalOpen, setResaleModalOpen] = useState(false);
+  const [resaleReservation, setResaleReservation] = useState<(InvestmentReservation & { property?: Property }) | null>(null);
+  const [resaleForm, setResaleForm] = useState({
+    units: "",
+    sellingType: "fixed_price",
+    askingPrice: "",
+    minimumPrice: "",
+  });
+  const [submittingResale, setSubmittingResale] = useState(false);
   
   const PAYMENT_TIMER_DURATION = 30 * 60 * 1000;
   const [paymentTimeRemaining, setPaymentTimeRemaining] = useState<number | null>(null);
@@ -696,6 +706,11 @@ export default function Portfolio() {
   }>({
     queryKey: [`/api/user/certificates/${selectedReservationId}`],
     enabled: !!selectedReservationId && certificateModalOpen,
+  });
+
+  const { data: myResaleListings = [] } = useQuery<any[]>({
+    queryKey: ["/api/resale-listings/mine"],
+    enabled: isAuthenticated,
   });
 
   useEffect(() => {
@@ -1667,6 +1682,26 @@ export default function Portfolio() {
                                   <FileText className="h-4 w-4 mr-2" />
                                   Valuation Report
                                 </Button>
+                                {reservation.property?.isTransferable && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setResaleReservation(reservation);
+                                      setResaleForm({
+                                        units: "",
+                                        sellingType: "fixed_price",
+                                        askingPrice: "",
+                                        minimumPrice: "",
+                                      });
+                                      setResaleModalOpen(true);
+                                    }}
+                                    className="text-purple-700 border-purple-300 hover:bg-purple-50"
+                                  >
+                                    <Tag className="h-4 w-4 mr-2" />
+                                    Sell Units
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1691,8 +1726,218 @@ export default function Portfolio() {
               </Card>
             );
           })()}
+
+          {/* My Resale Listings */}
+          {myResaleListings.length > 0 && (
+            <Card className="mb-6 sm:mb-8 shadow-lg">
+              <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
+                <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+                  <Tag className="h-5 w-5 text-purple-600" />
+                  My Resale Listings
+                </CardTitle>
+                <p className="text-sm text-slate-600 mt-1">Track the status of your unit resale listings</p>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                <div className="space-y-3">
+                  {myResaleListings.map((listing: any) => {
+                    const property = reservations.find((r: any) => r.id === listing.reservationId)?.property;
+                    const statusConfig: Record<string, { label: string; color: string }> = {
+                      pending_review: { label: "Pending Review", color: "bg-yellow-100 text-yellow-800" },
+                      approved: { label: "Live", color: "bg-green-100 text-green-700" },
+                      rejected: { label: "Rejected", color: "bg-red-100 text-red-700" },
+                      sold: { label: "Sold", color: "bg-blue-100 text-blue-700" },
+                      cancelled: { label: "Cancelled", color: "bg-slate-100 text-slate-600" },
+                    };
+                    const statusInfo = statusConfig[listing.status] || { label: listing.status, color: "bg-slate-100 text-slate-600" };
+
+                    return (
+                      <div key={listing.id} className="border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold text-slate-900">{property?.name || `Property #${listing.propertyId}`}</h4>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusInfo.color}`}>
+                              {statusInfo.label}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+                            <span>{listing.units} units</span>
+                            <span className="flex items-center gap-1">
+                              {listing.sellingType === "fixed_price" ? (
+                                <><Tag className="h-3.5 w-3.5" /> Fixed: {formatCurrency(convertAmount(parseFloat(listing.askingPrice || 0), listing.currency || 'NGN'))}</>
+                              ) : (
+                                <><Gavel className="h-3.5 w-3.5" /> Auction{listing.minimumPrice ? ` (Min: ${formatCurrency(convertAmount(parseFloat(listing.minimumPrice), listing.currency || 'NGN'))})` : ""}</>
+                              )}
+                            </span>
+                            <span>Listed {new Date(listing.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          {listing.status === "rejected" && listing.adminReviewNote && (
+                            <p className="text-sm text-red-600 mt-1">Reason: {listing.adminReviewNote}</p>
+                          )}
+                        </div>
+                        {["pending_review", "approved"].includes(listing.status) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 border-red-300 hover:bg-red-50 self-start"
+                            onClick={async () => {
+                              try {
+                                await apiRequest("POST", `/api/resale-listings/${listing.id}/cancel`);
+                                queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/mine"] });
+                                toast({ title: "Listing cancelled", description: "Your units have been unlocked." });
+                              } catch (error: any) {
+                                toast({ title: "Error", description: error?.message || "Failed to cancel", variant: "destructive" });
+                              }
+                            }}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" />
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </main>
       </div>
+
+      {/* Resale Listing Modal */}
+      <Dialog open={resaleModalOpen} onOpenChange={setResaleModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Tag className="h-5 w-5 text-purple-600" />
+              List Units for Resale
+            </DialogTitle>
+            <DialogDescription>
+              {resaleReservation?.property?.name} — You own {resaleReservation?.units} units
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            {(() => {
+              const existingListings = myResaleListings.filter(
+                (l: any) => l.reservationId === resaleReservation?.id && ["pending_review", "approved"].includes(l.status)
+              );
+              const lockedUnits = existingListings.reduce((sum: number, l: any) => sum + parseFloat(l.units), 0);
+              const totalOwned = parseFloat(resaleReservation?.units || "0");
+              const availableUnits = totalOwned - lockedUnits;
+
+              return (
+                <>
+                  {lockedUnits > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                      {lockedUnits} units already listed. {availableUnits} units available to list.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label>Units to Sell *</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={availableUnits}
+                      placeholder={`Max ${availableUnits}`}
+                      value={resaleForm.units}
+                      onChange={(e) => setResaleForm(prev => ({ ...prev, units: e.target.value }))}
+                    />
+                    <p className="text-xs text-slate-500">Up to {availableUnits} units available</p>
+                  </div>
+                </>
+              );
+            })()}
+
+            <div className="space-y-2">
+              <Label>Selling Type *</Label>
+              <Select value={resaleForm.sellingType} onValueChange={(value) => setResaleForm(prev => ({ ...prev, sellingType: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed_price">Fixed Price</SelectItem>
+                  <SelectItem value="bidding">Bidding (Auction)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {resaleForm.sellingType === "fixed_price" && (
+              <div className="space-y-2">
+                <Label>Asking Price ({resaleReservation?.currency || "NGN"}) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Enter your asking price"
+                  value={resaleForm.askingPrice}
+                  onChange={(e) => setResaleForm(prev => ({ ...prev, askingPrice: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {resaleForm.sellingType === "bidding" && (
+              <div className="space-y-2">
+                <Label>Minimum Price / Reserve ({resaleReservation?.currency || "NGN"})</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Optional — minimum acceptable bid"
+                  value={resaleForm.minimumPrice}
+                  onChange={(e) => setResaleForm(prev => ({ ...prev, minimumPrice: e.target.value }))}
+                />
+                <p className="text-xs text-slate-500">Leave empty for no reserve price</p>
+              </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              Your listed units will be locked and unavailable for other actions until the listing is sold or cancelled. Listings require admin approval before going live.
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setResaleModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+                disabled={submittingResale}
+                onClick={async () => {
+                  if (!resaleReservation) return;
+                  const unitsVal = parseFloat(resaleForm.units);
+                  if (!unitsVal || unitsVal <= 0) {
+                    toast({ title: "Invalid units", description: "Please enter a valid number of units", variant: "destructive" });
+                    return;
+                  }
+                  if (resaleForm.sellingType === "fixed_price" && (!resaleForm.askingPrice || parseFloat(resaleForm.askingPrice) <= 0)) {
+                    toast({ title: "Price required", description: "Please enter an asking price", variant: "destructive" });
+                    return;
+                  }
+                  setSubmittingResale(true);
+                  try {
+                    await apiRequest("POST", "/api/resale-listings", {
+                      reservationId: resaleReservation.id,
+                      units: resaleForm.units,
+                      sellingType: resaleForm.sellingType,
+                      askingPrice: resaleForm.sellingType === "fixed_price" ? resaleForm.askingPrice : null,
+                      minimumPrice: resaleForm.sellingType === "bidding" && resaleForm.minimumPrice ? resaleForm.minimumPrice : null,
+                    });
+                    queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/mine"] });
+                    toast({ title: "Listing submitted", description: "Your resale listing has been submitted for admin review." });
+                    setResaleModalOpen(false);
+                  } catch (error: any) {
+                    const msg = error?.message || "Failed to create listing";
+                    toast({ title: "Error", description: msg, variant: "destructive" });
+                  } finally {
+                    setSubmittingResale(false);
+                  }
+                }}
+              >
+                {submittingResale ? "Submitting..." : "Submit Listing"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* KYC Verification Modal */}
       <Dialog open={kycModalOpen} onOpenChange={setKycModalOpen}>
