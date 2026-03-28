@@ -3966,7 +3966,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
-  
+
+  // ==================== RESALE HELPER FUNCTIONS ====================
+
+  async function handleNextBidderFallback(
+    listing: any,
+    failedBuyerId: number,
+    reason: string
+  ): Promise<string> {
+    // Only auction listings have fallback bidders
+    if (listing.sellingType !== "bidding") {
+      // Fixed-price listing — just return to approved (re-list)
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return "Fixed-price listing returned to active status.";
+    }
+
+    // Collect all failed bidder IDs for this listing
+    const allBids = await storage.getBidsByListing(listing.id);
+    const failedBidderIds = allBids
+      .filter(b => b.status === "failed_payment" || b.bidderId === failedBuyerId)
+      .map(b => b.bidderId);
+    const uniqueFailedIds = [...new Set(failedBidderIds)];
+
+    // Find next highest bidder excluding failed ones
+    const nextBid = await storage.getNextHighestBidForListing(listing.id, uniqueFailedIds);
+
+    if (!nextBid) {
+      // No more bidders — return listing to active or cancel
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        highestBidId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return `${reason}. No more bidders available — listing returned to active status.`;
+    }
+
+    // Check reserve price
+    if (listing.minimumPrice && parseFloat(nextBid.amount) < parseFloat(listing.minimumPrice)) {
+      await storage.updateResaleListing(listing.id, {
+        status: "approved",
+        winnerId: null,
+        highestBidId: null,
+        paymentDeadline: null,
+        updatedAt: new Date(),
+      });
+      return `${reason}. Next bidder's amount is below reserve price — listing returned to active status.`;
+    }
+
+    // Mark next bidder as the winner
+    await storage.updateResaleBid(nextBid.id, { status: "won" });
+
+    const paymentDeadline = new Date();
+    paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+
+    await storage.updateResaleListing(listing.id, {
+      status: "awaiting_payment",
+      winnerId: nextBid.bidderId,
+      highestBidId: nextBid.id,
+      paymentDeadline,
+      updatedAt: new Date(),
+    });
+
+    const nextBidder = await storage.getUser(nextBid.bidderId);
+    return `${reason}. Slot offered to next highest bidder: ${nextBidder?.fullName || nextBidder?.email || `User #${nextBid.bidderId}`} (${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}).`;
+  }
+
   // ==================== RESALE LISTING ROUTES ====================
 
   // Create a resale listing (seller side)
@@ -4305,6 +4376,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid bid amount" });
       }
 
+      // KYC verification required to bid
+      if (user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "You must complete KYC verification before placing bids" });
+      }
+
       const listing = await storage.getResaleListing(listingId);
       if (!listing) {
         return res.status(404).json({ message: "Listing not found" });
@@ -4315,6 +4391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (listing.sellingType !== "bidding") {
         return res.status(400).json({ message: "This is not a bidding listing" });
       }
+      // Prevent seller from bidding on their own listing
       if (listing.sellerId === user.id) {
         return res.status(400).json({ message: "You cannot bid on your own listing" });
       }
@@ -4346,9 +4423,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Update listing with highest bid reference
-      await storage.updateResaleListing(listingId, { highestBidId: bid.id });
+      const listingUpdates: any = { highestBidId: bid.id };
 
-      res.status(201).json(bid);
+      // Anti-sniping: if bid placed within last 5 minutes of auction, extend by 5 minutes
+      if (listing.biddingEndsAt) {
+        const now = new Date();
+        const endsAt = new Date(listing.biddingEndsAt);
+        const fiveMinutes = 5 * 60 * 1000;
+        if (endsAt.getTime() - now.getTime() < fiveMinutes && endsAt.getTime() > now.getTime()) {
+          const newEndTime = new Date(now.getTime() + fiveMinutes);
+          listingUpdates.biddingEndsAt = newEndTime;
+        }
+      }
+
+      await storage.updateResaleListing(listingId, listingUpdates);
+
+      res.status(201).json({
+        ...bid,
+        auctionExtended: !!listingUpdates.biddingEndsAt && listingUpdates.biddingEndsAt !== listing.biddingEndsAt,
+      });
     } catch (error: any) {
       console.error("Error placing bid:", error);
       res.status(500).json({ message: "Failed to place bid" });
@@ -4361,6 +4454,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       const listingId = parseInt(req.params.id);
 
+      // KYC verification required to buy
+      if (user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "You must complete KYC verification before purchasing units" });
+      }
+
       const listing = await storage.getResaleListing(listingId);
       if (!listing) {
         return res.status(404).json({ message: "Listing not found" });
@@ -4371,6 +4469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (listing.sellingType !== "fixed_price") {
         return res.status(400).json({ message: "This listing requires bidding, not direct purchase" });
       }
+      // Prevent seller from buying their own listing
       if (listing.sellerId === user.id) {
         return res.status(400).json({ message: "You cannot buy your own listing" });
       }
@@ -4536,13 +4635,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
-        return res.status(400).json({ message: "Payment deadline has passed" });
+        return res.status(400).json({ message: "Payment deadline has passed. The listing may be offered to the next bidder." });
       }
 
       const existingPayments = await storage.getResalePaymentsByListing(parseInt(listingId));
       const hasPending = existingPayments.some(p => p.status === "pending_verification");
       if (hasPending) {
         return res.status(400).json({ message: "A payment is already pending verification for this listing" });
+      }
+
+      // Payment retry limit: max 3 attempts per buyer per listing
+      const MAX_PAYMENT_ATTEMPTS = 3;
+      const buyerAttempts = existingPayments.filter(p => p.buyerId === user.id);
+      const rejectedAttempts = buyerAttempts.filter(p => p.status === "rejected");
+      if (rejectedAttempts.length >= MAX_PAYMENT_ATTEMPTS) {
+        return res.status(400).json({ 
+          message: `You have exceeded the maximum of ${MAX_PAYMENT_ATTEMPTS} payment attempts for this listing. The slot will be offered to the next bidder.` 
+        });
       }
 
       let proofUrl: string | null = null;
@@ -4570,6 +4679,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (winningBid) finalAmount = winningBid.amount;
       }
 
+      const attemptNumber = rejectedAttempts.length + 1;
+
       const payment = await storage.createResalePayment({
         listingId: parseInt(listingId),
         buyerId: user.id,
@@ -4579,11 +4690,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bankReference: bankReference || null,
         proofUrl,
         proofType,
+        attemptNumber,
       });
 
       res.json({
         message: "Payment confirmation submitted. Please wait for admin verification.",
         payment,
+        attemptsRemaining: MAX_PAYMENT_ATTEMPTS - attemptNumber,
       });
     } catch (error: any) {
       console.error("Error submitting resale payment:", error);
@@ -4722,13 +4835,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
           reviewedAt: new Date(),
         });
 
-        res.json({
-          message: "Payment rejected. Buyer has been notified.",
-        });
+        // Check if buyer has exhausted retry attempts
+        const MAX_PAYMENT_ATTEMPTS = 3;
+        const allListingPayments = await storage.getResalePaymentsByListing(payment.listingId);
+        const buyerRejections = allListingPayments.filter(p => p.buyerId === payment.buyerId && p.status === "rejected");
+
+        if (buyerRejections.length >= MAX_PAYMENT_ATTEMPTS) {
+          // Buyer exhausted retries — trigger next-bidder fallback
+          const fallbackResult = await handleNextBidderFallback(listing, payment.buyerId, "Payment retries exhausted");
+          res.json({
+            message: `Payment rejected. Buyer exceeded ${MAX_PAYMENT_ATTEMPTS} attempts. ${fallbackResult}`,
+          });
+        } else {
+          res.json({
+            message: `Payment rejected. Buyer can retry (${MAX_PAYMENT_ATTEMPTS - buyerRejections.length} attempt(s) remaining).`,
+          });
+        }
       }
     } catch (error: any) {
       console.error("Error reviewing resale payment:", error);
       res.status(500).json({ message: "Failed to review payment" });
+    }
+  });
+
+  // Admin: Handle expired payment deadline — offer to next bidder
+  app.post("/api/admin/resale-listings/:id/expire-payment", requireAdminAuth, async (req: any, res) => {
+    try {
+      const listingId = parseInt(req.params.id);
+      const listing = await storage.getResaleListing(listingId);
+
+      if (!listing) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+      if (listing.status !== "awaiting_payment") {
+        return res.status(400).json({ message: "Listing is not in awaiting_payment status" });
+      }
+
+      const failedBuyerId = listing.winnerId;
+      if (!failedBuyerId) {
+        return res.status(400).json({ message: "No winner to expire" });
+      }
+
+      // Mark the current winner's bid as failed_payment
+      if (listing.highestBidId) {
+        const winnerBid = await storage.getResaleBid(listing.highestBidId);
+        if (winnerBid && winnerBid.bidderId === failedBuyerId) {
+          await storage.updateResaleBid(winnerBid.id, { status: "failed_payment", failureReason: "Payment deadline expired" });
+        }
+      }
+
+      // Reject any pending payments
+      const payments = await storage.getResalePaymentsByListing(listingId);
+      for (const p of payments) {
+        if (p.status === "pending_verification" && p.buyerId === failedBuyerId) {
+          await storage.updateResalePayment(p.id, {
+            status: "rejected",
+            rejectionReason: "Payment deadline expired",
+            reviewedByAdminId: (req.session as any).adminUserId,
+            reviewedAt: new Date(),
+          });
+        }
+      }
+
+      const fallbackResult = await handleNextBidderFallback(listing, failedBuyerId, "Payment deadline expired");
+      res.json({ message: fallbackResult });
+    } catch (error: any) {
+      console.error("Error expiring payment:", error);
+      res.status(500).json({ message: "Failed to process payment expiry" });
     }
   });
 
@@ -4751,6 +4924,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .catch(err => console.error('[SCHEDULED] Failed to cleanup expired reservations:', err));
   }, 60 * 60 * 1000); // Every hour
+
+  // Auto-process expired resale payment deadlines every 30 minutes
+  async function processExpiredResalePayments() {
+    try {
+      const expiredListings = await storage.getExpiredAwaitingPaymentListings();
+      for (const listing of expiredListings) {
+        if (!listing.winnerId) continue;
+
+        console.log(`[RESALE-EXPIRY] Processing expired payment for listing #${listing.id}`);
+
+        // Mark winner's bid as failed
+        if (listing.highestBidId) {
+          const winnerBid = await storage.getResaleBid(listing.highestBidId);
+          if (winnerBid && winnerBid.bidderId === listing.winnerId) {
+            await storage.updateResaleBid(winnerBid.id, { status: "failed_payment", failureReason: "Payment deadline expired (auto)" });
+          }
+        }
+
+        // Reject pending payments
+        const payments = await storage.getResalePaymentsByListing(listing.id);
+        for (const p of payments) {
+          if (p.status === "pending_verification") {
+            await storage.updateResalePayment(p.id, {
+              status: "rejected",
+              rejectionReason: "Payment deadline expired (auto-processed)",
+              reviewedAt: new Date(),
+            });
+          }
+        }
+
+        const result = await handleNextBidderFallback(listing, listing.winnerId, "Payment deadline expired");
+        console.log(`[RESALE-EXPIRY] Listing #${listing.id}: ${result}`);
+      }
+      if (expiredListings.length > 0) {
+        console.log(`[RESALE-EXPIRY] Processed ${expiredListings.length} expired listing(s)`);
+      }
+    } catch (err) {
+      console.error('[RESALE-EXPIRY] Failed to process expired payments:', err);
+    }
+  }
+
+  processExpiredResalePayments();
+  setInterval(processExpiredResalePayments, 30 * 60 * 1000); // Every 30 minutes
   
   return httpServer;
 }

@@ -603,7 +603,8 @@ export const resaleBids = pgTable("resale_bids", {
   bidderId: integer("bidder_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("NGN"),
-  status: text("status").notNull().default("active"), // 'active', 'outbid', 'won', 'lost'
+  status: text("status").notNull().default("active"), // 'active', 'outbid', 'won', 'lost', 'failed_payment'
+  failureReason: text("failure_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -619,6 +620,7 @@ export const resalePayments = pgTable("resale_payments", {
   proofType: text("proof_type"),
   status: text("status").notNull().default("pending_verification"), // 'pending_verification', 'approved', 'rejected'
   rejectionReason: text("rejection_reason"),
+  attemptNumber: integer("attempt_number").notNull().default(1),
   reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
   reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

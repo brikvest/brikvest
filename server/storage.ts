@@ -57,7 +57,7 @@ import {
   type InsertResalePayment
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -184,6 +184,7 @@ export interface IStorage {
   createResaleBid(bid: InsertResaleBid): Promise<ResaleBid>;
   getBidsByListing(listingId: number): Promise<ResaleBid[]>;
   getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined>;
+  getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined>;
   getBidsByUser(userId: number): Promise<ResaleBid[]>;
   getResaleBid(id: number): Promise<ResaleBid | undefined>;
   updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid>;
@@ -195,6 +196,9 @@ export interface IStorage {
   getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]>;
   getAllResalePayments(): Promise<ResalePayment[]>;
   updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment>;
+
+  // Expired payment deadline listings
+  getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1187,6 +1191,30 @@ export class DatabaseStorage implements IStorage {
       .where(eq(resalePayments.id, id))
       .returning();
     return result;
+  }
+
+  async getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined> {
+    const conditions = [
+      eq(resaleBids.listingId, listingId),
+    ];
+    if (excludeBidderIds.length > 0) {
+      conditions.push(notInArray(resaleBids.bidderId, excludeBidderIds));
+    }
+    const [result] = await db.select().from(resaleBids)
+      .where(and(...conditions))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(
+        and(
+          eq(resaleListings.status, "awaiting_payment"),
+          lt(resaleListings.paymentDeadline, new Date())
+        )
+      );
   }
 }
 

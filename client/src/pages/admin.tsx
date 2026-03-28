@@ -2059,6 +2059,23 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
     },
   });
 
+  const expirePaymentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedRequest(`/api/admin/resale-listings/${id}/expire-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/resale-payments"] });
+      toast({ title: "Payment expired", description: data?.message || "Processed expired payment" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to expire payment", description: error?.message, variant: "destructive" });
+    },
+  });
+
   const pendingCount = listings.filter((l: any) => l.status === "pending_review").length;
   const approvedCount = listings.filter((l: any) => l.status === "approved").length;
   const awaitingCount = listings.filter((l: any) => l.status === "awaiting_payment").length;
@@ -2271,6 +2288,20 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                         >
                           <Gavel className="h-3.5 w-3.5 mr-1" />
                           {endBiddingMutation.isPending ? "Ending..." : "End Bidding"}
+                        </Button>
+                      )}
+
+                      {/* Awaiting Payment: Expire Payment (offer to next bidder) */}
+                      {listing.status === "awaiting_payment" && listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date() && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                          disabled={expirePaymentMutation.isPending}
+                          onClick={() => expirePaymentMutation.mutate(listing.id)}
+                        >
+                          <Clock className="h-3.5 w-3.5 mr-1" />
+                          {expirePaymentMutation.isPending ? "Processing..." : "Expire & Next Bidder"}
                         </Button>
                       )}
 
