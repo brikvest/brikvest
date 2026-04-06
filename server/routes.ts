@@ -21,6 +21,7 @@ import {
   sendTransferCompleteToSellerEmail,
   sendPaymentExpiredEmail,
   sendNextBidderOfferedEmail,
+  sendNewListingNotificationToCoInvestors,
 } from "./resaleEmails";
 import { 
   investmentEmailTemplate, 
@@ -2657,6 +2658,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/properties/:id/valuations-public", async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      const valuations = await storage.getPropertyValuations(propertyId);
+      const sanitized = valuations.map(v => ({
+        id: v.id,
+        propertyId: v.propertyId,
+        valuationDate: v.valuationDate,
+        currentValue: v.currentValue,
+        rawAssetValue: v.rawAssetValue,
+        appreciationPercentage: v.appreciationPercentage,
+        notes: v.notes,
+      }));
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching public valuations:", error);
+      res.status(500).json({ error: "Failed to fetch valuations" });
+    }
+  });
+
+  app.get("/api/properties/:id/valuation-report-public", async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      if (!property.valuationReportUrl) {
+        return res.status(404).json({ error: "No valuation report available for this property" });
+      }
+      res.json({
+        url: property.valuationReportUrl,
+        name: property.valuationReportName || 'Valuation Report.pdf',
+      });
+    } catch (error) {
+      console.error("Error fetching public valuation report:", error);
+      res.status(500).json({ error: "Failed to fetch valuation report" });
+    }
+  });
+
   // User: Get valuation history for a property (only if investor has confirmed investment)
   app.get("/api/properties/:id/valuations", requireApprovedUser, async (req: any, res) => {
     try {
@@ -3127,8 +3172,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Enhanced properties endpoint with currency conversion (requires approved membership)
-  app.get("/api/properties-converted", requireApprovedUser, async (req: any, res) => {
+  // Enhanced properties endpoint with currency conversion (public access)
+  app.get("/api/properties-converted", async (req: any, res) => {
     try {
       const properties = await storage.getPublicProperties(); // Only show public properties to buyers
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
@@ -4360,6 +4405,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[RESALE-EMAIL] Failed to send listing review email:", emailErr);
       }
 
+      if (action === "approve" && property) {
+        try {
+          const reservations = await storage.getReservationsByProperty(listing.propertyId);
+          const confirmedInvestors = reservations.filter(
+            (r) => r.status === "converted_to_investment" && r.userId && r.userId !== listing.sellerId
+          );
+
+          const uniqueInvestorIds = [...new Set(confirmedInvestors.map((r) => r.userId!))];
+
+          for (const investorId of uniqueInvestorIds) {
+            try {
+              const investor = await storage.getUser(investorId);
+              if (investor) {
+                await sendNewListingNotificationToCoInvestors(
+                  investor.email,
+                  investor.fullName || investor.email,
+                  property.name,
+                  listing.units,
+                  listing.sellingType,
+                  listing.askingPrice,
+                  listing.currency,
+                  updated?.shareToken || listing.shareToken || null,
+                );
+              }
+            } catch (investorEmailErr) {
+              console.error(`[RESALE-EMAIL] Failed to notify co-investor #${investorId}:`, investorEmailErr);
+            }
+          }
+          console.log(`[RESALE-EMAIL] Notified ${uniqueInvestorIds.length} co-investors about new listing on ${property.name}`);
+        } catch (coInvestorErr) {
+          console.error("[RESALE-EMAIL] Failed to send co-investor notifications:", coInvestorErr);
+        }
+      }
+
       res.json(updated);
     } catch (error: any) {
       console.error("Error reviewing resale listing:", error);
@@ -4480,6 +4559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         id: listing.id,
+        propertyId: listing.propertyId,
         units: listing.units,
         sellingType: listing.sellingType,
         askingPrice: listing.askingPrice,
@@ -4507,6 +4587,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== MARKETPLACE ROUTES ====================
 
   // Get all approved resale listings (marketplace) - enriched with property & bid info
+  app.get("/api/marketplace/listings-public", async (req: any, res) => {
+    try {
+      const listings = await storage.getActiveResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const highestBid = listing.sellingType === "bidding" 
+          ? await storage.getHighestBidForListing(listing.id) 
+          : undefined;
+        const bidCount = listing.sellingType === "bidding"
+          ? (await storage.getBidsByListing(listing.id)).filter(b => b.status === "active").length
+          : 0;
+        return {
+          id: listing.id,
+          propertyId: listing.propertyId,
+          units: listing.units,
+          sellingType: listing.sellingType,
+          askingPrice: listing.askingPrice,
+          minimumPrice: listing.minimumPrice,
+          currency: listing.currency,
+          status: listing.status,
+          biddingEndsAt: listing.biddingEndsAt,
+          shareToken: listing.shareToken,
+          propertyName: property?.name,
+          propertyLocation: property?.location,
+          propertyImageUrl: property?.imageUrl,
+          highestBidAmount: highestBid?.amount || null,
+          bidCount,
+          sellerName: "Brikvest Member",
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching public marketplace listings:", error);
+      res.status(500).json({ message: "Failed to fetch marketplace listings" });
+    }
+  });
+
   app.get("/api/marketplace/listings", requireApprovedUser, async (req: any, res) => {
     try {
       const listings = await storage.getActiveResaleListings();
