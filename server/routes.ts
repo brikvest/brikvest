@@ -21,6 +21,7 @@ import {
   sendTransferCompleteToSellerEmail,
   sendPaymentExpiredEmail,
   sendNextBidderOfferedEmail,
+  sendNewListingNotificationToCoInvestors,
 } from "./resaleEmails";
 import { 
   investmentEmailTemplate, 
@@ -4402,6 +4403,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch (emailErr) {
         console.error("[RESALE-EMAIL] Failed to send listing review email:", emailErr);
+      }
+
+      if (action === "approve" && property) {
+        try {
+          const reservations = await storage.getReservationsByProperty(listing.propertyId);
+          const confirmedInvestors = reservations.filter(
+            (r) => r.status === "converted_to_investment" && r.userId && r.userId !== listing.sellerId
+          );
+
+          const uniqueInvestorIds = [...new Set(confirmedInvestors.map((r) => r.userId!))];
+
+          for (const investorId of uniqueInvestorIds) {
+            try {
+              const investor = await storage.getUser(investorId);
+              if (investor) {
+                await sendNewListingNotificationToCoInvestors(
+                  investor.email,
+                  investor.fullName || investor.email,
+                  property.name,
+                  listing.units,
+                  listing.sellingType,
+                  listing.askingPrice,
+                  listing.currency,
+                  updated?.shareToken || listing.shareToken || null,
+                );
+              }
+            } catch (investorEmailErr) {
+              console.error(`[RESALE-EMAIL] Failed to notify co-investor #${investorId}:`, investorEmailErr);
+            }
+          }
+          console.log(`[RESALE-EMAIL] Notified ${uniqueInvestorIds.length} co-investors about new listing on ${property.name}`);
+        } catch (coInvestorErr) {
+          console.error("[RESALE-EMAIL] Failed to send co-investor notifications:", coInvestorErr);
+        }
       }
 
       res.json(updated);

@@ -306,7 +306,46 @@ export async function sendPaymentExpiredEmail(buyerEmail: string, buyerName: str
   });
 }
 
-// 12. Next bidder offered the slot (to next bidder)
+// 12. New listing live notification (to co-investors in the same property)
+export async function sendNewListingNotificationToCoInvestors(
+  investorEmail: string,
+  investorName: string,
+  propertyName: string,
+  units: string,
+  sellingType: string,
+  askingPrice: string | null,
+  currency: string,
+  shareToken: string | null,
+) {
+  const typeLabel = sellingType === 'fixed_price' ? 'Fixed Price' : 'Auction';
+  const priceInfo = askingPrice ? formatAmount(currency, askingPrice) : 'See listing';
+  const listingUrl = shareToken
+    ? `${PLATFORM_URL}/listing/${shareToken}`
+    : `${PLATFORM_URL}/marketplace`;
+
+  await sendEmail({
+    to: investorEmail,
+    subject: `Units Available for Sale — ${propertyName}`,
+    html: emailWrapper(`
+      <h2 style="color: #1a365d; margin: 0 0 16px;">New Units Available in Your Property</h2>
+      <p style="color: #475569;">Hi ${investorName},</p>
+      <p style="color: #475569;">A fellow investor in <strong>${propertyName}</strong> has listed units for sale on the marketplace. As a co-investor, you get early visibility.</p>
+      ${detailsTable([
+        ['Property', propertyName],
+        ['Units for Sale', units],
+        ['Listing Type', typeLabel],
+        ['${sellingType === "fixed_price" ? "Asking Price" : "Starting Price"}', priceInfo],
+      ])}
+      <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
+        <p style="color: #166534; margin: 0;"><strong>Why this matters:</strong> As a current investor in this property, you may want to increase your holdings or monitor secondary market activity.</p>
+      </div>
+      <p style="color: #475569;">This listing is now live. ${sellingType === 'bidding' ? 'You can place a bid' : 'You can purchase directly'} through the marketplace.</p>
+      ${actionButton('View Listing', listingUrl)}
+    `),
+  });
+}
+
+// 13. Next bidder offered the slot (to next bidder)
 export async function sendNextBidderOfferedEmail(bidderEmail: string, bidderName: string, propertyName: string, units: string, bidAmount: string, currency: string, paymentDeadline: Date) {
   const deadlineStr = paymentDeadline.toLocaleString('en-NG', { dateStyle: 'full', timeStyle: 'short' });
   await sendEmail({
