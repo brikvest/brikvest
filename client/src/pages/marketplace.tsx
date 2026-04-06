@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Building2, Tag, Gavel, ArrowLeft, Clock, Users, DollarSign, MapPin, CheckCircle, Upload, CreditCard, Copy, Banknote, XCircle, Loader2 } from "lucide-react";
+import { Building2, Tag, Gavel, ArrowLeft, Clock, Users, DollarSign, MapPin, CheckCircle, Upload, CreditCard, Copy, Banknote, XCircle, Loader2, TrendingUp, FileText, Download, Eye } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useState, useEffect, useRef } from "react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -67,6 +68,9 @@ export default function Marketplace() {
   const [bankReference, setBankReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [propertyDetailOpen, setPropertyDetailOpen] = useState(false);
+  const [detailPropertyId, setDetailPropertyId] = useState<number | null>(null);
+  const [detailListing, setDetailListing] = useState<any>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -93,6 +97,36 @@ export default function Marketplace() {
     queryKey: ["/api/resale-payments/mine"],
     enabled: isAuthenticated,
   });
+
+  const { data: propertyValuations = [], isLoading: valuationsLoading } = useQuery<any[]>({
+    queryKey: ["/api/properties", detailPropertyId, "valuations-public"],
+    queryFn: async () => {
+      const res = await fetch(`/api/properties/${detailPropertyId}/valuations-public`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!detailPropertyId && propertyDetailOpen,
+  });
+
+  const appreciationChartData = (() => {
+    if (!propertyValuations.length) return [];
+    const sorted = [...propertyValuations].sort(
+      (a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime()
+    );
+    return sorted.map(v => ({
+      date: new Date(v.valuationDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      value: Number(v.rawAssetValue || v.currentValue),
+      appreciation: v.appreciationPercentage ? `${v.appreciationPercentage}%` : null,
+    }));
+  })();
+
+  const overallAppreciation = (() => {
+    if (appreciationChartData.length < 2) return null;
+    const first = appreciationChartData[0].value;
+    const last = appreciationChartData[appreciationChartData.length - 1].value;
+    if (first === 0) return null;
+    return ((last - first) / first * 100).toFixed(1);
+  })();
 
   const { data: listingDetail, isLoading: detailLoading } = useQuery<any>({
     queryKey: ["/api/marketplace/listings", selectedListing?.id],
@@ -433,6 +467,19 @@ export default function Marketplace() {
                     )}
 
                     <p className="text-xs text-slate-400 mb-3">Seller: {listing.sellerName}</p>
+
+                    <Button
+                      variant="outline"
+                      className="w-full mb-2 text-blue-700 border-blue-200 hover:bg-blue-50"
+                      onClick={() => {
+                        setDetailListing(listing);
+                        setDetailPropertyId(listing.propertyId);
+                        setPropertyDetailOpen(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Property Details
+                    </Button>
 
                     {!isSeller && (
                       <div>
@@ -802,6 +849,176 @@ export default function Marketplace() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Property Detail Dialog with Valuation Graph */}
+      <Dialog open={propertyDetailOpen} onOpenChange={setPropertyDetailOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Building2 className="h-5 w-5 text-blue-600" />
+              {detailListing?.propertyName || "Property Details"}
+            </DialogTitle>
+            {detailListing?.propertyLocation && (
+              <DialogDescription className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5" />
+                {detailListing.propertyLocation}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          <div className="space-y-5 mt-2">
+            {detailListing?.propertyImageUrl && (
+              <div className="rounded-lg overflow-hidden">
+                <img
+                  src={detailListing.propertyImageUrl}
+                  alt={detailListing.propertyName}
+                  className="w-full h-48 object-cover"
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="bg-slate-50 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-0.5">Units for Sale</p>
+                <p className="font-bold text-slate-900">{detailListing?.units}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-0.5">Listing Type</p>
+                <p className="font-bold text-slate-900 flex items-center gap-1">
+                  {detailListing?.sellingType === "bidding" ? (
+                    <><Gavel className="h-3.5 w-3.5 text-purple-600" /> Auction</>
+                  ) : (
+                    <><Tag className="h-3.5 w-3.5 text-green-600" /> Fixed Price</>
+                  )}
+                </p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-0.5">
+                  {detailListing?.sellingType === "fixed_price" ? "Asking Price" : "Highest Bid"}
+                </p>
+                <p className="font-bold text-blue-600">
+                  {detailListing?.sellingType === "fixed_price"
+                    ? formatCurrency(convertAmount(parseFloat(detailListing?.askingPrice || 0), detailListing?.currency || "NGN"))
+                    : detailListing?.highestBidAmount
+                      ? formatCurrency(convertAmount(parseFloat(detailListing.highestBidAmount), detailListing?.currency || "NGN"))
+                      : "No bids yet"
+                  }
+                </p>
+              </div>
+            </div>
+
+            {valuationsLoading ? (
+              <div className="bg-slate-50 rounded-lg p-8 text-center">
+                <Loader2 className="h-6 w-6 text-slate-400 animate-spin mx-auto mb-2" />
+                <p className="text-sm text-slate-500">Loading valuation data...</p>
+              </div>
+            ) : appreciationChartData.length > 0 ? (
+              <Card className="border border-green-200">
+                <CardHeader className="pb-2 border-b border-green-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-green-600" />
+                        Land Appreciation
+                      </CardTitle>
+                      <p className="text-xs text-slate-500 mt-0.5">Property value trend based on official valuations</p>
+                    </div>
+                    {overallAppreciation && (
+                      <Badge variant="outline" className={`${Number(overallAppreciation) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
+                        {Number(overallAppreciation) >= 0 ? '+' : ''}{overallAppreciation}% overall
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={appreciationChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorMarketplaceValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '11px' }} />
+                        <YAxis stroke="#64748b" style={{ fontSize: '11px' }} tickFormatter={(v) => `₦${(v / 1000000).toFixed(1)}M`} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                          formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Property Value']}
+                          labelStyle={{ color: '#334155', fontWeight: 600 }}
+                        />
+                        <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorMarketplaceValue)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {propertyValuations.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-500 uppercase tracking-wide mb-2 font-medium">Valuation History</p>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                        {[...propertyValuations]
+                          .sort((a: any, b: any) => new Date(b.valuationDate).getTime() - new Date(a.valuationDate).getTime())
+                          .map((v: any) => (
+                            <div key={v.id} className="flex items-center justify-between text-sm bg-slate-50 rounded px-3 py-2">
+                              <span className="text-slate-600">
+                                {new Date(v.valuationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                              <div className="flex items-center gap-3">
+                                <span className="font-semibold text-slate-900">₦{Number(v.rawAssetValue || v.currentValue).toLocaleString()}</span>
+                                {v.appreciationPercentage && (
+                                  <Badge variant="outline" className={`text-xs ${Number(v.appreciationPercentage) >= 0 ? 'text-green-700 border-green-300' : 'text-red-700 border-red-300'}`}>
+                                    {Number(v.appreciationPercentage) >= 0 ? '+' : ''}{v.appreciationPercentage}%
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="bg-slate-50 rounded-lg p-6 text-center">
+                <TrendingUp className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm text-slate-500">No valuation data available for this property yet</p>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={async () => {
+                  if (!detailPropertyId) return;
+                  try {
+                    const res = await fetch(`/api/properties/${detailPropertyId}/valuation-report-public`);
+                    if (res.status === 404) {
+                      toast({ title: "No report available", description: "A valuation report has not been uploaded yet for this property." });
+                      return;
+                    }
+                    if (!res.ok) throw new Error('Failed to fetch report');
+                    const data = await res.json();
+                    window.open(data.url, '_blank');
+                  } catch (error: any) {
+                    toast({ title: "Error", description: error.message, variant: "destructive" });
+                  }
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                View Valuation Report
+              </Button>
+              <Button
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => setPropertyDetailOpen(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

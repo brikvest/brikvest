@@ -2657,6 +2657,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/properties/:id/valuations-public", async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      const valuations = await storage.getPropertyValuations(propertyId);
+      const sanitized = valuations.map(v => ({
+        id: v.id,
+        propertyId: v.propertyId,
+        valuationDate: v.valuationDate,
+        currentValue: v.currentValue,
+        rawAssetValue: v.rawAssetValue,
+        appreciationPercentage: v.appreciationPercentage,
+        notes: v.notes,
+      }));
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching public valuations:", error);
+      res.status(500).json({ error: "Failed to fetch valuations" });
+    }
+  });
+
+  app.get("/api/properties/:id/valuation-report-public", async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      if (!property.valuationReportUrl) {
+        return res.status(404).json({ error: "No valuation report available for this property" });
+      }
+      res.json({
+        url: property.valuationReportUrl,
+        name: property.valuationReportName || 'Valuation Report.pdf',
+      });
+    } catch (error) {
+      console.error("Error fetching public valuation report:", error);
+      res.status(500).json({ error: "Failed to fetch valuation report" });
+    }
+  });
+
   // User: Get valuation history for a property (only if investor has confirmed investment)
   app.get("/api/properties/:id/valuations", requireApprovedUser, async (req: any, res) => {
     try {
