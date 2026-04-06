@@ -261,23 +261,34 @@ export default function PublicListing() {
               </Card>
             ) : null}
 
-            <Button
-              variant="outline"
-              className="w-full text-blue-700 border-blue-200 hover:bg-blue-50"
-              onClick={async () => {
-                if (!propertyId) return;
-                try {
-                  const res = await fetch(`/api/properties/${propertyId}/valuation-report-public`);
-                  if (res.status === 404) return;
-                  if (!res.ok) return;
-                  const data = await res.json();
-                  window.open(data.url, '_blank');
-                } catch {}
-              }}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              View Valuation Report
-            </Button>
+            {propertyId && (
+              <Button
+                variant="outline"
+                className="w-full text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/properties/${propertyId}/valuation-report-public`);
+                    if (res.status === 404) {
+                      alert("No valuation report has been uploaded for this property yet.");
+                      return;
+                    }
+                    if (!res.ok) {
+                      alert("Unable to load the report. Please try again.");
+                      return;
+                    }
+                    const data = await res.json();
+                    if (data.url) {
+                      window.open(data.url, '_blank');
+                    }
+                  } catch {
+                    alert("Something went wrong. Please try again.");
+                  }
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                View Valuation Report
+              </Button>
+            )}
           </div>
 
           <div className="lg:col-span-2 space-y-4">

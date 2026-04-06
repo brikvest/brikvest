@@ -4559,6 +4559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         id: listing.id,
+        propertyId: listing.propertyId,
         units: listing.units,
         sellingType: listing.sellingType,
         askingPrice: listing.askingPrice,
