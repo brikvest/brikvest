@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Building2, MapPin, Tag, Gavel, Clock, Users, ArrowRight, Share2 } from "lucide-react";
+import { Building2, MapPin, Tag, Gavel, Clock, Users, ArrowRight, ArrowLeft, Share2, TrendingUp, FileText, Loader2 } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 const getCurrencySymbol = (c: string) => {
@@ -28,6 +29,36 @@ export default function PublicListing() {
     },
     enabled: !!shareToken,
   });
+
+  const propertyId = listing?.propertyId;
+  const { data: propertyValuations = [], isLoading: valuationsLoading } = useQuery<any[]>({
+    queryKey: ["/api/properties", propertyId, "valuations-public"],
+    queryFn: async () => {
+      const res = await fetch(`/api/properties/${propertyId}/valuations-public`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!propertyId,
+  });
+
+  const appreciationChartData = (() => {
+    if (!propertyValuations.length) return [];
+    const sorted = [...propertyValuations].sort(
+      (a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime()
+    );
+    return sorted.map(v => ({
+      date: new Date(v.valuationDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      value: Number(v.rawAssetValue || v.currentValue),
+    }));
+  })();
+
+  const overallAppreciation = (() => {
+    if (appreciationChartData.length < 2) return null;
+    const first = appreciationChartData[0].value;
+    const last = appreciationChartData[appreciationChartData.length - 1].value;
+    if (first === 0) return null;
+    return ((last - first) / first * 100).toFixed(1);
+  })();
 
   if (isLoading) {
     return (
@@ -82,7 +113,7 @@ export default function PublicListing() {
           <Link href="/">
             <div className="flex items-center gap-2 cursor-pointer">
               <img src={brikvest_logo} alt="Brikvest" className="h-8 w-8" />
-              <span className="font-bold text-lg text-emerald-700">Brikvest</span>
+              <span className="font-bold text-lg text-blue-700">Brikvest</span>
             </div>
           </Link>
           <Link href="/login">
@@ -92,6 +123,16 @@ export default function PublicListing() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            className="text-slate-600 hover:text-blue-700 hover:bg-blue-50 -ml-2"
+            onClick={() => window.history.length > 1 ? window.history.back() : window.location.href = '/'}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </div>
         <div className="grid lg:grid-cols-5 gap-8">
           <div className="lg:col-span-3 space-y-6">
             {listing.propertyImageUrl && (
@@ -145,10 +186,113 @@ export default function PublicListing() {
                 </div>
               </CardContent>
             </Card>
+
+            {valuationsLoading ? (
+              <div className="bg-white rounded-xl p-8 text-center shadow-sm">
+                <Loader2 className="h-6 w-6 text-slate-400 animate-spin mx-auto mb-2" />
+                <p className="text-sm text-slate-500">Loading valuation data...</p>
+              </div>
+            ) : appreciationChartData.length > 0 ? (
+              <Card className="border border-green-200">
+                <CardHeader className="pb-2 border-b border-green-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-green-600" />
+                        Land Appreciation
+                      </CardTitle>
+                      <p className="text-xs text-slate-500 mt-0.5">Property value trend based on official valuations</p>
+                    </div>
+                    {overallAppreciation && (
+                      <Badge variant="outline" className={`${Number(overallAppreciation) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
+                        {Number(overallAppreciation) >= 0 ? '+' : ''}{overallAppreciation}% overall
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={appreciationChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorPublicValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '11px' }} />
+                        <YAxis stroke="#64748b" style={{ fontSize: '11px' }} tickFormatter={(v) => `₦${(v / 1000000).toFixed(1)}M`} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                          formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Property Value']}
+                          labelStyle={{ color: '#334155', fontWeight: 600 }}
+                        />
+                        <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorPublicValue)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {propertyValuations.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-500 uppercase tracking-wide mb-2 font-medium">Valuation History</p>
+                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                        {[...propertyValuations]
+                          .sort((a: any, b: any) => new Date(b.valuationDate).getTime() - new Date(a.valuationDate).getTime())
+                          .map((v: any) => (
+                            <div key={v.id} className="flex items-center justify-between text-sm bg-slate-50 rounded px-3 py-2">
+                              <span className="text-slate-600">
+                                {new Date(v.valuationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                              <div className="flex items-center gap-3">
+                                <span className="font-semibold text-slate-900">₦{Number(v.rawAssetValue || v.currentValue).toLocaleString()}</span>
+                                {v.appreciationPercentage && (
+                                  <Badge variant="outline" className={`text-xs ${Number(v.appreciationPercentage) >= 0 ? 'text-green-700 border-green-300' : 'text-red-700 border-red-300'}`}>
+                                    {Number(v.appreciationPercentage) >= 0 ? '+' : ''}{v.appreciationPercentage}%
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {propertyId && (
+              <Button
+                variant="outline"
+                className="w-full text-blue-700 border-blue-200 hover:bg-blue-50"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/properties/${propertyId}/valuation-report-public`);
+                    if (res.status === 404) {
+                      alert("No valuation report has been uploaded for this property yet.");
+                      return;
+                    }
+                    if (!res.ok) {
+                      alert("Unable to load the report. Please try again.");
+                      return;
+                    }
+                    const data = await res.json();
+                    if (data.url) {
+                      window.open(data.url, '_blank');
+                    }
+                  } catch {
+                    alert("Something went wrong. Please try again.");
+                  }
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                View Valuation Report
+              </Button>
+            )}
           </div>
 
           <div className="lg:col-span-2 space-y-4">
-            <Card className="border-2 border-emerald-200 shadow-lg">
+            <Card className="border-2 border-blue-200 shadow-lg">
               <CardContent className="p-6">
                 {isAuction ? (
                   <>
@@ -181,7 +325,7 @@ export default function PublicListing() {
                 {!isSold ? (
                   <div className="space-y-3">
                     <Link href={`/login?redirect=/marketplace`}>
-                      <Button className="w-full bg-emerald-600 hover:bg-emerald-700" size="lg">
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700" size="lg">
                         {isAuction ? "Sign In to Place a Bid" : "Sign In to Buy"}
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
@@ -206,19 +350,19 @@ export default function PublicListing() {
                 <h3 className="font-semibold text-slate-900 mb-2">Why Brikvest?</h3>
                 <ul className="space-y-2 text-sm text-slate-600">
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Fractional real estate from ₦30,000
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     KYC-verified members only
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Admin-reviewed transfers
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Ownership certificates issued
                   </li>
                 </ul>
