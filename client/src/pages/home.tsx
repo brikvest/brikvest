@@ -729,7 +729,7 @@ export default function Home() {
                               </div>
                             )}
                             <div className="absolute top-3 left-3">
-                              <Badge className={`${listing.sellingType === "bidding" ? "bg-purple-600 hover:bg-purple-600" : "bg-green-600 hover:bg-green-600"} text-white`}>
+                              <Badge className={`${listing.sellingType === "bidding" ? "bg-purple-600 hover:bg-purple-600" : "bg-blue-600 hover:bg-blue-600"} text-white`}>
                                 {listing.sellingType === "bidding" ? (
                                   <><Gavel className="h-3 w-3 mr-1" /> Auction</>
                                 ) : (

@@ -408,7 +408,7 @@ export default function Marketplace() {
                       </div>
                     )}
                     <div className="absolute top-3 left-3">
-                      <Badge className={listing.sellingType === "bidding" ? "bg-purple-600" : "bg-green-600"}>
+                      <Badge className={listing.sellingType === "bidding" ? "bg-purple-600" : "bg-blue-600"}>
                         {listing.sellingType === "bidding" ? (
                           <><Gavel className="h-3 w-3 mr-1" /> Auction</>
                         ) : (
@@ -485,7 +485,7 @@ export default function Marketplace() {
                       <div>
                         {listing.sellingType === "fixed_price" ? (
                           <Button
-                            className="w-full bg-green-600 hover:bg-green-700 text-white"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                             onClick={() => {
                               setSelectedListing(listing);
                               setBuyDialogOpen(true);
@@ -676,7 +676,7 @@ export default function Marketplace() {
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="outline" onClick={() => setBuyDialogOpen(false)}>Cancel</Button>
               <Button
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={buyMutation.isPending}
                 onClick={() => {
                   buyMutation.mutate(selectedListing.id);
@@ -826,7 +826,7 @@ export default function Marketplace() {
                   I'll Pay Later
                 </Button>
                 <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                   disabled={paymentMutation.isPending}
                   onClick={() => {
                     if (!bankReference.trim()) {

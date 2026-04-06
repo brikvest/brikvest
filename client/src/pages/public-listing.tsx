@@ -3,7 +3,7 @@ import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Building2, MapPin, Tag, Gavel, Clock, Users, ArrowRight, Share2, TrendingUp, FileText, Loader2 } from "lucide-react";
+import { Building2, MapPin, Tag, Gavel, Clock, Users, ArrowRight, ArrowLeft, Share2, TrendingUp, FileText, Loader2 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
@@ -113,7 +113,7 @@ export default function PublicListing() {
           <Link href="/">
             <div className="flex items-center gap-2 cursor-pointer">
               <img src={brikvest_logo} alt="Brikvest" className="h-8 w-8" />
-              <span className="font-bold text-lg text-emerald-700">Brikvest</span>
+              <span className="font-bold text-lg text-blue-700">Brikvest</span>
             </div>
           </Link>
           <Link href="/login">
@@ -123,6 +123,16 @@ export default function PublicListing() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            className="text-slate-600 hover:text-blue-700 hover:bg-blue-50 -ml-2"
+            onClick={() => window.history.length > 1 ? window.history.back() : window.location.href = '/'}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </div>
         <div className="grid lg:grid-cols-5 gap-8">
           <div className="lg:col-span-3 space-y-6">
             {listing.propertyImageUrl && (
@@ -271,7 +281,7 @@ export default function PublicListing() {
           </div>
 
           <div className="lg:col-span-2 space-y-4">
-            <Card className="border-2 border-emerald-200 shadow-lg">
+            <Card className="border-2 border-blue-200 shadow-lg">
               <CardContent className="p-6">
                 {isAuction ? (
                   <>
@@ -304,7 +314,7 @@ export default function PublicListing() {
                 {!isSold ? (
                   <div className="space-y-3">
                     <Link href={`/login?redirect=/marketplace`}>
-                      <Button className="w-full bg-emerald-600 hover:bg-emerald-700" size="lg">
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700" size="lg">
                         {isAuction ? "Sign In to Place a Bid" : "Sign In to Buy"}
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
@@ -329,19 +339,19 @@ export default function PublicListing() {
                 <h3 className="font-semibold text-slate-900 mb-2">Why Brikvest?</h3>
                 <ul className="space-y-2 text-sm text-slate-600">
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Fractional real estate from ₦30,000
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     KYC-verified members only
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Admin-reviewed transfers
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
+                    <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">✓</div>
                     Ownership certificates issued
                   </li>
                 </ul>
