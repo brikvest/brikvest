@@ -57,7 +57,6 @@ export default function Home() {
   // Fetch properties with currency conversion (only when authenticated - membership required)
   const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
   const { formatCurrency: currencyFormatter } = useCurrency();
-  const showProperties = isAuthenticated;
 
   // Fetch live statistics
   const { data: stats } = useQuery<{
@@ -70,8 +69,8 @@ export default function Home() {
   });
 
   const { data: resaleListings = [], isLoading: resaleLoading } = useQuery<any[]>({
-    queryKey: ["/api/marketplace/listings"],
-    enabled: isAuthenticated && propertiesTab === "resale",
+    queryKey: ["/api/marketplace/listings-public"],
+    enabled: propertiesTab === "resale",
   });
 
   // Fetch verification data for selected property
@@ -536,32 +535,6 @@ export default function Home() {
       {/* Properties Section */}
       <section id="properties" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {!showProperties ? (
-            <div className="text-center py-16">
-              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Lock className="h-10 w-10 text-slate-400" />
-              </div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-                Members-Only Access
-              </h2>
-              <p className="text-xl text-slate-600 max-w-2xl mx-auto mb-8">
-                Our property investments are exclusively available to approved Brikvest members. Apply for membership to view and invest in our curated selection of premium real estate.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link href="/login">
-                  <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8">
-                    Apply for Membership
-                  </Button>
-                </Link>
-                <Link href="/login">
-                  <Button size="lg" variant="outline" className="px-8">
-                    Sign In
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          ) : (
-          <>
           <div className="text-center mb-8">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
               Investment Opportunities
@@ -678,15 +651,23 @@ export default function Home() {
                     </CardContent>
                   </div>
                   <CardContent className="px-6 pb-6">
-                    <Button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openInvestmentModal(property);
-                      }}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      Reserve Ownership Slot
-                    </Button>
+                    {isAuthenticated ? (
+                      <Button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openInvestmentModal(property);
+                        }}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        Reserve Ownership Slot
+                      </Button>
+                    ) : (
+                      <Link href="/login">
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                          Sign In to Invest
+                        </Button>
+                      </Link>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -737,7 +718,7 @@ export default function Home() {
                       : null;
 
                     return (
-                      <Link key={listing.id} href="/marketplace">
+                      <Link key={listing.id} href={isAuthenticated ? "/marketplace" : (listing.shareToken ? `/listing/${listing.shareToken}` : "/login")}>
                         <Card className="overflow-hidden border border-slate-200 hover:shadow-xl transition-all duration-200 cursor-pointer group">
                           <div className="h-48 bg-gradient-to-br from-purple-50 to-blue-50 relative">
                             {listing.propertyImageUrl ? (
@@ -814,8 +795,6 @@ export default function Home() {
                 </div>
               )}
             </>
-          )}
-          </>
           )}
         </div>
       </section>

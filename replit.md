@@ -15,7 +15,7 @@ The application employs a modern full-stack architecture with a clear separation
 
 **Database**: PostgreSQL managed with Drizzle ORM.
 
-**Authentication**: Features a dual authentication system for both general users (email/password) and administrators, with a membership-based access control system where new users require admin approval.
+**Authentication**: Features a dual authentication system for both general users (email/password) and administrators, with a membership-based access control system where new users require admin approval. Property listings and P2P marketplace listings are publicly viewable without login. Investing, bidding, and purchasing require authentication and approved membership.
 
 **File Storage**: Cloudinary is used for image storage, while Replit Object Storage handles PDF documents.
 

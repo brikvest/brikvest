@@ -3127,8 +3127,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Enhanced properties endpoint with currency conversion (requires approved membership)
-  app.get("/api/properties-converted", requireApprovedUser, async (req: any, res) => {
+  // Enhanced properties endpoint with currency conversion (public access)
+  app.get("/api/properties-converted", async (req: any, res) => {
     try {
       const properties = await storage.getPublicProperties(); // Only show public properties to buyers
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
@@ -4507,6 +4507,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== MARKETPLACE ROUTES ====================
 
   // Get all approved resale listings (marketplace) - enriched with property & bid info
+  app.get("/api/marketplace/listings-public", async (req: any, res) => {
+    try {
+      const listings = await storage.getActiveResaleListings();
+      const enriched = await Promise.all(listings.map(async (listing) => {
+        const property = await storage.getProperty(listing.propertyId);
+        const highestBid = listing.sellingType === "bidding" 
+          ? await storage.getHighestBidForListing(listing.id) 
+          : undefined;
+        const bidCount = listing.sellingType === "bidding"
+          ? (await storage.getBidsByListing(listing.id)).filter(b => b.status === "active").length
+          : 0;
+        return {
+          id: listing.id,
+          propertyId: listing.propertyId,
+          units: listing.units,
+          sellingType: listing.sellingType,
+          askingPrice: listing.askingPrice,
+          minimumPrice: listing.minimumPrice,
+          currency: listing.currency,
+          status: listing.status,
+          biddingEndsAt: listing.biddingEndsAt,
+          shareToken: listing.shareToken,
+          propertyName: property?.name,
+          propertyLocation: property?.location,
+          propertyImageUrl: property?.imageUrl,
+          highestBidAmount: highestBid?.amount || null,
+          bidCount,
+          sellerName: "Brikvest Member",
+        };
+      }));
+      res.json(enriched);
+    } catch (error: any) {
+      console.error("Error fetching public marketplace listings:", error);
+      res.status(500).json({ message: "Failed to fetch marketplace listings" });
+    }
+  });
+
   app.get("/api/marketplace/listings", requireApprovedUser, async (req: any, res) => {
     try {
       const listings = await storage.getActiveResaleListings();
