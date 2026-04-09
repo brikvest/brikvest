@@ -38,7 +38,7 @@ function ReferralDashboard({ toast }: { toast: any }) {
   if (!referralData) return null;
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const referralLink = `${baseUrl}/login?ref=${referralData.referralCode}`;
+  const referralLink = `${baseUrl}/?ref=${referralData.referralCode}#properties`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(referralLink).then(() => {
@@ -49,7 +49,7 @@ function ReferralDashboard({ toast }: { toast: any }) {
   };
 
   const shareVia = (platform: string) => {
-    const text = `Join Brikvest and invest in real estate starting from ₦30,000! Use my referral link:`;
+    const text = `Check out these real estate investment opportunities on Brikvest — start from just ₦30,000!`;
     const encodedText = encodeURIComponent(text);
     const encodedUrl = encodeURIComponent(referralLink);
     const urls: Record<string, string> = {
