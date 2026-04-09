@@ -41,7 +41,24 @@ export default function Home() {
     referralCode: ""
   });
 
-  // Prefill form when user is authenticated
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      try {
+        localStorage.setItem('brikvest_referral', ref);
+      } catch {}
+      setInvestmentForm(prev => ({ ...prev, referralCode: ref }));
+    } else {
+      try {
+        const stored = localStorage.getItem('brikvest_referral');
+        if (stored) {
+          setInvestmentForm(prev => ({ ...prev, referralCode: stored }));
+        }
+      } catch {}
+    }
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated && user) {
       const userData = user as any;
