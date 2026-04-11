@@ -994,16 +994,19 @@ export default function Marketplace() {
                 className="flex-1 text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
                   if (!detailPropertyId) return;
+                  const newTab = window.open('about:blank', '_blank');
                   try {
                     const res = await fetch(`/api/properties/${detailPropertyId}/valuation-report-public`);
                     if (res.status === 404) {
+                      newTab?.close();
                       toast({ title: "No report available", description: "A valuation report has not been uploaded yet for this property." });
                       return;
                     }
                     if (!res.ok) throw new Error('Failed to fetch report');
                     const data = await res.json();
-                    window.open(data.url, '_blank');
+                    if (newTab) { newTab.location.href = data.url; } else { window.location.href = data.url; }
                   } catch (error: any) {
+                    newTab?.close();
                     toast({ title: "Error", description: error.message, variant: "destructive" });
                   }
                 }}
