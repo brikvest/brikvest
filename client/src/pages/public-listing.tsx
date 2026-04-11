@@ -266,21 +266,23 @@ export default function PublicListing() {
                 variant="outline"
                 className="w-full text-blue-700 border-blue-200 hover:bg-blue-50"
                 onClick={async () => {
+                  const newTab = window.open('about:blank', '_blank');
                   try {
                     const res = await fetch(`/api/properties/${propertyId}/valuation-report-public`);
                     if (res.status === 404) {
+                      newTab?.close();
                       alert("No valuation report has been uploaded for this property yet.");
                       return;
                     }
                     if (!res.ok) {
+                      newTab?.close();
                       alert("Unable to load the report. Please try again.");
                       return;
                     }
                     const data = await res.json();
-                    if (data.url) {
-                      window.open(data.url, '_blank');
-                    }
+                    if (newTab) { newTab.location.href = data.url; } else if (data.url) { window.location.href = data.url; }
                   } catch {
+                    newTab?.close();
                     alert("Something went wrong. Please try again.");
                   }
                 }}
