@@ -388,16 +388,19 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                   size="sm"
                   className="text-blue-700 border-blue-300 hover:bg-blue-50"
                   onClick={async () => {
+                    const newTab = window.open('about:blank', '_blank');
                     try {
                       const res = await fetch(`/api/properties/${latestReportPropertyId}/valuation-report`, { credentials: 'include' });
                       if (res.status === 404) {
+                        newTab?.close();
                         toast({ title: "No report available", description: "A valuation report has not been uploaded yet." });
                         return;
                       }
                       if (!res.ok) throw new Error('Failed to access report');
                       const data = await res.json();
-                      window.open(data.url, '_blank');
+                      if (newTab) { newTab.location.href = data.url; } else { window.location.href = data.url; }
                     } catch (error: any) {
+                      newTab?.close();
                       toast({ title: "Error", description: error.message, variant: "destructive" });
                     }
                   }}
@@ -1671,9 +1674,11 @@ export default function Portfolio() {
                                   variant="outline"
                                   size="sm"
                                   onClick={async () => {
+                                    const newTab = window.open('about:blank', '_blank');
                                     try {
                                       const res = await fetch(`/api/properties/${reservation.propertyId}/valuation-report`, { credentials: 'include' });
                                       if (res.status === 404) {
+                                        newTab?.close();
                                         toast({ title: "No valuation report", description: "A valuation report has not been uploaded for this property yet." });
                                         return;
                                       }
@@ -1682,8 +1687,9 @@ export default function Portfolio() {
                                         throw new Error(data.error || 'Failed to access report');
                                       }
                                       const data = await res.json();
-                                      window.open(data.url, '_blank');
+                                      if (newTab) { newTab.location.href = data.url; } else { window.location.href = data.url; }
                                     } catch (error: any) {
+                                      newTab?.close();
                                       toast({ title: "Error", description: error.message, variant: "destructive" });
                                     }
                                   }}
