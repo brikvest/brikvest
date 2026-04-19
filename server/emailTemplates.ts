@@ -173,7 +173,7 @@ export function kycRejectedEmailTemplate({
           </div>
 
           <p style="font-size: 14px; color: #666;">
-            If you have questions or need assistance, please contact our support team at <a href="mailto:info@thepartybank.com" style="color: #2563eb;">info@thepartybank.com</a>
+            If you have questions or need assistance, please contact our support team at <a href="mailto:info@brikvest.net" style="color: #2563eb;">info@brikvest.net</a>
           </p>
 
           <p style="margin-top: 40px; font-size: 14px; color: #888;">
