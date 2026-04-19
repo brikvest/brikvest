@@ -181,6 +181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName,
         phone,
         emailVerified: true,
+        accountStatus: 'approved',
         referralCode: uniqueReferralCode,
         referredByUserId: referrerUser?.id || null,
       });
@@ -234,32 +235,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send notification email to admin about new registration
       try {
         await sendEmail({
-          to: 'info@thepartybank.com',
-          subject: `New Brikvest Member Application - ${firstName} ${lastName}`,
+          to: 'info@brikvest.net',
+          subject: `New Brikvest Member Signup - ${firstName} ${lastName}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #1a365d;">New Member Application</h2>
-              <p>A new user has registered and is awaiting your approval:</p>
+              <h2 style="color: #1a365d;">New Member Signup</h2>
+              <p>A new user has just registered and was auto-approved:</p>
               <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
                 <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Name</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${firstName} ${lastName}</td></tr>
                 <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Email</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${email}</td></tr>
                 <tr><td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #eee;">Phone</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${phone || 'Not provided'}</td></tr>
               </table>
-              <p>Please log in to the admin dashboard to approve or decline this application.</p>
+              <p>You can view and manage all members from the admin dashboard.</p>
             </div>
           `
         });
-        console.log(`[AUDIT:REGISTRATION] New user registered: ${email} (${firstName} ${lastName}), awaiting approval`);
+        console.log(`[AUDIT:REGISTRATION] New user registered and auto-approved: ${email} (${firstName} ${lastName})`);
       } catch (emailErr) {
         console.error(`[AUDIT:EMAIL] Failed to send admin notification for new registration ${email}:`, emailErr);
       }
 
-      // Do NOT auto-login - account needs admin approval first
+      // Auto-login the new user since accounts are auto-approved
       const { password: _, ...userWithoutPassword } = user;
-      res.status(201).json({ 
-        ...userWithoutPassword, 
-        pendingApproval: true,
-        message: "Your account has been created and is pending admin approval. You will receive an email once approved."
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          console.error("Auto-login after registration failed:", loginErr);
+          return res.status(201).json({
+            ...userWithoutPassword,
+            message: "Your account has been created. Please log in to continue."
+          });
+        }
+        return res.status(201).json({
+          ...userWithoutPassword,
+          message: "Welcome to Brikvest!"
+        });
       });
     } catch (error) {
       console.error("Registration error:", error);
@@ -1157,7 +1166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <p style="font-size: 16px; color: #334155;">Dear ${user.firstName || 'Applicant'},</p>
                 <p style="font-size: 16px; color: #334155;">Thank you for your interest in joining Brikvest. Unfortunately, your membership application was not approved at this time.</p>
                 ${reason ? `<p style="font-size: 16px; color: #334155;"><strong>Reason:</strong> ${reason}</p>` : ''}
-                <p style="font-size: 16px; color: #334155;">If you believe this was a mistake or would like more information, please contact us at <a href="mailto:info@thepartybank.com">info@thepartybank.com</a>.</p>
+                <p style="font-size: 16px; color: #334155;">If you believe this was a mistake or would like more information, please contact us at <a href="mailto:info@brikvest.net">info@brikvest.net</a>.</p>
                 <p style="font-size: 14px; color: #64748b; margin-top: 24px;">— The Brikvest Team</p>
               </div>
             </div>
