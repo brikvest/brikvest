@@ -66,9 +66,10 @@ export function setupAuth(app: Express) {
             return done(null, false, { message: 'Invalid email or password' });
           }
           
-          // Check account approval status
+          // Auto-approve any legacy pending accounts on login
           if (user.accountStatus === 'pending') {
-            return done(null, false, { message: 'Your account is pending admin approval. You will receive an email once approved.' });
+            await storage.updateUserStatus(user.id, 'approved');
+            user.accountStatus = 'approved';
           }
           if (user.accountStatus === 'rejected') {
             return done(null, false, { message: 'Your membership application was not approved. Please contact support for more information.' });
