@@ -235,7 +235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send notification email to admin about new registration
       try {
         await sendEmail({
-          to: 'info@thepartybank.com',
+          to: 'info@brikvest.net',
           subject: `New Brikvest Member Signup - ${firstName} ${lastName}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -1166,7 +1166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <p style="font-size: 16px; color: #334155;">Dear ${user.firstName || 'Applicant'},</p>
                 <p style="font-size: 16px; color: #334155;">Thank you for your interest in joining Brikvest. Unfortunately, your membership application was not approved at this time.</p>
                 ${reason ? `<p style="font-size: 16px; color: #334155;"><strong>Reason:</strong> ${reason}</p>` : ''}
-                <p style="font-size: 16px; color: #334155;">If you believe this was a mistake or would like more information, please contact us at <a href="mailto:info@thepartybank.com">info@thepartybank.com</a>.</p>
+                <p style="font-size: 16px; color: #334155;">If you believe this was a mistake or would like more information, please contact us at <a href="mailto:info@brikvest.net">info@brikvest.net</a>.</p>
                 <p style="font-size: 14px; color: #64748b; margin-top: 24px;">— The Brikvest Team</p>
               </div>
             </div>

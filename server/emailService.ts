@@ -6,8 +6,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false, // Use STARTTLS
   auth: {
-    user: 'info@thepartybank.com',
-    pass: 'pmhkiaiupoizgarr' // App password
+    user: process.env.SMTP_USER || 'info@thepartybank.com',
+    pass: (process.env.SMTP_PASS || 'pmhkiaiupoizgarr').replace(/\s+/g, '')
   }
 });
 
@@ -20,7 +20,7 @@ interface EmailParams {
 export async function sendEmail(params: EmailParams): Promise<boolean> {
   try {
     const mailOptions = {
-      from: '"Brikvest" <info@thepartybank.com>',
+      from: `"Brikvest" <${process.env.SMTP_USER || 'info@thepartybank.com'}>`,
       to: params.to,
       subject: params.subject,
       html: params.html,

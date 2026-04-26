@@ -1282,6 +1282,55 @@ export default function Portfolio() {
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My Portfolio</h1>
             <p className="text-slate-600 mt-1">Track and manage your real estate investments</p>
           </div>
+          {/* Pending Payment Banner */}
+          {(() => {
+            const pendingReservations = reservations.filter(r => r.status === 'reserved');
+            if (pendingReservations.length === 0) return null;
+            const firstPending = pendingReservations[0];
+            return (
+              <div className="mb-6 rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-yellow-50 shadow-md overflow-hidden" data-testid="banner-pending-payment">
+                <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                  <div className="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm sm:text-base font-bold text-amber-900">
+                        {pendingReservations.length === 1
+                          ? "You have a pending payment"
+                          : `You have ${pendingReservations.length} pending payments`}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-amber-800 mt-0.5 line-clamp-2">
+                        Complete your payment{pendingReservations.length > 1 ? 's' : ''} to confirm your investment{pendingReservations.length > 1 ? 's' : ''} and secure your unit{pendingReservations.length > 1 ? 's' : ''}.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 sm:flex-shrink-0">
+                    <Button
+                      onClick={() => handleOpenPaymentModal(firstPending)}
+                      className="flex-1 sm:flex-initial bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-sm"
+                      data-testid="button-banner-make-payment"
+                    >
+                      Make Payment
+                    </Button>
+                    {pendingReservations.length > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          document.getElementById('pending-reservations-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                        data-testid="button-banner-view-all"
+                      >
+                        View All
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-gradient-to-br from-blue-500 to-blue-600 text-white relative overflow-hidden" data-testid="card-total-invested">
@@ -1355,21 +1404,7 @@ export default function Portfolio() {
             </Card>
           </div>
 
-          {/* Valuation-Driven Performance Charts */}
-          {isKycVerified && reservations.filter(r => r.status === 'converted_to_investment').length > 0 && (
-            <InvestmentPerformanceCharts
-              reservations={reservations}
-              formatCurrency={formatCurrency}
-              convertAmount={convertAmount}
-              totalInvested={totalInvested}
-              toast={toast}
-            />
-          )}
-
-          {/* Referral Program */}
-          <ReferralDashboard toast={toast} />
-
-          {/* Pending Reservations */}
+          {/* Pending Reservations - moved up so payment action is above the fold */}
           {(() => {
             const pendingReservations = reservations.filter(r => 
               r.status === 'reserved'
@@ -1377,7 +1412,7 @@ export default function Portfolio() {
             
             if (pendingReservations.length > 0) {
               return (
-                <Card className="mb-6 sm:mb-8 shadow-lg border-yellow-200">
+                <Card id="pending-reservations-section" className="mb-6 sm:mb-8 shadow-lg border-yellow-200 scroll-mt-24">
                   <CardHeader className="border-b border-yellow-200 bg-yellow-50 p-4 sm:p-6">
                     <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                       <Clock className="h-5 w-5 text-yellow-600" />
@@ -1524,6 +1559,20 @@ export default function Portfolio() {
             }
             return null;
           })()}
+
+          {/* Valuation-Driven Performance Charts */}
+          {isKycVerified && reservations.filter(r => r.status === 'converted_to_investment').length > 0 && (
+            <InvestmentPerformanceCharts
+              reservations={reservations}
+              formatCurrency={formatCurrency}
+              convertAmount={convertAmount}
+              totalInvested={totalInvested}
+              toast={toast}
+            />
+          )}
+
+          {/* Referral Program */}
+          <ReferralDashboard toast={toast} />
 
           {/* My Holdings */}
           {(() => {
