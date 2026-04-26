@@ -116,6 +116,8 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       queryClient.invalidateQueries({ queryKey: ["/api/statistics"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/payment-submissions"] });
       setInvestmentModalOpen(false);
       setSuccessMessage("Your ownership slot has been reserved successfully! We'll contact you soon with next steps.");
       setSuccessModalOpen(true);
