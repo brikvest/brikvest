@@ -29,6 +29,7 @@ import {
 } from "@dnd-kit/core";
 import {
   arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+  rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -948,6 +949,22 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
     setForm((prev) => ({ ...prev, mediaUrls: prev.mediaUrls.filter((_, i) => i !== idx) }));
   };
 
+  const mediaSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleMediaDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setForm((prev) => {
+      const oldIndex = prev.mediaUrls.findIndex((u, i) => `${i}:${u}` === active.id);
+      const newIndex = prev.mediaUrls.findIndex((u, i) => `${i}:${u}` === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return { ...prev, mediaUrls: arrayMove(prev.mediaUrls, oldIndex, newIndex) };
+    });
+  };
+
   function classifyUrl(url: string): "image" | "video" | "document" {
     const u = url.toLowerCase().split("?")[0];
     if (/\.(png|jpe?g|webp|gif|avif)$/i.test(u)) return "image";
@@ -1002,36 +1019,22 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
         {/* Media uploader */}
         <div>
           <Label>Site photos, videos & documents</Label>
-          <p className="text-xs text-slate-500 mb-2">Images (max 5 MB), videos (max 100 MB), or PDFs (max 20 MB). Investors see these on the milestone card.</p>
+          <p className="text-xs text-slate-500 mb-2">Images (max 5 MB), videos (max 100 MB), or PDFs (max 20 MB). Drag thumbnails to set the order investors see. The first item is featured.</p>
           <div className="flex flex-wrap gap-2 mb-2">
-            {form.mediaUrls.map((url, i) => {
-              const kind = classifyUrl(url);
-              return (
-                <div key={i} className="relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50" data-testid={`milestone-media-thumb-${i}`}>
-                  {kind === "image" ? (
-                    <img src={url} alt={`Media ${i + 1}`} className="w-full h-full object-cover" />
-                  ) : kind === "video" ? (
-                    <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white">
-                      <span className="text-2xl">▶</span>
-                      <span className="text-[10px] mt-1">Video</span>
-                    </a>
-                  ) : (
-                    <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-red-50 text-red-700">
-                      <span className="text-xs font-bold">PDF</span>
-                      <span className="text-[10px] mt-0.5">Open</span>
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeMedia(i)}
-                    className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
-                    data-testid={`button-remove-media-${i}`}
-                  >
-                    <X className="w-3 h-3 text-red-600" />
-                  </button>
-                </div>
-              );
-            })}
+            <DndContext sensors={mediaSensors} collisionDetection={closestCenter} onDragEnd={handleMediaDragEnd}>
+              <SortableContext items={form.mediaUrls.map((u, i) => `${i}:${u}`)} strategy={rectSortingStrategy}>
+                {form.mediaUrls.map((url, i) => (
+                  <SortableMediaThumb
+                    key={`${i}:${url}`}
+                    id={`${i}:${url}`}
+                    url={url}
+                    index={i}
+                    kind={classifyUrl(url)}
+                    onRemove={() => removeMedia(i)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
             <label className="w-20 h-20 rounded border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition" data-testid="button-upload-media">
               {uploading ? (
                 <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
@@ -1060,6 +1063,82 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+function SortableMediaThumb({
+  id,
+  url,
+  index,
+  kind,
+  onRemove,
+}: {
+  id: string;
+  url: string;
+  index: number;
+  kind: "image" | "video" | "document";
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : "auto",
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50 cursor-grab active:cursor-grabbing touch-none ${isDragging ? "ring-2 ring-blue-400 shadow-lg" : ""}`}
+      data-testid={`milestone-media-thumb-${index}`}
+      aria-label={`Drag to reorder media ${index + 1}`}
+    >
+      {kind === "image" ? (
+        <img src={url} alt={`Media ${index + 1}`} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} />
+      ) : kind === "video" ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { if (isDragging) e.preventDefault(); }}
+          className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white"
+          draggable={false}
+        >
+          <span className="text-2xl">▶</span>
+          <span className="text-[10px] mt-1">Video</span>
+        </a>
+      ) : (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { if (isDragging) e.preventDefault(); }}
+          className="w-full h-full flex flex-col items-center justify-center bg-red-50 text-red-700"
+          draggable={false}
+        >
+          <span className="text-xs font-bold">PDF</span>
+          <span className="text-[10px] mt-0.5">Open</span>
+        </a>
+      )}
+      {index === 0 && (
+        <span className="absolute bottom-0.5 left-0.5 bg-blue-600 text-white text-[9px] font-semibold px-1 py-px rounded pointer-events-none">
+          1st
+        </span>
+      )}
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
+        data-testid={`button-remove-media-${index}`}
+        aria-label={`Remove media ${index + 1}`}
+      >
+        <X className="w-3 h-3 text-red-600" />
+      </button>
+    </div>
   );
 }
 
