@@ -21,7 +21,7 @@ The application utilizes a modern full-stack architecture designed for scalabili
 
 **Email Service**: Gmail SMTP is integrated for transactional emails and automated notifications.
 
-**UI/UX Decisions**: The platform features a modern, responsive design with Tailwind CSS and shadcn/ui components, inspired by Stripe's user dashboards. It incorporates gradient designs for public-facing pages and is optimized for mobile-first responsiveness. Sensitive financial data in dashboards is blurred until KYC verification is complete.
+**UI/UX Decisions**: The platform features a modern, responsive design with Tailwind CSS and shadcn/ui components, inspired by Stripe's user dashboards. It incorporates gradient designs for public-facing pages and is optimized for mobile-first responsiveness. Sensitive financial data in dashboards is blurred until KYC verification is complete. The public landing-page header is intentionally minimal — only essential primary links (Properties, Insights, About), a compact currency selector, a subtle "List your project" CTA, and either a "Sign in" button or an avatar `DropdownMenu` (My Portfolio / List your project / Sign out) — keeping the top bar uncluttered and professional.
 
 **Key Features**:
 - **Fractional Property Investment**: Enables investment in properties with fractional ownership.
