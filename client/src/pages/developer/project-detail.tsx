@@ -251,6 +251,17 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
             </div>
             <Progress value={f.percent || 0} className="h-3" />
             <div className="text-xs text-slate-500 mt-1">{f.percent || 0}% funded</div>
+            {f.equivalents && (
+              <div className="grid grid-cols-3 gap-2 mt-3 text-xs" data-testid="funding-equivalents">
+                {(["NGN", "USD", "GBP"] as const).map((c) => (
+                  <div key={c} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <div className="font-semibold text-slate-700">{c}</div>
+                    <div className="text-slate-900">{fmt(c, f.equivalents[c]?.raised || 0)}</div>
+                    <div className="text-slate-500">of {fmt(c, f.equivalents[c]?.target || 0)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-4 pt-4">
             <div>
@@ -1079,6 +1090,18 @@ function SalesTab({ project }: { project: any }) {
   const forecastDays = weeksToSellOut !== null ? Math.round(weeksToSellOut * 7) : null;
   const forecastDate = forecastDays !== null ? new Date(now.getTime() + forecastDays * 24 * 60 * 60 * 1000) : null;
 
+  const updateSalesStage = useMutation({
+    mutationFn: async (newStage: "off_plan" | "completed") =>
+      apiRequest("PATCH", `/api/developer/projects/${project.id}`, { salesStage: newStage }),
+    onSuccess: (_d, newStage) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
+      toast({ title: "Sales stage updated", description: newStage === "completed" ? "Marked as Completed" : "Marked as Off-plan" });
+    },
+    onError: (err: any) => toast({ title: "Update failed", description: err?.message || "Could not update sales stage", variant: "destructive" }),
+  });
+  const currentSalesStage: "off_plan" | "completed" = project.salesStage === "completed" ? "completed" : "off_plan";
+
   const STAGE_LABELS: Record<SalesStage, string> = {
     all: "All",
     reserved: "Reserved",
@@ -1096,6 +1119,40 @@ function SalesTab({ project }: { project: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Sales lifecycle stage */}
+      <Card>
+        <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Sales lifecycle stage</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              Controls how this project is presented to investors. Off-plan = pre-handover; Completed = handed over / available now.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={currentSalesStage === "off_plan" ? "default" : "outline"}
+              disabled={updateSalesStage.isPending || currentSalesStage === "off_plan"}
+              onClick={() => updateSalesStage.mutate("off_plan")}
+              data-testid="button-sales-stage-off-plan"
+            >
+              Off-plan
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={currentSalesStage === "completed" ? "default" : "outline"}
+              disabled={updateSalesStage.isPending || currentSalesStage === "completed"}
+              onClick={() => updateSalesStage.mutate("completed")}
+              data-testid="button-sales-stage-completed"
+            >
+              Completed
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Velocity / Forecast cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>

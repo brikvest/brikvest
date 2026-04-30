@@ -5646,6 +5646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/developer/projects", requireDeveloper, async (req: any, res) => {
     try {
       const projects = await storage.getPropertiesByDeveloper(req.user.id);
+      const rates = await getExchangeRates();
 
       // Compute per-project rollup stats
       const enriched = await Promise.all(projects.map(async (p) => {
@@ -5662,6 +5663,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (s, r) => s + (Number(r.amount) || (Number(r.units || 0) * unitPrice)),
           0,
         );
+        const totalTarget = Number(p.totalValue || 0);
+        const baseCurrency = p.currency || "NGN";
+        const equivalents = {
+          NGN: { raised: convertCurrency(totalRaised, baseCurrency, "NGN", rates), target: convertCurrency(totalTarget, baseCurrency, "NGN", rates) },
+          USD: { raised: convertCurrency(totalRaised, baseCurrency, "USD", rates), target: convertCurrency(totalTarget, baseCurrency, "USD", rates) },
+          GBP: { raised: convertCurrency(totalRaised, baseCurrency, "GBP", rates), target: convertCurrency(totalTarget, baseCurrency, "GBP", rates) },
+        };
 
         return {
           ...p,
@@ -5672,6 +5680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           nextMilestoneDate: nextMilestone?.targetDate || null,
           nextMilestoneName: nextMilestone?.name || null,
           totalRaised,
+          totalRaisedEquivalents: equivalents,
         };
       }));
 
@@ -5757,6 +5766,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
         // Construction project-level fields
         "currentStage", "expectedCompletionDate", "risksDelays", "latestUpdateText",
+        // Sales lifecycle stage: 'off_plan' | 'completed'
+        "salesStage",
       ];
       const payload: any = {};
       for (const k of allowed) {
@@ -5764,6 +5775,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Coerce date strings to Date objects (Drizzle requires Date for timestamp columns)
           if (k === "expectedCompletionDate" && updates[k]) {
             payload[k] = new Date(updates[k]);
+          } else if (k === "salesStage") {
+            const v = String(updates[k]);
+            if (v !== "off_plan" && v !== "completed") {
+              return res.status(400).json({ message: "Invalid salesStage; must be 'off_plan' or 'completed'." });
+            }
+            payload[k] = v;
           } else {
             payload[k] = updates[k];
           }
@@ -5854,9 +5871,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const recentSales = confirmed.filter(r => r.createdAt && new Date(r.createdAt as any) >= thirtyDaysAgo);
       const velocity30 = recentSales.reduce((s, r) => s + Number(r.units || 0), 0) / 4.3;
 
+      // Multi-currency equivalents for raised + target (NGN, USD, GBP)
+      const rates = await getExchangeRates();
+      const baseCurrency = property.currency || "NGN";
+      const equivalents = {
+        NGN: { raised: convertCurrency(totalRaised, baseCurrency, "NGN", rates), target: convertCurrency(fundingTarget, baseCurrency, "NGN", rates) },
+        USD: { raised: convertCurrency(totalRaised, baseCurrency, "USD", rates), target: convertCurrency(fundingTarget, baseCurrency, "USD", rates) },
+        GBP: { raised: convertCurrency(totalRaised, baseCurrency, "GBP", rates), target: convertCurrency(fundingTarget, baseCurrency, "GBP", rates) },
+      };
+
       res.json({
-        funding: { totalRaised, fundingTarget, currency: property.currency, percent: fundingTarget > 0 ? Math.round((totalRaised / fundingTarget) * 100) : 0 },
-        sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100 },
+        funding: {
+          totalRaised,
+          fundingTarget,
+          currency: property.currency,
+          percent: fundingTarget > 0 ? Math.round((totalRaised / fundingTarget) * 100) : 0,
+          equivalents,
+        },
+        sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100, salesStage: property.salesStage || "off_plan" },
         funnel: { reserved: reservedCount, kycComplete, paymentSubmitted, confirmed: confirmedCount },
         construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
         capTable: {

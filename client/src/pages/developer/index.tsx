@@ -111,6 +111,9 @@ export default function DeveloperProjectsPage() {
                       </div>
                     )}
                     <Badge className={`absolute top-3 right-3 ${status.className}`}>{status.label}</Badge>
+                    <Badge variant="outline" className="absolute top-3 left-3 bg-white/90 text-slate-700 border-slate-300 text-xs" data-testid={`badge-sales-stage-${p.id}`}>
+                      {p.salesStage === "completed" ? "Completed" : "Off-plan"}
+                    </Badge>
                   </div>
                   <CardContent className="p-5">
                     <h3 className="text-lg font-semibold text-slate-900 mb-1 truncate" data-testid={`text-project-name-${p.id}`}>{p.name}</h3>

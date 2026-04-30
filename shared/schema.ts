@@ -91,6 +91,7 @@ export const properties = pgTable("properties", {
   developerId: integer("developer_id").references((): any => users.id),
   developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
   projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
+  salesStage: text("sales_stage").notNull().default("off_plan"), // Lifecycle stage: 'off_plan' | 'completed'
   propertyType: varchar("property_type", { length: 50 }).default("land"),
   badge: text("badge"), // e.g., 'partnered', 'verified', etc.
   partnershipDocumentUrl: text("partnership_document_url"), // URL to signed partnership document
