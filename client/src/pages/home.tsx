@@ -252,6 +252,13 @@ export default function Home() {
                 <Link href="/about" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
                   About
                 </Link>
+                <Link
+                  href="/developer/signup"
+                  className="text-blue-700 hover:text-blue-800 px-3 py-2 text-sm font-semibold transition-colors"
+                  data-testid="link-developer-signup-nav"
+                >
+                  List your project
+                </Link>
               </div>
             </nav>
             <div className="hidden md:flex items-center space-x-4">
@@ -384,6 +391,15 @@ export default function Home() {
                     data-testid="link-mobile-about"
                   >
                     About
+                  </Link>
+
+                  <Link
+                    href="/developer/signup"
+                    className="text-blue-700 hover:text-blue-800 hover:bg-blue-50 block px-3 py-3 rounded-lg text-base font-semibold transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-developer-signup"
+                  >
+                    List your project
                   </Link>
                 </div>
 
@@ -991,7 +1007,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="bg-slate-900 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center mb-4">
                 <img 
@@ -1011,6 +1027,29 @@ export default function Home() {
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">How It Works</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Security</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Careers</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">For Developers</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link
+                    href="/developer/signup"
+                    className="text-slate-300 hover:text-white transition-colors"
+                    data-testid="link-footer-developer-signup"
+                  >
+                    List your project
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/developer/login"
+                    className="text-slate-300 hover:text-white transition-colors"
+                    data-testid="link-footer-developer-login"
+                  >
+                    Developer sign in
+                  </Link>
+                </li>
               </ul>
             </div>
             <div>
