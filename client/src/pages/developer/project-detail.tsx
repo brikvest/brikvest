@@ -60,10 +60,20 @@ export default function DeveloperProjectDetail() {
   const { data: project, isLoading } = useQuery<any>({
     queryKey: ["/api/developer/projects", projectId],
     enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
   const { data: rollup } = useQuery<any>({
     queryKey: ["/api/developer/projects", projectId, "rollup"],
     enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/rollup`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
 
   if (isLoading) {
@@ -191,6 +201,11 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
   const { data: investors = [] } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", project.id, "investors"],
     enabled: !!project.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${project.id}/investors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
 
   const STAGE_LABEL: Record<string, { label: string; className: string }> = {
@@ -537,6 +552,11 @@ function ConstructionTab({ projectId, project }: { projectId: number; project: a
   const { data: milestones, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "milestones"],
     enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/milestones`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
@@ -985,6 +1005,11 @@ function SalesTab({ project }: { project: any }) {
   const { data: investors, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", project.id, "investors"],
     enabled: !!project.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${project.id}/investors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
   const [stage, setStage] = useState<SalesStage>("all");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -1257,6 +1282,11 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
   const { data: investors } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", project.id, "investors"],
     enabled: !!project.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${project.id}/investors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
   const confirmed = (investors || []).filter((i) => i.status === "converted_to_investment");
 
@@ -1388,6 +1418,11 @@ function CommunicationsTab({ projectId, project }: { projectId: number; project:
   const { data: updates, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "updates"],
     enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/updates`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{ type: string; subject: string; body: string; mediaUrls: string[] }>({
