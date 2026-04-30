@@ -13,7 +13,7 @@ import {
   users, properties, investmentReservations,
   projectMilestones, projectUpdates,
 } from "../shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 const DEMO_DEV_EMAIL = "developer.demo@brikvest.net";
 const DEMO_DEV_PASSWORD = "DemoDeveloper2026!";
@@ -38,7 +38,7 @@ interface ProjectSeed {
   milestones: { name: string; status: string; percentComplete: number; description: string }[];
   updates: { type: string; subject: string; body: string }[];
   // status is the lifecycle stage of the reservation; weeksAgo is how long ago it was created/confirmed
-  investors: { email: string; firstName: string; lastName: string; units: number; weeksAgo: number; status?: "reserved" | "payment_pending" | "converted_to_investment" | "expired" }[];
+  investors: { email: string; firstName: string; lastName: string; units: number; weeksAgo: number; status?: "reserved" | "converted_to_investment" | "expired"; submittedPayment?: boolean }[];
 }
 
 const PROJECTS: ProjectSeed[] = [
@@ -93,7 +93,7 @@ const PROJECTS: ProjectSeed[] = [
       { email: "demo-lekki-6@brikvest.net",  firstName: "Ngozi",    lastName: "Okafor",    units: 6, weeksAgo: 3, status: "converted_to_investment" },
       { email: "demo-lekki-7@brikvest.net",  firstName: "Sani",     lastName: "Mohammed",  units: 3, weeksAgo: 3, status: "converted_to_investment" },
       // Mid-funnel: payment submitted, awaiting admin confirmation
-      { email: "demo-lekki-8@brikvest.net",  firstName: "Amaka",    lastName: "Onuoha",    units: 2, weeksAgo: 0, status: "payment_pending" },
+      { email: "demo-lekki-8@brikvest.net",  firstName: "Amaka",    lastName: "Onuoha",    units: 2, weeksAgo: 0, status: "reserved", submittedPayment: true },
       // Open reservations sitting in the funnel
       { email: "demo-lekki-9@brikvest.net",  firstName: "Bolaji",   lastName: "Ade-Lawal", units: 1, weeksAgo: 0, status: "reserved" },
       { email: "demo-lekki-10@brikvest.net", firstName: "Hassan",   lastName: "Garba",     units: 4, weeksAgo: 1, status: "reserved" },
@@ -151,8 +151,8 @@ const PROJECTS: ProjectSeed[] = [
       { email: "demo-maitama-5@brikvest.net",  firstName: "Bisi",    lastName: "Williams",  units: 2, weeksAgo: 2, status: "converted_to_investment" },
       { email: "demo-maitama-6@brikvest.net",  firstName: "Kunle",   lastName: "Ogundimu",  units: 7, weeksAgo: 3, status: "converted_to_investment" },
       // Mid-funnel
-      { email: "demo-maitama-7@brikvest.net",  firstName: "Zainab",  lastName: "Suleiman",  units: 3, weeksAgo: 0, status: "payment_pending" },
-      { email: "demo-maitama-8@brikvest.net",  firstName: "Chinedu", lastName: "Anya",      units: 2, weeksAgo: 1, status: "payment_pending" },
+      { email: "demo-maitama-7@brikvest.net",  firstName: "Zainab",  lastName: "Suleiman",  units: 3, weeksAgo: 0, status: "reserved", submittedPayment: true },
+      { email: "demo-maitama-8@brikvest.net",  firstName: "Chinedu", lastName: "Anya",      units: 2, weeksAgo: 1, status: "reserved", submittedPayment: true },
       // Open reservations
       { email: "demo-maitama-9@brikvest.net",  firstName: "Aisha",   lastName: "Lawal",     units: 1, weeksAgo: 0, status: "reserved" },
       { email: "demo-maitama-10@brikvest.net", firstName: "Tobi",    lastName: "Adeyemi",   units: 2, weeksAgo: 1, status: "reserved" },
@@ -263,7 +263,8 @@ async function ensureMilestones(propertyId: number, seeds: ProjectSeed["mileston
 
 async function ensureInvestors(propertyId: number, unitPrice: number, seeds: ProjectSeed["investors"]) {
   let created = 0;
-  const counts = { reserved: 0, payment_pending: 0, converted_to_investment: 0, expired: 0 };
+  let submissionsCreated = 0;
+  const counts = { reserved: 0, converted_to_investment: 0, expired: 0 };
   for (let i = 0; i < seeds.length; i++) {
     const inv = seeds[i];
     const status = inv.status ?? "converted_to_investment";
@@ -317,9 +318,36 @@ async function ensureInvestors(propertyId: number, unitPrice: number, seeds: Pro
         .where(eq(investmentReservations.id, reservation.id));
       counts[status as keyof typeof counts]++;
       created++;
+
+      // Seed a payment submission record so the developer's drill-down
+      // shows realistic payment history.
+      // - Confirmed investors: one approved submission (their conversion proof).
+      // - "submittedPayment" reserved investors: one pending submission awaiting admin review.
+      const shouldSeedSubmission =
+        status === "converted_to_investment" || inv.submittedPayment === true;
+      if (shouldSeedSubmission) {
+        const submission = await storage.createPaymentSubmission({
+          reservationId: reservation.id,
+          userId: user.id,
+          proofUrl: "https://res.cloudinary.com/demo/image/upload/v1/sample-receipt.png",
+          proofType: "image",
+          amount: String(amount),
+          currency: "NGN",
+          paymentMethod: "bank_transfer",
+          bankReference: `DEMO-REF-${reservation.id}`,
+          status: status === "converted_to_investment" ? "approved" : "pending_admin_review",
+        } as any);
+        // Backdate the submission to match the reservation timeline.
+        await db.execute(sql`
+          UPDATE payment_submissions
+          SET uploaded_at = ${t}, created_at = ${t}
+          WHERE id = ${submission.id}
+        `);
+        submissionsCreated++;
+      }
     }
   }
-  console.log(`[SEED]   Investors → confirmed:${counts.converted_to_investment}  payment-pending:${counts.payment_pending}  reserved:${counts.reserved}  expired:${counts.expired}  (${created} created, ${seeds.length - created} reused)`);
+  console.log(`[SEED]   Investors → confirmed:${counts.converted_to_investment}  reserved:${counts.reserved}  expired:${counts.expired}  (${created} created, ${seeds.length - created} reused; ${submissionsCreated} payment submissions seeded)`);
 }
 
 async function ensureUpdates(propertyId: number, developerId: number, recipientCount: number, seeds: ProjectSeed["updates"]) {
