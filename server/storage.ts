@@ -231,6 +231,7 @@ export interface IStorage {
   getMilestonesByProperty(propertyId: number): Promise<ProjectMilestone[]>;
   getMilestone(id: number): Promise<ProjectMilestone | undefined>;
   updateMilestone(id: number, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone>;
+  reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]>;
   deleteMilestone(id: number): Promise<void>;
 
   // Project updates
@@ -1344,6 +1345,27 @@ export class DatabaseStorage implements IStorage {
       .where(eq(projectMilestones.id, id))
       .returning();
     return result;
+  }
+
+  async reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]> {
+    if (items.length === 0) {
+      return await this.getMilestonesByProperty(propertyId);
+    }
+    const ids = items.map(i => i.id);
+    const caseChunks = sql.join(
+      items.map(i => sql`WHEN ${projectMilestones.id} = ${i.id} THEN ${i.sortOrder}`),
+      sql.raw(" "),
+    );
+    await db.update(projectMilestones)
+      .set({
+        sortOrder: sql`CASE ${caseChunks} ELSE ${projectMilestones.sortOrder} END`,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(projectMilestones.propertyId, propertyId),
+        inArray(projectMilestones.id, ids),
+      ));
+    return await this.getMilestonesByProperty(propertyId);
   }
 
   async deleteMilestone(id: number): Promise<void> {

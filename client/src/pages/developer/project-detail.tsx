@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
@@ -20,9 +20,17 @@ import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
-  ArrowUp, ArrowDown, ImagePlus, X,
+  GripVertical, ImagePlus, X,
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft:            { label: "Draft",            className: "bg-slate-100 text-slate-700 border-slate-200" },
@@ -618,29 +626,52 @@ function ConstructionTab({ projectId, project }: { projectId: number; project: a
     },
   });
 
+  const milestonesKey = ["/api/developer/projects", projectId, "milestones"];
+
   const reorderMutation = useMutation({
     mutationFn: async (items: { id: number; sortOrder: number }[]) => {
-      // Sequentially patch each item's sortOrder
-      for (const item of items) {
-        await apiRequest("PATCH", `/api/developer/milestones/${item.id}`, { sortOrder: item.sortOrder });
-      }
+      return apiRequest("POST", `/api/developer/projects/${projectId}/milestones/reorder`, { items });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "milestones"] });
+    onMutate: async (items) => {
+      await queryClient.cancelQueries({ queryKey: milestonesKey });
+      const previous = queryClient.getQueryData<any[]>(milestonesKey);
+      const orderById = new Map(items.map(i => [i.id, i.sortOrder]));
+      queryClient.setQueryData<any[]>(milestonesKey, (current) => {
+        if (!current) return current;
+        return current.map(m =>
+          orderById.has(m.id) ? { ...m, sortOrder: orderById.get(m.id)! } : m
+        );
+      });
+      return { previous };
+    },
+    onError: (_err, _items, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(milestonesKey, context.previous);
+      }
+      toast({ title: "Failed to reorder milestones", variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: milestonesKey });
     },
   });
 
-  const move = (idx: number, dir: -1 | 1) => {
-    if (!milestones) return;
-    const sorted = [...milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-    const target = idx + dir;
-    if (target < 0 || target >= sorted.length) return;
-    [sorted[idx], sorted[target]] = [sorted[target], sorted[idx]];
-    const items = sorted.map((m, i) => ({ id: m.id, sortOrder: i }));
-    reorderMutation.mutate(items);
-  };
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const sortedMilestones = milestones ? [...milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : [];
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = sortedMilestones.findIndex(m => m.id === active.id);
+    const newIndex = sortedMilestones.findIndex(m => m.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(sortedMilestones, oldIndex, newIndex);
+    const items = reordered.map((m, i) => ({ id: m.id, sortOrder: i }));
+    reorderMutation.mutate(items);
+  };
   const overall = sortedMilestones.length === 0 ? 0 : Math.round(sortedMilestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / sortedMilestones.length);
 
   const updateField = (k: keyof typeof projectFields, v: string) => {
@@ -752,89 +783,113 @@ function ConstructionTab({ projectId, project }: { projectId: number; project: a
               <p>No milestones yet. Add your first one to start tracking progress.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {sortedMilestones.map((m, idx) => {
-                const meta = MILESTONE_STATUS[m.status] || MILESTONE_STATUS.not_started;
-                const Icon = meta.icon;
-                const media: string[] = Array.isArray(m.mediaUrls) ? m.mediaUrls : [];
-                return (
-                  <div key={m.id} className="border border-slate-200 rounded-lg p-4 bg-white" data-testid={`milestone-${m.id}`}>
-                    <div className="flex items-start gap-3">
-                      {/* Reorder column */}
-                      <div className="flex flex-col gap-1 pt-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          disabled={idx === 0 || reorderMutation.isPending}
-                          onClick={() => move(idx, -1)}
-                          data-testid={`button-move-up-${m.id}`}
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          disabled={idx === sortedMilestones.length - 1 || reorderMutation.isPending}
-                          onClick={() => move(idx, 1)}
-                          data-testid={`button-move-down-${m.id}`}
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-3 mb-1 flex-wrap">
-                              <span className="text-xs font-mono text-slate-400">#{idx + 1}</span>
-                              <h4 className="font-semibold text-slate-900">{m.name}</h4>
-                              <Badge className={meta.className}><Icon className="w-3 h-3 mr-1" />{meta.label}</Badge>
-                            </div>
-                            {m.description && <p className="text-sm text-slate-600 mb-2">{m.description}</p>}
-                            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-                              {m.targetDate && <span><Calendar className="w-3 h-3 inline mr-1" />Target: {new Date(m.targetDate).toLocaleDateString()}</span>}
-                              {m.completedDate && <span className="text-emerald-600"><CheckCircle2 className="w-3 h-3 inline mr-1" />Done: {new Date(m.completedDate).toLocaleDateString()}</span>}
-                            </div>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <div className="text-lg font-bold text-slate-900 mb-1">{m.percentComplete || 0}%</div>
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => { setEditing(m); setOpen(true); }} data-testid={`button-edit-${m.id}`}>
-                                <Pencil className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate(m.id)} data-testid={`button-delete-${m.id}`}>
-                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                        {media.length > 0 && (
-                          <div className="flex gap-2 mt-3 overflow-x-auto" data-testid={`media-gallery-${m.id}`}>
-                            {media.map((url, i) => (
-                              <a
-                                key={i}
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block flex-shrink-0 w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50 hover:ring-2 hover:ring-blue-400"
-                              >
-                                <img src={url} alt={`Milestone media ${i + 1}`} className="w-full h-full object-cover" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                        <Progress value={m.percentComplete || 0} className="h-1.5 mt-3" />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={sortedMilestones.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-3">
+                  {sortedMilestones.map((m, idx) => (
+                    <SortableMilestoneItem
+                      key={m.id}
+                      milestone={m}
+                      index={idx}
+                      onEdit={(mil) => { setEditing(mil); setOpen(true); }}
+                      onDelete={(id) => deleteMutation.mutate(id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function SortableMilestoneItem({
+  milestone: m,
+  index: idx,
+  onEdit,
+  onDelete,
+}: {
+  milestone: any;
+  index: number;
+  onEdit: (m: any) => void;
+  onDelete: (id: number) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: m.id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : "auto",
+  };
+  const meta = MILESTONE_STATUS[m.status] || MILESTONE_STATUS.not_started;
+  const Icon = meta.icon;
+  const media: string[] = Array.isArray(m.mediaUrls) ? m.mediaUrls : [];
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`border border-slate-200 rounded-lg p-4 bg-white ${isDragging ? "shadow-lg ring-2 ring-blue-300" : ""}`}
+      data-testid={`milestone-${m.id}`}
+    >
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="flex items-center justify-center h-8 w-6 mt-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-grab active:cursor-grabbing touch-none"
+          aria-label={`Drag to reorder ${m.name}`}
+          data-testid={`drag-handle-${m.id}`}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-1 flex-wrap">
+                <span className="text-xs font-mono text-slate-400">#{idx + 1}</span>
+                <h4 className="font-semibold text-slate-900">{m.name}</h4>
+                <Badge className={meta.className}><Icon className="w-3 h-3 mr-1" />{meta.label}</Badge>
+              </div>
+              {m.description && <p className="text-sm text-slate-600 mb-2">{m.description}</p>}
+              <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                {m.targetDate && <span><Calendar className="w-3 h-3 inline mr-1" />Target: {new Date(m.targetDate).toLocaleDateString()}</span>}
+                {m.completedDate && <span className="text-emerald-600"><CheckCircle2 className="w-3 h-3 inline mr-1" />Done: {new Date(m.completedDate).toLocaleDateString()}</span>}
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="text-lg font-bold text-slate-900 mb-1">{m.percentComplete || 0}%</div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => onEdit(m)} data-testid={`button-edit-${m.id}`}>
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => onDelete(m.id)} data-testid={`button-delete-${m.id}`}>
+                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          {media.length > 0 && (
+            <div className="flex gap-2 mt-3 overflow-x-auto" data-testid={`media-gallery-${m.id}`}>
+              {media.map((url, i) => (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block flex-shrink-0 w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50 hover:ring-2 hover:ring-blue-400"
+                >
+                  <img src={url} alt={`Milestone media ${i + 1}`} className="w-full h-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
+          <Progress value={m.percentComplete || 0} className="h-1.5 mt-3" />
+        </div>
+      </div>
     </div>
   );
 }

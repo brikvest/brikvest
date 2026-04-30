@@ -6241,6 +6241,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Milestones — bulk reorder (single round-trip for drag-and-drop)
+  app.post("/api/developer/projects/:id/milestones/reorder", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+
+      const rawItems = Array.isArray(req.body?.items) ? req.body.items : null;
+      if (!rawItems) return res.status(400).json({ message: "items must be an array" });
+
+      const items: { id: number; sortOrder: number }[] = [];
+      const seenIds = new Set<number>();
+      for (const it of rawItems) {
+        const id = Number(it?.id);
+        const sortOrder = Number(it?.sortOrder);
+        if (!Number.isInteger(id) || id <= 0) {
+          return res.status(400).json({ message: "Each item must have a positive integer id" });
+        }
+        if (!Number.isInteger(sortOrder)) {
+          return res.status(400).json({ message: "Each item must have an integer sortOrder" });
+        }
+        if (seenIds.has(id)) {
+          return res.status(400).json({ message: `Duplicate milestone id ${id}` });
+        }
+        seenIds.add(id);
+        items.push({ id, sortOrder });
+      }
+
+      // Ensure every id belongs to this project (prevents reordering other developers' rows)
+      const existing = await storage.getMilestonesByProperty(propertyId);
+      const validIds = new Set(existing.map(m => m.id));
+      for (const it of items) {
+        if (!validIds.has(it.id)) {
+          return res.status(400).json({ message: `Milestone ${it.id} does not belong to this project` });
+        }
+      }
+
+      const updated = await storage.reorderMilestones(propertyId, items);
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to reorder milestones" });
+    }
+  });
+
   // Milestones — update
   app.patch("/api/developer/milestones/:milestoneId", requireDeveloper, async (req: any, res) => {
     try {
