@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
@@ -105,7 +106,7 @@ export default function DeveloperProjectDetail() {
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} /></TabsContent>
         <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="construction"><ConstructionTab projectId={projectId} /></TabsContent>
+        <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>
         <TabsContent value="sales"><SalesTab project={project} /></TabsContent>
         <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>
         <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>
@@ -183,6 +184,22 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string;
 function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
   const f = rollup?.funding || {};
   const funnel = rollup?.funnel || {};
+  const [search, setSearch] = useState("");
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  const [drillIn, setDrillIn] = useState<any | null>(null);
+
+  const { data: investors = [] } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", project.id, "investors"],
+    enabled: !!project.id,
+  });
+
+  const STAGE_LABEL: Record<string, { label: string; className: string }> = {
+    reserved:                { label: "Reserved",          className: "bg-amber-100 text-amber-700" },
+    payment_pending:         { label: "Payment Pending",   className: "bg-orange-100 text-orange-700" },
+    converted_to_investment: { label: "Confirmed",         className: "bg-emerald-100 text-emerald-700" },
+    expired:                 { label: "Expired",           className: "bg-red-100 text-red-700" },
+    cancelled:               { label: "Cancelled",         className: "bg-slate-100 text-slate-600" },
+  };
 
   const funnelData = [
     { stage: "Reserved",          count: funnel.reserved || 0 },
@@ -190,6 +207,20 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
     { stage: "Payment Submitted", count: funnel.paymentSubmitted || 0 },
     { stage: "Confirmed",         count: funnel.confirmed || 0 },
   ];
+
+  const stuckInFunnel = (investors || []).filter((i) => {
+    if (i.status === "converted_to_investment" || i.status === "expired" || i.status === "cancelled") return false;
+    if (!i.createdAt) return false;
+    const ageMs = Date.now() - new Date(i.createdAt).getTime();
+    return ageMs > 3 * 24 * 60 * 60 * 1000; // > 3 days in non-terminal state
+  });
+
+  const filtered = (investors || []).filter((i) => {
+    if (stageFilter !== "all" && i.status !== stageFilter) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (i.name || "").toLowerCase().includes(q) || (i.email || "").toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-6">
@@ -241,12 +272,189 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
           </div>
         </CardContent>
       </Card>
+
+      {stuckInFunnel.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40" data-testid="card-stuck-funnel">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="w-4 h-4" />
+              Stuck in funnel ({stuckInFunnel.length})
+            </CardTitle>
+            <CardDescription className="text-amber-800">
+              Investors who reserved more than 3 days ago and have not yet confirmed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {stuckInFunnel.slice(0, 6).map((i) => (
+                <div key={i.reservationId} className="flex items-center justify-between bg-white border border-amber-200 rounded-lg px-4 py-2">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="w-7 h-7"><AvatarFallback className="text-xs bg-amber-100 text-amber-700">{(i.name?.[0] || "?").toUpperCase()}</AvatarFallback></Avatar>
+                    <div>
+                      <div className="text-sm font-medium text-slate-900">{i.name}</div>
+                      <div className="text-xs text-slate-500">{i.email}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge className={STAGE_LABEL[i.status]?.className || "bg-slate-100"}>{STAGE_LABEL[i.status]?.label || i.status}</Badge>
+                    <Button size="sm" variant="outline" onClick={() => setDrillIn(i)} data-testid={`button-drill-${i.reservationId}`}>View</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Investors</CardTitle>
+          <CardDescription>Search, filter, and drill down to see each investor's reservation and payment history.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              placeholder="Search by name or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="sm:max-w-sm"
+              data-testid="input-investor-search"
+            />
+            <Select value={stageFilter} onValueChange={setStageFilter}>
+              <SelectTrigger className="sm:w-56" data-testid="select-stage-filter"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All stages ({investors.length})</SelectItem>
+                <SelectItem value="reserved">Reserved</SelectItem>
+                <SelectItem value="payment_pending">Payment Pending</SelectItem>
+                <SelectItem value="converted_to_investment">Confirmed</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">No investors match the current filters.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Investor</TableHead>
+                    <TableHead>Stage</TableHead>
+                    <TableHead className="text-right">Units</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Reserved</TableHead>
+                    <TableHead className="text-right"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((i) => {
+                    const meta = STAGE_LABEL[i.status] || { label: i.status, className: "bg-slate-100" };
+                    return (
+                      <TableRow key={i.reservationId} data-testid={`row-investor-${i.reservationId}`}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-8 h-8"><AvatarFallback className="text-xs bg-blue-100 text-blue-700">{(i.name?.[0] || "?").toUpperCase()}</AvatarFallback></Avatar>
+                            <div>
+                              <div className="font-medium text-slate-900">{i.name}</div>
+                              <div className="text-xs text-slate-500">{i.email}</div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
+                        <TableCell className="text-right font-medium">{i.units}</TableCell>
+                        <TableCell className="text-right">{fmt(i.currency, i.amount)}</TableCell>
+                        <TableCell className="text-right text-xs text-slate-500">{i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="ghost" onClick={() => setDrillIn(i)} data-testid={`button-view-investor-${i.reservationId}`}>View</Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!drillIn} onOpenChange={(open) => !open && setDrillIn(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{drillIn?.name}</DialogTitle>
+            <DialogDescription>{drillIn?.email}</DialogDescription>
+          </DialogHeader>
+          {drillIn && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Stage</div>
+                  <Badge className={`mt-1 ${STAGE_LABEL[drillIn.status]?.className || "bg-slate-100"}`}>{STAGE_LABEL[drillIn.status]?.label || drillIn.status}</Badge>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Units</div>
+                  <div className="font-semibold text-slate-900">{drillIn.units}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Amount</div>
+                  <div className="font-semibold text-slate-900">{fmt(drillIn.currency, drillIn.amount)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Reservation ID</div>
+                  <div className="font-mono text-xs text-slate-700">#{drillIn.reservationId}</div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <div className="text-xs text-slate-500 uppercase mb-2">Timeline</div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 mt-2" />
+                    <div>
+                      <div className="font-medium text-slate-900">Reservation created</div>
+                      <div className="text-xs text-slate-500">{drillIn.createdAt ? new Date(drillIn.createdAt).toLocaleString() : "—"}</div>
+                    </div>
+                  </div>
+                  {drillIn.status === "payment_pending" && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-orange-500 mt-2" />
+                      <div>
+                        <div className="font-medium text-slate-900">Payment submitted</div>
+                        <div className="text-xs text-slate-500">Awaiting admin confirmation</div>
+                      </div>
+                    </div>
+                  )}
+                  {drillIn.confirmedAt && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
+                      <div>
+                        <div className="font-medium text-slate-900">Confirmed as investment</div>
+                        <div className="text-xs text-slate-500">{new Date(drillIn.confirmedAt).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  )}
+                  {drillIn.status === "expired" && (
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-red-500 mt-2" />
+                      <div>
+                        <div className="font-medium text-slate-900">Reservation expired</div>
+                        <div className="text-xs text-slate-500">Did not convert in time</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // ======================= CONSTRUCTION =======================
-function ConstructionTab({ projectId }: { projectId: number }) {
+function ConstructionTab({ projectId, project }: { projectId: number; project: any }) {
   const { toast } = useToast();
   const { data: milestones, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "milestones"],
@@ -254,6 +462,30 @@ function ConstructionTab({ projectId }: { projectId: number }) {
   });
   const [editing, setEditing] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
+
+  // Project-level construction fields
+  const [projectFields, setProjectFields] = useState({
+    currentStage: project?.currentStage || "",
+    expectedCompletionDate: project?.expectedCompletionDate ? new Date(project.expectedCompletionDate).toISOString().slice(0, 10) : "",
+    risksDelays: project?.risksDelays || "",
+    latestUpdateText: project?.latestUpdateText || "",
+  });
+  const [fieldsDirty, setFieldsDirty] = useState(false);
+
+  const saveProjectFields = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/developer/projects/${projectId}`, {
+      currentStage: projectFields.currentStage || null,
+      expectedCompletionDate: projectFields.expectedCompletionDate || null,
+      risksDelays: projectFields.risksDelays || null,
+      latestUpdateText: projectFields.latestUpdateText || null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
+      setFieldsDirty(false);
+      toast({ title: "Project details saved" });
+    },
+    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+  });
 
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -302,6 +534,11 @@ function ConstructionTab({ projectId }: { projectId: number }) {
   const sortedMilestones = milestones ? [...milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : [];
   const overall = sortedMilestones.length === 0 ? 0 : Math.round(sortedMilestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / sortedMilestones.length);
 
+  const updateField = (k: keyof typeof projectFields, v: string) => {
+    setProjectFields((prev) => ({ ...prev, [k]: v }));
+    setFieldsDirty(true);
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -312,6 +549,72 @@ function ConstructionTab({ projectId }: { projectId: number }) {
           </div>
           <div className="w-1/2">
             <Progress value={overall} className="h-3" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-project-fields">
+        <CardHeader>
+          <CardTitle>Project status</CardTitle>
+          <CardDescription>High-level status visible to your investors. Updated independently of milestones.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Current stage</Label>
+              <Select value={projectFields.currentStage} onValueChange={(v) => updateField("currentStage", v)}>
+                <SelectTrigger data-testid="select-current-stage"><SelectValue placeholder="Select stage" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Land prep">Land prep</SelectItem>
+                  <SelectItem value="Foundation">Foundation</SelectItem>
+                  <SelectItem value="Structural frame">Structural frame</SelectItem>
+                  <SelectItem value="Roofing & facade">Roofing & facade</SelectItem>
+                  <SelectItem value="Finishes">Finishes</SelectItem>
+                  <SelectItem value="Handover">Handover</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Expected completion date</Label>
+              <Input
+                type="date"
+                value={projectFields.expectedCompletionDate}
+                onChange={(e) => updateField("expectedCompletionDate", e.target.value)}
+                data-testid="input-expected-completion"
+              />
+            </div>
+          </div>
+          <div>
+            <Label>Latest update headline</Label>
+            <Input
+              value={projectFields.latestUpdateText}
+              onChange={(e) => updateField("latestUpdateText", e.target.value)}
+              placeholder="e.g. Floor 7 slab poured this week — on schedule"
+              maxLength={200}
+              data-testid="input-latest-update"
+            />
+            <p className="text-xs text-slate-500 mt-1">Shown on investor dashboards above the milestone list.</p>
+          </div>
+          <div>
+            <Label>Risks & delays</Label>
+            <Textarea
+              rows={3}
+              value={projectFields.risksDelays}
+              onChange={(e) => updateField("risksDelays", e.target.value)}
+              placeholder="Document any current risks, weather impacts, supply chain issues, or schedule slippage."
+              data-testid="textarea-risks-delays"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveProjectFields.mutate()}
+              disabled={!fieldsDirty || saveProjectFields.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+              data-testid="button-save-project-fields"
+            >
+              {saveProjectFields.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+              Save project status
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -441,24 +744,35 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
   });
   const [uploading, setUploading] = useState(false);
 
+  function detectKind(file: File): { kind: "image" | "video" | "document"; field: string; endpoint: string; max: number } | null {
+    if (file.type.startsWith("image/")) return { kind: "image",    field: "image",    endpoint: "/api/upload/image",    max: 5  * 1024 * 1024 };
+    if (file.type.startsWith("video/")) return { kind: "video",    field: "video",    endpoint: "/api/upload/video",    max: 100 * 1024 * 1024 };
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))
+      return { kind: "document", field: "document", endpoint: "/api/upload/document", max: 20 * 1024 * 1024 };
+    return null;
+  }
+
   const handleUpload = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Only images allowed", variant: "destructive" });
+    const k = detectKind(file);
+    if (!k) {
+      toast({ title: "Unsupported file type", description: "Allowed: image, video, or PDF.", variant: "destructive" });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "Image too large (max 5 MB)", variant: "destructive" });
+    if (file.size > k.max) {
+      toast({ title: "File too large", description: `Max ${Math.round(k.max / (1024 * 1024))} MB for ${k.kind}.`, variant: "destructive" });
       return;
     }
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/upload/image", { method: "POST", body: fd, credentials: "include" });
+      fd.append(k.field, file);
+      const res = await fetch(k.endpoint, { method: "POST", body: fd, credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setForm((prev) => ({ ...prev, mediaUrls: [...prev.mediaUrls, data.url] }));
-      toast({ title: "Image uploaded" });
+      const url: string | undefined = data.url || data.documentUrl || data.videoUrl;
+      if (!url) throw new Error("Server did not return a URL");
+      setForm((prev) => ({ ...prev, mediaUrls: [...prev.mediaUrls, url] }));
+      toast({ title: `${k.kind[0].toUpperCase()}${k.kind.slice(1)} uploaded` });
     } catch (e: any) {
       toast({ title: "Upload failed", description: e.message || "Try again", variant: "destructive" });
     } finally {
@@ -469,6 +783,13 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
   const removeMedia = (idx: number) => {
     setForm((prev) => ({ ...prev, mediaUrls: prev.mediaUrls.filter((_, i) => i !== idx) }));
   };
+
+  function classifyUrl(url: string): "image" | "video" | "document" {
+    const u = url.toLowerCase().split("?")[0];
+    if (/\.(png|jpe?g|webp|gif|avif)$/i.test(u)) return "image";
+    if (/\.(mp4|webm|mov|m4v|avi)$/i.test(u))    return "video";
+    return "document";
+  }
 
   return (
     <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -516,22 +837,37 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
 
         {/* Media uploader */}
         <div>
-          <Label>Site photos / progress media</Label>
-          <p className="text-xs text-slate-500 mb-2">Upload photos to share with investors (max 5 MB each).</p>
+          <Label>Site photos, videos & documents</Label>
+          <p className="text-xs text-slate-500 mb-2">Images (max 5 MB), videos (max 100 MB), or PDFs (max 20 MB). Investors see these on the milestone card.</p>
           <div className="flex flex-wrap gap-2 mb-2">
-            {form.mediaUrls.map((url, i) => (
-              <div key={i} className="relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50" data-testid={`milestone-media-thumb-${i}`}>
-                <img src={url} alt={`Media ${i + 1}`} className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeMedia(i)}
-                  className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
-                  data-testid={`button-remove-media-${i}`}
-                >
-                  <X className="w-3 h-3 text-red-600" />
-                </button>
-              </div>
-            ))}
+            {form.mediaUrls.map((url, i) => {
+              const kind = classifyUrl(url);
+              return (
+                <div key={i} className="relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50" data-testid={`milestone-media-thumb-${i}`}>
+                  {kind === "image" ? (
+                    <img src={url} alt={`Media ${i + 1}`} className="w-full h-full object-cover" />
+                  ) : kind === "video" ? (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white">
+                      <span className="text-2xl">▶</span>
+                      <span className="text-[10px] mt-1">Video</span>
+                    </a>
+                  ) : (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-red-50 text-red-700">
+                      <span className="text-xs font-bold">PDF</span>
+                      <span className="text-[10px] mt-0.5">Open</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeMedia(i)}
+                    className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
+                    data-testid={`button-remove-media-${i}`}
+                  >
+                    <X className="w-3 h-3 text-red-600" />
+                  </button>
+                </div>
+              );
+            })}
             <label className="w-20 h-20 rounded border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition" data-testid="button-upload-media">
               {uploading ? (
                 <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
@@ -540,7 +876,7 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
               )}
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*,application/pdf,.pdf"
                 className="hidden"
                 disabled={uploading}
                 onChange={(e) => {
@@ -919,6 +1255,36 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
                       </TableRow>
                     );
                   })}
+                  {/* Developer (retained) row */}
+                  <TableRow className="bg-emerald-50/50" data-testid="row-shareholder-developer">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-8 h-8"><AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">D</AvatarFallback></Avatar>
+                        <div>
+                          <div className="font-medium text-slate-900">Developer (retained)</div>
+                          <div className="text-xs text-slate-500">Sponsor equity kept off-market</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{rollup?.sales?.developerEquityUnits || 0}</TableCell>
+                    <TableCell className="text-right font-medium">{(cap.developerEquityPercent || 0).toFixed ? cap.developerEquityPercent.toFixed(2) : cap.developerEquityPercent || 0}%</TableCell>
+                    <TableCell className="text-right text-slate-500">—</TableCell>
+                  </TableRow>
+                  {/* Available (unsold) row */}
+                  <TableRow className="bg-slate-50/50" data-testid="row-shareholder-available">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-8 h-8"><AvatarFallback className="text-xs bg-slate-100 text-slate-600">A</AvatarFallback></Avatar>
+                        <div>
+                          <div className="font-medium text-slate-900">Available (unsold)</div>
+                          <div className="text-xs text-slate-500">Open for investor purchase</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{rollup?.sales?.availableUnits || 0}</TableCell>
+                    <TableCell className="text-right font-medium">{(cap.availableEquityPercent || 0).toFixed ? cap.availableEquityPercent.toFixed(2) : cap.availableEquityPercent || 0}%</TableCell>
+                    <TableCell className="text-right text-slate-500">—</TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </div>
@@ -998,14 +1364,14 @@ function CommunicationsTab({ projectId, project }: { projectId: number; project:
                 </div>
                 <div>
                   <Label>Message *</Label>
-                  <Textarea
-                    value={form.body}
-                    onChange={(e) => setForm({ ...form, body: e.target.value })}
-                    rows={8}
-                    placeholder="Share details, photos, or next steps. HTML is supported."
-                    data-testid="input-update-body"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Tip: Wrap paragraphs in &lt;p&gt;…&lt;/p&gt; for nicer email formatting.</p>
+                  <div data-testid="input-update-body">
+                    <RichTextEditor
+                      content={form.body}
+                      onChange={(html) => setForm({ ...form, body: html })}
+                      placeholder="Share details, photos, or next steps. Use the toolbar to format your message."
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Investors receive this as an email and see it on their dashboard. Formatting and links are preserved.</p>
                 </div>
               </div>
               <DialogFooter>

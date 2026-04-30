@@ -5741,9 +5741,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "name", "location", "description", "totalValue", "minInvestment", "imageUrl", "videoUrl", "gallery",
         "propertyType", "currency", "city", "district", "spvName", "developerNotes", "investmentDetails",
         "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
+        // Construction project-level fields
+        "currentStage", "expectedCompletionDate", "risksDelays", "latestUpdateText",
       ];
       const payload: any = {};
-      for (const k of allowed) if (updates[k] !== undefined) payload[k] = updates[k];
+      for (const k of allowed) {
+        if (updates[k] !== undefined) {
+          // Coerce date strings to Date objects (Drizzle requires Date for timestamp columns)
+          if (k === "expectedCompletionDate" && updates[k]) {
+            payload[k] = new Date(updates[k]);
+          } else {
+            payload[k] = updates[k];
+          }
+        }
+      }
 
       // Only allow editing developerEquityUnits if no confirmed investments
       if (payload.developerEquityUnits !== undefined) {
@@ -6075,8 +6086,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             propertyName: property.name,
             developerCompany,
             type: type || "general",
-            subject,
-            body,
+            subject: safeSubject,
+            body: safeBody,
             imageUrl: firstImage || null,
           });
         } catch (e) {

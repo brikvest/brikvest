@@ -97,6 +97,11 @@ export const properties = pgTable("properties", {
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
+  // Developer Portal: project-level construction/risk fields (managed in Construction tab)
+  currentStage: text("current_stage"), // e.g. 'Land prep', 'Foundation', 'Structural frame', 'Finishes', 'Handover'
+  expectedCompletionDate: timestamp("expected_completion_date"), // Developer-stated handover date
+  risksDelays: text("risks_delays"), // Free-form risks/delays notes
+  latestUpdateText: text("latest_update_text"), // Short headline for the most recent project status
   currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
   
   // Unit-based investment tracking

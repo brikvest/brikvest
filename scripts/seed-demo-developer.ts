@@ -31,14 +31,19 @@ interface ProjectSeed {
   developerEquityUnits: string;
   spvName: string;
   investmentDetails: string;
+  currentStage: string;
+  expectedCompletionDate: string;
+  risksDelays: string;
+  latestUpdateText: string;
   milestones: { name: string; status: string; percentComplete: number; description: string }[];
   updates: { type: string; subject: string; body: string }[];
-  investors: { email: string; firstName: string; lastName: string; units: number; weeksAgo: number }[];
+  // status is the lifecycle stage of the reservation; weeksAgo is how long ago it was created/confirmed
+  investors: { email: string; firstName: string; lastName: string; units: number; weeksAgo: number; status?: "reserved" | "payment_pending" | "converted_to_investment" | "expired" }[];
 }
 
 const PROJECTS: ProjectSeed[] = [
   {
-    name: "Lekki Heights — Demo Project",
+    name: "Lekki Heights",
     location: "Lekki Phase 1, Lagos",
     city: "Lagos",
     district: "Lekki Phase 1",
@@ -49,6 +54,10 @@ const PROJECTS: ProjectSeed[] = [
     developerEquityUnits: "8",
     spvName: "Lekki Heights SPV Ltd",
     investmentDetails: "Expected ROI of 20-24% over 30 months. Exit via sale of completed units to retail buyers.",
+    currentStage: "Structural frame",
+    expectedCompletionDate: "2027-09-30",
+    risksDelays: "No active risks. Weather has been favourable through Q1. Steel pricing is being monitored monthly.",
+    latestUpdateText: "Floors 1–7 framed; floors 8–10 in progress. On schedule for Q3 2027 handover.",
     milestones: [
       { name: "Land acquisition",       status: "done",        percentComplete: 100, description: "Title transferred and verified by SCUML." },
       { name: "Architectural design",   status: "done",        percentComplete: 100, description: "Approved by Lagos State physical planning." },
@@ -75,17 +84,25 @@ const PROJECTS: ProjectSeed[] = [
       },
     ],
     investors: [
-      { email: "demo-lekki-1@brikvest.net", firstName: "Adaobi",   lastName: "Okeke",     units: 5, weeksAgo: 0 },
-      { email: "demo-lekki-2@brikvest.net", firstName: "Tunde",    lastName: "Adekunle",  units: 3, weeksAgo: 1 },
-      { email: "demo-lekki-3@brikvest.net", firstName: "Fatima",   lastName: "Ibrahim",   units: 8, weeksAgo: 1 },
-      { email: "demo-lekki-4@brikvest.net", firstName: "Chiamaka", lastName: "Eze",       units: 2, weeksAgo: 2 },
-      { email: "demo-lekki-5@brikvest.net", firstName: "Olumide",  lastName: "Bakare",    units: 4, weeksAgo: 2 },
-      { email: "demo-lekki-6@brikvest.net", firstName: "Ngozi",    lastName: "Okafor",    units: 6, weeksAgo: 3 },
-      { email: "demo-lekki-7@brikvest.net", firstName: "Sani",     lastName: "Mohammed",  units: 3, weeksAgo: 3 },
+      // Confirmed investors backdated for the velocity chart
+      { email: "demo-lekki-1@brikvest.net",  firstName: "Adaobi",   lastName: "Okeke",     units: 5, weeksAgo: 0, status: "converted_to_investment" },
+      { email: "demo-lekki-2@brikvest.net",  firstName: "Tunde",    lastName: "Adekunle",  units: 3, weeksAgo: 1, status: "converted_to_investment" },
+      { email: "demo-lekki-3@brikvest.net",  firstName: "Fatima",   lastName: "Ibrahim",   units: 8, weeksAgo: 1, status: "converted_to_investment" },
+      { email: "demo-lekki-4@brikvest.net",  firstName: "Chiamaka", lastName: "Eze",       units: 2, weeksAgo: 2, status: "converted_to_investment" },
+      { email: "demo-lekki-5@brikvest.net",  firstName: "Olumide",  lastName: "Bakare",    units: 4, weeksAgo: 2, status: "converted_to_investment" },
+      { email: "demo-lekki-6@brikvest.net",  firstName: "Ngozi",    lastName: "Okafor",    units: 6, weeksAgo: 3, status: "converted_to_investment" },
+      { email: "demo-lekki-7@brikvest.net",  firstName: "Sani",     lastName: "Mohammed",  units: 3, weeksAgo: 3, status: "converted_to_investment" },
+      // Mid-funnel: payment submitted, awaiting admin confirmation
+      { email: "demo-lekki-8@brikvest.net",  firstName: "Amaka",    lastName: "Onuoha",    units: 2, weeksAgo: 0, status: "payment_pending" },
+      // Open reservations sitting in the funnel
+      { email: "demo-lekki-9@brikvest.net",  firstName: "Bolaji",   lastName: "Ade-Lawal", units: 1, weeksAgo: 0, status: "reserved" },
+      { email: "demo-lekki-10@brikvest.net", firstName: "Hassan",   lastName: "Garba",     units: 4, weeksAgo: 1, status: "reserved" },
+      // Expired (didn't convert)
+      { email: "demo-lekki-11@brikvest.net", firstName: "Folake",   lastName: "Ojo",       units: 1, weeksAgo: 4, status: "expired" },
     ],
   },
   {
-    name: "Maitama Garden Villas — Demo Project",
+    name: "Maitama Garden Villas",
     location: "Maitama Extension, Abuja",
     city: "Abuja",
     district: "Maitama",
@@ -96,6 +113,10 @@ const PROJECTS: ProjectSeed[] = [
     developerEquityUnits: "10",
     spvName: "Maitama Garden Villas SPV Ltd",
     investmentDetails: "Expected ROI of 18-22% over 24 months. Exit via sale of completed villas to high-net-worth buyers.",
+    currentStage: "Structural frame",
+    expectedCompletionDate: "2026-12-15",
+    risksDelays: "Slight schedule pressure on villas 17–24 due to imported finishes lead time. Mitigation plan in place; remains within contingency.",
+    latestUpdateText: "13 of 24 villas now have walls and slabs complete. Tracking on budget at 55% structural completion.",
     milestones: [
       { name: "Land acquisition",       status: "done",        percentComplete: 100, description: "10-acre plot acquired with C of O." },
       { name: "Site clearance",         status: "done",        percentComplete: 100, description: "Site cleared, surveyed and graded." },
@@ -122,12 +143,19 @@ const PROJECTS: ProjectSeed[] = [
       },
     ],
     investors: [
-      { email: "demo-maitama-1@brikvest.net", firstName: "Ifeoma",   lastName: "Nwankwo",   units: 4, weeksAgo: 0 },
-      { email: "demo-maitama-2@brikvest.net", firstName: "Yusuf",    lastName: "Abubakar",  units: 6, weeksAgo: 0 },
-      { email: "demo-maitama-3@brikvest.net", firstName: "Halima",   lastName: "Bello",     units: 3, weeksAgo: 1 },
-      { email: "demo-maitama-4@brikvest.net", firstName: "Emeka",    lastName: "Okonkwo",   units: 5, weeksAgo: 2 },
-      { email: "demo-maitama-5@brikvest.net", firstName: "Bisi",     lastName: "Williams",  units: 2, weeksAgo: 2 },
-      { email: "demo-maitama-6@brikvest.net", firstName: "Kunle",    lastName: "Ogundimu",  units: 7, weeksAgo: 3 },
+      // Confirmed
+      { email: "demo-maitama-1@brikvest.net",  firstName: "Ifeoma",  lastName: "Nwankwo",   units: 4, weeksAgo: 0, status: "converted_to_investment" },
+      { email: "demo-maitama-2@brikvest.net",  firstName: "Yusuf",   lastName: "Abubakar",  units: 6, weeksAgo: 0, status: "converted_to_investment" },
+      { email: "demo-maitama-3@brikvest.net",  firstName: "Halima",  lastName: "Bello",     units: 3, weeksAgo: 1, status: "converted_to_investment" },
+      { email: "demo-maitama-4@brikvest.net",  firstName: "Emeka",   lastName: "Okonkwo",   units: 5, weeksAgo: 2, status: "converted_to_investment" },
+      { email: "demo-maitama-5@brikvest.net",  firstName: "Bisi",    lastName: "Williams",  units: 2, weeksAgo: 2, status: "converted_to_investment" },
+      { email: "demo-maitama-6@brikvest.net",  firstName: "Kunle",   lastName: "Ogundimu",  units: 7, weeksAgo: 3, status: "converted_to_investment" },
+      // Mid-funnel
+      { email: "demo-maitama-7@brikvest.net",  firstName: "Zainab",  lastName: "Suleiman",  units: 3, weeksAgo: 0, status: "payment_pending" },
+      { email: "demo-maitama-8@brikvest.net",  firstName: "Chinedu", lastName: "Anya",      units: 2, weeksAgo: 1, status: "payment_pending" },
+      // Open reservations
+      { email: "demo-maitama-9@brikvest.net",  firstName: "Aisha",   lastName: "Lawal",     units: 1, weeksAgo: 0, status: "reserved" },
+      { email: "demo-maitama-10@brikvest.net", firstName: "Tobi",    lastName: "Adeyemi",   units: 2, weeksAgo: 1, status: "reserved" },
     ],
   },
 ];
@@ -158,7 +186,7 @@ async function ensureDeveloper() {
 
 async function ensureProject(developerId: number, seed: ProjectSeed) {
   const existing = await storage.getPropertiesByDeveloper(developerId);
-  let project = existing.find((p) => p.name === seed.name);
+  let project = existing.find((p) => p.name === seed.name || p.name === `${seed.name} — Demo Project`);
   if (!project) {
     const totalValue = seed.totalUnits * seed.unitPrice;
     project = await storage.createProperty({
@@ -188,9 +216,22 @@ async function ensureProject(developerId: number, seed: ProjectSeed) {
       developerId,
       developerEquityUnits: seed.developerEquityUnits,
       projectStatus: "live",
+      currentStage: seed.currentStage,
+      expectedCompletionDate: new Date(seed.expectedCompletionDate),
+      risksDelays: seed.risksDelays,
+      latestUpdateText: seed.latestUpdateText,
     } as any);
     console.log(`[SEED]   Created project '${project.name}' (id=${project.id})`);
   } else {
+    // Update existing project with the new construction fields and rename if needed
+    project = await storage.updateProperty(project.id, {
+      ...project,
+      name: seed.name,
+      currentStage: seed.currentStage,
+      expectedCompletionDate: new Date(seed.expectedCompletionDate),
+      risksDelays: seed.risksDelays,
+      latestUpdateText: seed.latestUpdateText,
+    } as any);
     console.log(`[SEED]   Reusing project '${project.name}' (id=${project.id})`);
   }
   return project;
@@ -222,8 +263,10 @@ async function ensureMilestones(propertyId: number, seeds: ProjectSeed["mileston
 
 async function ensureInvestors(propertyId: number, unitPrice: number, seeds: ProjectSeed["investors"]) {
   let created = 0;
+  const counts = { reserved: 0, payment_pending: 0, converted_to_investment: 0, expired: 0 };
   for (let i = 0; i < seeds.length; i++) {
     const inv = seeds[i];
+    const status = inv.status ?? "converted_to_investment";
     let user = await storage.getUserByEmail(inv.email);
     if (!user) {
       const hashed = await hashPassword(INVESTOR_PASSWORD);
@@ -263,19 +306,20 @@ async function ensureInvestors(propertyId: number, unitPrice: number, seeds: Pro
         unitPriceSnapshot: String(unitPrice),
         amount: String(amount),
         currency: "NGN",
-        status: "converted_to_investment",
+        status,
       } as any);
 
-      // Backdate updatedAt so the velocity chart shows interesting data.
-      const confirmedAt = new Date(Date.now() - inv.weeksAgo * 7 * 24 * 60 * 60 * 1000);
+      // Backdate timestamps so velocity charts and "stuck" detection show meaningful data.
+      const t = new Date(Date.now() - inv.weeksAgo * 7 * 24 * 60 * 60 * 1000);
       await db
         .update(investmentReservations)
-        .set({ updatedAt: confirmedAt })
+        .set({ updatedAt: t, createdAt: t })
         .where(eq(investmentReservations.id, reservation.id));
+      counts[status as keyof typeof counts]++;
       created++;
     }
   }
-  console.log(`[SEED]   Created ${created} new investments (${seeds.length - created} reused)`);
+  console.log(`[SEED]   Investors → confirmed:${counts.converted_to_investment}  payment-pending:${counts.payment_pending}  reserved:${counts.reserved}  expired:${counts.expired}  (${created} created, ${seeds.length - created} reused)`);
 }
 
 async function ensureUpdates(propertyId: number, developerId: number, recipientCount: number, seeds: ProjectSeed["updates"]) {
@@ -324,7 +368,8 @@ async function main() {
   for (const p of PROJECTS) {
     console.log(`  • ${p.name}:`);
     for (const inv of p.investors) {
-      console.log(`      ${inv.email}  (${inv.units} units, confirmed ${inv.weeksAgo}w ago)`);
+      const label = (inv.status ?? "converted_to_investment").replace(/_/g, " ");
+      console.log(`      ${inv.email}  (${inv.units} units, ${label} ${inv.weeksAgo}w ago)`);
     }
   }
   console.log("─────────────────────────────────────────────────────\n");
