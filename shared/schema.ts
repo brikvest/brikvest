@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -88,7 +88,7 @@ export const properties = pgTable("properties", {
   gallery: text("gallery").array(), // Array of gallery image URLs
   status: text("status").notNull().default("active"),
   // Developer Portal: optional ownership of this project by a developer user
-  developerId: integer("developer_id"),
+  developerId: integer("developer_id").references((): any => users.id),
   developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
   projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
   propertyType: varchar("property_type", { length: 50 }).default("land"),
@@ -836,7 +836,10 @@ export const developerInvestorNotes = pgTable("developer_investor_notes", {
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqDevInvProp: uniqueIndex("dev_investor_notes_unique_idx")
+    .on(table.propertyId, table.developerUserId, table.investorUserId),
+}));
 
 export const insertProjectMilestoneSchema = createInsertSchema(projectMilestones).omit({
   id: true,

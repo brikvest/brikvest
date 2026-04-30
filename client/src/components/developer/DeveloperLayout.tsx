@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Building2, LayoutGrid, Plus, LogOut, ChevronLeft } from "lucide-react";
+import { Building2, LayoutGrid, Plus, LogOut, ChevronLeft, Megaphone, User } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface DeveloperLayoutProps {
@@ -81,6 +81,28 @@ export default function DeveloperLayout({ children, title, subtitle, backTo, act
             >
               <Plus className="w-4 h-4" />
               New Project
+            </a>
+          </Link>
+          <Link href="/developer/communications">
+            <a
+              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                location === "/developer/communications" ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-100"
+              }`}
+              data-testid="link-communications"
+            >
+              <Megaphone className="w-4 h-4" />
+              Communications
+            </a>
+          </Link>
+          <Link href="/developer/profile">
+            <a
+              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                location === "/developer/profile" ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-100"
+              }`}
+              data-testid="link-profile"
+            >
+              <User className="w-4 h-4" />
+              Profile
             </a>
           </Link>
         </nav>

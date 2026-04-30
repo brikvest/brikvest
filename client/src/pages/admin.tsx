@@ -2820,6 +2820,16 @@ function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: 
     onError: () => toast({ title: "Failed to update project", variant: "destructive" }),
   });
 
+  const takeOverMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-projects/${id}/take-over`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-projects"] });
+      toast({ title: "Project taken over", description: "You now manage this project." });
+    },
+    onError: () => toast({ title: "Failed to take over", variant: "destructive" }),
+  });
+
   const STATUS: Record<string, { label: string; color: string }> = {
     draft:            { label: "Draft",            color: "bg-slate-100 text-slate-700" },
     pending_approval: { label: "Pending Approval", color: "bg-amber-100 text-amber-700" },
@@ -2932,6 +2942,27 @@ function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: 
                           Archive
                         </Button>
                       )}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-amber-700 hover:bg-amber-50" data-testid={`button-takeover-${p.id}`}>
+                            Take over
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Take over this project?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Brikvest admin will take administrative control of <strong>{p.name}</strong>. The developer will lose portal access to it but the project will remain live for investors. The developer will be notified by email. This action cannot be undone from the admin panel.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => takeOverMutation.mutate(p.id)} className="bg-amber-600 hover:bg-amber-700">
+                              Yes, take over
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </div>
                 </CardContent>

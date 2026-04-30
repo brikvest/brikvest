@@ -5601,6 +5601,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(safe);
   });
 
+  // Update developer profile
+  app.patch("/api/developer/me", requireDeveloper, async (req: any, res) => {
+    try {
+      const { firstName, lastName, phone, companyName, companyRegistration, websiteUrl } = req.body || {};
+      const updated = await storage.updateUser(req.user.id, {
+        firstName: typeof firstName === "string" ? firstName.slice(0, 100) : undefined,
+        lastName: typeof lastName === "string" ? lastName.slice(0, 100) : undefined,
+        phone: typeof phone === "string" ? phone.slice(0, 30) : undefined,
+        companyName: typeof companyName === "string" ? companyName.slice(0, 200) : undefined,
+        companyRegistration: typeof companyRegistration === "string" ? companyRegistration.slice(0, 100) : undefined,
+        websiteUrl: typeof websiteUrl === "string" ? websiteUrl.slice(0, 500) : undefined,
+      } as any);
+      const { password: _pw, ...safe } = updated as any;
+      res.json(safe);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   // List developer's own projects
   app.get("/api/developer/projects", requireDeveloper, async (req: any, res) => {
     try {
@@ -5842,6 +5862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasPayment: submissions.length > 0,
           paymentStatus: submissions[0]?.status || null,
           createdAt: r.createdAt,
+          confirmedAt: r.status === "converted_to_investment" ? r.updatedAt : null,
           notes: note?.notes || "",
         };
       }));
@@ -5860,11 +5881,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!property) return;
       const { investorUserId, notes } = req.body || {};
       if (!investorUserId) return res.status(400).json({ message: "investorUserId is required" });
+      const { sanitizeRichText } = await import("./sanitize");
       const note = await storage.upsertDeveloperInvestorNote({
         propertyId,
         developerUserId: req.user.id,
         investorUserId: Number(investorUserId),
-        notes: notes || "",
+        notes: sanitizeRichText(notes || ""),
       });
       res.json(note);
     } catch (err) {
@@ -6015,12 +6037,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recipients.push({ email: r.email, name: r.fullName });
       }
 
+      const { sanitizeRichText } = await import("./sanitize");
+      const safeBody = sanitizeRichText(body);
+      const safeSubject = String(subject).slice(0, 200);
       const update = await storage.createProjectUpdate({
         propertyId,
         authorUserId: req.user.id,
         type: type || "general",
-        subject,
-        body,
+        subject: safeSubject,
+        body: safeBody,
         mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : [],
       } as any, recipients.length);
 
@@ -6100,6 +6125,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to list developer projects" });
+    }
+  });
+
+  // Admin: take over a developer's project (clears developerId so it becomes admin-managed)
+  app.post("/api/admin/developer-projects/:id/take-over", requireAdminAuth, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) return res.status(404).json({ message: "Project not found" });
+      const previousDeveloperId = property.developerId;
+      const updated = await storage.updateProperty(propertyId, { ...property, developerId: null, projectStatus: "live" } as any);
+      // Notify former developer
+      try {
+        if (previousDeveloperId) {
+          const developer = await storage.getUser(previousDeveloperId);
+          if (developer) {
+            await sendEmail({
+              to: developer.email,
+              subject: `Brikvest has taken over management of ${property.name}`,
+              html: `<p>Brikvest admin has taken over administrative management of your project <strong>${property.name}</strong>. The project remains live for investors. Please contact support if you have any questions.</p>`,
+            });
+          }
+        }
+      } catch (e) { console.error(e); }
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to take over project" });
     }
   });
 

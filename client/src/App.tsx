@@ -19,6 +19,8 @@ import DeveloperSignup from "@/pages/developer/signup";
 import DeveloperProjects from "@/pages/developer/index";
 import DeveloperNewProject from "@/pages/developer/new-project";
 import DeveloperProjectDetail from "@/pages/developer/project-detail";
+import DeveloperCommunications from "@/pages/developer/communications";
+import DeveloperProfile from "@/pages/developer/profile";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -37,6 +39,8 @@ function Router() {
       <Route path="/developer/login" component={DeveloperLogin} />
       <Route path="/developer/signup" component={DeveloperSignup} />
       <Route path="/developer/new" component={DeveloperNewProject} />
+      <Route path="/developer/communications" component={DeveloperCommunications} />
+      <Route path="/developer/profile" component={DeveloperProfile} />
       <Route path="/developer/projects/:id" component={DeveloperProjectDetail} />
       <Route path="/developer" component={DeveloperProjects} />
       <Route component={NotFound} />

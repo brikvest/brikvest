@@ -19,6 +19,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
+  ArrowUp, ArrowDown, ImagePlus, X,
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 
@@ -276,7 +277,30 @@ function ConstructionTab({ projectId }: { projectId: number }) {
     },
   });
 
-  const overall = !milestones || milestones.length === 0 ? 0 : Math.round(milestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / milestones.length);
+  const reorderMutation = useMutation({
+    mutationFn: async (items: { id: number; sortOrder: number }[]) => {
+      // Sequentially patch each item's sortOrder
+      for (const item of items) {
+        await apiRequest("PATCH", `/api/developer/milestones/${item.id}`, { sortOrder: item.sortOrder });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "milestones"] });
+    },
+  });
+
+  const move = (idx: number, dir: -1 | 1) => {
+    if (!milestones) return;
+    const sorted = [...milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    const target = idx + dir;
+    if (target < 0 || target >= sorted.length) return;
+    [sorted[idx], sorted[target]] = [sorted[target], sorted[idx]];
+    const items = sorted.map((m, i) => ({ id: m.id, sortOrder: i }));
+    reorderMutation.mutate(items);
+  };
+
+  const sortedMilestones = milestones ? [...milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : [];
+  const overall = sortedMilestones.length === 0 ? 0 : Math.round(sortedMilestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / sortedMilestones.length);
 
   return (
     <div className="space-y-6">
@@ -310,43 +334,88 @@ function ConstructionTab({ projectId }: { projectId: number }) {
         <CardContent>
           {isLoading ? (
             <div className="space-y-3">{[1, 2].map((i) => <div key={i} className="h-20 bg-slate-100 rounded-lg animate-pulse" />)}</div>
-          ) : !milestones || milestones.length === 0 ? (
+          ) : sortedMilestones.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <Hammer className="w-10 h-10 mx-auto mb-3 text-slate-300" />
               <p>No milestones yet. Add your first one to start tracking progress.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {milestones.map((m) => {
+              {sortedMilestones.map((m, idx) => {
                 const meta = MILESTONE_STATUS[m.status] || MILESTONE_STATUS.not_started;
                 const Icon = meta.icon;
+                const media: string[] = Array.isArray(m.mediaUrls) ? m.mediaUrls : [];
                 return (
                   <div key={m.id} className="border border-slate-200 rounded-lg p-4 bg-white" data-testid={`milestone-${m.id}`}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-1">
-                          <h4 className="font-semibold text-slate-900">{m.name}</h4>
-                          <Badge className={meta.className}><Icon className="w-3 h-3 mr-1" />{meta.label}</Badge>
-                        </div>
-                        {m.description && <p className="text-sm text-slate-600 mb-2">{m.description}</p>}
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
-                          {m.targetDate && <span><Calendar className="w-3 h-3 inline mr-1" />Target: {new Date(m.targetDate).toLocaleDateString()}</span>}
-                          {m.completedDate && <span className="text-emerald-600"><CheckCircle2 className="w-3 h-3 inline mr-1" />Done: {new Date(m.completedDate).toLocaleDateString()}</span>}
-                        </div>
+                    <div className="flex items-start gap-3">
+                      {/* Reorder column */}
+                      <div className="flex flex-col gap-1 pt-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          disabled={idx === 0 || reorderMutation.isPending}
+                          onClick={() => move(idx, -1)}
+                          data-testid={`button-move-up-${m.id}`}
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          disabled={idx === sortedMilestones.length - 1 || reorderMutation.isPending}
+                          onClick={() => move(idx, 1)}
+                          data-testid={`button-move-down-${m.id}`}
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-lg font-bold text-slate-900 mb-1">{m.percentComplete || 0}%</div>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setEditing(m); setOpen(true); }} data-testid={`button-edit-${m.id}`}>
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate(m.id)} data-testid={`button-delete-${m.id}`}>
-                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                          </Button>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-1 flex-wrap">
+                              <span className="text-xs font-mono text-slate-400">#{idx + 1}</span>
+                              <h4 className="font-semibold text-slate-900">{m.name}</h4>
+                              <Badge className={meta.className}><Icon className="w-3 h-3 mr-1" />{meta.label}</Badge>
+                            </div>
+                            {m.description && <p className="text-sm text-slate-600 mb-2">{m.description}</p>}
+                            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                              {m.targetDate && <span><Calendar className="w-3 h-3 inline mr-1" />Target: {new Date(m.targetDate).toLocaleDateString()}</span>}
+                              {m.completedDate && <span className="text-emerald-600"><CheckCircle2 className="w-3 h-3 inline mr-1" />Done: {new Date(m.completedDate).toLocaleDateString()}</span>}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-lg font-bold text-slate-900 mb-1">{m.percentComplete || 0}%</div>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => { setEditing(m); setOpen(true); }} data-testid={`button-edit-${m.id}`}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate(m.id)} data-testid={`button-delete-${m.id}`}>
+                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                              </Button>
+                            </div>
+                          </div>
                         </div>
+                        {media.length > 0 && (
+                          <div className="flex gap-2 mt-3 overflow-x-auto" data-testid={`media-gallery-${m.id}`}>
+                            {media.map((url, i) => (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block flex-shrink-0 w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50 hover:ring-2 hover:ring-blue-400"
+                              >
+                                <img src={url} alt={`Milestone media ${i + 1}`} className="w-full h-full object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        <Progress value={m.percentComplete || 0} className="h-1.5 mt-3" />
                       </div>
                     </div>
-                    <Progress value={m.percentComplete || 0} className="h-1.5 mt-3" />
                   </div>
                 );
               })}
@@ -359,6 +428,7 @@ function ConstructionTab({ projectId }: { projectId: number }) {
 }
 
 function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d: any) => void; saving: boolean }) {
+  const { toast } = useToast();
   const [form, setForm] = useState({
     name: editing?.name || "",
     description: editing?.description || "",
@@ -367,10 +437,41 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
     status: editing?.status || "not_started",
     percentComplete: editing?.percentComplete || 0,
     notes: editing?.notes || "",
+    mediaUrls: (Array.isArray(editing?.mediaUrls) ? editing.mediaUrls : []) as string[],
   });
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Only images allowed", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image too large (max 5 MB)", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await fetch("/api/upload/image", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setForm((prev) => ({ ...prev, mediaUrls: [...prev.mediaUrls, data.url] }));
+      toast({ title: "Image uploaded" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message || "Try again", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeMedia = (idx: number) => {
+    setForm((prev) => ({ ...prev, mediaUrls: prev.mediaUrls.filter((_, i) => i !== idx) }));
+  };
 
   return (
-    <DialogContent>
+    <DialogContent className="max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{editing ? "Edit milestone" : "Add milestone"}</DialogTitle>
         <DialogDescription>Construction milestones appear on the investor dashboard.</DialogDescription>
@@ -412,6 +513,45 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
             <Input type="number" min={0} max={100} value={form.percentComplete} onChange={(e) => setForm({ ...form, percentComplete: parseInt(e.target.value) || 0 })} data-testid="input-milestone-percent" />
           </div>
         </div>
+
+        {/* Media uploader */}
+        <div>
+          <Label>Site photos / progress media</Label>
+          <p className="text-xs text-slate-500 mb-2">Upload photos to share with investors (max 5 MB each).</p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {form.mediaUrls.map((url, i) => (
+              <div key={i} className="relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50" data-testid={`milestone-media-thumb-${i}`}>
+                <img src={url} alt={`Media ${i + 1}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeMedia(i)}
+                  className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
+                  data-testid={`button-remove-media-${i}`}
+                >
+                  <X className="w-3 h-3 text-red-600" />
+                </button>
+              </div>
+            ))}
+            <label className="w-20 h-20 rounded border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition" data-testid="button-upload-media">
+              {uploading ? (
+                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+              ) : (
+                <ImagePlus className="w-5 h-5 text-slate-400" />
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleUpload(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </div>
       </div>
       <DialogFooter>
         <Button onClick={() => onSave({ ...form, id: editing?.id })} disabled={saving || !form.name} data-testid="button-save-milestone">
@@ -423,13 +563,16 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
   );
 }
 
-// ======================= SALES (investor list with notes) =======================
+// ======================= SALES (analytics + investor list with notes) =======================
+type SalesStage = "all" | "reserved" | "converted_to_investment" | "expired" | "cancelled";
+
 function SalesTab({ project }: { project: any }) {
   const { toast } = useToast();
   const { data: investors, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", project.id, "investors"],
     enabled: !!project.id,
   });
+  const [stage, setStage] = useState<SalesStage>("all");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteInvestor, setNoteInvestor] = useState<any | null>(null);
   const [noteText, setNoteText] = useState("");
@@ -446,93 +589,246 @@ function SalesTab({ project }: { project: any }) {
     },
   });
 
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>Investors & reservations</CardTitle>
-          <CardDescription>{investors?.length || 0} total entries</CardDescription>
-        </div>
-        <a
-          href={`/api/developer/projects/${project.id}/investors.csv`}
-          className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
-          data-testid="link-export-csv"
-        >
-          <Download className="w-4 h-4 mr-2" /> Export CSV
-        </a>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="h-40 bg-slate-100 rounded animate-pulse" />
-        ) : !investors || investors.length === 0 ? (
-          <div className="text-center py-12 text-slate-500">No investors yet.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Units</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>KYC</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Note</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {investors.map((inv) => (
-                  <TableRow key={inv.reservationId} data-testid={`row-investor-${inv.reservationId}`}>
-                    <TableCell>
-                      <div className="font-medium text-slate-900">{inv.name}</div>
-                      <div className="text-xs text-slate-500">{inv.email}</div>
-                    </TableCell>
-                    <TableCell>{inv.units}</TableCell>
-                    <TableCell>{fmt(inv.currency, inv.amount)}</TableCell>
-                    <TableCell>
-                      <Badge className={inv.kycStatus === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}>
-                        {inv.kycStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={
-                        inv.status === "converted_to_investment" ? "bg-emerald-100 text-emerald-700"
-                        : inv.status === "reserved" ? "bg-amber-100 text-amber-700"
-                        : "bg-slate-100 text-slate-700"
-                      }>{inv.status.replace(/_/g, " ")}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {inv.investorUserId ? (
-                        <Button size="sm" variant="ghost" onClick={() => {
-                          setNoteInvestor(inv); setNoteText(inv.notes || ""); setNoteOpen(true);
-                        }} data-testid={`button-note-${inv.reservationId}`}>
-                          <Pencil className="w-3.5 h-3.5 mr-1" />{inv.notes ? "Edit" : "Add"}
-                        </Button>
-                      ) : <span className="text-xs text-slate-400">—</span>}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+  const list = investors || [];
 
-        <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Note for {noteInvestor?.name}</DialogTitle>
-              <DialogDescription>Internal note — only you can see this.</DialogDescription>
-            </DialogHeader>
-            <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={6} placeholder="Conversation notes, follow-ups, or context…" data-testid="input-note-text" />
-            <DialogFooter>
-              <Button onClick={() => saveNote.mutate()} disabled={saveNote.isPending} data-testid="button-save-note">
-                {saveNote.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                Save note
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+  // Stage counts
+  const counts = {
+    all: list.length,
+    reserved: list.filter((i) => i.status === "reserved").length,
+    converted_to_investment: list.filter((i) => i.status === "converted_to_investment").length,
+    expired: list.filter((i) => i.status === "expired").length,
+    cancelled: list.filter((i) => i.status === "cancelled").length,
+  };
+
+  // Filter
+  const filtered = stage === "all" ? list : list.filter((i) => i.status === stage);
+
+  // Velocity (units sold per week, last 4 calendar weeks)
+  const confirmed = list.filter((i) => i.status === "converted_to_investment" && i.confirmedAt);
+  const totalUnits = project.totalUnits || 0;
+  const soldUnits = confirmed.reduce((s, i) => s + (i.units || 0), 0);
+  const remainingUnits = Math.max(0, totalUnits - soldUnits);
+
+  const now = new Date();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const weekBuckets: { label: string; units: number; cumulative: number }[] = [];
+  for (let w = 3; w >= 0; w--) {
+    const end = new Date(now.getTime() - w * weekMs);
+    const start = new Date(end.getTime() - weekMs);
+    const units = confirmed
+      .filter((i) => {
+        const d = new Date(i.confirmedAt);
+        return d >= start && d < end;
+      })
+      .reduce((s, i) => s + (i.units || 0), 0);
+    const label = `W-${w}`;
+    weekBuckets.push({ label, units, cumulative: 0 });
+  }
+  // Cumulative across the 4-week window (running total of units up to bucket end)
+  const cutoff = new Date(now.getTime() - 4 * weekMs);
+  const baseSold = confirmed
+    .filter((i) => new Date(i.confirmedAt) < cutoff)
+    .reduce((s, i) => s + (i.units || 0), 0);
+  let running = baseSold;
+  for (const b of weekBuckets) {
+    running += b.units;
+    b.cumulative = running;
+  }
+  const totalLast4 = weekBuckets.reduce((s, b) => s + b.units, 0);
+  const avgVelocity = totalLast4 / 4; // units per week
+  const weeksToSellOut = avgVelocity > 0 ? remainingUnits / avgVelocity : null;
+  const forecastDays = weeksToSellOut !== null ? Math.round(weeksToSellOut * 7) : null;
+  const forecastDate = forecastDays !== null ? new Date(now.getTime() + forecastDays * 24 * 60 * 60 * 1000) : null;
+
+  const STAGE_LABELS: Record<SalesStage, string> = {
+    all: "All",
+    reserved: "Reserved",
+    converted_to_investment: "Confirmed",
+    expired: "Expired",
+    cancelled: "Cancelled",
+  };
+  const STAGE_COLORS: Record<SalesStage, string> = {
+    all: "bg-slate-100 text-slate-700 border-slate-200",
+    reserved: "bg-amber-50 text-amber-700 border-amber-200",
+    converted_to_investment: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    expired: "bg-red-50 text-red-700 border-red-200",
+    cancelled: "bg-slate-50 text-slate-600 border-slate-200",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Velocity / Forecast cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Sold units</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{soldUnits} <span className="text-sm font-normal text-slate-500">/ {totalUnits}</span></div>
+            <Progress value={totalUnits > 0 ? (soldUnits / totalUnits) * 100 : 0} className="h-1.5 mt-2" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Remaining</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{remainingUnits}</div>
+            <div className="text-xs text-slate-500 mt-2">units available</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Velocity (4-wk avg)</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{avgVelocity.toFixed(1)} <span className="text-sm font-normal text-slate-500">units/wk</span></div>
+            <div className="text-xs text-slate-500 mt-2">{totalLast4} sold in last 4 weeks</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Sell-out forecast</div>
+            {forecastDate && remainingUnits > 0 ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{forecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
+                <div className="text-xs text-slate-500 mt-2">~{forecastDays} days at current pace</div>
+              </>
+            ) : remainingUnits === 0 ? (
+              <>
+                <div className="text-2xl font-bold text-emerald-600 mt-1">Sold out</div>
+                <div className="text-xs text-slate-500 mt-2">All units allocated</div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-slate-400 mt-1">—</div>
+                <div className="text-xs text-slate-500 mt-2">No recent sales to forecast</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Sales chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sales velocity (last 4 weeks)</CardTitle>
+          <CardDescription>Units confirmed per week and cumulative trend.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={weekBuckets} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                <XAxis dataKey="label" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="units" stroke="#2563eb" strokeWidth={2} name="Units / week" dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="cumulative" stroke="#15803d" strokeWidth={2} name="Cumulative" dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Investors & reservations</CardTitle>
+            <CardDescription>{filtered.length} of {list.length} entries shown</CardDescription>
+          </div>
+          <a
+            href={`/api/developer/projects/${project.id}/investors.csv`}
+            className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
+            data-testid="link-export-csv"
+          >
+            <Download className="w-4 h-4 mr-2" /> Export CSV
+          </a>
+        </CardHeader>
+        <CardContent>
+          {/* Stage filter chips */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {(["all", "reserved", "converted_to_investment", "expired", "cancelled"] as SalesStage[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStage(s)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
+                  stage === s ? `${STAGE_COLORS[s]} ring-2 ring-offset-1 ring-blue-300` : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+                data-testid={`filter-stage-${s}`}
+              >
+                {STAGE_LABELS[s]} <span className="ml-1 text-slate-500">({counts[s]})</span>
+              </button>
+            ))}
+          </div>
+
+          {isLoading ? (
+            <div className="h-40 bg-slate-100 rounded animate-pulse" />
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">No investors in this stage.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Units</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>KYC</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Note</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((inv) => (
+                    <TableRow key={inv.reservationId} data-testid={`row-investor-${inv.reservationId}`}>
+                      <TableCell>
+                        <div className="font-medium text-slate-900">{inv.name}</div>
+                        <div className="text-xs text-slate-500">{inv.email}</div>
+                      </TableCell>
+                      <TableCell>{inv.units}</TableCell>
+                      <TableCell>{fmt(inv.currency, inv.amount)}</TableCell>
+                      <TableCell>
+                        <Badge className={inv.kycStatus === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}>
+                          {inv.kycStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          inv.status === "converted_to_investment" ? "bg-emerald-100 text-emerald-700"
+                          : inv.status === "reserved" ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-100 text-slate-700"
+                        }>{inv.status.replace(/_/g, " ")}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {inv.investorUserId ? (
+                          <Button size="sm" variant="ghost" onClick={() => {
+                            setNoteInvestor(inv); setNoteText(inv.notes || ""); setNoteOpen(true);
+                          }} data-testid={`button-note-${inv.reservationId}`}>
+                            <Pencil className="w-3.5 h-3.5 mr-1" />{inv.notes ? "Edit" : "Add"}
+                          </Button>
+                        ) : <span className="text-xs text-slate-400">—</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Note for {noteInvestor?.name}</DialogTitle>
+                <DialogDescription>Internal note — only you can see this.</DialogDescription>
+              </DialogHeader>
+              <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={6} placeholder="Conversation notes, follow-ups, or context…" data-testid="input-note-text" />
+              <DialogFooter>
+                <Button onClick={() => saveNote.mutate()} disabled={saveNote.isPending} data-testid="button-save-note">
+                  {saveNote.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save note
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

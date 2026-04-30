@@ -1,0 +1,43 @@
+import sanitizeHtml from "sanitize-html";
+
+/**
+ * Sanitize developer-submitted HTML (project updates, notes, etc).
+ * Allows TipTap's standard rich-text output but strips scripts,
+ * iframes, event handlers, javascript: URIs, and other XSS vectors.
+ *
+ * Use this on the SERVER before persisting any HTML that originates
+ * from a developer or other untrusted source. Investor dashboards
+ * render this HTML via dangerouslySetInnerHTML.
+ */
+export function sanitizeRichText(input: unknown): string {
+  if (typeof input !== "string") return "";
+  return sanitizeHtml(input, {
+    allowedTags: [
+      "p", "br", "strong", "em", "u", "s", "code", "pre", "blockquote",
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li",
+      "a", "img",
+      "hr", "span", "div",
+    ],
+    allowedAttributes: {
+      a: ["href", "name", "target", "rel"],
+      img: ["src", "alt", "title", "width", "height"],
+      span: ["class"],
+      div: ["class"],
+      "*": [],
+    },
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    transformTags: {
+      a: (tagName, attribs) => ({
+        tagName: "a",
+        attribs: {
+          ...attribs,
+          target: "_blank",
+          rel: "noopener noreferrer nofollow",
+        },
+      }),
+    },
+    disallowedTagsMode: "discard",
+  });
+}
