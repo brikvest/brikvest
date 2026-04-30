@@ -11,7 +11,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User, Gavel, Tag, Building2, DollarSign, ArrowRight } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User, Gavel, Tag, Building2, DollarSign, ArrowRight, LayoutDashboard } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation, VerificationStep } from "@shared/schema";
 import brikvest_logo from "@/assets/brikvest-logo.png";
@@ -221,90 +230,133 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-40">
+      <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link href="/">
-                <img 
-                  src={brikvest_logo} 
-                  alt="Brikvest Logo" 
-                  className="h-8 w-auto cursor-pointer"
-                />
+            {/* Brand */}
+            <Link href="/" className="flex items-center" data-testid="link-home">
+              <img
+                src={brikvest_logo}
+                alt="Brikvest"
+                className="h-8 w-auto cursor-pointer"
+              />
+            </Link>
+
+            {/* Primary nav (desktop only) — keep to essentials */}
+            <nav className="hidden md:flex items-center gap-1">
+              <a
+                href="#properties"
+                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+              >
+                Properties
+              </a>
+              <Link
+                href="/insights"
+                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+              >
+                Insights
               </Link>
-            </div>
-            <nav className="hidden md:block">
-              <div className="ml-10 flex items-baseline space-x-8">
-                <a href="#properties" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                  Properties
-                </a>
-                <Link href="/insights" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                  Insights
-                </Link>
-                {isAuthenticated && (
-                  <Link href="/dashboard" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                    My Portfolio
-                  </Link>
-                )}
-                <a href="#how-it-works" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                  How It Works
-                </a>
-                <Link href="/about" className="text-slate-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">
-                  About
-                </Link>
-              </div>
+              <Link
+                href="/about"
+                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+              >
+                About
+              </Link>
             </nav>
-            <div className="hidden md:flex items-center space-x-4">
-              {isAuthenticated ? (
-                <div className="flex items-center space-x-3">
-                  <div className="flex items-center space-x-2">
-                    <User className="h-4 w-4 text-gray-600" />
-                    <span className="text-sm text-gray-700">
-                      {(user as any)?.firstName || (user as any)?.email || 'User'}
-                    </span>
-                  </div>
-                  <Button
-                    onClick={async () => {
-                      try {
-                        await fetch('/api/logout', { 
-                          method: 'POST',
-                          credentials: 'include'
-                        });
-                        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-                        window.location.reload();
-                      } catch (error) {
-                        console.error('Logout error:', error);
-                      }
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center space-x-1"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    <span>Logout</span>
-                  </Button>
-                </div>
-              ) : (
-                <Button 
-                  onClick={() => window.location.href = '/login'}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Sign In
-                </Button>
-              )}
+
+            {/* Right cluster (desktop) */}
+            <div className="hidden md:flex items-center gap-2">
               <CurrencySelector compact />
+              {isAuthenticated ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex items-center gap-2 rounded-full hover:bg-slate-100 transition-colors p-1 pr-3"
+                      data-testid="button-user-menu"
+                      aria-label="Account menu"
+                    >
+                      <Avatar className="w-8 h-8">
+                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-xs font-semibold">
+                          {(((user as any)?.firstName || (user as any)?.email || "U")[0] || "U").toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm font-medium text-slate-700 max-w-[120px] truncate">
+                        {(user as any)?.firstName || (user as any)?.email?.split("@")[0] || "Account"}
+                      </span>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="text-sm font-medium text-slate-900 truncate">
+                        {(user as any)?.firstName} {(user as any)?.lastName}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">{(user as any)?.email}</div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/dashboard" className="cursor-pointer" data-testid="menu-item-portfolio">
+                        <LayoutDashboard className="w-4 h-4 mr-2" /> My Portfolio
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/developer/signup" className="cursor-pointer" data-testid="menu-item-list-project">
+                        <Building2 className="w-4 h-4 mr-2" /> List your project
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        try {
+                          await fetch("/api/logout", { method: "POST", credentials: "include" });
+                          queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+                          window.location.reload();
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }}
+                      className="cursor-pointer text-red-600 focus:text-red-600"
+                      data-testid="menu-item-signout"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" /> Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <>
+                  <Link href="/developer/signup">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-slate-700 hover:text-blue-700 hover:bg-slate-100 font-medium"
+                      data-testid="link-developer-signup-nav"
+                    >
+                      List your project
+                    </Button>
+                  </Link>
+                  <Button
+                    onClick={() => (window.location.href = "/login")}
+                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                    size="sm"
+                    data-testid="button-sign-in"
+                  >
+                    Sign in
+                  </Button>
+                </>
+              )}
             </div>
-            
+
             {/* Mobile menu button */}
-            <div className="md:hidden">
+            <div className="md:hidden flex items-center gap-1">
+              <CurrencySelector compact />
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="text-slate-600 hover:text-blue-600"
+                className="text-slate-700"
                 data-testid="button-mobile-menu"
+                aria-label="Open menu"
               >
-                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
             </div>
           </div>
@@ -338,91 +390,94 @@ export default function Home() {
 
               {/* Sidebar content */}
               <div className="flex-1 overflow-y-auto py-4">
-                <div className="space-y-1 px-3">
-                  {isAuthenticated && (
-                    <Link 
-                      href="/dashboard" 
-                      className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                      onClick={() => setMobileMenuOpen(false)}
-                      data-testid="link-mobile-dashboard"
-                    >
-                      Dashboard
-                    </Link>
-                  )}
-
-                  <a 
-                    href="#properties" 
-                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-properties"
-                  >
-                    Properties
-                  </a>
-
-                  <Link 
-                    href="/insights" 
-                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-insights"
-                  >
-                    Insights
-                  </Link>
-
-                  <a 
-                    href="#how-it-works" 
-                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-how-it-works"
-                  >
-                    How It Works
-                  </a>
-
-                  <Link 
-                    href="/about" 
-                    className="text-slate-600 hover:text-blue-600 hover:bg-slate-50 block px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-about"
-                  >
-                    About
-                  </Link>
-                </div>
-
-                {/* User section for authenticated users */}
+                {/* Authenticated user card */}
                 {isAuthenticated && user ? (
-                  <div className="mt-6 px-3">
-                    <div className="bg-slate-50 rounded-lg p-4 mb-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-                          <User className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-900 truncate">
-                            {(user as any).firstName} {(user as any).lastName}
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">
-                            {(user as any).email}
-                          </p>
-                        </div>
+                  <div className="px-4 mb-2">
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                      <Avatar className="w-10 h-10">
+                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-sm font-semibold">
+                          {(((user as any)?.firstName || (user as any)?.email || "U")[0] || "U").toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {(user as any).firstName} {(user as any).lastName}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">{(user as any).email}</p>
                       </div>
                     </div>
                   </div>
                 ) : null}
 
-                <div className="px-3 mt-4">
-                  <div className="mb-3">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Currency</p>
-                    <CurrencySelector />
-                  </div>
+                <div className="space-y-1 px-3 mt-2">
+                  {isAuthenticated && (
+                    <Link
+                      href="/dashboard"
+                      className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                      onClick={() => setMobileMenuOpen(false)}
+                      data-testid="link-mobile-dashboard"
+                    >
+                      <LayoutDashboard className="h-4 w-4 mr-3 text-slate-500" />
+                      My Portfolio
+                    </Link>
+                  )}
+
+                  <a
+                    href="#properties"
+                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-properties"
+                  >
+                    <Building2 className="h-4 w-4 mr-3 text-slate-500" />
+                    Properties
+                  </a>
+
+                  <Link
+                    href="/insights"
+                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-insights"
+                  >
+                    <TrendingUp className="h-4 w-4 mr-3 text-slate-500" />
+                    Insights
+                  </Link>
+
+                  <Link
+                    href="/about"
+                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-about"
+                  >
+                    <Award className="h-4 w-4 mr-3 text-slate-500" />
+                    About
+                  </Link>
+                </div>
+
+                <div className="px-3 mt-6 pt-4 border-t border-slate-100">
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">For developers</p>
+                  <Link
+                    href="/developer/signup"
+                    className="flex items-center text-slate-700 hover:text-blue-700 hover:bg-blue-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-developer-signup"
+                  >
+                    <Building2 className="h-4 w-4 mr-3 text-blue-600" />
+                    List your project
+                  </Link>
                 </div>
               </div>
 
               {/* Sidebar footer */}
-              <div className="border-t border-slate-200 p-4">
+              <div className="border-t border-slate-200 p-4 space-y-3">
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Currency</p>
+                  <CurrencySelector />
+                </div>
                 {isAuthenticated ? (
-                  <Button 
+                  <Button
                     onClick={async () => {
                       try {
-                        await fetch('/api/logout', { 
+                        await fetch('/api/logout', {
                           method: 'POST',
                           credentials: 'include'
                         });
@@ -437,10 +492,10 @@ export default function Home() {
                     data-testid="button-mobile-logout"
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    Sign Out
+                    Sign out
                   </Button>
                 ) : (
-                  <Button 
+                  <Button
                     onClick={() => {
                       window.location.href = '/login';
                       setMobileMenuOpen(false);
@@ -448,7 +503,7 @@ export default function Home() {
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                     data-testid="button-mobile-signin"
                   >
-                    Sign In
+                    Sign in
                   </Button>
                 )}
               </div>
@@ -991,7 +1046,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="bg-slate-900 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center mb-4">
                 <img 
@@ -1011,6 +1066,29 @@ export default function Home() {
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">How It Works</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Security</a></li>
                 <li><a href="#" className="text-slate-300 hover:text-white transition-colors">Careers</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">For Developers</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link
+                    href="/developer/signup"
+                    className="text-slate-300 hover:text-white transition-colors"
+                    data-testid="link-footer-developer-signup"
+                  >
+                    List your project
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/developer/login"
+                    className="text-slate-300 hover:text-white transition-colors"
+                    data-testid="link-footer-developer-login"
+                  >
+                    Developer sign in
+                  </Link>
+                </li>
               </ul>
             </div>
             <div>

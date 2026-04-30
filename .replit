@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -40,3 +40,7 @@ integrations = ["javascript_sendgrid:1.0.0"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-35269575-475c-4d86-88b0-e0fedb234478"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 90000

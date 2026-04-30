@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -17,14 +17,19 @@ export const sessions = pgTable(
 // Users table for email/password authentication
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  email: varchar("email").unique().notNull(),
+  email: text("email").unique().notNull(),
   password: text("password").notNull(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   phone: text("phone"),
   referralCode: text("referral_code").unique(),
   referredByUserId: integer("referred_by_user_id"),
-  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor'
+  profileImageUrl: varchar("profile_image_url"),
+  // Developer profile fields (when role = 'developer')
+  companyName: text("company_name"),
+  companyRegistration: text("company_registration"),
+  websiteUrl: text("website_url"),
+  role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor', 'developer'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
   emailVerified: boolean("email_verified").notNull().default(false),
@@ -82,12 +87,22 @@ export const properties = pgTable("properties", {
   videoUrl: text("video_url"), // Property video URL
   gallery: text("gallery").array(), // Array of gallery image URLs
   status: text("status").notNull().default("active"),
-  propertyType: text("property_type").default("land"),
+  // Developer Portal: optional ownership of this project by a developer user
+  developerId: integer("developer_id").references((): any => users.id),
+  developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
+  projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
+  salesStage: text("sales_stage").notNull().default("off_plan"), // Lifecycle stage: 'off_plan' | 'completed'
+  propertyType: varchar("property_type", { length: 50 }).default("land"),
   badge: text("badge"), // e.g., 'partnered', 'verified', etc.
   partnershipDocumentUrl: text("partnership_document_url"), // URL to signed partnership document
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
+  // Developer Portal: project-level construction/risk fields (managed in Construction tab)
+  currentStage: text("current_stage"), // e.g. 'Land prep', 'Foundation', 'Structural frame', 'Finishes', 'Handover'
+  expectedCompletionDate: timestamp("expected_completion_date"), // Developer-stated handover date
+  risksDelays: text("risks_delays"), // Free-form risks/delays notes
+  latestUpdateText: text("latest_update_text"), // Short headline for the most recent project status
   currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
   
   // Unit-based investment tracking
@@ -106,6 +121,27 @@ export const properties = pgTable("properties", {
   spvName: text("spv_name"),
   city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
   district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
+  
+  // Land/title registration metadata (legacy columns preserved)
+  firstOwnerName: text("first_owner_name"),
+  fileNumber: text("file_number"),
+  plotNumber: text("plot_number"),
+  landDistrict: text("land_district"),
+  landUse: text("land_use"),
+  plotSize: text("plot_size"),
+  cofoNumber: text("cofo_number"),
+  cofoDate: timestamp("cofo_date"),
+  rofoNumber: text("rofo_number"),
+  rofoDate: timestamp("rofo_date"),
+  registrationInfo: text("registration_info"),
+  rentPerAnnum: text("rent_per_annum"),
+  outstandingRent: text("outstanding_rent"),
+  encumbranceActionDate: timestamp("encumbrance_action_date"),
+  encumbranceNumber: text("encumbrance_number"),
+  encumbrancePage: text("encumbrance_page"),
+  encumbranceVolume: text("encumbrance_volume"),
+  encumbranceDetails: text("encumbrance_details"),
+  otherComments: text("other_comments"),
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -764,3 +800,119 @@ export type ResalePayment = typeof resalePayments.$inferSelect;
 
 export type InsertResaleAuditLog = z.infer<typeof insertResaleAuditLogSchema>;
 export type ResaleAuditLog = typeof resaleAuditLogs.$inferSelect;
+
+// ============================================================================
+// Developer Portal — Project Milestones, Updates, and Investor Notes
+// ============================================================================
+
+export const projectMilestones = pgTable("project_milestones", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  targetDate: timestamp("target_date"),
+  completedDate: timestamp("completed_date"),
+  status: text("status").notNull().default("not_started"), // 'not_started' | 'in_progress' | 'done' | 'delayed'
+  percentComplete: integer("percent_complete").notNull().default(0),
+  mediaUrls: text("media_urls").array(),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const projectUpdates = pgTable("project_updates", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  authorUserId: integer("author_user_id").notNull().references(() => users.id),
+  type: text("type").notNull().default("general"), // 'construction' | 'sales' | 'financial' | 'delay' | 'general'
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  mediaUrls: text("media_urls").array(),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const developerInvestorNotes = pgTable("developer_investor_notes", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  developerUserId: integer("developer_user_id").notNull().references(() => users.id),
+  investorUserId: integer("investor_user_id").notNull().references(() => users.id),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqDevInvProp: uniqueIndex("dev_investor_notes_unique_idx")
+    .on(table.propertyId, table.developerUserId, table.investorUserId),
+}));
+
+// Developer-managed CRM leads (pre-reservation funnel: lead → contacted → qualified → converted/lost)
+export const developerLeads = pgTable("developer_leads", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  developerUserId: integer("developer_user_id").notNull().references(() => users.id),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  stage: text("stage").notNull().default("lead"), // 'lead' | 'contacted' | 'qualified' | 'converted' | 'lost'
+  estimatedUnits: decimal("estimated_units", { precision: 15, scale: 2 }),
+  notes: text("notes"),
+  convertedReservationId: integer("converted_reservation_id").references(() => investmentReservations.id),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProjectMilestoneSchema = createInsertSchema(projectMilestones).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProjectUpdateSchema = createInsertSchema(projectUpdates).omit({
+  id: true,
+  recipientCount: true,
+  sentAt: true,
+  createdAt: true,
+});
+
+export const insertDeveloperInvestorNoteSchema = createInsertSchema(developerInvestorNotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDeveloperLeadSchema = createInsertSchema(developerLeads).omit({
+  id: true,
+  convertedReservationId: true,
+  convertedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const developerRegisterSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  phone: z.string().min(5, "Phone is required"),
+  companyName: z.string().min(2, "Company name is required"),
+  companyRegistration: z.string().optional(),
+  websiteUrl: z.string().optional(),
+});
+
+export type InsertProjectMilestone = z.infer<typeof insertProjectMilestoneSchema>;
+export type ProjectMilestone = typeof projectMilestones.$inferSelect;
+
+export type InsertProjectUpdate = z.infer<typeof insertProjectUpdateSchema>;
+export type ProjectUpdate = typeof projectUpdates.$inferSelect;
+
+export type InsertDeveloperInvestorNote = z.infer<typeof insertDeveloperInvestorNoteSchema>;
+export type DeveloperInvestorNote = typeof developerInvestorNotes.$inferSelect;
+
+export type InsertDeveloperLead = z.infer<typeof insertDeveloperLeadSchema>;
+export type DeveloperLead = typeof developerLeads.$inferSelect;
+
+export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
+
