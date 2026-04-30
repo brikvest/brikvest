@@ -51,7 +51,13 @@ import {
   type GroupMembership,
   type VerificationStep,
   type PropertyVerificationChecklist,
-  type VerificationStepCompletion
+  type VerificationStepCompletion,
+  type InsertUser,
+  type InsertProperty,
+  type InsertProjectMilestone,
+  type InsertProjectUpdate,
+  type ProjectMilestone,
+  type User,
 } from "@shared/schema";
 import { ObjectStorageService } from "./objectStorage";
 
@@ -5557,7 +5563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const hashedPassword = await hashPassword(password);
-      const user = await storage.createUser({
+      const newUser: InsertUser = {
         email,
         password: hashedPassword,
         firstName,
@@ -5569,7 +5575,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyName,
         companyRegistration: companyRegistration || null,
         websiteUrl: websiteUrl || null,
-      } as any);
+      };
+      const user = await storage.createUser(newUser);
 
       try {
         await sendEmail({
@@ -5619,14 +5626,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/developer/me", requireDeveloper, async (req: any, res) => {
     try {
       const { firstName, lastName, phone, companyName, companyRegistration, websiteUrl } = req.body || {};
-      const updated = await storage.updateUser(req.user.id, {
-        firstName: typeof firstName === "string" ? firstName.slice(0, 100) : undefined,
-        lastName: typeof lastName === "string" ? lastName.slice(0, 100) : undefined,
-        phone: typeof phone === "string" ? phone.slice(0, 30) : undefined,
-        companyName: typeof companyName === "string" ? companyName.slice(0, 200) : undefined,
-        companyRegistration: typeof companyRegistration === "string" ? companyRegistration.slice(0, 100) : undefined,
-        websiteUrl: typeof websiteUrl === "string" ? websiteUrl.slice(0, 500) : undefined,
-      } as any);
+      const profileUpdates: Partial<User> = {};
+      if (typeof firstName === "string")          profileUpdates.firstName          = firstName.slice(0, 100);
+      if (typeof lastName === "string")           profileUpdates.lastName           = lastName.slice(0, 100);
+      if (typeof phone === "string")              profileUpdates.phone              = phone.slice(0, 30);
+      if (typeof companyName === "string")        profileUpdates.companyName        = companyName.slice(0, 200);
+      if (typeof companyRegistration === "string") profileUpdates.companyRegistration = companyRegistration.slice(0, 100);
+      if (typeof websiteUrl === "string")         profileUpdates.websiteUrl         = websiteUrl.slice(0, 500);
+      const updated = await storage.updateUser(req.user.id, profileUpdates);
       const { password: _pw, ...safe } = updated as any;
       res.json(safe);
     } catch (err) {
@@ -5690,7 +5697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (developerEquityUnits > totalUnits) {
         return res.status(400).json({ message: "Developer-retained units cannot exceed total units" });
       }
-      const property = await storage.createProperty({
+      const newProperty: InsertProperty = {
         name: body.name,
         location: body.location,
         description: body.description,
@@ -5719,7 +5726,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: req.user.id,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
-      } as any);
+      };
+      const property = await storage.createProperty(newProperty);
       res.status(201).json(property);
     } catch (err: any) {
       console.error("Failed to create developer project:", err);
@@ -5778,7 +5786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           payload.totalSlots = Number(updates.totalUnits);
         }
       }
-      const updated = await storage.updateProperty(propertyId, { ...property, ...payload } as any);
+      const updated = await storage.updateProperty(propertyId, { ...property, ...payload } as InsertProperty);
       res.json(updated);
     } catch (err) {
       console.error("Failed to update project:", err);
@@ -5792,7 +5800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const property = await ensureProjectOwnership(req, res, propertyId);
     if (!property) return;
     if (property.projectStatus !== "draft") return res.status(400).json({ message: "Only draft projects can be submitted" });
-    const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: "pending_approval" } as any);
+    const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: "pending_approval" } as InsertProperty);
     try {
       await sendEmail({
         to: "info@brikvest.net",
@@ -5904,8 +5912,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             amount: p.amount,
             currency: p.currency,
             paymentMethod: p.paymentMethod,
-            transactionRef: p.transactionRef || p.transactionReference || null,
-            submittedAt: p.submittedAt || p.createdAt || null,
+            transactionRef: p.bankReference || p.transactionRef || p.transactionReference || null,
+            submittedAt: p.uploadedAt || p.submittedAt || p.createdAt || null,
             reviewedAt: p.reviewedAt || null,
             rejectionReason: p.rejectionReason || null,
           })),
@@ -5993,7 +6001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existing = await storage.getMilestonesByProperty(propertyId);
       const sortOrder = req.body.sortOrder ?? (existing.length > 0 ? Math.max(...existing.map(m => m.sortOrder || 0)) + 1 : 0);
       const { sanitizeMediaUrls } = await import("./sanitize");
-      const milestone = await storage.createProjectMilestone({
+      const newMilestone: InsertProjectMilestone = {
         propertyId,
         name: req.body.name,
         description: req.body.description || null,
@@ -6004,7 +6012,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mediaUrls: sanitizeMediaUrls(req.body.mediaUrls),
         notes: req.body.notes || null,
         sortOrder,
-      } as any);
+      };
+      const milestone = await storage.createProjectMilestone(newMilestone);
       res.status(201).json(milestone);
     } catch (err) {
       console.error(err);
@@ -6019,15 +6028,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!milestone) return res.status(404).json({ message: "Milestone not found" });
       const property = await ensureProjectOwnership(req, res, milestone.propertyId);
       if (!property) return;
-      const updates: any = { ...req.body };
-      if (updates.targetDate) updates.targetDate = new Date(updates.targetDate);
-      if (updates.completedDate) updates.completedDate = new Date(updates.completedDate);
-      if (updates.percentComplete !== undefined) updates.percentComplete = Number(updates.percentComplete);
-      if (updates.mediaUrls !== undefined) {
+      const milestoneUpdates: Partial<ProjectMilestone> = {};
+      const mb = req.body || {};
+      if (typeof mb.name === "string")             milestoneUpdates.name             = mb.name;
+      if (mb.description !== undefined)            milestoneUpdates.description      = mb.description;
+      if (mb.targetDate)                           milestoneUpdates.targetDate       = new Date(mb.targetDate);
+      if (mb.completedDate)                        milestoneUpdates.completedDate    = new Date(mb.completedDate);
+      if (typeof mb.status === "string")           milestoneUpdates.status           = mb.status;
+      if (mb.percentComplete !== undefined)        milestoneUpdates.percentComplete  = Number(mb.percentComplete);
+      if (mb.notes !== undefined)                  milestoneUpdates.notes            = mb.notes;
+      if (mb.sortOrder !== undefined)              milestoneUpdates.sortOrder        = Number(mb.sortOrder);
+      if (mb.mediaUrls !== undefined) {
         const { sanitizeMediaUrls } = await import("./sanitize");
-        updates.mediaUrls = sanitizeMediaUrls(updates.mediaUrls);
+        milestoneUpdates.mediaUrls = sanitizeMediaUrls(mb.mediaUrls);
       }
-      const updated = await storage.updateMilestone(milestone.id, updates);
+      const updated = await storage.updateMilestone(milestone.id, milestoneUpdates);
       res.json(updated);
     } catch (err) {
       console.error(err);
@@ -6094,14 +6109,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const safeBody = sanitizeRichText(body);
       const safeSubject = String(subject).slice(0, 200);
       const safeMediaUrls = sanitizeMediaUrls(mediaUrls);
-      const update = await storage.createProjectUpdate({
+      const newUpdate: InsertProjectUpdate = {
         propertyId,
         authorUserId: req.user.id,
         type: type || "general",
         subject: safeSubject,
         body: safeBody,
         mediaUrls: safeMediaUrls,
-      } as any, recipients.length);
+      };
+      const update = await storage.createProjectUpdate(newUpdate, recipients.length);
 
       // Send emails (failures isolated per investor)
       const { sendProjectUpdateToInvestor } = await import("./projectUpdateEmails");
@@ -6190,7 +6206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await storage.getProperty(propertyId);
       if (!property) return res.status(404).json({ message: "Project not found" });
       const previousDeveloperId = property.developerId;
-      const updated = await storage.updateProperty(propertyId, { ...property, developerId: null, projectStatus: "live" } as any);
+      const updated = await storage.updateProperty(propertyId, { ...property, developerId: null, projectStatus: "live" } as InsertProperty);
       // Notify former developer
       try {
         if (previousDeveloperId) {
@@ -6245,7 +6261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       else if (action === "reject")    newStatus = "draft";
       else if (action === "archive")   newStatus = "archived";
       else if (action === "unarchive") newStatus = "draft";
-      const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: newStatus } as any);
+      const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: newStatus } as InsertProperty);
 
       // Notify developer
       try {
