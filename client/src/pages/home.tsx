@@ -360,36 +360,43 @@ export default function Home() {
               </Button>
             </div>
           </div>
-          
-          {/* Mobile menu overlay */}
-          {mobileMenuOpen && (
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden transition-opacity duration-300"
+        </div>
+      </header>
+
+      {/* Mobile menu overlay (rendered outside <header> so backdrop-blur ancestor doesn't trap fixed positioning) */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-[60] md:hidden transition-opacity duration-300"
+          onClick={() => setMobileMenuOpen(false)}
+          data-testid="overlay-mobile-menu"
+        />
+      )}
+
+      {/* Mobile menu sidebar (rendered outside <header> for the same reason) */}
+      <aside
+        className={`fixed inset-y-0 right-0 z-[70] w-[85vw] max-w-sm bg-white shadow-2xl transform transition-transform duration-300 ease-in-out md:hidden ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
+        aria-hidden={!mobileMenuOpen}
+        data-testid="drawer-mobile-menu"
+      >
+        <div className="flex flex-col h-full">
+          {/* Sidebar header */}
+          <div className="flex items-center justify-between p-4 border-b border-slate-200">
+            <Link href="/" onClick={() => setMobileMenuOpen(false)}>
+              <img src={brikvest_logo} alt="Brikvest" className="h-8 cursor-pointer" />
+            </Link>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setMobileMenuOpen(false)}
-            />
-          )}
+              className="text-slate-600 hover:text-blue-600"
+              data-testid="button-close-mobile-menu"
+            >
+              <X className="h-6 w-6" />
+            </Button>
+          </div>
 
-          {/* Mobile menu sidebar */}
-          <div className={`fixed inset-y-0 right-0 z-50 w-72 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out md:hidden ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}>
-            <div className="flex flex-col h-full">
-              {/* Sidebar header */}
-              <div className="flex items-center justify-between p-4 border-b border-slate-200">
-                <Link href="/">
-                  <img src={brikvest_logo} alt="Brikvest" className="h-8 cursor-pointer" />
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-slate-600 hover:text-blue-600"
-                  data-testid="button-close-mobile-menu"
-                >
-                  <X className="h-6 w-6" />
-                </Button>
-              </div>
-
-              {/* Sidebar content */}
-              <div className="flex-1 overflow-y-auto py-4">
+          {/* Sidebar content */}
+          <div className="flex-1 overflow-y-auto py-4">
                 {/* Authenticated user card */}
                 {isAuthenticated && user ? (
                   <div className="px-4 mb-2">
@@ -508,9 +515,7 @@ export default function Home() {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      </header>
+      </aside>
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 to-slate-100 text-slate-800 py-20">
