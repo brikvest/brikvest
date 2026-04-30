@@ -41,3 +41,31 @@ export function sanitizeRichText(input: unknown): string {
     disallowedTagsMode: "discard",
   });
 }
+
+/**
+ * Allowlist a list of media URLs to defend against XSS via
+ * `javascript:`, `data:`, malformed, or non-string entries.
+ *
+ * Returns the subset that:
+ *   - is a string,
+ *   - parses as a valid absolute URL,
+ *   - uses an http: or https: scheme.
+ */
+export function sanitizeMediaUrls(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      const u = new URL(trimmed);
+      if (u.protocol === "http:" || u.protocol === "https:") {
+        out.push(trimmed);
+      }
+    } catch {
+      // ignore unparseable URLs
+    }
+  }
+  return out;
+}

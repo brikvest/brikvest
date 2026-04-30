@@ -5992,6 +5992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!property) return;
       const existing = await storage.getMilestonesByProperty(propertyId);
       const sortOrder = req.body.sortOrder ?? (existing.length > 0 ? Math.max(...existing.map(m => m.sortOrder || 0)) + 1 : 0);
+      const { sanitizeMediaUrls } = await import("./sanitize");
       const milestone = await storage.createProjectMilestone({
         propertyId,
         name: req.body.name,
@@ -6000,7 +6001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completedDate: req.body.completedDate ? new Date(req.body.completedDate) : null,
         status: req.body.status || "not_started",
         percentComplete: Number(req.body.percentComplete || 0),
-        mediaUrls: Array.isArray(req.body.mediaUrls) ? req.body.mediaUrls : [],
+        mediaUrls: sanitizeMediaUrls(req.body.mediaUrls),
         notes: req.body.notes || null,
         sortOrder,
       } as any);
@@ -6022,6 +6023,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (updates.targetDate) updates.targetDate = new Date(updates.targetDate);
       if (updates.completedDate) updates.completedDate = new Date(updates.completedDate);
       if (updates.percentComplete !== undefined) updates.percentComplete = Number(updates.percentComplete);
+      if (updates.mediaUrls !== undefined) {
+        const { sanitizeMediaUrls } = await import("./sanitize");
+        updates.mediaUrls = sanitizeMediaUrls(updates.mediaUrls);
+      }
       const updated = await storage.updateMilestone(milestone.id, updates);
       res.json(updated);
     } catch (err) {
@@ -6085,22 +6090,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recipients.push({ email: r.email, name: r.fullName });
       }
 
-      const { sanitizeRichText } = await import("./sanitize");
+      const { sanitizeRichText, sanitizeMediaUrls } = await import("./sanitize");
       const safeBody = sanitizeRichText(body);
       const safeSubject = String(subject).slice(0, 200);
+      const safeMediaUrls = sanitizeMediaUrls(mediaUrls);
       const update = await storage.createProjectUpdate({
         propertyId,
         authorUserId: req.user.id,
         type: type || "general",
         subject: safeSubject,
         body: safeBody,
-        mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : [],
+        mediaUrls: safeMediaUrls,
       } as any, recipients.length);
 
       // Send emails (failures isolated per investor)
       const { sendProjectUpdateToInvestor } = await import("./projectUpdateEmails");
       const developerCompany = (req.user as any).companyName || `${(req.user as any).firstName || ""} ${(req.user as any).lastName || ""}`.trim() || "Your Developer";
-      const safeMediaUrls = Array.isArray(mediaUrls) ? mediaUrls.filter((m: any) => typeof m === "string") : [];
       const firstImage = safeMediaUrls.find((m: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(m)) || null;
       for (const r of recipients) {
         try {
