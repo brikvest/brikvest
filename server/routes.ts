@@ -1950,7 +1950,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all properties (requires approved membership)
   app.get("/api/properties", requireApprovedUser, async (req: any, res) => {
     try {
-      const properties = await storage.getProperties();
+      // Investors only see admin-created properties or developer-owned projects
+      // that are live/sold_out. Draft/pending developer projects are hidden.
+      const properties = await storage.getPublicProperties();
       res.json(properties);
     } catch (error) {
       console.error("Error fetching properties:", error);
@@ -2001,7 +2003,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (property.status === 'archived' && !isAdmin) {
         return res.status(404).json({ message: "Property not found" });
       }
-      
+
+      // Hide draft / pending-approval developer projects from non-owner non-admin
+      // (only the owning developer or an admin can view unpublished developer projects).
+      if (
+        property.developerId &&
+        property.projectStatus !== 'live' &&
+        property.projectStatus !== 'sold_out' &&
+        !isAdmin &&
+        req.user?.id !== property.developerId
+      ) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+
       res.json(property);
     } catch (error) {
       console.error("Error fetching property:", error);

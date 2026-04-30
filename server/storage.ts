@@ -350,11 +350,20 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(properties).orderBy(desc(properties.createdAt));
   }
 
-  // Public properties only (buyer use) - excludes archived properties
+  // Public properties only (buyer use) - excludes archived properties.
+  // Also hides developer-owned projects that are still draft or pending approval —
+  // those must only be visible to the owning developer and admins, not to investors.
   async getPublicProperties(): Promise<Property[]> {
-    return await db.select().from(properties)
+    const all = await db.select().from(properties)
       .where(ne(properties.status, 'archived'))
       .orderBy(desc(properties.createdAt));
+    return all.filter(p =>
+      // Admin-created properties (no developerId) are visible
+      !p.developerId ||
+      // Developer-owned properties only visible once approved (live or sold_out)
+      p.projectStatus === 'live' ||
+      p.projectStatus === 'sold_out'
+    );
   }
 
   async getProperty(id: number): Promise<Property | undefined> {
