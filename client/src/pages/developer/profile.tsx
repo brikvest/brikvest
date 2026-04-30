@@ -29,8 +29,7 @@ export default function DeveloperProfile() {
 
   const saveMutation = useMutation({
     mutationFn: async (data: typeof form) => {
-      const res = await apiRequest("PATCH", "/api/developer/me", data);
-      return res.json();
+      return await apiRequest("PATCH", "/api/developer/me", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/me"] });

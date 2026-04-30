@@ -32,8 +32,7 @@ export default function DeveloperSignup() {
     mutationFn: async () => {
       if (form.password !== form.confirmPassword) throw new Error("Passwords do not match");
       const { confirmPassword, ...payload } = form;
-      const res = await apiRequest("POST", "/api/developer/register", payload);
-      return res.json();
+      return await apiRequest("POST", "/api/developer/register", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/me"] });

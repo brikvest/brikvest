@@ -57,8 +57,7 @@ export default function NewProjectWizard() {
         minInvestment: form.minInvestment ? parseFloat(form.minInvestment) : parseFloat(form.unitPrice),
         developerEquityUnits: parseInt(form.developerEquityUnits) || 0,
       };
-      const res = await apiRequest("POST", "/api/developer/projects", payload);
-      return res.json();
+      return await apiRequest("POST", "/api/developer/projects", payload);
     },
     onSuccess: (project: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });

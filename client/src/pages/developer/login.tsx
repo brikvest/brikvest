@@ -19,8 +19,7 @@ export default function DeveloperLogin() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
-      const res = await apiRequest("POST", "/api/developer/login", data);
-      return res.json();
+      return await apiRequest("POST", "/api/developer/login", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/me"] });
