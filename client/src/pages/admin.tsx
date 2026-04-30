@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel, Banknote, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, LogOut, User, Shield, CheckCircle, RefreshCw, ShieldCheck, XCircle, MoreVertical, FileText, UserCheck, Clock, Gift, DollarSign, Repeat, Tag, Gavel, Banknote, Loader2, AlertTriangle, Briefcase, Hammer, Globe } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
@@ -2796,6 +2796,185 @@ function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: 
   );
 }
 
+function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const { data: groups = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/developer-projects"],
+    queryFn: () => authenticatedRequest("/api/admin/developer-projects"),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: string }) =>
+      authenticatedRequest(`/api/admin/developer-projects/${id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-projects"] });
+      toast({ title: "Project updated" });
+    },
+    onError: () => toast({ title: "Failed to update project", variant: "destructive" }),
+  });
+
+  const takeOverMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-projects/${id}/take-over`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-projects"] });
+      toast({ title: "Project taken over", description: "You now manage this project." });
+    },
+    onError: () => toast({ title: "Failed to take over", variant: "destructive" }),
+  });
+
+  const STATUS: Record<string, { label: string; color: string }> = {
+    draft:            { label: "Draft",            color: "bg-slate-100 text-slate-700" },
+    pending_approval: { label: "Pending Approval", color: "bg-amber-100 text-amber-700" },
+    live:             { label: "Live",             color: "bg-emerald-100 text-emerald-700" },
+    sold_out:         { label: "Sold Out",         color: "bg-blue-100 text-blue-700" },
+    archived:         { label: "Archived",         color: "bg-slate-200 text-slate-600" },
+  };
+
+  // Flatten + filter projects
+  const allProjects = groups.flatMap((g: any) =>
+    (g.projects || []).map((p: any) => ({ ...p, _developer: g.developer }))
+  );
+  const counts = {
+    all: allProjects.length,
+    pending_approval: allProjects.filter((p: any) => p.projectStatus === "pending_approval").length,
+    live: allProjects.filter((p: any) => p.projectStatus === "live").length,
+    draft: allProjects.filter((p: any) => p.projectStatus === "draft").length,
+  };
+  const filtered = statusFilter === "all" ? allProjects : allProjects.filter((p: any) => p.projectStatus === statusFilter);
+
+  if (isLoading) return <div className="space-y-3">{[1, 2].map((i) => <div key={i} className="h-32 bg-slate-100 rounded animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-6 mt-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900">Developer Projects</h2>
+        <p className="text-slate-600 mt-1">Approve, reject, or archive projects submitted by self-service developers.</p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { key: "all",              label: "All",      count: counts.all,              color: "border-slate-200" },
+          { key: "pending_approval", label: "Pending",  count: counts.pending_approval, color: "border-amber-200 bg-amber-50" },
+          { key: "live",             label: "Live",     count: counts.live,             color: "border-emerald-200 bg-emerald-50" },
+          { key: "draft",            label: "Drafts",   count: counts.draft,            color: "border-slate-200" },
+        ].map((c) => (
+          <button
+            key={c.key}
+            onClick={() => setStatusFilter(c.key)}
+            className={`text-left rounded-lg border p-4 transition-all ${c.color} ${statusFilter === c.key ? "ring-2 ring-blue-500" : ""}`}
+            data-testid={`filter-${c.key}`}
+          >
+            <div className="text-2xl font-bold text-slate-900">{c.count}</div>
+            <div className="text-xs uppercase tracking-wider text-slate-600 mt-1">{c.label}</div>
+          </button>
+        ))}
+      </div>
+
+      {groups.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-slate-500">
+            <Briefcase className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+            No developers have signed up yet.
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-slate-500">No projects match this filter.</CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((p: any) => {
+            const meta = STATUS[p.projectStatus] || STATUS.draft;
+            return (
+              <Card key={p.id} data-testid={`admin-project-${p.id}`}>
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <div className="w-16 h-16 rounded-lg bg-slate-100 flex-shrink-0 overflow-hidden">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Building className="w-6 h-6 text-slate-400" /></div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="font-semibold text-slate-900 truncate">{p.name}</h3>
+                          <Badge className={meta.color}>{meta.label}</Badge>
+                        </div>
+                        <div className="text-sm text-slate-600 mb-2">{p.location}</div>
+                        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                          <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" />{p._developer.companyName || `${p._developer.firstName} ${p._developer.lastName}`}</span>
+                          <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{p._developer.email}</span>
+                          {p._developer.websiteUrl && (
+                            <a href={p._developer.websiteUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                              <Globe className="w-3 h-3" />Website
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-500 mt-2">
+                          <span>{p.totalUnits} units · {p.currency} {parseFloat(p.unitPrice || "0").toLocaleString()}/unit</span>
+                          <span>Total raise: {p.currency} {parseFloat(p.totalValue || "0").toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2 flex-shrink-0">
+                      {p.projectStatus === "pending_approval" && (
+                        <>
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => reviewMutation.mutate({ id: p.id, action: "approve" })} disabled={reviewMutation.isPending} data-testid={`button-approve-${p.id}`}>
+                            <CheckCircle className="w-4 h-4 mr-1" /> Approve
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: p.id, action: "reject" })} disabled={reviewMutation.isPending} data-testid={`button-reject-${p.id}`}>
+                            <XCircle className="w-4 h-4 mr-1" /> Send back
+                          </Button>
+                        </>
+                      )}
+                      {p.projectStatus === "live" && (
+                        <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: p.id, action: "archive" })} disabled={reviewMutation.isPending} data-testid={`button-archive-${p.id}`}>
+                          Archive
+                        </Button>
+                      )}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-amber-700 hover:bg-amber-50" data-testid={`button-takeover-${p.id}`}>
+                            Take over
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Take over this project?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Brikvest admin will take administrative control of <strong>{p.name}</strong>. The developer will lose portal access to it but the project will remain live for investors. The developer will be notified by email. This action cannot be undone from the admin panel.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => takeOverMutation.mutate(p.id)} className="bg-amber-600 hover:bg-amber-700">
+                              Yes, take over
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReferralRewardsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -3589,6 +3768,15 @@ export default function AdminDashboard() {
               >
                 <FileText className="mr-3 h-4 w-4" />
                 Resale Audit Trail
+              </Button>
+              <Button
+                variant={selectedTab === "developer-projects" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("developer-projects")}
+                data-testid="button-tab-developer-projects"
+              >
+                <Briefcase className="mr-3 h-4 w-4" />
+                Developer Projects
               </Button>
             </div>
           </nav>
@@ -4937,6 +5125,9 @@ export default function AdminDashboard() {
             )}
             {selectedTab === "resale-audit" && (
               <ResaleAuditTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "developer-projects" && (
+              <DeveloperProjectsTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>

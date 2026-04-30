@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Gift, Copy, Share2, Users, Tag, Gavel, XCircle } from "lucide-react";
+import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Gift, Copy, Share2, Users, Tag, Gavel, XCircle, Megaphone, Hammer } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate, PropertyValuation } from "@shared/schema";
@@ -486,6 +486,117 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     </>
   );
 }
+
+function PropertyUpdatesPanel({ propertyId, propertyName }: { propertyId: number; propertyName: string }) {
+  const { data: updatesByProperty } = useQuery<Record<string, any[]>>({
+    queryKey: ["/api/user/project-updates"],
+  });
+  const updates = (updatesByProperty?.[String(propertyId)] || []) as any[];
+  const seenKey = `brikvest:updates-seen:${propertyId}`;
+  const [open, setOpen] = useState(false);
+  const [lastSeen, setLastSeen] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    const v = localStorage.getItem(seenKey);
+    return v ? parseInt(v, 10) || 0 : 0;
+  });
+
+  if (updates.length === 0) return null;
+
+  const unseenCount = updates.filter((u) => new Date(u.sentAt || u.createdAt).getTime() > lastSeen).length;
+
+  const TYPE_META: Record<string, { label: string; color: string }> = {
+    construction: { label: "Construction", color: "bg-blue-100 text-blue-700" },
+    sales:        { label: "Sales",        color: "bg-emerald-100 text-emerald-700" },
+    financial:    { label: "Financial",    color: "bg-purple-100 text-purple-700" },
+    delay:        { label: "Delay",        color: "bg-red-100 text-red-700" },
+    general:      { label: "General",      color: "bg-slate-100 text-slate-700" },
+  };
+
+  const handleToggle = () => {
+    if (!open && unseenCount > 0) {
+      const now = Date.now();
+      localStorage.setItem(seenKey, String(now));
+      setLastSeen(now);
+    }
+    setOpen(!open);
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden mb-3" data-testid={`updates-panel-${propertyId}`}>
+      <button
+        onClick={handleToggle}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+        data-testid={`updates-toggle-${propertyId}`}
+      >
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Megaphone className="w-4 h-4 text-blue-600" />
+          Project updates
+          {unseenCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 text-[11px] font-bold rounded-full bg-red-600 text-white" data-testid={`updates-badge-${propertyId}`}>
+              {unseenCount} new
+            </span>
+          )}
+          <span className="text-xs font-normal text-slate-500">({updates.length} total)</span>
+        </div>
+        <span className="text-xs text-slate-500">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && (
+        <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+          {updates.map((u: any) => {
+            const meta = TYPE_META[u.type] || TYPE_META.general;
+            const isNew = new Date(u.sentAt || u.createdAt).getTime() > lastSeen;
+            return (
+              <div key={u.id} className="p-3" data-testid={`update-${u.id}`}>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${meta.color}`}>{meta.label}</span>
+                  {isNew && <span className="text-[10px] font-semibold text-red-600 uppercase tracking-wider">New</span>}
+                  <span className="text-xs text-slate-500">{new Date(u.sentAt || u.createdAt).toLocaleDateString()}</span>
+                </div>
+                <h4 className="text-sm font-semibold text-slate-900 mb-1">{u.subject}</h4>
+                <div
+                  className="text-sm text-slate-700 prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: u.body }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConstructionProgressBar({ propertyId }: { propertyId: number }) {
+  const { data: milestones } = useQuery<any[]>({
+    queryKey: [`/api/user/property/${propertyId}/milestones`],
+  });
+  if (!milestones || milestones.length === 0) return null;
+  const avgProgress = Math.round(
+    milestones.reduce((sum, m) => sum + (m.percentComplete || 0), 0) / milestones.length
+  );
+  const activeMilestone = milestones.find((m) => m.status === "in_progress") || milestones.find((m) => m.status !== "done");
+  return (
+    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
+          <Hammer className="h-3.5 w-3.5" />
+          Construction Progress
+        </div>
+        <span className="text-xs font-bold text-blue-700">{avgProgress}%</span>
+      </div>
+      <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+        <div className="h-full bg-blue-600 transition-all" style={{ width: `${avgProgress}%` }} />
+      </div>
+      {activeMilestone && (
+        <div className="text-xs text-blue-700 mt-1.5 truncate">
+          Current phase: <span className="font-medium">{activeMilestone.name}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// (Project updates are now rendered per-holding via PropertyUpdatesPanel above.)
 
 export default function Portfolio() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -1680,6 +1791,12 @@ export default function Portfolio() {
                                 </div>
                               </div>
                               
+                              {/* Construction progress (only shows if property has milestones) */}
+                              <ConstructionProgressBar propertyId={reservation.propertyId} />
+
+                              {/* Project updates from developer (collapsible) */}
+                              <PropertyUpdatesPanel propertyId={reservation.propertyId} propertyName={reservation.property?.name || ""} />
+
                               {/* Investment Stats */}
                               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                                 <div className="bg-slate-50 rounded-lg p-3">

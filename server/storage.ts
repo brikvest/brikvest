@@ -57,7 +57,19 @@ import {
   type InsertResalePayment,
   resaleAuditLogs,
   type ResaleAuditLog,
-  type InsertResaleAuditLog
+  type InsertResaleAuditLog,
+  projectMilestones,
+  type ProjectMilestone,
+  type InsertProjectMilestone,
+  projectUpdates,
+  type ProjectUpdate,
+  type InsertProjectUpdate,
+  developerInvestorNotes,
+  type DeveloperInvestorNote,
+  type InsertDeveloperInvestorNote,
+  developerLeads,
+  type DeveloperLead,
+  type InsertDeveloperLead
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
@@ -209,6 +221,34 @@ export interface IStorage {
   getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]>;
   getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]>;
   getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]>;
+
+  // Developer Portal methods
+  getPropertiesByDeveloper(developerId: number): Promise<Property[]>;
+  getDevelopers(): Promise<User[]>;
+
+  // Project milestones
+  createProjectMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone>;
+  getMilestonesByProperty(propertyId: number): Promise<ProjectMilestone[]>;
+  getMilestone(id: number): Promise<ProjectMilestone | undefined>;
+  updateMilestone(id: number, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone>;
+  reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]>;
+  deleteMilestone(id: number): Promise<void>;
+
+  // Project updates
+  createProjectUpdate(update: InsertProjectUpdate, recipientCount: number): Promise<ProjectUpdate>;
+  getProjectUpdatesByProperty(propertyId: number): Promise<ProjectUpdate[]>;
+  getProjectUpdatesByDeveloper(developerId: number): Promise<ProjectUpdate[]>;
+
+  // Developer investor notes
+  upsertDeveloperInvestorNote(note: InsertDeveloperInvestorNote): Promise<DeveloperInvestorNote>;
+  getDeveloperInvestorNote(propertyId: number, developerUserId: number, investorUserId: number): Promise<DeveloperInvestorNote | undefined>;
+
+  // Developer CRM leads (pre-reservation funnel)
+  createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead>;
+  getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]>;
+  getDeveloperLead(id: number): Promise<DeveloperLead | undefined>;
+  updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead>;
+  deleteDeveloperLead(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -321,11 +361,20 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(properties).orderBy(desc(properties.createdAt));
   }
 
-  // Public properties only (buyer use) - excludes archived properties
+  // Public properties only (buyer use) - excludes archived properties.
+  // Also hides developer-owned projects that are still draft or pending approval —
+  // those must only be visible to the owning developer and admins, not to investors.
   async getPublicProperties(): Promise<Property[]> {
-    return await db.select().from(properties)
+    const all = await db.select().from(properties)
       .where(ne(properties.status, 'archived'))
       .orderBy(desc(properties.createdAt));
+    return all.filter(p =>
+      // Admin-created properties (no developerId) are visible
+      !p.developerId ||
+      // Developer-owned properties only visible once approved (live or sold_out)
+      p.projectStatus === 'live' ||
+      p.projectStatus === 'sold_out'
+    );
   }
 
   async getProperty(id: number): Promise<Property | undefined> {
@@ -1256,6 +1305,146 @@ export class DatabaseStorage implements IStorage {
       return await query.limit(limit);
     }
     return await query;
+  }
+
+  // ===========================================================================
+  // Developer Portal methods
+  // ===========================================================================
+
+  async getPropertiesByDeveloper(developerId: number): Promise<Property[]> {
+    return await db.select().from(properties)
+      .where(eq(properties.developerId, developerId))
+      .orderBy(desc(properties.createdAt));
+  }
+
+  async getDevelopers(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.role, "developer"))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async createProjectMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone> {
+    const [result] = await db.insert(projectMilestones).values(milestone).returning();
+    return result;
+  }
+
+  async getMilestonesByProperty(propertyId: number): Promise<ProjectMilestone[]> {
+    return await db.select().from(projectMilestones)
+      .where(eq(projectMilestones.propertyId, propertyId))
+      .orderBy(projectMilestones.sortOrder, projectMilestones.id);
+  }
+
+  async getMilestone(id: number): Promise<ProjectMilestone | undefined> {
+    const [result] = await db.select().from(projectMilestones).where(eq(projectMilestones.id, id));
+    return result;
+  }
+
+  async updateMilestone(id: number, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone> {
+    const [result] = await db.update(projectMilestones)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(projectMilestones.id, id))
+      .returning();
+    return result;
+  }
+
+  async reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]> {
+    if (items.length === 0) {
+      return await this.getMilestonesByProperty(propertyId);
+    }
+    const ids = items.map(i => i.id);
+    const caseChunks = sql.join(
+      items.map(i => sql`WHEN ${projectMilestones.id} = ${i.id} THEN ${i.sortOrder}`),
+      sql.raw(" "),
+    );
+    await db.update(projectMilestones)
+      .set({
+        sortOrder: sql`CASE ${caseChunks} ELSE ${projectMilestones.sortOrder} END`,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(projectMilestones.propertyId, propertyId),
+        inArray(projectMilestones.id, ids),
+      ));
+    return await this.getMilestonesByProperty(propertyId);
+  }
+
+  async deleteMilestone(id: number): Promise<void> {
+    await db.delete(projectMilestones).where(eq(projectMilestones.id, id));
+  }
+
+  async createProjectUpdate(update: InsertProjectUpdate, recipientCount: number): Promise<ProjectUpdate> {
+    const [result] = await db.insert(projectUpdates)
+      .values({ ...update, recipientCount })
+      .returning();
+    return result;
+  }
+
+  async getProjectUpdatesByProperty(propertyId: number): Promise<ProjectUpdate[]> {
+    return await db.select().from(projectUpdates)
+      .where(eq(projectUpdates.propertyId, propertyId))
+      .orderBy(desc(projectUpdates.sentAt));
+  }
+
+  async getProjectUpdatesByDeveloper(developerId: number): Promise<ProjectUpdate[]> {
+    return await db.select().from(projectUpdates)
+      .where(eq(projectUpdates.authorUserId, developerId))
+      .orderBy(desc(projectUpdates.sentAt));
+  }
+
+  async upsertDeveloperInvestorNote(note: InsertDeveloperInvestorNote): Promise<DeveloperInvestorNote> {
+    const existing = await this.getDeveloperInvestorNote(
+      note.propertyId,
+      note.developerUserId,
+      note.investorUserId
+    );
+    if (existing) {
+      const [result] = await db.update(developerInvestorNotes)
+        .set({ notes: note.notes ?? "", updatedAt: new Date() })
+        .where(eq(developerInvestorNotes.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(developerInvestorNotes).values(note).returning();
+    return result;
+  }
+
+  async getDeveloperInvestorNote(propertyId: number, developerUserId: number, investorUserId: number): Promise<DeveloperInvestorNote | undefined> {
+    const [result] = await db.select().from(developerInvestorNotes)
+      .where(and(
+        eq(developerInvestorNotes.propertyId, propertyId),
+        eq(developerInvestorNotes.developerUserId, developerUserId),
+        eq(developerInvestorNotes.investorUserId, investorUserId),
+      ));
+    return result;
+  }
+
+  // Developer CRM leads
+  async createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead> {
+    const [result] = await db.insert(developerLeads).values(lead).returning();
+    return result;
+  }
+
+  async getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]> {
+    return await db.select().from(developerLeads)
+      .where(eq(developerLeads.propertyId, propertyId))
+      .orderBy(desc(developerLeads.createdAt));
+  }
+
+  async getDeveloperLead(id: number): Promise<DeveloperLead | undefined> {
+    const [result] = await db.select().from(developerLeads).where(eq(developerLeads.id, id));
+    return result;
+  }
+
+  async updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead> {
+    const [result] = await db.update(developerLeads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(developerLeads.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteDeveloperLead(id: number): Promise<void> {
+    await db.delete(developerLeads).where(eq(developerLeads.id, id));
   }
 }
 
