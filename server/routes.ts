@@ -5650,6 +5650,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const totalUnits = p.totalUnits || 0;
         const soldUnits = Number(p.soldUnits || 0);
         const investorUnits = confirmed.reduce((s, r) => s + Number(r.units || 0), 0);
+        const unitPrice = Number(p.unitPrice || 0);
+        const totalRaised = confirmed.reduce(
+          (s, r) => s + (Number(r.amount) || (Number(r.units || 0) * unitPrice)),
+          0,
+        );
 
         return {
           ...p,
@@ -5659,6 +5664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           constructionPercent: overallProgress,
           nextMilestoneDate: nextMilestone?.targetDate || null,
           nextMilestoneName: nextMilestone?.name || null,
+          totalRaised,
         };
       }));
 
@@ -6216,7 +6222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ALLOWED: Record<string, string[]> = {
         approve:   ["pending_approval"],
         reject:    ["pending_approval"],
-        archive:   ["draft", "pending_approval", "live", "sold_out"],
+        archive:   ["live", "sold_out"],
         unarchive: ["archived"],
       };
       const allowedFrom = ALLOWED[action];
