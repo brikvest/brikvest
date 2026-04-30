@@ -51,16 +51,14 @@ export default function DeveloperSignup() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl">
-        <Link href="/">
-          <a className="flex items-center justify-center gap-2 mb-6" data-testid="link-home">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-white" />
-            </div>
-            <div className="text-left">
-              <div className="text-xl font-bold text-slate-900">Brikvest</div>
-              <div className="text-[10px] uppercase tracking-wider text-blue-600 font-semibold">Developer Portal</div>
-            </div>
-          </a>
+        <Link href="/" className="flex items-center justify-center gap-2 mb-6" data-testid="link-home">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
+            <Building2 className="w-6 h-6 text-white" />
+          </div>
+          <div className="text-left">
+            <div className="text-xl font-bold text-slate-900">Brikvest</div>
+            <div className="text-[10px] uppercase tracking-wider text-blue-600 font-semibold">Developer Portal</div>
+          </div>
         </Link>
 
         <Card className="shadow-lg border-slate-200">
@@ -154,10 +152,8 @@ export default function DeveloperSignup() {
 
             <div className="mt-6 pt-6 border-t border-slate-200 text-center text-sm">
               <span className="text-slate-600">Already have a developer account? </span>
-              <Link href="/developer/login">
-                <a className="text-blue-600 hover:underline font-medium" data-testid="link-login">
-                  Sign in
-                </a>
+              <Link href="/developer/login" className="text-blue-600 hover:underline font-medium" data-testid="link-login">
+                Sign in
               </Link>
             </div>
           </CardContent>
