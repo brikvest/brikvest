@@ -5643,6 +5643,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Slug helper + resolver middleware: developer URLs may use either a numeric
+  // project id (e.g. `/api/developer/projects/36`) or a slug derived from the
+  // project name (e.g. `/api/developer/projects/lekki-heights-off-plan`). The
+  // middleware looks up the developer's projects and, when the `:id` segment
+  // isn't numeric, replaces it with the matching numeric id so all downstream
+  // route handlers continue to work unchanged.
+  const slugifyName = (name: string): string =>
+    (name || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120);
+
+  // Resolve a developer project's :id param, accepting either a numeric id or
+  // a name slug (e.g. "lekki-heights-off-plan"). Returns the numeric property
+  // id, or null if the slug doesn't match a project owned by the requester
+  // (in which case it has already responded with 404).
+  async function resolveDevProjectId(req: any, res: any): Promise<number | null> {
+    const raw = req.params?.id;
+    if (raw && /^\d+$/.test(String(raw))) return parseInt(String(raw), 10);
+    const userId = req.user?.id;
+    if (!userId || !raw) {
+      res.status(404).json({ message: "Project not found" });
+      return null;
+    }
+    try {
+      const projects = await storage.getPropertiesByDeveloper(userId);
+      const slug = String(raw).toLowerCase();
+      const match = projects.find((p) => slugifyName(p.name) === slug);
+      if (!match) {
+        res.status(404).json({ message: "Project not found" });
+        return null;
+      }
+      return match.id;
+    } catch {
+      res.status(404).json({ message: "Project not found" });
+      return null;
+    }
+  }
+
   // List developer's own projects
   app.get("/api/developer/projects", requireDeveloper, async (req: any, res) => {
     try {
@@ -5747,7 +5789,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get single project (developer-owned only)
   app.get("/api/developer/projects/:id", requireDeveloper, async (req: any, res) => {
-    const propertyId = parseInt(req.params.id);
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
     const property = await ensureProjectOwnership(req, res, propertyId);
     if (!property) return;
     res.json(property);
@@ -5756,7 +5799,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update project
   app.patch("/api/developer/projects/:id", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const updates = { ...req.body };
@@ -5814,7 +5858,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Submit project for admin approval
   app.post("/api/developer/projects/:id/submit", requireDeveloper, async (req: any, res) => {
-    const propertyId = parseInt(req.params.id);
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
     const property = await ensureProjectOwnership(req, res, propertyId);
     if (!property) return;
     if (property.projectStatus !== "draft") return res.status(400).json({ message: "Only draft projects can be submitted" });
@@ -5832,7 +5877,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Per-project rollup
   app.get("/api/developer/projects/:id/rollup", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
@@ -5929,7 +5975,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Investor list per project (with developer notes)
   app.get("/api/developer/projects/:id/investors", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
@@ -5985,7 +6032,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Save / update note on a particular investor in a project
   app.post("/api/developer/projects/:id/notes", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const { investorUserId, notes } = req.body || {};
@@ -6007,7 +6055,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CSV export of investors
   app.get("/api/developer/projects/:id/investors.csv", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
@@ -6045,7 +6094,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // List all leads for a project (developer-scoped)
   app.get("/api/developer/projects/:id/leads", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const all = await storage.getDeveloperLeadsByProperty(propertyId);
@@ -6061,7 +6111,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new lead
   app.post("/api/developer/projects/:id/leads", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const { fullName, email, phone, stage, estimatedUnits, notes } = req.body || {};
@@ -6092,7 +6143,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update a lead (stage change, notes, contact info)
   app.patch("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const leadId = parseInt(req.params.leadId);
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
@@ -6129,7 +6181,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a lead
   app.delete("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const leadId = parseInt(req.params.leadId);
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
@@ -6148,7 +6201,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Convert a lead into a reservation (creates a soft-locked reservation, marks lead as converted)
   app.post("/api/developer/projects/:id/leads/:leadId/convert", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const leadId = parseInt(req.params.leadId);
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
@@ -6205,7 +6259,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Milestones — list
   app.get("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
-    const propertyId = parseInt(req.params.id);
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
     const property = await ensureProjectOwnership(req, res, propertyId);
     if (!property) return;
     const milestones = await storage.getMilestonesByProperty(propertyId);
@@ -6215,7 +6270,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Milestones — create
   app.post("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const existing = await storage.getMilestonesByProperty(propertyId);
@@ -6244,7 +6300,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Milestones — bulk reorder (single round-trip for drag-and-drop)
   app.post("/api/developer/projects/:id/milestones/reorder", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
 
@@ -6332,7 +6389,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Project updates — list
   app.get("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
-    const propertyId = parseInt(req.params.id);
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
     const property = await ensureProjectOwnership(req, res, propertyId);
     if (!property) return;
     res.json(await storage.getProjectUpdatesByProperty(propertyId));
@@ -6352,7 +6410,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Project updates — create + broadcast
   app.post("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
     try {
-      const propertyId = parseInt(req.params.id);
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const { type, subject, body, mediaUrls } = req.body || {};

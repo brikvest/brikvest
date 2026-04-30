@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { slugify } from "@/lib/utils";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -182,7 +183,7 @@ export default function DeveloperProjectsPage() {
           {projects.map((p) => {
             const status = STATUS_BADGE[p.projectStatus] || STATUS_BADGE.draft;
             return (
-              <Link key={p.id} href={`/developer/projects/${p.id}`}>
+              <Link key={p.id} href={`/developer/projects/${slugify(p.name)}`}>
                 <Card
                   className="cursor-pointer group hover:shadow-lg hover:border-slate-300 transition-all border-slate-200 overflow-hidden h-full flex flex-col"
                   data-testid={`card-project-${p.id}`}

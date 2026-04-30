@@ -56,6 +56,15 @@ const UPDATE_TYPE: Record<string, { label: string; className: string }> = {
   general:      { label: "General",      className: "bg-slate-100 text-slate-700" },
 };
 
+const TAB_ITEMS = [
+  { value: "overview",     label: "Overview",       short: "Overview", icon: BarChart3 },
+  { value: "fundraising",  label: "Fundraising",    short: "Funding",  icon: TrendingUp },
+  { value: "construction", label: "Construction",   short: "Build",    icon: Hammer },
+  { value: "sales",        label: "Sales",          short: "Sales",    icon: Building2 },
+  { value: "captable",     label: "Cap Table",      short: "Cap",      icon: Users },
+  { value: "comms",        label: "Communications", short: "Comms",    icon: Mail },
+] as const;
+
 function fmt(currency: string | null | undefined, amount: number | string) {
   const n = typeof amount === "string" ? parseFloat(amount) : amount;
   return `${currency || "NGN"} ${(isNaN(n) ? 0 : n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -63,23 +72,29 @@ function fmt(currency: string | null | undefined, amount: number | string) {
 
 export default function DeveloperProjectDetail() {
   const [, params] = useRoute("/developer/projects/:id");
-  const projectId = params?.id ? parseInt(params.id) : 0;
+  // `projectKey` is what we put into the URL — either a numeric id or a slug.
+  // The backend resolves slugs to ids; the numeric `project.id` returned from
+  // the API is used for cache keys and any places that need a stable handle.
+  const projectKey = params?.id || "";
   const [tab, setTab] = useState("overview");
 
   const { data: project, isLoading } = useQuery<any>({
-    queryKey: ["/api/developer/projects", projectId],
-    enabled: !!projectId,
+    queryKey: ["/api/developer/projects", projectKey],
+    enabled: !!projectKey,
     queryFn: async () => {
-      const res = await fetch(`/api/developer/projects/${projectId}`, { credentials: "include" });
+      const res = await fetch(`/api/developer/projects/${projectKey}`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
   });
+  // Children fetch via the URL segment so backend slug-resolution is applied
+  // and all React Query cache keys agree (slug vs numeric id would mismatch).
+  const projectId = projectKey;
   const { data: rollup } = useQuery<any>({
-    queryKey: ["/api/developer/projects", projectId, "rollup"],
-    enabled: !!projectId,
+    queryKey: ["/api/developer/projects", projectKey, "rollup"],
+    enabled: !!projectKey,
     queryFn: async () => {
-      const res = await fetch(`/api/developer/projects/${projectId}/rollup`, { credentials: "include" });
+      const res = await fetch(`/api/developer/projects/${projectKey}/rollup`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -114,19 +129,50 @@ export default function DeveloperProjectDetail() {
       actions={<Badge className={`${status.className} border`} data-testid="badge-status">{status.label}</Badge>}
     >
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <TabsList className="bg-white border border-slate-200 p-1">
-          <TabsTrigger value="overview" data-testid="tab-overview"><BarChart3 className="w-4 h-4 mr-2" />Overview</TabsTrigger>
-          <TabsTrigger value="fundraising" data-testid="tab-fundraising"><TrendingUp className="w-4 h-4 mr-2" />Fundraising</TabsTrigger>
-          <TabsTrigger value="construction" data-testid="tab-construction"><Hammer className="w-4 h-4 mr-2" />Construction</TabsTrigger>
-          <TabsTrigger value="sales" data-testid="tab-sales"><Building2 className="w-4 h-4 mr-2" />Sales</TabsTrigger>
-          <TabsTrigger value="captable" data-testid="tab-captable"><Users className="w-4 h-4 mr-2" />Cap Table</TabsTrigger>
-          <TabsTrigger value="comms" data-testid="tab-comms"><Mail className="w-4 h-4 mr-2" />Communications</TabsTrigger>
+        {/* Mobile: compact dropdown picker */}
+        <div className="md:hidden">
+          <Select value={tab} onValueChange={setTab}>
+            <SelectTrigger
+              className="w-full bg-white border-slate-200 h-11 font-medium"
+              data-testid="select-tab-mobile"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TAB_ITEMS.map((t) => (
+                <SelectItem key={t.value} value={t.value} data-testid={`tab-mobile-${t.value}`}>
+                  <span className="inline-flex items-center">
+                    <t.icon className="w-4 h-4 mr-2 text-slate-500" />
+                    {t.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Tablet+ : tab strip — equal-width grid so labels never crowd */}
+        <TabsList
+          className="hidden md:grid w-full grid-cols-6 bg-white border border-slate-200 p-1 h-auto"
+        >
+          {TAB_ITEMS.map((t) => (
+            <TabsTrigger
+              key={t.value}
+              value={t.value}
+              data-testid={`tab-${t.value}`}
+              className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:shadow-sm py-2 text-sm"
+            >
+              <t.icon className="w-4 h-4 mr-2" />
+              <span className="hidden lg:inline">{t.label}</span>
+              <span className="lg:hidden">{t.short}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} /></TabsContent>
         <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>
         <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>
-        <TabsContent value="sales"><SalesTab project={project} /></TabsContent>
+        <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>
         <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>
         <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>
       </Tabs>
@@ -567,7 +613,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
 }
 
 // ======================= CONSTRUCTION =======================
-function ConstructionTab({ projectId, project }: { projectId: number; project: any }) {
+function ConstructionTab({ projectId, project }: { projectId: string | number; project: any }) {
   const { toast } = useToast();
   const { data: milestones, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "milestones"],
@@ -1147,22 +1193,22 @@ type SalesStage = "all" | "reserved" | "converted_to_investment" | "expired" | "
 type LeadStage = "lead" | "contacted" | "qualified" | "converted" | "lost";
 type LeadFilter = "all" | LeadStage;
 
-function SalesTab({ project }: { project: any }) {
+function SalesTab({ projectId, project }: { projectId: string | number; project: any }) {
   const { toast } = useToast();
   const { data: investors, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/developer/projects", project.id, "investors"],
-    enabled: !!project.id,
+    queryKey: ["/api/developer/projects", projectId, "investors"],
+    enabled: !!projectId,
     queryFn: async () => {
-      const res = await fetch(`/api/developer/projects/${project.id}/investors`, { credentials: "include" });
+      const res = await fetch(`/api/developer/projects/${projectId}/investors`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
   });
   const { data: leadsData, isLoading: leadsLoading } = useQuery<any[]>({
-    queryKey: ["/api/developer/projects", project.id, "leads"],
-    enabled: !!project.id,
+    queryKey: ["/api/developer/projects", projectId, "leads"],
+    enabled: !!projectId,
     queryFn: async () => {
-      const res = await fetch(`/api/developer/projects/${project.id}/leads`, { credentials: "include" });
+      const res = await fetch(`/api/developer/projects/${projectId}/leads`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -1173,12 +1219,12 @@ function SalesTab({ project }: { project: any }) {
   const [noteText, setNoteText] = useState("");
 
   const saveNote = useMutation({
-    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${project.id}/notes`, {
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/notes`, {
       investorUserId: noteInvestor?.investorUserId,
       notes: noteText,
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
       setNoteOpen(false);
       toast({ title: "Note saved" });
     },
@@ -1262,9 +1308,9 @@ function SalesTab({ project }: { project: any }) {
 
   const updateSalesStage = useMutation({
     mutationFn: async (newStage: "off_plan" | "completed") =>
-      apiRequest("PATCH", `/api/developer/projects/${project.id}`, { salesStage: newStage }),
+      apiRequest("PATCH", `/api/developer/projects/${projectId}`, { salesStage: newStage }),
     onSuccess: (_d, newStage) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
       toast({ title: "Sales stage updated", description: newStage === "completed" ? "Marked as Completed" : "Marked as Off-plan" });
     },
@@ -1399,7 +1445,7 @@ function SalesTab({ project }: { project: any }) {
 
       {/* CRM Leads sub-section (pre-reservation funnel) */}
       <LeadsSection
-        projectId={project.id}
+        projectId={projectId}
         leads={leads}
         leadCounts={leadCounts}
         qualifiedConversionRate={qualifiedConversionRate}
@@ -1413,7 +1459,7 @@ function SalesTab({ project }: { project: any }) {
             <CardDescription>{filtered.length} of {list.length} entries shown</CardDescription>
           </div>
           <a
-            href={`/api/developer/projects/${project.id}/investors.csv`}
+            href={`/api/developer/projects/${projectId}/investors.csv`}
             className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
             data-testid="link-export-csv"
           >
@@ -1536,7 +1582,7 @@ function LeadsSection({
   qualifiedConversionRate,
   isLoading,
 }: {
-  projectId: number;
+  projectId: string | number;
   leads: any[];
   leadCounts: Record<LeadStage, number>;
   qualifiedConversionRate: number;
@@ -1971,7 +2017,7 @@ function RowKV({ label, value }: { label: string; value: string }) {
 }
 
 // ======================= COMMUNICATIONS =======================
-function CommunicationsTab({ projectId, project }: { projectId: number; project: any }) {
+function CommunicationsTab({ projectId, project }: { projectId: string | number; project: any }) {
   const { toast } = useToast();
   const { data: updates, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "updates"],
