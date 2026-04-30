@@ -5504,6 +5504,640 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===========================================================================
+  // DEVELOPER PORTAL ROUTES
+  // ===========================================================================
+
+  function requireDeveloper(req: any, res: any, next: any) {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Authentication required" });
+    if ((req.user as any).role !== "developer") return res.status(403).json({ message: "Developer access required" });
+    next();
+  }
+
+  async function ensureProjectOwnership(req: any, res: any, propertyId: number) {
+    const property = await storage.getProperty(propertyId);
+    if (!property) {
+      res.status(404).json({ message: "Project not found" });
+      return null;
+    }
+    if (property.developerId !== (req.user as any).id) {
+      res.status(403).json({ message: "Not your project" });
+      return null;
+    }
+    return property;
+  }
+
+  // Developer registration
+  app.post("/api/developer/register", async (req, res) => {
+    try {
+      const { developerRegisterSchema } = await import("@shared/schema");
+      const result = developerRegisterSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: "Invalid registration data", details: result.error.errors });
+      }
+      const { email, password, firstName, lastName, phone, companyName, companyRegistration, websiteUrl } = result.data;
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(400).json({ message: "An account already exists with this email" });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      const user = await storage.createUser({
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        phone,
+        role: "developer",
+        accountStatus: "approved",
+        emailVerified: true,
+        companyName,
+        companyRegistration: companyRegistration || null,
+        websiteUrl: websiteUrl || null,
+      } as any);
+
+      try {
+        await sendEmail({
+          to: "info@brikvest.net",
+          subject: `New Developer Signup — ${companyName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #1a365d;">New Developer Signed Up</h2>
+              <p><strong>Company:</strong> ${companyName}</p>
+              <p><strong>Contact:</strong> ${firstName} ${lastName} (${email})</p>
+              <p><strong>Phone:</strong> ${phone}</p>
+              ${websiteUrl ? `<p><strong>Website:</strong> ${websiteUrl}</p>` : ""}
+            </div>
+          `,
+        });
+      } catch (e) { console.error("Failed to send developer signup notification:", e); }
+
+      const { password: _pw, ...safe } = user as any;
+      req.login(user, (err) => {
+        if (err) return res.status(201).json({ ...safe, message: "Account created. Please log in." });
+        res.status(201).json({ ...safe, message: "Welcome to Brikvest Developer Portal!" });
+      });
+    } catch (err: any) {
+      console.error("Developer registration error:", err);
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  // Developer login (uses same passport local strategy via /api/login). Provide an alias.
+  app.post("/api/developer/login", passport.authenticate("local"), (req, res) => {
+    const user = req.user as any;
+    if (user.role !== "developer") {
+      req.logout(() => res.status(403).json({ message: "Not a developer account. Please use the regular sign-in." }));
+      return;
+    }
+    const { password: _pw, ...safe } = user;
+    res.json(safe);
+  });
+
+  // Get current developer profile
+  app.get("/api/developer/me", requireDeveloper, (req, res) => {
+    const { password: _pw, ...safe } = req.user as any;
+    res.json(safe);
+  });
+
+  // List developer's own projects
+  app.get("/api/developer/projects", requireDeveloper, async (req: any, res) => {
+    try {
+      const projects = await storage.getPropertiesByDeveloper(req.user.id);
+
+      // Compute per-project rollup stats
+      const enriched = await Promise.all(projects.map(async (p) => {
+        const reservations = await storage.getReservationsByProperty(p.id);
+        const confirmed = reservations.filter(r => r.status === "converted_to_investment");
+        const milestones = await storage.getMilestonesByProperty(p.id);
+        const overallProgress = milestones.length === 0 ? 0 : Math.round(milestones.reduce((sum, m) => sum + (m.percentComplete || 0), 0) / milestones.length);
+        const nextMilestone = milestones.find(m => m.status !== "done");
+        const totalUnits = p.totalUnits || 0;
+        const soldUnits = Number(p.soldUnits || 0);
+        const investorUnits = confirmed.reduce((s, r) => s + Number(r.units || 0), 0);
+
+        return {
+          ...p,
+          investorCount: confirmed.length,
+          fundingPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
+          salesPercent: totalUnits > 0 ? Math.round((soldUnits / totalUnits) * 100) : 0,
+          constructionPercent: overallProgress,
+          nextMilestoneDate: nextMilestone?.targetDate || null,
+          nextMilestoneName: nextMilestone?.name || null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (err) {
+      console.error("Failed to list developer projects:", err);
+      res.status(500).json({ message: "Failed to list projects" });
+    }
+  });
+
+  // Create a new project (starts as draft)
+  app.post("/api/developer/projects", requireDeveloper, async (req: any, res) => {
+    try {
+      const body = req.body || {};
+      const required = ["name", "location", "description", "totalValue", "totalUnits", "unitPrice", "imageUrl"];
+      for (const k of required) {
+        if (body[k] === undefined || body[k] === null || body[k] === "") {
+          return res.status(400).json({ message: `Field '${k}' is required` });
+        }
+      }
+      const totalUnits = Number(body.totalUnits) || 0;
+      const developerEquityUnits = Number(body.developerEquityUnits) || 0;
+      if (developerEquityUnits > totalUnits) {
+        return res.status(400).json({ message: "Developer-retained units cannot exceed total units" });
+      }
+      const property = await storage.createProperty({
+        name: body.name,
+        location: body.location,
+        description: body.description,
+        totalValue: Number(body.totalValue),
+        minInvestment: Number(body.minInvestment ?? body.unitPrice),
+        availableSlots: totalUnits,
+        totalSlots: totalUnits,
+        fundingProgress: 0,
+        imageUrl: body.imageUrl,
+        videoUrl: body.videoUrl || null,
+        gallery: Array.isArray(body.gallery) ? body.gallery : [],
+        status: "active",
+        propertyType: body.propertyType || "land",
+        currency: body.currency || "NGN",
+        totalUnits,
+        reservedUnits: 0,
+        soldUnits: 0,
+        unitPrice: Number(body.unitPrice),
+        unitPrecision: body.unitPrecision || "1.00",
+        isTransferable: !!body.isTransferable,
+        spvName: body.spvName || null,
+        city: body.city || null,
+        district: body.district || null,
+        developerNotes: body.developerNotes || null,
+        investmentDetails: body.investmentDetails || null,
+        developerId: req.user.id,
+        developerEquityUnits: String(developerEquityUnits),
+        projectStatus: "draft",
+      } as any);
+      res.status(201).json(property);
+    } catch (err: any) {
+      console.error("Failed to create developer project:", err);
+      res.status(500).json({ message: "Failed to create project" });
+    }
+  });
+
+  // Get single project (developer-owned only)
+  app.get("/api/developer/projects/:id", requireDeveloper, async (req: any, res) => {
+    const propertyId = parseInt(req.params.id);
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    res.json(property);
+  });
+
+  // Update project
+  app.patch("/api/developer/projects/:id", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const updates = { ...req.body };
+      // Whitelist editable fields
+      const allowed = [
+        "name", "location", "description", "totalValue", "minInvestment", "imageUrl", "videoUrl", "gallery",
+        "propertyType", "currency", "city", "district", "spvName", "developerNotes", "investmentDetails",
+        "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
+      ];
+      const payload: any = {};
+      for (const k of allowed) if (updates[k] !== undefined) payload[k] = updates[k];
+
+      // Only allow editing developerEquityUnits if no confirmed investments
+      if (payload.developerEquityUnits !== undefined) {
+        const reservations = await storage.getReservationsByProperty(propertyId);
+        const hasConfirmed = reservations.some(r => r.status === "converted_to_investment");
+        if (hasConfirmed) delete payload.developerEquityUnits;
+        else payload.developerEquityUnits = String(payload.developerEquityUnits);
+      }
+      // Don't allow editing totalUnits if any reservations exist
+      if (updates.totalUnits !== undefined) {
+        const reservations = await storage.getReservationsByProperty(propertyId);
+        if (reservations.length === 0) {
+          payload.totalUnits = Number(updates.totalUnits);
+          payload.availableSlots = Number(updates.totalUnits);
+          payload.totalSlots = Number(updates.totalUnits);
+        }
+      }
+      const updated = await storage.updateProperty(propertyId, { ...property, ...payload } as any);
+      res.json(updated);
+    } catch (err) {
+      console.error("Failed to update project:", err);
+      res.status(500).json({ message: "Failed to update project" });
+    }
+  });
+
+  // Submit project for admin approval
+  app.post("/api/developer/projects/:id/submit", requireDeveloper, async (req: any, res) => {
+    const propertyId = parseInt(req.params.id);
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    if (property.projectStatus !== "draft") return res.status(400).json({ message: "Only draft projects can be submitted" });
+    const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: "pending_approval" } as any);
+    try {
+      await sendEmail({
+        to: "info@brikvest.net",
+        subject: `Project Pending Approval — ${property.name}`,
+        html: `<p>Developer ${(req.user as any).companyName || (req.user as any).email} submitted project <strong>${property.name}</strong> for approval.</p>`,
+      });
+    } catch (e) { console.error(e); }
+    res.json(updated);
+  });
+
+  // Per-project rollup
+  app.get("/api/developer/projects/:id/rollup", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const milestones = await storage.getMilestonesByProperty(propertyId);
+      const updates = await storage.getProjectUpdatesByProperty(propertyId);
+
+      const confirmed = reservations.filter(r => r.status === "converted_to_investment");
+      const reserved = reservations.filter(r => r.status === "reserved");
+      const totalUnits = Number(property.totalUnits || 0);
+      const developerEquityUnits = Number(property.developerEquityUnits || 0);
+      const investorUnits = confirmed.reduce((s, r) => s + Number(r.units || 0), 0);
+      const reservedUnits = reserved.reduce((s, r) => s + Number(r.units || 0), 0);
+      const availableUnits = Math.max(0, totalUnits - investorUnits - reservedUnits - developerEquityUnits);
+
+      const totalRaised = confirmed.reduce((s, r) => s + Number(r.amount || 0), 0);
+      const fundingTarget = (totalUnits - developerEquityUnits) * Number(property.unitPrice || 0);
+
+      // Funnel
+      const reservedCount = reservations.length;
+      const reservationsWithUsers = await Promise.all(reservations.map(async r => {
+        const user = r.userId ? await storage.getUser(r.userId) : null;
+        const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
+        return { ...r, user, hasPayment: submissions.length > 0 };
+      }));
+      const kycComplete = reservationsWithUsers.filter(r => r.user?.kycStatus === "approved").length;
+      const paymentSubmitted = reservationsWithUsers.filter(r => r.hasPayment).length;
+      const confirmedCount = confirmed.length;
+
+      // Construction
+      const overallConstruction = milestones.length === 0
+        ? 0
+        : Math.round(milestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / milestones.length);
+      const nextMilestone = milestones.find(m => m.status !== "done");
+
+      // Sales velocity (units per week, last 30 days)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const recentSales = confirmed.filter(r => r.createdAt && new Date(r.createdAt as any) >= thirtyDaysAgo);
+      const velocity30 = recentSales.reduce((s, r) => s + Number(r.units || 0), 0) / 4.3;
+
+      res.json({
+        funding: { totalRaised, fundingTarget, currency: property.currency, percent: fundingTarget > 0 ? Math.round((totalRaised / fundingTarget) * 100) : 0 },
+        sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100 },
+        funnel: { reserved: reservedCount, kycComplete, paymentSubmitted, confirmed: confirmedCount },
+        construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
+        capTable: {
+          investorEquityPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
+          developerEquityPercent: totalUnits > 0 ? Math.round((developerEquityUnits / totalUnits) * 100) : 0,
+          availableEquityPercent: totalUnits > 0 ? Math.round((availableUnits / totalUnits) * 100) : 0,
+          shareholderCount: confirmedCount,
+        },
+        updateCount: updates.length,
+      });
+    } catch (err) {
+      console.error("Project rollup failed:", err);
+      res.status(500).json({ message: "Failed to compute rollup" });
+    }
+  });
+
+  // Investor list per project (with developer notes)
+  app.get("/api/developer/projects/:id/investors", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const enriched = await Promise.all(reservations.map(async r => {
+        const user = r.userId ? await storage.getUser(r.userId) : null;
+        const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
+        const note = user
+          ? await storage.getDeveloperInvestorNote(propertyId, req.user.id, user.id)
+          : null;
+        return {
+          reservationId: r.id,
+          investorUserId: user?.id || null,
+          name: r.fullName,
+          email: r.email,
+          phone: r.phone,
+          country: user?.country || null,
+          units: r.units,
+          amount: r.amount,
+          currency: r.currency,
+          status: r.status,
+          kycStatus: user?.kycStatus || "not_started",
+          hasPayment: submissions.length > 0,
+          paymentStatus: submissions[0]?.status || null,
+          createdAt: r.createdAt,
+          notes: note?.notes || "",
+        };
+      }));
+      res.json(enriched);
+    } catch (err) {
+      console.error("Failed to fetch investors:", err);
+      res.status(500).json({ message: "Failed to fetch investors" });
+    }
+  });
+
+  // Save / update note on a particular investor in a project
+  app.post("/api/developer/projects/:id/notes", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const { investorUserId, notes } = req.body || {};
+      if (!investorUserId) return res.status(400).json({ message: "investorUserId is required" });
+      const note = await storage.upsertDeveloperInvestorNote({
+        propertyId,
+        developerUserId: req.user.id,
+        investorUserId: Number(investorUserId),
+        notes: notes || "",
+      });
+      res.json(note);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to save note" });
+    }
+  });
+
+  // CSV export of investors
+  app.get("/api/developer/projects/:id/investors.csv", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const rows = [["Name", "Email", "Phone", "Units", "Amount", "Currency", "Status", "KYC", "Joined"]];
+      for (const r of reservations) {
+        const user = r.userId ? await storage.getUser(r.userId) : null;
+        rows.push([
+          r.fullName,
+          r.email,
+          r.phone,
+          String(r.units),
+          String(r.amount),
+          r.currency || "",
+          r.status,
+          user?.kycStatus || "n/a",
+          r.createdAt ? new Date(r.createdAt as any).toISOString() : "",
+        ]);
+      }
+      const csv = rows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${property.name.replace(/[^a-z0-9]/gi, "_")}_investors.csv"`);
+      res.send(csv);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to export CSV" });
+    }
+  });
+
+  // Milestones — list
+  app.get("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
+    const propertyId = parseInt(req.params.id);
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    const milestones = await storage.getMilestonesByProperty(propertyId);
+    res.json(milestones);
+  });
+
+  // Milestones — create
+  app.post("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const existing = await storage.getMilestonesByProperty(propertyId);
+      const sortOrder = req.body.sortOrder ?? (existing.length > 0 ? Math.max(...existing.map(m => m.sortOrder || 0)) + 1 : 0);
+      const milestone = await storage.createProjectMilestone({
+        propertyId,
+        name: req.body.name,
+        description: req.body.description || null,
+        targetDate: req.body.targetDate ? new Date(req.body.targetDate) : null,
+        completedDate: req.body.completedDate ? new Date(req.body.completedDate) : null,
+        status: req.body.status || "not_started",
+        percentComplete: Number(req.body.percentComplete || 0),
+        mediaUrls: Array.isArray(req.body.mediaUrls) ? req.body.mediaUrls : [],
+        notes: req.body.notes || null,
+        sortOrder,
+      } as any);
+      res.status(201).json(milestone);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to create milestone" });
+    }
+  });
+
+  // Milestones — update
+  app.patch("/api/developer/milestones/:milestoneId", requireDeveloper, async (req: any, res) => {
+    try {
+      const milestone = await storage.getMilestone(parseInt(req.params.milestoneId));
+      if (!milestone) return res.status(404).json({ message: "Milestone not found" });
+      const property = await ensureProjectOwnership(req, res, milestone.propertyId);
+      if (!property) return;
+      const updates: any = { ...req.body };
+      if (updates.targetDate) updates.targetDate = new Date(updates.targetDate);
+      if (updates.completedDate) updates.completedDate = new Date(updates.completedDate);
+      if (updates.percentComplete !== undefined) updates.percentComplete = Number(updates.percentComplete);
+      const updated = await storage.updateMilestone(milestone.id, updates);
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to update milestone" });
+    }
+  });
+
+  // Milestones — delete
+  app.delete("/api/developer/milestones/:milestoneId", requireDeveloper, async (req: any, res) => {
+    try {
+      const milestone = await storage.getMilestone(parseInt(req.params.milestoneId));
+      if (!milestone) return res.status(404).json({ message: "Milestone not found" });
+      const property = await ensureProjectOwnership(req, res, milestone.propertyId);
+      if (!property) return;
+      await storage.deleteMilestone(milestone.id);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to delete milestone" });
+    }
+  });
+
+  // Project updates — list
+  app.get("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
+    const propertyId = parseInt(req.params.id);
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    res.json(await storage.getProjectUpdatesByProperty(propertyId));
+  });
+
+  // Project updates — list all by developer (cross-project history)
+  app.get("/api/developer/updates", requireDeveloper, async (req: any, res) => {
+    const updates = await storage.getProjectUpdatesByDeveloper(req.user.id);
+    // Enrich with property names
+    const enriched = await Promise.all(updates.map(async u => {
+      const property = await storage.getProperty(u.propertyId);
+      return { ...u, propertyName: property?.name || `Project #${u.propertyId}` };
+    }));
+    res.json(enriched);
+  });
+
+  // Project updates — create + broadcast
+  app.post("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const { type, subject, body, mediaUrls } = req.body || {};
+      if (!subject || !body) return res.status(400).json({ message: "Subject and body are required" });
+
+      // Find confirmed investors
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const confirmed = reservations.filter(r => r.status === "converted_to_investment");
+      // Dedupe by email
+      const recipients: { email: string; name: string }[] = [];
+      const seen = new Set<string>();
+      for (const r of confirmed) {
+        if (!r.email || seen.has(r.email)) continue;
+        seen.add(r.email);
+        recipients.push({ email: r.email, name: r.fullName });
+      }
+
+      const update = await storage.createProjectUpdate({
+        propertyId,
+        authorUserId: req.user.id,
+        type: type || "general",
+        subject,
+        body,
+        mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : [],
+      } as any, recipients.length);
+
+      // Send emails (failures isolated per investor)
+      const { sendProjectUpdateToInvestor } = await import("./projectUpdateEmails");
+      const developerCompany = (req.user as any).companyName || `${(req.user as any).firstName || ""} ${(req.user as any).lastName || ""}`.trim() || "Your Developer";
+      const firstImage = Array.isArray(mediaUrls) ? mediaUrls.find((m: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(m)) : null;
+      for (const r of recipients) {
+        try {
+          await sendProjectUpdateToInvestor({
+            investorEmail: r.email,
+            investorName: r.name,
+            propertyName: property.name,
+            developerCompany,
+            type: type || "general",
+            subject,
+            body,
+            imageUrl: firstImage || null,
+          });
+        } catch (e) {
+          console.error(`Failed to send update to ${r.email}:`, e);
+        }
+      }
+
+      res.status(201).json(update);
+    } catch (err) {
+      console.error("Failed to broadcast project update:", err);
+      res.status(500).json({ message: "Failed to publish update" });
+    }
+  });
+
+  // Investor-facing: get updates for properties the user has confirmed investments in
+  app.get("/api/user/project-updates", requireAuth, async (req: any, res) => {
+    try {
+      const reservations = await storage.getReservationsByUserId(req.user.id);
+      const propertyIds = Array.from(new Set(reservations
+        .filter(r => r.status === "converted_to_investment")
+        .map(r => r.propertyId)));
+      const result: Record<number, any[]> = {};
+      for (const pid of propertyIds) {
+        result[pid] = await storage.getProjectUpdatesByProperty(pid);
+      }
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to fetch project updates" });
+    }
+  });
+
+  // Investor-facing: get milestones for a property the user has invested in
+  app.get("/api/user/property/:id/milestones", requireAuth, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const reservations = await storage.getReservationsByUserId(req.user.id);
+      const hasAccess = reservations.some(r => r.propertyId === propertyId && r.status === "converted_to_investment");
+      if (!hasAccess) return res.status(403).json({ message: "Not an investor in this property" });
+      res.json(await storage.getMilestonesByProperty(propertyId));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to fetch milestones" });
+    }
+  });
+
+  // Admin: list all developer-managed projects
+  app.get("/api/admin/developer-projects", requireAdminAuth, async (req, res) => {
+    try {
+      const developers = await storage.getDevelopers();
+      const result = [];
+      for (const dev of developers) {
+        const projects = await storage.getPropertiesByDeveloper(dev.id);
+        result.push({
+          developer: { id: dev.id, email: dev.email, companyName: dev.companyName, firstName: dev.firstName, lastName: dev.lastName, phone: dev.phone, websiteUrl: dev.websiteUrl, createdAt: dev.createdAt },
+          projects,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to list developer projects" });
+    }
+  });
+
+  // Admin: review (approve/reject) a developer's draft project
+  app.post("/api/admin/developer-projects/:id/review", requireAdminAuth, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const action = req.body.action; // 'approve' | 'reject' | 'archive'
+      const property = await storage.getProperty(propertyId);
+      if (!property) return res.status(404).json({ message: "Project not found" });
+      let newStatus = property.projectStatus;
+      if (action === "approve") newStatus = "live";
+      else if (action === "reject") newStatus = "draft";
+      else if (action === "archive") newStatus = "archived";
+      else return res.status(400).json({ message: "Invalid action" });
+      const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: newStatus } as any);
+
+      // Notify developer
+      try {
+        if (property.developerId) {
+          const developer = await storage.getUser(property.developerId);
+          if (developer) {
+            await sendEmail({
+              to: developer.email,
+              subject: `Project ${action === "approve" ? "Approved" : action === "reject" ? "Sent back to draft" : "Archived"} — ${property.name}`,
+              html: `<p>Your project <strong>${property.name}</strong> was ${action}d by Brikvest admin.</p>`,
+            });
+          }
+        }
+      } catch (e) { console.error(e); }
+
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to review project" });
+    }
+  });
+
   // Run initial cleanup of expired reservations on startup
   storage.cleanupExpiredReservations()
     .then(result => {
