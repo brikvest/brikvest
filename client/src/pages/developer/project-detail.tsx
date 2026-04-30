@@ -387,7 +387,41 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
           </DialogHeader>
           {drillIn && (
             <div className="space-y-4">
+              {/* Identity */}
               <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Phone</div>
+                  <div className="text-slate-900" data-testid="drill-phone">{drillIn.phone || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Country</div>
+                  <div className="text-slate-900" data-testid="drill-country">{drillIn.country || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">KYC</div>
+                  <Badge
+                    className={`mt-1 ${
+                      drillIn.kycStatus === "approved"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : drillIn.kycStatus === "pending" || drillIn.kycStatus === "submitted"
+                        ? "bg-amber-100 text-amber-700"
+                        : drillIn.kycStatus === "rejected"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                    data-testid="drill-kyc"
+                  >
+                    {(drillIn.kycStatus || "not started").replace(/_/g, " ")}
+                  </Badge>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 uppercase">Reservation ID</div>
+                  <div className="font-mono text-xs text-slate-700">#{drillIn.reservationId}</div>
+                </div>
+              </div>
+
+              {/* Investment summary */}
+              <div className="grid grid-cols-3 gap-3 text-sm border-t border-slate-200 pt-3">
                 <div>
                   <div className="text-xs text-slate-500 uppercase">Stage</div>
                   <Badge className={`mt-1 ${STAGE_LABEL[drillIn.status]?.className || "bg-slate-100"}`}>{STAGE_LABEL[drillIn.status]?.label || drillIn.status}</Badge>
@@ -400,14 +434,11 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                   <div className="text-xs text-slate-500 uppercase">Amount</div>
                   <div className="font-semibold text-slate-900">{fmt(drillIn.currency, drillIn.amount)}</div>
                 </div>
-                <div>
-                  <div className="text-xs text-slate-500 uppercase">Reservation ID</div>
-                  <div className="font-mono text-xs text-slate-700">#{drillIn.reservationId}</div>
-                </div>
               </div>
 
+              {/* Reservation timeline */}
               <div className="border-t border-slate-200 pt-4">
-                <div className="text-xs text-slate-500 uppercase mb-2">Timeline</div>
+                <div className="text-xs text-slate-500 uppercase mb-2">Reservation timeline</div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-start gap-3">
                     <div className="w-2 h-2 rounded-full bg-blue-500 mt-2" />
@@ -416,15 +447,6 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                       <div className="text-xs text-slate-500">{drillIn.createdAt ? new Date(drillIn.createdAt).toLocaleString() : "—"}</div>
                     </div>
                   </div>
-                  {drillIn.status === "payment_pending" && (
-                    <div className="flex items-start gap-3">
-                      <div className="w-2 h-2 rounded-full bg-orange-500 mt-2" />
-                      <div>
-                        <div className="font-medium text-slate-900">Payment submitted</div>
-                        <div className="text-xs text-slate-500">Awaiting admin confirmation</div>
-                      </div>
-                    </div>
-                  )}
                   {drillIn.confirmedAt && (
                     <div className="flex items-start gap-3">
                       <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
@@ -444,6 +466,62 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Payment history */}
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs text-slate-500 uppercase">Payment history</div>
+                  {drillIn.paymentStatus && (
+                    <Badge
+                      className={
+                        drillIn.paymentStatus === "approved"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : drillIn.paymentStatus === "pending" || drillIn.paymentStatus === "pending_verification"
+                          ? "bg-amber-100 text-amber-700"
+                          : drillIn.paymentStatus === "rejected"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-slate-100 text-slate-700"
+                      }
+                      data-testid="drill-payment-status"
+                    >
+                      latest: {drillIn.paymentStatus.replace(/_/g, " ")}
+                    </Badge>
+                  )}
+                </div>
+                {(!Array.isArray(drillIn.paymentHistory) || drillIn.paymentHistory.length === 0) ? (
+                  <div className="text-xs text-slate-500 italic" data-testid="drill-no-payments">No payment submissions yet.</div>
+                ) : (
+                  <div className="space-y-2" data-testid="drill-payment-history">
+                    {drillIn.paymentHistory.map((p: any) => (
+                      <div key={p.id} className="border border-slate-200 rounded p-3 text-sm bg-slate-50">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="font-semibold text-slate-900">{fmt(p.currency || drillIn.currency, p.amount)}</div>
+                          <Badge
+                            className={
+                              p.status === "approved"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : p.status === "pending" || p.status === "pending_verification"
+                                ? "bg-amber-100 text-amber-700"
+                                : p.status === "rejected"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-slate-100 text-slate-700"
+                            }
+                          >
+                            {String(p.status || "").replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-slate-600 space-y-0.5">
+                          <div>Method: {p.paymentMethod || "—"}</div>
+                          {p.transactionRef && <div>Ref: <span className="font-mono">{p.transactionRef}</span></div>}
+                          <div>Submitted: {p.submittedAt ? new Date(p.submittedAt).toLocaleString() : "—"}</div>
+                          {p.reviewedAt && <div>Reviewed: {new Date(p.reviewedAt).toLocaleString()}</div>}
+                          {p.rejectionReason && <div className="text-red-600">Reason: {p.rejectionReason}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1312,14 +1390,60 @@ function CommunicationsTab({ projectId, project }: { projectId: number; project:
     enabled: !!projectId,
   });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ type: "general", subject: "", body: "" });
+  const [form, setForm] = useState<{ type: string; subject: string; body: string; mediaUrls: string[] }>({
+    type: "general", subject: "", body: "", mediaUrls: [],
+  });
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  function classifyAttachment(url: string): "image" | "video" | "document" {
+    const u = url.toLowerCase().split("?")[0];
+    if (/\.(png|jpe?g|webp|gif|avif)$/i.test(u)) return "image";
+    if (/\.(mp4|webm|mov|m4v|avi)$/i.test(u))    return "video";
+    return "document";
+  }
+
+  async function handleAttachmentUpload(file: File) {
+    const isImage    = file.type.startsWith("image/");
+    const isVideo    = file.type.startsWith("video/");
+    const isDocument = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isImage && !isVideo && !isDocument) {
+      toast({ title: "Unsupported file", description: "Allowed: image, video, or PDF.", variant: "destructive" });
+      return;
+    }
+    const max = isImage ? 5 * 1024 * 1024 : isVideo ? 100 * 1024 * 1024 : 20 * 1024 * 1024;
+    if (file.size > max) {
+      toast({ title: "File too large", description: `Max ${Math.round(max / (1024 * 1024))} MB.`, variant: "destructive" });
+      return;
+    }
+    setUploadingAttachment(true);
+    try {
+      const fd = new FormData();
+      fd.append(isImage ? "image" : isVideo ? "video" : "document", file);
+      const endpoint = isImage ? "/api/upload/image" : isVideo ? "/api/upload/video" : "/api/upload/document";
+      const res = await fetch(endpoint, { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const url: string | undefined = data.url || data.documentUrl || data.videoUrl;
+      if (!url) throw new Error("Server did not return a URL");
+      setForm((prev) => ({ ...prev, mediaUrls: [...prev.mediaUrls, url] }));
+      toast({ title: "Attachment uploaded" });
+    } catch (e: any) {
+      toast({ title: "Upload failed", description: e.message || "Try again", variant: "destructive" });
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  function removeAttachment(idx: number) {
+    setForm((prev) => ({ ...prev, mediaUrls: prev.mediaUrls.filter((_, i) => i !== idx) }));
+  }
 
   const sendMutation = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/updates`, form),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "updates"] });
       setOpen(false);
-      setForm({ type: "general", subject: "", body: "" });
+      setForm({ type: "general", subject: "", body: "", mediaUrls: [] });
       toast({ title: "Update sent", description: `Broadcast to investors of ${project.name}.` });
     },
     onError: () => toast({ title: "Failed to send update", variant: "destructive" }),
@@ -1373,6 +1497,60 @@ function CommunicationsTab({ projectId, project }: { projectId: number; project:
                   </div>
                   <p className="text-xs text-slate-500 mt-1">Investors receive this as an email and see it on their dashboard. Formatting and links are preserved.</p>
                 </div>
+
+                {/* Attachments */}
+                <div>
+                  <Label>Attachments</Label>
+                  <p className="text-xs text-slate-500 mb-2">Photos (max 5 MB), videos (max 100 MB), or PDF documents (max 20 MB). Links are included in the email and shown on the investor dashboard.</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {form.mediaUrls.map((url, i) => {
+                      const k = classifyAttachment(url);
+                      return (
+                        <div key={i} className="relative w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50" data-testid={`update-attachment-${i}`}>
+                          {k === "image" ? (
+                            <img src={url} alt={`Attachment ${i + 1}`} className="w-full h-full object-cover" />
+                          ) : k === "video" ? (
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white">
+                              <span className="text-2xl">▶</span>
+                              <span className="text-[10px] mt-1">Video</span>
+                            </a>
+                          ) : (
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="w-full h-full flex flex-col items-center justify-center bg-red-50 text-red-700">
+                              <span className="text-xs font-bold">PDF</span>
+                              <span className="text-[10px] mt-0.5">Open</span>
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(i)}
+                            className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 shadow hover:bg-red-50"
+                            data-testid={`button-remove-attachment-${i}`}
+                          >
+                            <X className="w-3 h-3 text-red-600" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <label className="w-20 h-20 rounded border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition" data-testid="button-add-attachment">
+                      {uploadingAttachment ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                      ) : (
+                        <ImagePlus className="w-5 h-5 text-slate-400" />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*,video/*,application/pdf,.pdf"
+                        className="hidden"
+                        disabled={uploadingAttachment}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleAttachmentUpload(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={() => sendMutation.mutate()} disabled={!form.subject || !form.body || sendMutation.isPending} className="bg-blue-600 hover:bg-blue-700" data-testid="button-send-update">
@@ -1406,6 +1584,37 @@ function CommunicationsTab({ projectId, project }: { projectId: number; project:
                     </div>
                     <h4 className="font-semibold text-slate-900 mb-1">{u.subject}</h4>
                     <div className="text-sm text-slate-700 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: u.body }} />
+                    {Array.isArray(u.mediaUrls) && u.mediaUrls.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2" data-testid={`update-attachments-${u.id}`}>
+                        {u.mediaUrls.map((url: string, i: number) => {
+                          const k = classifyAttachment(url);
+                          return (
+                            <a
+                              key={i}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block w-20 h-20 rounded border border-slate-200 overflow-hidden bg-slate-50 hover:border-blue-400"
+                              data-testid={`update-${u.id}-attachment-${i}`}
+                            >
+                              {k === "image" ? (
+                                <img src={url} alt={`Attachment ${i + 1}`} className="w-full h-full object-cover" />
+                              ) : k === "video" ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-white">
+                                  <span className="text-2xl">▶</span>
+                                  <span className="text-[10px] mt-1">Video</span>
+                                </div>
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center bg-red-50 text-red-700">
+                                  <span className="text-xs font-bold">PDF</span>
+                                  <span className="text-[10px] mt-0.5">Open</span>
+                                </div>
+                              )}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}

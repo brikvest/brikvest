@@ -5872,6 +5872,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const note = user
           ? await storage.getDeveloperInvestorNote(propertyId, req.user.id, user.id)
           : null;
+        // Sort newest-first for the drill-down timeline.
+        const sortedPayments = [...submissions].sort((a: any, b: any) => {
+          const ta = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
+          const tb = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
+          return tb - ta;
+        });
         return {
           reservationId: r.id,
           investorUserId: user?.id || null,
@@ -5885,7 +5891,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: r.status,
           kycStatus: user?.kycStatus || "not_started",
           hasPayment: submissions.length > 0,
-          paymentStatus: submissions[0]?.status || null,
+          paymentStatus: sortedPayments[0]?.status || null,
+          paymentHistory: sortedPayments.map((p: any) => ({
+            id: p.id,
+            status: p.status,
+            amount: p.amount,
+            currency: p.currency,
+            paymentMethod: p.paymentMethod,
+            transactionRef: p.transactionRef || p.transactionReference || null,
+            submittedAt: p.submittedAt || p.createdAt || null,
+            reviewedAt: p.reviewedAt || null,
+            rejectionReason: p.rejectionReason || null,
+          })),
           createdAt: r.createdAt,
           confirmedAt: r.status === "converted_to_investment" ? r.updatedAt : null,
           notes: note?.notes || "",
@@ -6077,7 +6094,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send emails (failures isolated per investor)
       const { sendProjectUpdateToInvestor } = await import("./projectUpdateEmails");
       const developerCompany = (req.user as any).companyName || `${(req.user as any).firstName || ""} ${(req.user as any).lastName || ""}`.trim() || "Your Developer";
-      const firstImage = Array.isArray(mediaUrls) ? mediaUrls.find((m: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(m)) : null;
+      const safeMediaUrls = Array.isArray(mediaUrls) ? mediaUrls.filter((m: any) => typeof m === "string") : [];
+      const firstImage = safeMediaUrls.find((m: string) => /\.(png|jpe?g|webp|gif)(\?|$)/i.test(m)) || null;
       for (const r of recipients) {
         try {
           await sendProjectUpdateToInvestor({
@@ -6088,7 +6106,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             type: type || "general",
             subject: safeSubject,
             body: safeBody,
-            imageUrl: firstImage || null,
+            imageUrl: firstImage,
+            mediaUrls: safeMediaUrls,
           });
         } catch (e) {
           console.error(`Failed to send update to ${r.email}:`, e);
@@ -6185,14 +6204,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/developer-projects/:id/review", requireAdminAuth, async (req: any, res) => {
     try {
       const propertyId = parseInt(req.params.id);
-      const action = req.body.action; // 'approve' | 'reject' | 'archive'
+      const action = req.body.action; // 'approve' | 'reject' | 'archive' | 'unarchive'
       const property = await storage.getProperty(propertyId);
       if (!property) return res.status(404).json({ message: "Project not found" });
-      let newStatus = property.projectStatus;
-      if (action === "approve") newStatus = "live";
-      else if (action === "reject") newStatus = "draft";
-      else if (action === "archive") newStatus = "archived";
-      else return res.status(400).json({ message: "Invalid action" });
+
+      // Enforce explicit state-machine: draft -> pending_approval -> live -> (sold_out|archived)
+      // Admin-only paths: approve (pending_approval -> live), reject (pending_approval -> draft),
+      // archive (live|sold_out -> archived), unarchive (archived -> draft).
+      const current = property.projectStatus || "draft";
+      let newStatus = current;
+      const ALLOWED: Record<string, string[]> = {
+        approve:   ["pending_approval"],
+        reject:    ["pending_approval"],
+        archive:   ["draft", "pending_approval", "live", "sold_out"],
+        unarchive: ["archived"],
+      };
+      const allowedFrom = ALLOWED[action];
+      if (!allowedFrom) {
+        return res.status(400).json({ message: "Invalid action" });
+      }
+      if (!allowedFrom.includes(current)) {
+        return res.status(409).json({
+          message: `Cannot ${action} a project that is currently "${current}". Allowed previous status: ${allowedFrom.join(", ")}.`,
+          currentStatus: current,
+          allowedFrom,
+        });
+      }
+      if      (action === "approve")   newStatus = "live";
+      else if (action === "reject")    newStatus = "draft";
+      else if (action === "archive")   newStatus = "archived";
+      else if (action === "unarchive") newStatus = "draft";
       const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: newStatus } as any);
 
       // Notify developer
