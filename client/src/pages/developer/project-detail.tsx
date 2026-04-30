@@ -1010,6 +1010,8 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
 
 // ======================= SALES (analytics + investor list with notes) =======================
 type SalesStage = "all" | "reserved" | "converted_to_investment" | "expired" | "cancelled";
+type LeadStage = "lead" | "contacted" | "qualified" | "converted" | "lost";
+type LeadFilter = "all" | LeadStage;
 
 function SalesTab({ project }: { project: any }) {
   const { toast } = useToast();
@@ -1018,6 +1020,15 @@ function SalesTab({ project }: { project: any }) {
     enabled: !!project.id,
     queryFn: async () => {
       const res = await fetch(`/api/developer/projects/${project.id}/investors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const { data: leadsData, isLoading: leadsLoading } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", project.id, "leads"],
+    enabled: !!project.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${project.id}/leads`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -1040,6 +1051,7 @@ function SalesTab({ project }: { project: any }) {
   });
 
   const list = investors || [];
+  const leads = leadsData || [];
 
   // Stage counts
   const counts = {
@@ -1089,6 +1101,30 @@ function SalesTab({ project }: { project: any }) {
   const weeksToSellOut = avgVelocity > 0 ? remainingUnits / avgVelocity : null;
   const forecastDays = weeksToSellOut !== null ? Math.round(weeksToSellOut * 7) : null;
   const forecastDate = forecastDays !== null ? new Date(now.getTime() + forecastDays * 24 * 60 * 60 * 1000) : null;
+
+  // Lead funnel + qualified-lead conversion rate
+  const leadCounts: Record<LeadStage, number> = {
+    lead: leads.filter((l) => l.stage === "lead").length,
+    contacted: leads.filter((l) => l.stage === "contacted").length,
+    qualified: leads.filter((l) => l.stage === "qualified").length,
+    converted: leads.filter((l) => l.stage === "converted").length,
+    lost: leads.filter((l) => l.stage === "lost").length,
+  };
+  // Conversion rate = qualified leads that became reservations / all leads that ever reached qualified.
+  const qualifiedDenom = leadCounts.qualified + leadCounts.converted;
+  const qualifiedConversionRate = qualifiedDenom > 0 ? leadCounts.converted / qualifiedDenom : 0;
+  // Pipeline demand from qualified leads (use estimated units if provided, otherwise avg confirmed units)
+  const avgUnitsPerSale = confirmed.length > 0 ? soldUnits / confirmed.length : 1;
+  const qualifiedLeads = leads.filter((l) => l.stage === "qualified");
+  const pipelineUnits = qualifiedLeads.reduce((s, l) => {
+    const est = l.estimatedUnits != null && l.estimatedUnits !== "" ? Number(l.estimatedUnits) : NaN;
+    return s + (isNaN(est) ? avgUnitsPerSale : est);
+  }, 0);
+  const expectedConversions = pipelineUnits * qualifiedConversionRate;
+  const adjustedRemaining = Math.max(0, remainingUnits - expectedConversions);
+  const adjustedWeeksToSellOut = avgVelocity > 0 ? adjustedRemaining / avgVelocity : null;
+  const adjustedForecastDays = adjustedWeeksToSellOut !== null ? Math.round(adjustedWeeksToSellOut * 7) : null;
+  const adjustedForecastDate = adjustedForecastDays !== null ? new Date(now.getTime() + adjustedForecastDays * 24 * 60 * 60 * 1000) : null;
 
   const updateSalesStage = useMutation({
     mutationFn: async (newStage: "off_plan" | "completed") =>
@@ -1181,8 +1217,14 @@ function SalesTab({ project }: { project: any }) {
             <div className="text-xs uppercase tracking-wide text-slate-500">Sell-out forecast</div>
             {forecastDate && remainingUnits > 0 ? (
               <>
-                <div className="text-2xl font-bold text-slate-900 mt-1">{forecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
+                <div className="text-2xl font-bold text-slate-900 mt-1" data-testid="text-forecast-date">{forecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
                 <div className="text-xs text-slate-500 mt-2">~{forecastDays} days at current pace</div>
+                {expectedConversions > 0 && adjustedForecastDate && (
+                  <div className="text-xs text-blue-700 mt-1.5 border-t border-slate-100 pt-1.5" data-testid="text-forecast-with-pipeline">
+                    With qualified pipeline: <span className="font-semibold">{adjustedForecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                    <span className="text-slate-500"> (~{adjustedForecastDays}d • {Math.round(qualifiedConversionRate * 100)}% conv.)</span>
+                  </div>
+                )}
               </>
             ) : remainingUnits === 0 ? (
               <>
@@ -1220,6 +1262,15 @@ function SalesTab({ project }: { project: any }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* CRM Leads sub-section (pre-reservation funnel) */}
+      <LeadsSection
+        projectId={project.id}
+        leads={leads}
+        leadCounts={leadCounts}
+        qualifiedConversionRate={qualifiedConversionRate}
+        isLoading={leadsLoading}
+      />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -1325,6 +1376,322 @@ function SalesTab({ project }: { project: any }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ======================= LEADS (CRM funnel sub-section) =======================
+const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
+  lead: "Lead",
+  contacted: "Contacted",
+  qualified: "Qualified",
+  converted: "Converted",
+  lost: "Lost",
+};
+const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
+  lead:      "bg-sky-50 text-sky-700 border-sky-200",
+  contacted: "bg-violet-50 text-violet-700 border-violet-200",
+  qualified: "bg-blue-50 text-blue-700 border-blue-200",
+  converted: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  lost:      "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+function LeadsSection({
+  projectId,
+  leads,
+  leadCounts,
+  qualifiedConversionRate,
+  isLoading,
+}: {
+  projectId: number;
+  leads: any[];
+  leadCounts: Record<LeadStage, number>;
+  qualifiedConversionRate: number;
+  isLoading: boolean;
+}) {
+  const { toast } = useToast();
+  const [filter, setFilter] = useState<LeadFilter>("all");
+  const [addOpen, setAddOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertLead, setConvertLead] = useState<any | null>(null);
+  const [convertUnits, setConvertUnits] = useState<string>("");
+  const [form, setForm] = useState({ fullName: "", email: "", phone: "", stage: "lead" as LeadStage, estimatedUnits: "", notes: "" });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "leads"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "rollup"] });
+  };
+
+  const createLead = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/leads`, form),
+    onSuccess: () => {
+      invalidate();
+      setAddOpen(false);
+      setForm({ fullName: "", email: "", phone: "", stage: "lead", estimatedUnits: "", notes: "" });
+      toast({ title: "Lead added" });
+    },
+    onError: (err: any) => toast({ title: "Could not add lead", description: err?.message || "Please try again", variant: "destructive" }),
+  });
+
+  const updateLead = useMutation({
+    mutationFn: async ({ id, updates }: { id: number; updates: any }) =>
+      apiRequest("PATCH", `/api/developer/projects/${projectId}/leads/${id}`, updates),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Lead updated" });
+    },
+    onError: (err: any) => toast({ title: "Could not update lead", description: err?.message || "Please try again", variant: "destructive" }),
+  });
+
+  const deleteLead = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/developer/projects/${projectId}/leads/${id}`),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Lead removed" });
+    },
+    onError: (err: any) => toast({ title: "Could not remove lead", description: err?.message || "Please try again", variant: "destructive" }),
+  });
+
+  const convertLeadMut = useMutation({
+    mutationFn: async ({ id, units }: { id: number; units: string }) =>
+      apiRequest("POST", `/api/developer/projects/${projectId}/leads/${id}/convert`, { units }),
+    onSuccess: () => {
+      invalidate();
+      setConvertOpen(false);
+      setConvertLead(null);
+      setConvertUnits("");
+      toast({ title: "Lead converted to a reservation" });
+    },
+    onError: (err: any) => toast({ title: "Conversion failed", description: err?.message || "Please try again", variant: "destructive" }),
+  });
+
+  const filtered = filter === "all" ? leads : leads.filter((l) => l.stage === filter);
+  const STAGES: LeadFilter[] = ["all", "lead", "contacted", "qualified", "converted", "lost"];
+
+  return (
+    <Card data-testid="card-leads">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Leads</CardTitle>
+          <CardDescription>
+            Track demand before it becomes a reservation. {leadCounts.qualified} qualified •{" "}
+            {Math.round(qualifiedConversionRate * 100)}% historical conversion to reservation.
+          </CardDescription>
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)} data-testid="button-add-lead">
+          <Plus className="w-4 h-4 mr-1.5" /> Add lead
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {/* Lead stage filter chips */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {STAGES.map((s) => {
+            const label = s === "all" ? "All" : LEAD_STAGE_LABELS[s as LeadStage];
+            const count = s === "all" ? leads.length : leadCounts[s as LeadStage];
+            const cls = s === "all"
+              ? "bg-slate-100 text-slate-700 border-slate-200"
+              : LEAD_STAGE_COLORS[s as LeadStage];
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setFilter(s)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
+                  filter === s ? `${cls} ring-2 ring-offset-1 ring-blue-300` : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+                data-testid={`filter-lead-stage-${s}`}
+              >
+                {label} <span className="ml-1 text-slate-500">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {isLoading ? (
+          <div className="h-24 bg-slate-100 rounded animate-pulse" />
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-10 text-sm text-slate-500" data-testid="text-leads-empty">
+            {leads.length === 0 ? "No leads yet. Add one to start tracking pre-reservation demand." : "No leads in this stage."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Stage</TableHead>
+                  <TableHead>Est. units</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((lead) => (
+                  <TableRow key={lead.id} data-testid={`row-lead-${lead.id}`}>
+                    <TableCell>
+                      <div className="font-medium text-slate-900">{lead.fullName}</div>
+                      <div className="text-xs text-slate-500">{lead.email}</div>
+                      {lead.phone && <div className="text-xs text-slate-500">{lead.phone}</div>}
+                    </TableCell>
+                    <TableCell>
+                      {lead.stage === "converted" ? (
+                        <Badge className={LEAD_STAGE_COLORS.converted}>Converted</Badge>
+                      ) : (
+                        <Select
+                          value={lead.stage}
+                          onValueChange={(v) => updateLead.mutate({ id: lead.id, updates: { stage: v } })}
+                        >
+                          <SelectTrigger className="h-8 w-32" data-testid={`select-lead-stage-${lead.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="lead">Lead</SelectItem>
+                            <SelectItem value="contacted">Contacted</SelectItem>
+                            <SelectItem value="qualified">Qualified</SelectItem>
+                            <SelectItem value="lost">Lost</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-slate-700">{lead.estimatedUnits ? Number(lead.estimatedUnits) : "—"}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-xs text-slate-600 max-w-[260px] truncate" title={lead.notes || ""}>
+                        {lead.notes || <span className="text-slate-400">—</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {lead.stage !== "converted" && lead.stage !== "lost" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setConvertLead(lead);
+                              setConvertUnits(lead.estimatedUnits ? String(Number(lead.estimatedUnits)) : "");
+                              setConvertOpen(true);
+                            }}
+                            data-testid={`button-convert-lead-${lead.id}`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Convert
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            if (confirm(`Remove lead ${lead.fullName}?`)) deleteLead.mutate(lead.id);
+                          }}
+                          data-testid={`button-delete-lead-${lead.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {/* Add lead dialog */}
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add a lead</DialogTitle>
+              <DialogDescription>Capture interest before it becomes a reservation.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="lead-name">Full name</Label>
+                <Input id="lead-name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} data-testid="input-lead-name" />
+              </div>
+              <div>
+                <Label htmlFor="lead-email">Email</Label>
+                <Input id="lead-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="input-lead-email" />
+              </div>
+              <div>
+                <Label htmlFor="lead-phone">Phone (optional)</Label>
+                <Input id="lead-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-lead-phone" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="lead-stage">Stage</Label>
+                  <Select value={form.stage} onValueChange={(v) => setForm({ ...form, stage: v as LeadStage })}>
+                    <SelectTrigger id="lead-stage" data-testid="select-new-lead-stage">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lead">Lead</SelectItem>
+                      <SelectItem value="contacted">Contacted</SelectItem>
+                      <SelectItem value="qualified">Qualified</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="lead-units">Estimated units</Label>
+                  <Input id="lead-units" type="number" step="0.01" min="0" value={form.estimatedUnits} onChange={(e) => setForm({ ...form, estimatedUnits: e.target.value })} data-testid="input-lead-units" />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="lead-notes">Notes</Label>
+                <Textarea id="lead-notes" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Source, follow-up plan, context…" data-testid="input-lead-notes" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() => createLead.mutate()}
+                disabled={createLead.isPending || !form.fullName || !form.email}
+                data-testid="button-save-lead"
+              >
+                {createLead.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                Save lead
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Convert lead dialog */}
+        <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Convert {convertLead?.fullName} to a reservation</DialogTitle>
+              <DialogDescription>
+                A new reserved entry will be created in the reservation list. The lead will be marked as Converted.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="convert-units">Units</Label>
+                <Input
+                  id="convert-units"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={convertUnits}
+                  onChange={(e) => setConvertUnits(e.target.value)}
+                  data-testid="input-convert-units"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() => convertLead && convertLeadMut.mutate({ id: convertLead.id, units: convertUnits })}
+                disabled={convertLeadMut.isPending || !convertUnits || Number(convertUnits) <= 0}
+                data-testid="button-confirm-convert-lead"
+              >
+                {convertLeadMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                Create reservation
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
   );
 }
 

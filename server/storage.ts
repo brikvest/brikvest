@@ -66,7 +66,10 @@ import {
   type InsertProjectUpdate,
   developerInvestorNotes,
   type DeveloperInvestorNote,
-  type InsertDeveloperInvestorNote
+  type InsertDeveloperInvestorNote,
+  developerLeads,
+  type DeveloperLead,
+  type InsertDeveloperLead
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
@@ -238,6 +241,13 @@ export interface IStorage {
   // Developer investor notes
   upsertDeveloperInvestorNote(note: InsertDeveloperInvestorNote): Promise<DeveloperInvestorNote>;
   getDeveloperInvestorNote(propertyId: number, developerUserId: number, investorUserId: number): Promise<DeveloperInvestorNote | undefined>;
+
+  // Developer CRM leads (pre-reservation funnel)
+  createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead>;
+  getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]>;
+  getDeveloperLead(id: number): Promise<DeveloperLead | undefined>;
+  updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead>;
+  deleteDeveloperLead(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1384,6 +1394,35 @@ export class DatabaseStorage implements IStorage {
         eq(developerInvestorNotes.investorUserId, investorUserId),
       ));
     return result;
+  }
+
+  // Developer CRM leads
+  async createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead> {
+    const [result] = await db.insert(developerLeads).values(lead).returning();
+    return result;
+  }
+
+  async getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]> {
+    return await db.select().from(developerLeads)
+      .where(eq(developerLeads.propertyId, propertyId))
+      .orderBy(desc(developerLeads.createdAt));
+  }
+
+  async getDeveloperLead(id: number): Promise<DeveloperLead | undefined> {
+    const [result] = await db.select().from(developerLeads).where(eq(developerLeads.id, id));
+    return result;
+  }
+
+  async updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead> {
+    const [result] = await db.update(developerLeads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(developerLeads.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteDeveloperLead(id: number): Promise<void> {
+    await db.delete(developerLeads).where(eq(developerLeads.id, id));
   }
 }
 

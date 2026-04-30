@@ -58,6 +58,7 @@ import {
   type InsertProjectUpdate,
   type ProjectMilestone,
   type User,
+  type DeveloperLead,
 } from "@shared/schema";
 import { ObjectStorageService } from "./objectStorage";
 
@@ -5837,6 +5838,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reservations = await storage.getReservationsByProperty(propertyId);
       const milestones = await storage.getMilestonesByProperty(propertyId);
       const updates = await storage.getProjectUpdatesByProperty(propertyId);
+      const allLeads = await storage.getDeveloperLeadsByProperty(propertyId);
+      const leads = allLeads.filter(l => l.developerUserId === req.user.id);
 
       const confirmed = reservations.filter(r => r.status === "converted_to_investment");
       const reserved = reservations.filter(r => r.status === "reserved");
@@ -5880,6 +5883,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         GBP: { raised: convertCurrency(totalRaised, baseCurrency, "GBP", rates), target: convertCurrency(fundingTarget, baseCurrency, "GBP", rates) },
       };
 
+      // Lead funnel + qualified-lead conversion rate (used by sell-out forecast)
+      const leadCounts = {
+        lead: leads.filter(l => l.stage === "lead").length,
+        contacted: leads.filter(l => l.stage === "contacted").length,
+        qualified: leads.filter(l => l.stage === "qualified").length,
+        converted: leads.filter(l => l.stage === "converted").length,
+        lost: leads.filter(l => l.stage === "lost").length,
+      };
+      // Conversion rate = qualified leads that became reservations / all leads that ever reached qualified.
+      // (converted leads are assumed to have passed through qualified.)
+      const qualifiedDenom = leadCounts.qualified + leadCounts.converted;
+      const qualifiedConversionRate = qualifiedDenom > 0 ? leadCounts.converted / qualifiedDenom : 0;
+
       res.json({
         funding: {
           totalRaised,
@@ -5890,6 +5906,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100, salesStage: property.salesStage || "off_plan" },
         funnel: { reserved: reservedCount, kycComplete, paymentSubmitted, confirmed: confirmedCount },
+        leads: {
+          total: leads.length,
+          ...leadCounts,
+          qualifiedConversionRate: Math.round(qualifiedConversionRate * 1000) / 1000,
+        },
         construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
         capTable: {
           investorEquityPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
@@ -6012,6 +6033,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to export CSV" });
+    }
+  });
+
+  // ===========================================================================
+  // Developer CRM leads (pre-reservation funnel: lead/contacted/qualified)
+  // ===========================================================================
+  const LEAD_STAGES = ["lead", "contacted", "qualified", "converted", "lost"] as const;
+  type LeadStage = typeof LEAD_STAGES[number];
+
+  // List all leads for a project (developer-scoped)
+  app.get("/api/developer/projects/:id/leads", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const all = await storage.getDeveloperLeadsByProperty(propertyId);
+      // Only return leads owned by this developer (defence in depth — matches ensureProjectOwnership)
+      const mine = all.filter(l => l.developerUserId === req.user.id);
+      res.json(mine);
+    } catch (err) {
+      console.error("Failed to fetch leads:", err);
+      res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+
+  // Create a new lead
+  app.post("/api/developer/projects/:id/leads", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const { fullName, email, phone, stage, estimatedUnits, notes } = req.body || {};
+      if (!fullName || !email) {
+        return res.status(400).json({ message: "fullName and email are required" });
+      }
+      const stageVal: LeadStage = LEAD_STAGES.includes(stage) ? stage : "lead";
+      if (stageVal === "converted") {
+        return res.status(400).json({ message: "Use the convert endpoint to mark a lead as converted" });
+      }
+      const lead = await storage.createDeveloperLead({
+        propertyId,
+        developerUserId: req.user.id,
+        fullName: String(fullName).slice(0, 200),
+        email: String(email).slice(0, 200),
+        phone: phone ? String(phone).slice(0, 50) : null,
+        stage: stageVal,
+        estimatedUnits: estimatedUnits != null && estimatedUnits !== "" ? String(estimatedUnits) : null,
+        notes: notes ? String(notes).slice(0, 5000) : null,
+      });
+      res.status(201).json(lead);
+    } catch (err) {
+      console.error("Failed to create lead:", err);
+      res.status(500).json({ message: "Failed to create lead" });
+    }
+  });
+
+  // Update a lead (stage change, notes, contact info)
+  app.patch("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const leadId = parseInt(req.params.leadId);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const existing = await storage.getDeveloperLead(leadId);
+      if (!existing || existing.propertyId !== propertyId || existing.developerUserId !== req.user.id) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      const { fullName, email, phone, stage, estimatedUnits, notes } = req.body || {};
+      const updates: Partial<DeveloperLead> = {};
+      if (typeof fullName === "string") updates.fullName = fullName.slice(0, 200);
+      if (typeof email === "string") updates.email = email.slice(0, 200);
+      if (typeof phone === "string") updates.phone = phone.slice(0, 50);
+      if (typeof notes === "string") updates.notes = notes.slice(0, 5000);
+      if (estimatedUnits !== undefined) {
+        updates.estimatedUnits = estimatedUnits === null || estimatedUnits === "" ? null : String(estimatedUnits);
+      }
+      if (typeof stage === "string") {
+        if (!LEAD_STAGES.includes(stage as LeadStage)) {
+          return res.status(400).json({ message: "Invalid stage" });
+        }
+        if (stage === "converted") {
+          return res.status(400).json({ message: "Use the convert endpoint to mark a lead as converted" });
+        }
+        updates.stage = stage;
+      }
+      const updated = await storage.updateDeveloperLead(leadId, updates);
+      res.json(updated);
+    } catch (err) {
+      console.error("Failed to update lead:", err);
+      res.status(500).json({ message: "Failed to update lead" });
+    }
+  });
+
+  // Delete a lead
+  app.delete("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const leadId = parseInt(req.params.leadId);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const existing = await storage.getDeveloperLead(leadId);
+      if (!existing || existing.propertyId !== propertyId || existing.developerUserId !== req.user.id) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      await storage.deleteDeveloperLead(leadId);
+      res.status(204).end();
+    } catch (err) {
+      console.error("Failed to delete lead:", err);
+      res.status(500).json({ message: "Failed to delete lead" });
+    }
+  });
+
+  // Convert a lead into a reservation (creates a soft-locked reservation, marks lead as converted)
+  app.post("/api/developer/projects/:id/leads/:leadId/convert", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const leadId = parseInt(req.params.leadId);
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const lead = await storage.getDeveloperLead(leadId);
+      if (!lead || lead.propertyId !== propertyId || lead.developerUserId !== req.user.id) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      if (lead.convertedReservationId) {
+        return res.status(400).json({ message: "Lead is already converted" });
+      }
+      const unitsRaw = req.body?.units ?? lead.estimatedUnits;
+      const units = unitsRaw != null && unitsRaw !== "" ? Number(unitsRaw) : NaN;
+      if (!units || isNaN(units) || units <= 0) {
+        return res.status(400).json({ message: "A positive units value is required to convert" });
+      }
+      const unitPrice = Number(property.unitPrice || 0);
+      const totalUnits = Number(property.totalUnits || 0);
+      const soldUnits = Number(property.soldUnits || 0);
+      const reservedUnits = Number(property.reservedUnits || 0);
+      const developerEquityUnits = Number(property.developerEquityUnits || 0);
+      const availableUnits = Math.max(0, totalUnits - soldUnits - reservedUnits - developerEquityUnits);
+      if (units > availableUnits) {
+        return res.status(400).json({ message: `Only ${availableUnits} unit(s) available` });
+      }
+      const amount = units * unitPrice;
+      const reservation = await storage.createInvestmentReservation({
+        propertyId,
+        userId: null,
+        fullName: lead.fullName,
+        email: lead.email,
+        phone: lead.phone || "",
+        units: String(units),
+        amount: String(amount),
+        currency: property.currency || "NGN",
+        unitPriceSnapshot: String(unitPrice),
+        status: "reserved",
+        notes: `Converted from CRM lead #${lead.id}${lead.notes ? ` — ${lead.notes}` : ""}`,
+      });
+      // Soft-lock the units on the property so subsequent availability checks
+      // (and the Sales analytics counters) stay in sync. Mirrors the admin
+      // reservation creation flow at /api/admin/.../reservations.
+      await storage.updatePropertyUnitCounts(propertyId, units, 0);
+      const updated = await storage.updateDeveloperLead(leadId, {
+        stage: "converted",
+        convertedReservationId: reservation.id,
+        convertedAt: new Date(),
+      });
+      res.json({ lead: updated, reservation });
+    } catch (err) {
+      console.error("Failed to convert lead:", err);
+      res.status(500).json({ message: "Failed to convert lead" });
     }
   });
 

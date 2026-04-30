@@ -847,6 +847,23 @@ export const developerInvestorNotes = pgTable("developer_investor_notes", {
     .on(table.propertyId, table.developerUserId, table.investorUserId),
 }));
 
+// Developer-managed CRM leads (pre-reservation funnel: lead → contacted → qualified → converted/lost)
+export const developerLeads = pgTable("developer_leads", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  developerUserId: integer("developer_user_id").notNull().references(() => users.id),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  stage: text("stage").notNull().default("lead"), // 'lead' | 'contacted' | 'qualified' | 'converted' | 'lost'
+  estimatedUnits: decimal("estimated_units", { precision: 15, scale: 2 }),
+  notes: text("notes"),
+  convertedReservationId: integer("converted_reservation_id").references(() => investmentReservations.id),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const insertProjectMilestoneSchema = createInsertSchema(projectMilestones).omit({
   id: true,
   createdAt: true,
@@ -862,6 +879,14 @@ export const insertProjectUpdateSchema = createInsertSchema(projectUpdates).omit
 
 export const insertDeveloperInvestorNoteSchema = createInsertSchema(developerInvestorNotes).omit({
   id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDeveloperLeadSchema = createInsertSchema(developerLeads).omit({
+  id: true,
+  convertedReservationId: true,
+  convertedAt: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -885,6 +910,9 @@ export type ProjectUpdate = typeof projectUpdates.$inferSelect;
 
 export type InsertDeveloperInvestorNote = z.infer<typeof insertDeveloperInvestorNoteSchema>;
 export type DeveloperInvestorNote = typeof developerInvestorNotes.$inferSelect;
+
+export type InsertDeveloperLead = z.infer<typeof insertDeveloperLeadSchema>;
+export type DeveloperLead = typeof developerLeads.$inferSelect;
 
 export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
 
