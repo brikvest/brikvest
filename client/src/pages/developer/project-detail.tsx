@@ -20,7 +20,7 @@ import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
-  GripVertical, ImagePlus, X,
+  GripVertical, ImagePlus, X, UserPlus,
 } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import {
@@ -1453,18 +1453,21 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       />
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <CardTitle>Investors & reservations</CardTitle>
             <CardDescription>{filtered.length} of {list.length} entries shown</CardDescription>
           </div>
-          <a
-            href={`/api/developer/projects/${projectId}/investors.csv`}
-            className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
-            data-testid="link-export-csv"
-          >
-            <Download className="w-4 h-4 mr-2" /> Export CSV
-          </a>
+          <div className="flex items-center gap-2">
+            <AddInvestorDialog projectId={projectId} project={project} />
+            <a
+              href={`/api/developer/projects/${projectId}/investors.csv`}
+              className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
+              data-testid="link-export-csv"
+            >
+              <Download className="w-4 h-4 mr-2" /> Export CSV
+            </a>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Stage filter chips */}
@@ -1574,6 +1577,166 @@ const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
   converted: "bg-emerald-50 text-emerald-700 border-emerald-200",
   lost:      "bg-slate-100 text-slate-600 border-slate-200",
 };
+
+function AddInvestorDialog({ projectId, project }: { projectId: string | number; project: any }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [units, setUnits] = useState<string>("1");
+  const [amount, setAmount] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<string>("bank_transfer");
+  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [paymentReference, setPaymentReference] = useState<string>("");
+  const [note, setNote] = useState<string>("");
+
+  const reset = () => {
+    setEmail(""); setFullName(""); setPhone("");
+    setUnits("1"); setAmount(""); setPaymentMethod("bank_transfer");
+    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentReference(""); setNote("");
+  };
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const payload: any = {
+        email: email.trim(),
+        fullName: fullName.trim(),
+        phone: phone.trim() || undefined,
+        units: Number(units),
+        paymentMethod,
+        paymentDate,
+        paymentReference: paymentReference.trim() || undefined,
+        note: note.trim() || undefined,
+      };
+      if (amount.trim()) payload.amount = Number(amount);
+      return await apiRequest("POST", `/api/developer/projects/${projectId}/investors`, payload);
+    },
+    onSuccess: (res: any) => {
+      toast({
+        title: "Investor recorded",
+        description: res?.isNewAccount
+          ? `Account created and login email sent to ${email}. Certificate ${res?.certificateNumber || ""}.`
+          : `Investment added for existing account. Confirmation email sent.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "rollup"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
+      reset();
+      setOpen(false);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not record investor",
+        description: err?.message || "Please check the form and try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !fullName.trim() || !Number(units)) {
+      toast({ title: "Missing details", description: "Email, name, and units are required.", variant: "destructive" });
+      return;
+    }
+    mutation.mutate();
+  };
+
+  const unitPrice = Number(project?.unitPrice ?? project?.minInvestment ?? 0);
+  const computedAmount = Number(units) > 0 && unitPrice > 0 ? Number(units) * unitPrice : null;
+  const currency = project?.currency || "NGN";
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" data-testid="button-add-investor">
+          <UserPlus className="w-4 h-4 mr-2" /> Add investor
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Record off-platform investor</DialogTitle>
+          <DialogDescription>
+            Use this when an investor has paid you directly. We'll create or link their Brikvest account, issue an ownership certificate, and email them a login link to track their investment.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ai-name">Full name *</Label>
+              <Input id="ai-name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" data-testid="input-investor-name" />
+            </div>
+            <div>
+              <Label htmlFor="ai-email">Email *</Label>
+              <Input id="ai-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" data-testid="input-investor-email" />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="ai-phone">Phone (optional)</Label>
+            <Input id="ai-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234..." data-testid="input-investor-phone" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ai-units">Units *</Label>
+              <Input id="ai-units" type="number" min={1} step={1} value={units} onChange={(e) => setUnits(e.target.value)} data-testid="input-investor-units" />
+            </div>
+            <div>
+              <Label htmlFor="ai-amount">Amount paid ({currency})</Label>
+              <Input
+                id="ai-amount"
+                type="number"
+                min={0}
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder={computedAmount ? computedAmount.toLocaleString() : "Auto from unit price"}
+                data-testid="input-investor-amount"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Leave blank to auto-calculate as units × unit price.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ai-method">Payment method</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger id="ai-method" data-testid="select-payment-method"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="card">Card</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="ai-date">Payment date</Label>
+              <Input id="ai-date" type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} data-testid="input-payment-date" />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="ai-ref">Payment reference (optional)</Label>
+            <Input id="ai-ref" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="Bank ref / receipt number" data-testid="input-payment-ref" />
+          </div>
+          <div>
+            <Label htmlFor="ai-note">Internal note (optional)</Label>
+            <Textarea id="ai-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Visible only to you" data-testid="textarea-investor-note" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={mutation.isPending}>Cancel</Button>
+            <Button type="submit" disabled={mutation.isPending} data-testid="button-submit-investor">
+              {mutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : "Record investor"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function LeadsSection({
   projectId,

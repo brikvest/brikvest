@@ -612,3 +612,111 @@ export function valuationUpdateEmailTemplate({
     `,
   };
 }
+
+export function developerInvestmentRecordedEmailTemplate({
+  fullName,
+  developerCompanyName,
+  propertyName,
+  propertyLocation,
+  units,
+  amount,
+  currency,
+  certificateNumber,
+  paymentDate,
+  isNewAccount,
+  loginEmail,
+  tempPassword,
+  loginUrl,
+}: {
+  fullName: string;
+  developerCompanyName: string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  units: number;
+  amount: number | string;
+  currency: string;
+  certificateNumber?: string;
+  paymentDate?: string;
+  isNewAccount: boolean;
+  loginEmail: string;
+  tempPassword?: string;
+  loginUrl: string;
+}) {
+  const amountNum = typeof amount === "string" ? parseFloat(amount) : amount;
+  const symbol = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency === "GBP" ? "£" : currency + " ";
+  return {
+    subject: `${developerCompanyName} recorded your investment in ${propertyName} – Brikvest`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+
+        <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #2563eb, #1e40af); border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
+              <span style="color: white; font-size: 40px;">✓</span>
+            </div>
+          </div>
+
+          <h2 style="color: #222; text-align: center; margin: 0 0 8px;">Hello ${fullName},</h2>
+          <p style="font-size: 16px; color: #444; text-align: center; margin: 0 0 24px;">
+            <strong>${developerCompanyName}</strong> has recorded your investment in
+            <strong>${propertyName}</strong>${propertyLocation ? ` (${propertyLocation})` : ""}.
+            You can now track it from your Brikvest portfolio.
+          </p>
+
+          ${certificateNumber ? `
+          <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px solid #f59e0b; padding: 20px; margin: 24px 0; border-radius: 8px; text-align: center;">
+            <p style="margin: 0 0 8px 0; font-size: 14px; color: #92400e; font-weight: 600;">OWNERSHIP CERTIFICATE ISSUED</p>
+            <p style="margin: 0; font-size: 24px; color: #78350f; font-weight: bold; letter-spacing: 1px;">${certificateNumber}</p>
+          </div>
+          ` : ""}
+
+          <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+            <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Investment Summary</h3>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Project:</strong> ${propertyName}</p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Developer:</strong> ${developerCompanyName}</p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Units:</strong> ${units}</p>
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Amount:</strong> ${symbol}${amountNum.toLocaleString()}</p>
+            ${paymentDate ? `<p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Payment date:</strong> ${paymentDate}</p>` : ""}
+            <p style="margin: 8px 0; font-size: 15px; color: #1e3a8a;"><strong>Status:</strong> <span style="color: #10b981;">Confirmed</span></p>
+          </div>
+
+          ${isNewAccount && tempPassword ? `
+          <div style="background: #fef9c3; border: 1px solid #facc15; padding: 16px; margin: 24px 0; border-radius: 6px;">
+            <h3 style="margin: 0 0 8px; color: #854d0e; font-size: 16px;">Your Brikvest account is ready</h3>
+            <p style="margin: 0 0 8px; font-size: 14px; color: #713f12;">We created an account for you so you can track this investment.</p>
+            <p style="margin: 4px 0; font-size: 14px; color: #713f12;"><strong>Email:</strong> ${loginEmail}</p>
+            <p style="margin: 4px 0; font-size: 14px; color: #713f12;"><strong>Temporary password:</strong> <code style="background: #fff; padding: 2px 6px; border-radius: 4px; font-family: monospace;">${tempPassword}</code></p>
+            <p style="margin: 8px 0 0; font-size: 13px; color: #854d0e;">Please change this password after your first sign-in.</p>
+          </div>
+          ` : `
+          <p style="font-size: 14px; color: #444; text-align: center; margin: 16px 0;">
+            Sign in with your existing Brikvest account to view this investment alongside the rest of your portfolio.
+          </p>
+          `}
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${loginUrl}"
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+              ${isNewAccount ? "Sign in &amp; track my investment" : "View my portfolio"}
+            </a>
+          </div>
+
+          <p style="font-size: 13px; color: #6b7280; text-align: center; margin-top: 24px;">
+            Questions about this investment? Reply to this email or contact ${developerCompanyName} directly.
+          </p>
+
+          <p style="margin-top: 30px; font-size: 14px; color: #888;">
+            Best regards, <br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+          &copy; ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}
