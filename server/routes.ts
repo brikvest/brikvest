@@ -29,7 +29,8 @@ import {
   kycRejectedEmailTemplate,
   investmentCreatedEmailTemplate,
   paymentReceivedEmailTemplate,
-  investmentConfirmedEmailTemplate
+  investmentConfirmedEmailTemplate,
+  developerInvestmentRecordedEmailTemplate,
 } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
@@ -6026,6 +6027,176 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to fetch investors:", err);
       res.status(500).json({ message: "Failed to fetch investors" });
+    }
+  });
+
+  // Developer-recorded investor: developer adds an off-platform investor to
+  // their project. Creates (or links) the user, records a fully confirmed
+  // reservation + ownership certificate in one shot, and emails the investor
+  // a "track your investment" link (with a temp password if a new account was
+  // provisioned).
+  app.post("/api/developer/projects/:id/investors", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+
+      const body = req.body || {};
+      const email = String(body.email || "").trim().toLowerCase();
+      const fullName = String(body.fullName || "").trim();
+      const phone = String(body.phone || "").trim();
+      const unitsNum = Number(body.units);
+      const amountInput = body.amount === undefined || body.amount === null || body.amount === ""
+        ? null
+        : Number(body.amount);
+      const paymentDate = body.paymentDate ? String(body.paymentDate) : new Date().toISOString().slice(0, 10);
+      const paymentMethod = String(body.paymentMethod || "developer_recorded");
+      const note = String(body.note || "").trim();
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "A valid email is required" });
+      }
+      if (!fullName) return res.status(400).json({ message: "Full name is required" });
+      if (!phone) return res.status(400).json({ message: "Phone number is required" });
+      if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
+        return res.status(400).json({ message: "Units must be a positive number" });
+      }
+
+      // Compute amount from unit price snapshot if not explicitly provided.
+      const unitPriceSnapshot = (property as any).unitPrice
+        || (property as any).minInvestment
+        || 0;
+      const amount = amountInput !== null && Number.isFinite(amountInput) && amountInput > 0
+        ? amountInput
+        : Math.round(unitsNum * Number(unitPriceSnapshot));
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ message: "Amount must be a positive number" });
+      }
+
+      // Capacity check
+      const totalUnits = Number((property as any).totalUnits || 0);
+      if (totalUnits > 0) {
+        const reservedU = Number((property as any).reservedUnits || 0);
+        const soldU = Number((property as any).soldUnits || 0);
+        const remaining = totalUnits - reservedU - soldU;
+        if (unitsNum > remaining) {
+          return res.status(400).json({
+            message: `Only ${remaining} unit(s) remaining for this project`,
+          });
+        }
+      }
+
+      // Resolve or create the investor user.
+      let user = await storage.getUserByEmail(email);
+      let isNewAccount = false;
+      let tempPassword: string | undefined;
+      if (!user) {
+        const nameParts = fullName.split(/\s+/);
+        const firstName = nameParts.shift() || fullName;
+        const lastName = nameParts.join(" ");
+        tempPassword = randomBytes(6).toString("base64url");
+        const hashed = await hashPassword(tempPassword);
+        user = await storage.createUser({
+          email,
+          password: hashed,
+          firstName,
+          lastName,
+          phone,
+          role: "user",
+          accountStatus: "approved",
+          emailVerified: true,
+          country: (property as any).country || "NG",
+        } as any);
+        isNewAccount = true;
+      }
+
+      // Create a fully confirmed reservation directly.
+      const developerNotePrefix = `Recorded by developer #${req.user.id} on ${paymentDate}`;
+      const fullNote = note ? `${developerNotePrefix} — ${note}` : developerNotePrefix;
+      const reservation = await storage.createInvestmentReservation({
+        propertyId,
+        userId: user.id,
+        fullName,
+        email,
+        phone,
+        units: String(unitsNum),
+        amount: String(amount),
+        currency: (property as any).currency || "NGN",
+        unitPriceSnapshot: String(unitPriceSnapshot || 0),
+        status: "converted_to_investment",
+        paymentMethod,
+        paymentReference: `DEV-${paymentDate.replace(/-/g, "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
+        notes: fullNote,
+      } as any);
+
+      // Bump sold-unit counter on the property.
+      try {
+        await storage.updatePropertyUnitCounts(propertyId, 0, unitsNum);
+      } catch (e) {
+        console.error("Failed to update property unit counts:", e);
+      }
+
+      // Issue ownership certificate.
+      let certificateNumber: string | undefined;
+      try {
+        const certNumber = await storage.getNextCertificateNumber();
+        const verificationToken = randomBytes(16).toString("hex");
+        const cert = await storage.createOwnershipCertificate({
+          reservationId: reservation.id,
+          certificateNumber: certNumber,
+          verificationToken,
+          ownerName: fullName,
+          propertyName: (property as any).name,
+          propertyLocation: (property as any).location || (property as any).city || "—",
+          spvName: (property as any).spvName || null,
+          units: String(unitsNum),
+          amount: String(amount),
+          currency: (property as any).currency || "NGN",
+        } as any);
+        certificateNumber = cert.certificateNumber;
+      } catch (e) {
+        console.error("Failed to create ownership certificate:", e);
+      }
+
+      // Send the investor a "track your investment" email.
+      try {
+        const developerUser = await storage.getUser(req.user.id);
+        const developerCompanyName =
+          (developerUser as any)?.companyName ||
+          [(developerUser as any)?.firstName, (developerUser as any)?.lastName]
+            .filter(Boolean)
+            .join(" ") ||
+          "Your developer";
+        const tpl = developerInvestmentRecordedEmailTemplate({
+          fullName,
+          developerCompanyName,
+          propertyName: (property as any).name,
+          propertyLocation: (property as any).location || null,
+          units: unitsNum,
+          amount,
+          currency: (property as any).currency || "NGN",
+          certificateNumber,
+          paymentDate,
+          isNewAccount,
+          loginEmail: email,
+          tempPassword,
+          loginUrl: "https://www.brikvest.net/login",
+        });
+        await sendEmail({ to: email, ...tpl });
+      } catch (e) {
+        console.error("Failed to send investor recorded email:", e);
+      }
+
+      res.status(201).json({
+        reservationId: reservation.id,
+        userId: user.id,
+        isNewAccount,
+        certificateNumber: certificateNumber || null,
+      });
+    } catch (err: any) {
+      console.error("Failed to record developer investor:", err);
+      res.status(500).json({ message: err?.message || "Failed to record investor" });
     }
   });
 
