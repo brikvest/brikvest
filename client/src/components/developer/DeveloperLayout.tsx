@@ -22,6 +22,9 @@ import {
   User,
   Menu,
   ChevronDown,
+  Users,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -45,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/developer",                label: "My Projects",    icon: LayoutGrid, testId: "link-projects",       match: (p) => p === "/developer" || p.startsWith("/developer/projects") },
   { href: "/developer/new",            label: "New Project",    icon: Plus,       testId: "link-new-project",    match: (p) => p === "/developer/new" },
   { href: "/developer/communications", label: "Communications", icon: Megaphone,  testId: "link-communications", match: (p) => p === "/developer/communications" },
+  { href: "/developer/team",           label: "Team",           icon: Users,      testId: "link-team",           match: (p) => p === "/developer/team" },
   { href: "/developer/profile",        label: "Profile",        icon: User,       testId: "link-profile",        match: (p) => p === "/developer/profile" },
 ];
 
@@ -313,8 +317,65 @@ export default function DeveloperLayout({ children, title, subtitle, backTo, act
           </div>
         )}
 
+        {/* Trial / plan banner */}
+        <TrialBanner me={me} />
+
         {/* Page content */}
         <main className="px-4 sm:px-6 lg:px-8 py-5 sm:py-6 lg:py-8">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+function TrialBanner({ me }: { me: any }) {
+  const status = me?.subscriptionStatus || "trialing";
+  const days = typeof me?.trialDaysRemaining === "number" ? me.trialDaysRemaining : null;
+  const planName = me?.planLimits?.name || (me?.plan === "growth" ? "Growth" : "Starter");
+
+  if (status === "active") return null; // paid plan — no banner needed
+
+  const expired = status === "expired" || status === "cancelled" || (status === "trialing" && days === 0);
+
+  if (expired) {
+    return (
+      <div className="bg-rose-50 border-b border-rose-200">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-rose-900">
+            <Clock className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span>
+              Your free trial has ended. Pick a plan to keep adding projects, investors, and updates.
+            </span>
+          </div>
+          <Link href="/developer/pricing">
+            <Button size="sm" className="bg-rose-600 hover:bg-rose-700 text-white" data-testid="button-trial-upgrade">
+              <Sparkles className="w-4 h-4 mr-1.5" /> See plans
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // trialing
+  const tone = days !== null && days <= 7
+    ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-900", icon: "text-amber-600", btn: "bg-amber-600 hover:bg-amber-700" }
+    : { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-900", icon: "text-blue-600", btn: "bg-blue-600 hover:bg-blue-700" };
+
+  return (
+    <div className={`${tone.bg} border-b ${tone.border}`}>
+      <div className="px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+        <div className={`flex items-center gap-2 text-sm ${tone.text}`}>
+          <Sparkles className={`w-4 h-4 ${tone.icon} flex-shrink-0`} />
+          <span data-testid="text-trial-banner">
+            <strong>{planName} trial</strong> · {days === null ? "active" : `${days} day${days === 1 ? "" : "s"} left`} —
+            full access included.
+          </span>
+        </div>
+        <Link href="/developer/pricing">
+          <Button size="sm" variant="outline" className="text-xs h-7" data-testid="button-trial-pricing">
+            View plans
+          </Button>
+        </Link>
       </div>
     </div>
   );

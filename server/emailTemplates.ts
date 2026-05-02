@@ -720,3 +720,65 @@ export function developerInvestmentRecordedEmailTemplate({
     `,
   };
 }
+
+export function developerTeamInviteEmailTemplate({
+  inviteName,
+  inviteEmail,
+  inviteRole,
+  companyName,
+  inviterName,
+  acceptUrl,
+  expiresAt,
+}: {
+  inviteName?: string | null;
+  inviteEmail: string;
+  inviteRole: string;
+  companyName: string;
+  inviterName: string;
+  acceptUrl: string;
+  expiresAt: string;
+}) {
+  const greeting = inviteName ? `Hi ${inviteName},` : "Hello,";
+  const roleLabel = inviteRole.replace(/_/g, " ");
+  return {
+    subject: `${inviterName} invited you to ${companyName} on Brikvest`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9fafb;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+        <div style="background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+          <h2 style="color: #0f172a; margin: 0 0 8px;">You've been invited to join ${companyName}</h2>
+          <p style="font-size: 15px; color: #475569; margin: 0 0 24px;">${greeting}</p>
+          <p style="font-size: 15px; color: #334155; line-height: 1.6;">
+            <strong>${inviterName}</strong> has invited you to join <strong>${companyName}</strong>'s developer workspace on Brikvest as a <strong>${roleLabel}</strong>.
+            You'll be able to help manage projects, investors, and updates from a shared dashboard.
+          </p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${acceptUrl}"
+               style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;">
+              Accept invitation
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #64748b; text-align: center; margin: 0 0 24px;">
+            Or copy this link: <br />
+            <span style="word-break: break-all; color: #2563eb;">${acceptUrl}</span>
+          </p>
+          <div style="background: #f1f5f9; border-radius: 8px; padding: 16px; margin: 24px 0;">
+            <p style="margin: 0 0 6px; font-size: 13px; color: #475569;"><strong>Invited email:</strong> ${inviteEmail}</p>
+            <p style="margin: 0; font-size: 13px; color: #475569;"><strong>Invitation expires:</strong> ${expiresAt}</p>
+          </div>
+          <p style="font-size: 13px; color: #94a3b8; text-align: center; margin-top: 24px;">
+            If you weren't expecting this invitation, you can safely ignore this email.
+          </p>
+          <p style="margin-top: 30px; font-size: 14px; color: #888;">
+            Welcome aboard,<br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+        <div style="text-align: center; font-size: 12px; color: #9ca3af; margin-top: 20px;">
+          &copy; ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}

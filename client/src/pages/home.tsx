@@ -262,6 +262,13 @@ export default function Home() {
               >
                 About
               </Link>
+              <Link
+                href="/developer/pricing"
+                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                data-testid="link-nav-pricing"
+              >
+                Pricing
+              </Link>
             </nav>
 
             {/* Right cluster (desktop) */}
@@ -303,6 +310,11 @@ export default function Home() {
                         <Building2 className="w-4 h-4 mr-2" /> List your project
                       </Link>
                     </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/developer/pricing" className="cursor-pointer" data-testid="menu-item-pricing">
+                        <TrendingUp className="w-4 h-4 mr-2" /> Developer pricing
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={async () => {
@@ -323,12 +335,12 @@ export default function Home() {
                 </DropdownMenu>
               ) : (
                 <>
-                  <Link href="/developer/signup">
+                  <Link href="/developer/pricing">
                     <Button
                       variant="ghost"
                       size="sm"
                       className="text-slate-700 hover:text-blue-700 hover:bg-slate-100 font-medium"
-                      data-testid="link-developer-signup-nav"
+                      data-testid="link-developer-pricing-nav"
                     >
                       List your project
                     </Button>
@@ -470,6 +482,15 @@ export default function Home() {
                   >
                     <Building2 className="h-4 w-4 mr-3 text-blue-600" />
                     List your project
+                  </Link>
+                  <Link
+                    href="/developer/pricing"
+                    className="flex items-center text-slate-700 hover:text-blue-700 hover:bg-blue-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                    data-testid="link-mobile-developer-pricing"
+                  >
+                    <TrendingUp className="h-4 w-4 mr-3 text-blue-600" />
+                    Pricing & free trial
                   </Link>
                 </div>
               </div>
@@ -1083,6 +1104,15 @@ export default function Home() {
                     data-testid="link-footer-developer-signup"
                   >
                     List your project
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/developer/pricing"
+                    className="text-slate-300 hover:text-white transition-colors"
+                    data-testid="link-footer-developer-pricing"
+                  >
+                    Pricing & free trial
                   </Link>
                 </li>
                 <li>
