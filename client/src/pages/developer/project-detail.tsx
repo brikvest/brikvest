@@ -17,6 +17,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
+import HelpTip from "@/components/developer/HelpTip";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
@@ -757,7 +758,14 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Current stage</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>Current stage</Label>
+                <HelpTip>
+                  The high-level construction phase shown to investors on their dashboard.
+                  This is independent of the detailed milestone list below — pick whichever
+                  phase best describes where the project is right now.
+                </HelpTip>
+              </div>
               <Select value={projectFields.currentStage} onValueChange={(v) => updateField("currentStage", v)}>
                 <SelectTrigger data-testid="select-current-stage"><SelectValue placeholder="Select stage" /></SelectTrigger>
                 <SelectContent>
@@ -1035,7 +1043,13 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
       </DialogHeader>
       <div className="space-y-4">
         <div>
-          <Label>Name *</Label>
+          <div className="flex items-center gap-1.5">
+            <Label>Name *</Label>
+            <HelpTip>
+              The construction milestone, e.g. "Foundation poured", "Roof complete",
+              "Handover to investors". Investors see these as a timeline of progress.
+            </HelpTip>
+          </div>
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Foundation poured" data-testid="input-milestone-name" />
         </div>
         <div>
@@ -1044,11 +1058,17 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Target date</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Target date</Label>
+              <HelpTip>When you originally planned to complete this milestone.</HelpTip>
+            </div>
             <Input type="date" value={form.targetDate} onChange={(e) => setForm({ ...form, targetDate: e.target.value })} data-testid="input-milestone-target" />
           </div>
           <div>
-            <Label>Completed date</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Completed date</Label>
+              <HelpTip>The actual date this milestone was finished. Leave blank if it isn't done yet.</HelpTip>
+            </div>
             <Input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} data-testid="input-milestone-completed" />
           </div>
         </div>
@@ -1066,7 +1086,13 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
             </Select>
           </div>
           <div>
-            <Label>% Complete</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>% Complete</Label>
+              <HelpTip>
+                Roughly how far along this milestone is, from 0 to 100. Used by the project
+                progress bar shown to investors.
+              </HelpTip>
+            </div>
             <Input type="number" min={0} max={100} value={form.percentComplete} onChange={(e) => setForm({ ...form, percentComplete: parseInt(e.target.value) || 0 })} data-testid="input-milestone-percent" />
           </div>
         </div>
@@ -1683,11 +1709,25 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <Label htmlFor="ai-units">Units *</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="ai-units">Units *</Label>
+                <HelpTip>
+                  How many fractional ownership units this investor is buying. Each unit
+                  represents an equal share of the project. We'll automatically reduce the
+                  units still available for sale.
+                </HelpTip>
+              </div>
               <Input id="ai-units" type="number" min={1} step={1} value={units} onChange={(e) => setUnits(e.target.value)} data-testid="input-investor-units" />
             </div>
             <div>
-              <Label htmlFor="ai-amount">Amount paid ({currency})</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="ai-amount">Amount paid ({currency})</Label>
+                <HelpTip>
+                  The actual amount you collected from this investor, in {currency}. Leave
+                  blank and we'll auto-calculate it as units × unit price. Override this if
+                  you offered a discount or a custom price.
+                </HelpTip>
+              </div>
               <Input
                 id="ai-amount"
                 type="number"
@@ -1966,7 +2006,15 @@ function LeadsSection({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
+                  <div className="flex items-center gap-1.5">
                   <Label htmlFor="lead-stage">Stage</Label>
+                  <HelpTip>
+                    Where this lead is in your sales funnel. <strong>Lead</strong> = just inquired,
+                    <strong> Contacted</strong> = you've reached out, <strong>Qualified</strong> = serious
+                    buyer ready to commit, <strong>Converted</strong> = paid (becomes an investor),
+                    <strong> Lost</strong> = no longer pursuing.
+                  </HelpTip>
+                </div>
                   <Select value={form.stage} onValueChange={(v) => setForm({ ...form, stage: v as LeadStage })}>
                     <SelectTrigger id="lead-stage" data-testid="select-new-lead-stage">
                       <SelectValue />
@@ -1980,7 +2028,13 @@ function LeadsSection({
                   </Select>
                 </div>
                 <div>
+                  <div className="flex items-center gap-1.5">
                   <Label htmlFor="lead-units">Estimated units</Label>
+                  <HelpTip>
+                    Roughly how many units you think this lead will buy. Used for the
+                    sell-out forecast at the top of the Sales tab.
+                  </HelpTip>
+                </div>
                   <Input id="lead-units" type="number" step="0.01" min="0" value={form.estimatedUnits} onChange={(e) => setForm({ ...form, estimatedUnits: e.target.value })} data-testid="input-lead-units" />
                 </div>
               </div>

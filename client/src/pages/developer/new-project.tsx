@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import HelpTip from "@/components/developer/HelpTip";
 
 const STEPS = [
   { id: 1, label: "Basics" },
@@ -144,7 +145,14 @@ export default function NewProjectWizard() {
                 </div>
               </div>
               <div>
-                <Label>SPV / Holding entity</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>SPV / Holding entity</Label>
+                  <HelpTip>
+                    The Special Purpose Vehicle (SPV) is the legal entity that holds title to the property on
+                    behalf of investors. Investors own units in this SPV, not the underlying land directly.
+                    Leave blank if you haven't incorporated one yet.
+                  </HelpTip>
+                </div>
                 <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd" data-testid="input-spv" />
               </div>
             </div>
@@ -153,34 +161,74 @@ export default function NewProjectWizard() {
           {step === 2 && (
             <div className="space-y-4">
               <div>
-                <Label>Total project value *</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>Total project value *</Label>
+                  <HelpTip>
+                    The full capital you're raising for this project, in {form.currency}. This is the
+                    target raise — once investors collectively commit this amount the project is fully funded.
+                  </HelpTip>
+                </div>
                 <Input type="number" value={form.totalValue} onChange={u("totalValue")} placeholder="500000000" data-testid="input-total-value" />
                 <p className="text-xs text-slate-500 mt-1">Total raise size in {form.currency}.</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Total units *</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Total units *</Label>
+                    <HelpTip>
+                      Fractional ownership shares. The project is split into this many equal pieces — for
+                      example, 100 units of a ₦500m project means each unit represents ₦5m of ownership.
+                      More units = lower entry price = more investors can participate.
+                    </HelpTip>
+                  </div>
                   <Input type="number" value={form.totalUnits} onChange={u("totalUnits")} placeholder="100" data-testid="input-total-units" />
                 </div>
                 <div>
-                  <Label>Unit price *</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Unit price *</Label>
+                    <HelpTip>
+                      The price of a single unit, in {form.currency}. Usually equals
+                      Total project value ÷ Total units. Investors pay this amount per unit they buy.
+                    </HelpTip>
+                  </div>
                   <Input type="number" value={form.unitPrice} onChange={u("unitPrice")} placeholder="5000000" data-testid="input-unit-price" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Minimum investment</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Minimum investment</Label>
+                    <HelpTip>
+                      The smallest amount an investor can commit. Defaults to one unit price. Set this
+                      lower if you want to allow micro-investments below a single unit (Brikvest will
+                      pool fractional commitments).
+                    </HelpTip>
+                  </div>
                   <Input type="number" value={form.minInvestment} onChange={u("minInvestment")} placeholder="Defaults to unit price" data-testid="input-min-investment" />
                 </div>
                 <div>
-                  <Label>Developer-retained units</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Developer-retained units</Label>
+                    <HelpTip>
+                      Units you keep for yourself (or your team) as the developer — your "sweat equity".
+                      These are removed from the units available to investors. Leave at 0 if you're
+                      raising the full amount externally.
+                    </HelpTip>
+                  </div>
                   <Input type="number" value={form.developerEquityUnits} onChange={u("developerEquityUnits")} data-testid="input-developer-units" />
                   <p className="text-xs text-slate-500 mt-1">Units you keep as the developer (sweat equity).</p>
                 </div>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                 <div>
-                  <Label className="text-sm">Allow secondary-market resale</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label className="text-sm">Allow secondary-market resale</Label>
+                    <HelpTip>
+                      When ON, investors who buy units can later list them for resale to other approved
+                      Brikvest members (P2P marketplace). Off-plan projects often disable this until
+                      construction is further along.
+                    </HelpTip>
+                  </div>
                   <p className="text-xs text-slate-500">Investors can list their units to other members.</p>
                 </div>
                 <Switch checked={form.isTransferable} onCheckedChange={(v) => setForm({ ...form, isTransferable: v })} data-testid="switch-transferable" />
