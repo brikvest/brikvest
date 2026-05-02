@@ -1223,7 +1223,25 @@ function SortableMediaThumb({
   );
 }
 
-// ======================= SALES (analytics + investor list with notes) =======================
+// ======================= SALES (analytics + client list with notes) =======================
+// In a sales context, the people buying are "clients" (not investors), and they're buying
+// apartments/plots/spaces (whatever the property type is) — not "units". These helpers
+// surface the right wording per project so the Sales tab feels native to a real estate
+// sales team.
+function unitNoun(propertyType?: string): { singular: string; plural: string; Plural: string } {
+  switch ((propertyType || "").toLowerCase()) {
+    case "land":
+      return { singular: "plot", plural: "plots", Plural: "Plots" };
+    case "residential":
+      return { singular: "apartment", plural: "apartments", Plural: "Apartments" };
+    case "commercial":
+      return { singular: "space", plural: "spaces", Plural: "Spaces" };
+    case "mixed_use":
+    default:
+      return { singular: "unit", plural: "units", Plural: "Units" };
+  }
+}
+
 type SalesStage = "all" | "reserved" | "converted_to_investment" | "expired" | "cancelled";
 type LeadStage = "lead" | "contacted" | "qualified" | "converted" | "lost";
 type LeadFilter = "all" | LeadStage;
@@ -1354,6 +1372,8 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
   });
   const currentSalesStage: "off_plan" | "completed" = project.salesStage === "completed" ? "completed" : "off_plan";
 
+  const noun = unitNoun(project?.propertyType);
+
   const STAGE_LABELS: Record<SalesStage, string> = {
     all: "All",
     reserved: "Reserved",
@@ -1409,7 +1429,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="py-5">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sold units</div>
+            <div className="text-xs uppercase tracking-wide text-slate-500">Sold {noun.plural}</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">{fmtUnits(soldUnits)} <span className="text-sm font-normal text-slate-500">/ {fmtUnits(totalUnits)}</span></div>
             <Progress value={totalUnits > 0 ? (soldUnits / totalUnits) * 100 : 0} className="h-1.5 mt-2" />
           </CardContent>
@@ -1418,13 +1438,13 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Remaining</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">{fmtUnits(remainingUnits)}</div>
-            <div className="text-xs text-slate-500 mt-2">units available</div>
+            <div className="text-xs text-slate-500 mt-2">{noun.plural} available</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Velocity (4-wk avg)</div>
-            <div className="text-2xl font-bold text-slate-900 mt-1">{avgVelocity.toFixed(1)} <span className="text-sm font-normal text-slate-500">units/wk</span></div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{avgVelocity.toFixed(1)} <span className="text-sm font-normal text-slate-500">{noun.plural}/wk</span></div>
             <div className="text-xs text-slate-500 mt-2">{fmtUnits(totalLast4)} sold in last 4 weeks</div>
           </CardContent>
         </Card>
@@ -1445,7 +1465,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
             ) : remainingUnits === 0 ? (
               <>
                 <div className="text-2xl font-bold text-emerald-600 mt-1">Sold out</div>
-                <div className="text-xs text-slate-500 mt-2">All units allocated</div>
+                <div className="text-xs text-slate-500 mt-2">All {noun.plural} allocated</div>
               </>
             ) : (
               <>
@@ -1461,7 +1481,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       <Card>
         <CardHeader>
           <CardTitle>Sales velocity (last 4 weeks)</CardTitle>
-          <CardDescription>Units confirmed per week and cumulative trend.</CardDescription>
+          <CardDescription>{noun.Plural} confirmed per week and cumulative trend.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-64">
@@ -1471,7 +1491,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                 <YAxis stroke="#64748b" fontSize={12} />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="units" stroke="#2563eb" strokeWidth={2} name="Units / week" dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="units" stroke="#2563eb" strokeWidth={2} name={`${noun.Plural} / week`} dot={{ r: 4 }} />
                 <Line type="monotone" dataKey="cumulative" stroke="#15803d" strokeWidth={2} name="Cumulative" dot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
@@ -1491,11 +1511,11 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       <Card>
         <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <CardTitle>Investors & reservations</CardTitle>
-            <CardDescription>{filtered.length} of {list.length} entries shown</CardDescription>
+            <CardTitle>Clients</CardTitle>
+            <CardDescription>{filtered.length} of {list.length} {list.length === 1 ? "client" : "clients"} shown</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <AddInvestorDialog projectId={projectId} project={project} />
+            <AddInvestorDialog projectId={projectId} project={project} noun={noun} />
             <a
               href={`/api/developer/projects/${projectId}/investors.csv`}
               className="inline-flex items-center px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-md hover:bg-slate-50"
@@ -1526,14 +1546,14 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           {isLoading ? (
             <div className="h-40 bg-slate-100 rounded animate-pulse" />
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">No investors in this stage.</div>
+            <div className="text-center py-12 text-slate-500">No clients in this stage.</div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Units</TableHead>
+                    <TableHead>{noun.Plural}</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>KYC</TableHead>
                     <TableHead>Status</TableHead>
@@ -1614,7 +1634,7 @@ const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
   lost:      "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-function AddInvestorDialog({ projectId, project }: { projectId: string | number; project: any }) {
+function AddInvestorDialog({ projectId, project, noun }: { projectId: string | number; project: any; noun: { singular: string; plural: string; Plural: string } }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -1651,10 +1671,10 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
     },
     onSuccess: (res: any) => {
       toast({
-        title: "Investor recorded",
+        title: "Client recorded",
         description: res?.isNewAccount
           ? `Account created and login email sent to ${email}. Certificate ${res?.certificateNumber || ""}.`
-          : `Investment added for existing account. Confirmation email sent.`,
+          : `Purchase added for existing account. Confirmation email sent.`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "rollup"] });
@@ -1662,13 +1682,13 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
       reset();
       setOpen(false);
     },
-    onError: (err: any) => toast(toastFromError(err, "Could not record investor")),
+    onError: (err: any) => toast(toastFromError(err, "Could not record client")),
   });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !fullName.trim() || !Number(units)) {
-      toast({ title: "Missing details", description: "Email, name, and units are required.", variant: "destructive" });
+      toast({ title: "Missing details", description: `Email, name, and number of ${noun.plural} are required.`, variant: "destructive" });
       return;
     }
     mutation.mutate();
@@ -1682,14 +1702,14 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
       <DialogTrigger asChild>
         <Button size="sm" data-testid="button-add-investor">
-          <UserPlus className="w-4 h-4 mr-2" /> Add investor
+          <UserPlus className="w-4 h-4 mr-2" /> Add client
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Record off-platform investor</DialogTitle>
+          <DialogTitle>Record off-platform client</DialogTitle>
           <DialogDescription>
-            Use this when an investor has paid you directly. We'll create or link their Brikvest account, issue an ownership certificate, and email them a login link to track their investment.
+            Use this when a client has paid you directly for {noun.plural}. We'll create or link their Brikvest account, issue an ownership certificate, and email them a login link to track their purchase.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -1710,11 +1730,11 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <div className="flex items-center gap-1.5">
-                <Label htmlFor="ai-units">Units *</Label>
+                <Label htmlFor="ai-units">{noun.Plural} *</Label>
                 <HelpTip>
-                  How many fractional ownership units this investor is buying. Each unit
-                  represents an equal share of the project. We'll automatically reduce the
-                  units still available for sale.
+                  How many {noun.plural} this client is buying. Each {noun.singular}
+                  represents one allocation in the project. We'll automatically reduce the
+                  {" "}{noun.plural} still available for sale.
                 </HelpTip>
               </div>
               <Input id="ai-units" type="number" min={1} step={1} value={units} onChange={(e) => setUnits(e.target.value)} data-testid="input-investor-units" />
@@ -1723,9 +1743,9 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
               <div className="flex items-center gap-1.5">
                 <Label htmlFor="ai-amount">Amount paid ({currency})</Label>
                 <HelpTip>
-                  The actual amount you collected from this investor, in {currency}. Leave
-                  blank and we'll auto-calculate it as units × unit price. Override this if
-                  you offered a discount or a custom price.
+                  The actual amount you collected from this client, in {currency}. Leave
+                  blank and we'll auto-calculate it as {noun.plural} × {noun.singular} price.
+                  Override this if you offered a discount or a custom price.
                 </HelpTip>
               </div>
               <Input
@@ -1739,7 +1759,7 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
                 data-testid="input-investor-amount"
               />
               <p className="text-xs text-slate-500 mt-1">
-                Leave blank to auto-calculate as units × unit price.
+                Leave blank to auto-calculate as {noun.plural} × {noun.singular} price.
               </p>
             </div>
           </div>
@@ -1773,7 +1793,7 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={mutation.isPending}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending} data-testid="button-submit-investor">
-              {mutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : "Record investor"}
+              {mutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : "Record client"}
             </Button>
           </DialogFooter>
         </form>
