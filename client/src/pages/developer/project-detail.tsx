@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { toastFromError } from "@/lib/planErrors";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
@@ -1635,13 +1636,7 @@ function AddInvestorDialog({ projectId, project }: { projectId: string | number;
       reset();
       setOpen(false);
     },
-    onError: (err: any) => {
-      toast({
-        title: "Could not record investor",
-        description: err?.message || "Please check the form and try again.",
-        variant: "destructive",
-      });
-    },
+    onError: (err: any) => toast(toastFromError(err, "Could not record investor")),
   });
 
   const submit = (e: React.FormEvent) => {
@@ -2257,7 +2252,7 @@ function CommunicationsTab({ projectId, project }: { projectId: string | number;
       setForm({ type: "general", subject: "", body: "", mediaUrls: [] });
       toast({ title: "Update sent", description: `Broadcast to investors of ${project.name}.` });
     },
-    onError: () => toast({ title: "Failed to send update", variant: "destructive" }),
+    onError: (err: any) => toast(toastFromError(err, "Failed to send update")),
   });
 
   return (

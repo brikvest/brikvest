@@ -31,6 +31,7 @@ import {
   paymentReceivedEmailTemplate,
   investmentConfirmedEmailTemplate,
   developerInvestmentRecordedEmailTemplate,
+  developerTeamInviteEmailTemplate,
 } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
@@ -5536,13 +5537,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   }
 
+  // Owner-only routes (managing plan, team, billing). Team members see 403.
+  function requireDeveloperOwner(req: any, res: any, next: any) {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Authentication required" });
+    const u = req.user as any;
+    if (u.role !== "developer") return res.status(403).json({ message: "Developer access required" });
+    if (u.parentDeveloperId) return res.status(403).json({ message: "Only the account owner can perform this action" });
+    next();
+  }
+
+  // Resolve the lead-developer "owner" for the requesting user. Owners return
+  // their own id; team members return their parentDeveloperId. All ownership,
+  // limit, and project-list lookups should use the owner id.
+  async function getOwnerId(req: any): Promise<number> {
+    const u = req.user as any;
+    return u.parentDeveloperId ?? u.id;
+  }
+
+  // Returns the lead developer's user record (with plan/trial/companyName).
+  async function getOwnerUser(req: any) {
+    const ownerId = await getOwnerId(req);
+    return await storage.getUser(ownerId);
+  }
+
+  // Reject write operations once the trial has ended and no paid plan is active.
+  async function checkTrialActive(req: any, res: any): Promise<boolean> {
+    const owner: any = await getOwnerUser(req);
+    if (!owner) return false;
+    const status = owner.subscriptionStatus || "trialing";
+    if (status === "active") return true;
+    if (status === "expired" || status === "cancelled") {
+      res.status(402).json({
+        code: "trial_expired",
+        message: "Your free trial has ended. Pick a plan to keep building.",
+      });
+      return false;
+    }
+    if (owner.trialEndsAt && new Date(owner.trialEndsAt).getTime() < Date.now()) {
+      try { await storage.updateUser(owner.id, { subscriptionStatus: "expired" } as any); } catch {}
+      res.status(402).json({
+        code: "trial_expired",
+        message: "Your free trial has ended. Pick a plan to keep building.",
+      });
+      return false;
+    }
+    return true;
+  }
+
   async function ensureProjectOwnership(req: any, res: any, propertyId: number) {
     const property = await storage.getProperty(propertyId);
     if (!property) {
       res.status(404).json({ message: "Project not found" });
       return null;
     }
-    if (property.developerId !== (req.user as any).id) {
+    const ownerId = await getOwnerId(req);
+    if (property.developerId !== ownerId) {
       res.status(403).json({ message: "Not your project" });
       return null;
     }
@@ -5565,6 +5614,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const hashedPassword = await hashPassword(password);
+      const { TRIAL_DAYS, DEFAULT_PLAN } = await import("@shared/plans");
+      const trialStart = new Date();
+      const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
       const newUser: InsertUser = {
         email,
         password: hashedPassword,
@@ -5577,7 +5629,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyName,
         companyRegistration: companyRegistration || null,
         websiteUrl: websiteUrl || null,
-      };
+        plan: DEFAULT_PLAN,
+        subscriptionStatus: "trialing",
+        trialStartedAt: trialStart,
+        trialEndsAt: trialEnd,
+        teamRole: "owner",
+      } as any;
       const user = await storage.createUser(newUser);
 
       try {
@@ -5618,10 +5675,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(safe);
   });
 
-  // Get current developer profile
-  app.get("/api/developer/me", requireDeveloper, (req, res) => {
-    const { password: _pw, ...safe } = req.user as any;
-    res.json(safe);
+  // Get current developer profile (with plan/trial/usage rolled in for the
+  // owner — team members see the same plan/limits/usage as their owner).
+  app.get("/api/developer/me", requireDeveloper, async (req: any, res) => {
+    try {
+      const { password: _pw, ...self } = req.user as any;
+      const ownerId = await getOwnerId(req);
+      const owner: any = ownerId === self.id ? self : await storage.getUser(ownerId);
+      const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+      const limits = getPlanLimits(owner?.plan);
+
+      const [activeProjects, distinctInvestors, updatesThisMonth, teamMembers] = await Promise.all([
+        storage.countActiveProjectsForDeveloper(ownerId),
+        storage.countDistinctInvestorsForDeveloper(ownerId),
+        storage.countUpdatesThisMonthForDeveloper(ownerId),
+        storage.getTeamMembersByDeveloper(ownerId),
+      ]);
+
+      const trialEndsAt: Date | null = owner?.trialEndsAt ? new Date(owner.trialEndsAt) : null;
+      const trialDaysRemaining = trialEndsAt
+        ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+        : null;
+      const subscriptionStatus = (owner?.subscriptionStatus || "trialing") as string;
+      const trialActive = subscriptionStatus === "active"
+        || (subscriptionStatus === "trialing" && (trialDaysRemaining ?? 0) > 0);
+
+      res.json({
+        ...self,
+        // Owner-derived plan info (always reflects the lead developer's plan)
+        plan: owner?.plan || "starter",
+        planLimits: limits,
+        subscriptionStatus,
+        trialStartedAt: owner?.trialStartedAt || null,
+        trialEndsAt: owner?.trialEndsAt || null,
+        trialDaysRemaining,
+        trialActive,
+        ownerCompanyName: owner?.companyName || null,
+        ownerEmail: owner?.email || null,
+        ownerUserId: ownerId,
+        isOwner: ownerId === self.id,
+        usage: {
+          activeProjects,
+          distinctInvestors,
+          updatesThisMonth,
+          teamSeats: 1 + (teamMembers?.length || 0), // owner + members
+        },
+        limitsReadable: {
+          maxActiveProjects: isUnlimited(limits.maxActiveProjects) ? null : limits.maxActiveProjects,
+          maxInvestors: isUnlimited(limits.maxInvestors) ? null : limits.maxInvestors,
+          updatesPerMonth: isUnlimited(limits.updatesPerMonth) ? null : limits.updatesPerMonth,
+          maxTeamSeats: isUnlimited(limits.maxTeamSeats) ? null : limits.maxTeamSeats,
+        },
+      });
+    } catch (e) {
+      console.error("/api/developer/me failed:", e);
+      const { password: _pw, ...safe } = req.user as any;
+      res.json(safe);
+    }
   });
 
   // Update developer profile
@@ -5641,6 +5751,276 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  // ===========================================================================
+  // Developer team / seats — invite, list, revoke, remove
+  // ===========================================================================
+
+  // List team members (active accounts) + pending/revoked invites for the
+  // authenticated developer's account. Both owner and members can read.
+  app.get("/api/developer/team", requireDeveloper, async (req: any, res) => {
+    try {
+      const ownerId = await getOwnerId(req);
+      const owner: any = await storage.getUser(ownerId);
+      const members = await storage.getTeamMembersByDeveloper(ownerId);
+      const invites = await storage.getDeveloperTeamInvitesByDeveloper(ownerId);
+      const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+      const limits = getPlanLimits(owner?.plan);
+      // Auto-mark expired invites
+      const now = Date.now();
+      for (const inv of invites) {
+        if (inv.status === "pending" && new Date(inv.expiresAt).getTime() < now) {
+          try { await storage.updateDeveloperTeamInvite(inv.id, { status: "expired" }); } catch {}
+          inv.status = "expired";
+        }
+      }
+      const totalSeatsUsed = 1 + members.length + invites.filter((i: any) => i.status === "pending").length;
+      res.json({
+        owner: owner ? {
+          id: owner.id,
+          email: owner.email,
+          firstName: owner.firstName,
+          lastName: owner.lastName,
+          companyName: owner.companyName,
+          createdAt: owner.createdAt,
+        } : null,
+        members: members.map((m: any) => ({
+          id: m.id,
+          email: m.email,
+          firstName: m.firstName,
+          lastName: m.lastName,
+          phone: m.phone,
+          createdAt: m.createdAt,
+          lastLogin: m.lastLogin,
+          isActive: m.isActive,
+        })),
+        invites,
+        seats: {
+          used: totalSeatsUsed,
+          max: isUnlimited(limits.maxTeamSeats) ? null : limits.maxTeamSeats,
+          plan: limits.id,
+          planName: limits.name,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to list team:", err);
+      res.status(500).json({ message: "Failed to load team" });
+    }
+  });
+
+  // Send a team invite (owner only). Enforces seat cap.
+  app.post("/api/developer/team/invites", requireDeveloperOwner, async (req: any, res) => {
+    try {
+      if (!(await checkTrialActive(req, res))) return;
+      const ownerId = await getOwnerId(req);
+      const owner: any = await storage.getUser(ownerId);
+      const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+      const limits = getPlanLimits(owner?.plan);
+
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const inviteName = String(req.body?.inviteName || "").trim().slice(0, 100) || null;
+      const inviteRole = String(req.body?.inviteRole || "project_manager").trim().slice(0, 50);
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: "A valid email is required" });
+      }
+
+      // Seat-cap check (owner + members + pending invites)
+      const members = await storage.getTeamMembersByDeveloper(ownerId);
+      const invites = await storage.getDeveloperTeamInvitesByDeveloper(ownerId);
+      const pendingActiveInvites = invites.filter((i: any) =>
+        i.status === "pending" && new Date(i.expiresAt).getTime() > Date.now()
+      );
+      const seatsUsed = 1 + members.length + pendingActiveInvites.length;
+      if (!isUnlimited(limits.maxTeamSeats) && seatsUsed >= limits.maxTeamSeats) {
+        return res.status(402).json({
+          code: "plan_limit_seats",
+          limit: limits.maxTeamSeats,
+          plan: limits.id,
+          message: `Your ${limits.name} plan includes ${limits.maxTeamSeats} seats (including the owner). Upgrade for unlimited seats.`,
+        });
+      }
+
+      // Reject duplicates: existing team member or pending invite for same email
+      if (members.some((m: any) => (m.email || "").toLowerCase() === email)) {
+        return res.status(400).json({ message: "This email is already on your team." });
+      }
+      if (pendingActiveInvites.some((i: any) => (i.email || "").toLowerCase() === email)) {
+        return res.status(400).json({ message: "An invite for this email is already pending." });
+      }
+      // Reject if email is the owner's own email
+      if ((owner?.email || "").toLowerCase() === email) {
+        return res.status(400).json({ message: "You can't invite yourself." });
+      }
+
+      const token = randomBytes(24).toString("hex");
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+      const invite = await storage.createDeveloperTeamInvite({
+        developerId: ownerId,
+        email,
+        inviteName,
+        inviteRole,
+        token,
+        expiresAt,
+      } as any);
+
+      // Send invite email
+      try {
+        const acceptUrl = `${req.protocol}://${req.get("host")}/developer/accept-invite/${token}`;
+        const tpl = developerTeamInviteEmailTemplate({
+          inviteName,
+          inviteEmail: email,
+          inviteRole,
+          companyName: owner?.companyName || `${owner?.firstName || ""} ${owner?.lastName || ""}`.trim() || "Brikvest developer",
+          inviterName: `${owner?.firstName || ""} ${owner?.lastName || ""}`.trim() || owner?.email || "the team",
+          acceptUrl,
+          expiresAt: expiresAt.toISOString().slice(0, 10),
+        });
+        await sendEmail({ to: email, ...tpl });
+      } catch (e) {
+        console.error("Failed to send team invite email:", e);
+      }
+
+      res.status(201).json(invite);
+    } catch (err) {
+      console.error("Failed to create team invite:", err);
+      res.status(500).json({ message: "Failed to send invite" });
+    }
+  });
+
+  // Revoke a pending invite (owner only)
+  app.delete("/api/developer/team/invites/:id", requireDeveloperOwner, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid invite id" });
+      const ownerId = await getOwnerId(req);
+      const all = await storage.getDeveloperTeamInvitesByDeveloper(ownerId);
+      const invite = all.find((i: any) => i.id === id);
+      if (!invite) return res.status(404).json({ message: "Invite not found" });
+      if (invite.status !== "pending") {
+        return res.status(400).json({ message: "Only pending invites can be revoked" });
+      }
+      await storage.updateDeveloperTeamInvite(id, { status: "revoked" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to revoke invite:", err);
+      res.status(500).json({ message: "Failed to revoke invite" });
+    }
+  });
+
+  // Remove a team member (owner only). Detaches them from the developer
+  // account: clears parentDeveloperId, demotes role to 'user', deactivates.
+  app.delete("/api/developer/team/members/:id", requireDeveloperOwner, async (req: any, res) => {
+    try {
+      const memberId = parseInt(req.params.id);
+      if (!Number.isFinite(memberId)) return res.status(400).json({ message: "Invalid member id" });
+      const ownerId = await getOwnerId(req);
+      const member = await storage.getUser(memberId);
+      if (!member || member.parentDeveloperId !== ownerId) {
+        return res.status(404).json({ message: "Team member not found" });
+      }
+      await storage.updateUser(memberId, {
+        parentDeveloperId: null,
+        teamRole: "owner",
+        role: "user",
+        isActive: false,
+      } as any);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to remove team member:", err);
+      res.status(500).json({ message: "Failed to remove team member" });
+    }
+  });
+
+  // Public: fetch invite metadata by token (used by accept-invite page).
+  app.get("/api/developer/team/invites/by-token/:token", async (req, res) => {
+    try {
+      const invite = await storage.getDeveloperTeamInviteByToken(String(req.params.token));
+      if (!invite) return res.status(404).json({ message: "Invite not found" });
+      const expired = invite.status === "expired"
+        || (invite.status === "pending" && new Date(invite.expiresAt).getTime() < Date.now());
+      const owner: any = await storage.getUser(invite.developerId);
+      res.json({
+        email: invite.email,
+        inviteName: invite.inviteName,
+        inviteRole: invite.inviteRole,
+        status: expired ? "expired" : invite.status,
+        expiresAt: invite.expiresAt,
+        companyName: owner?.companyName || null,
+        inviterName: owner ? `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || owner.email : null,
+      });
+    } catch (err) {
+      console.error("Failed to load invite:", err);
+      res.status(500).json({ message: "Failed to load invite" });
+    }
+  });
+
+  // Public: accept a team invite. Creates the team-member user account.
+  app.post("/api/developer/team/invites/by-token/:token/accept", async (req, res) => {
+    try {
+      const token = String(req.params.token);
+      const invite = await storage.getDeveloperTeamInviteByToken(token);
+      if (!invite) return res.status(404).json({ message: "Invite not found" });
+      if (invite.status !== "pending") {
+        return res.status(400).json({ message: "This invite is no longer valid." });
+      }
+      if (new Date(invite.expiresAt).getTime() < Date.now()) {
+        try { await storage.updateDeveloperTeamInvite(invite.id, { status: "expired" }); } catch {}
+        return res.status(400).json({ message: "This invite has expired." });
+      }
+
+      const { firstName, lastName, password, phone } = req.body || {};
+      if (!firstName || !lastName || !password) {
+        return res.status(400).json({ message: "First name, last name, and password are required." });
+      }
+      if (String(password).length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
+
+      // Reject if a user with this email already exists.
+      const existing = await storage.getUserByEmail(invite.email);
+      if (existing) {
+        return res.status(400).json({
+          message: "An account already exists with this email. Sign in to your existing account first.",
+        });
+      }
+
+      const owner: any = await storage.getUser(invite.developerId);
+      if (!owner) return res.status(400).json({ message: "Inviting account no longer exists." });
+
+      const hashed = await hashPassword(String(password));
+      const user = await storage.createUser({
+        email: invite.email,
+        password: hashed,
+        firstName: String(firstName).slice(0, 100),
+        lastName: String(lastName).slice(0, 100),
+        phone: phone ? String(phone).slice(0, 30) : null,
+        role: "developer",
+        accountStatus: "approved",
+        emailVerified: true,
+        companyName: owner.companyName || null,
+        parentDeveloperId: owner.id,
+        teamRole: "member",
+      } as any);
+
+      await storage.updateDeveloperTeamInvite(invite.id, {
+        status: "accepted",
+        acceptedAt: new Date(),
+        acceptedUserId: user.id,
+      });
+
+      // Auto-login the new team member
+      req.login(user, (err: any) => {
+        if (err) {
+          console.error("Auto-login after accept failed:", err);
+          return res.status(201).json({ ok: true, autoLogin: false });
+        }
+        res.status(201).json({ ok: true, autoLogin: true });
+      });
+    } catch (err) {
+      console.error("Failed to accept invite:", err);
+      res.status(500).json({ message: "Failed to accept invite" });
     }
   });
 
@@ -5672,7 +6052,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return null;
     }
     try {
-      const projects = await storage.getPropertiesByDeveloper(userId);
+      const ownerId = await getOwnerId(req);
+      const projects = await storage.getPropertiesByDeveloper(ownerId);
       const slug = String(raw).toLowerCase();
       const match = projects.find((p) => slugifyName(p.name) === slug);
       if (!match) {
@@ -5689,7 +6070,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // List developer's own projects
   app.get("/api/developer/projects", requireDeveloper, async (req: any, res) => {
     try {
-      const projects = await storage.getPropertiesByDeveloper(req.user.id);
+      const ownerId = await getOwnerId(req);
+      const projects = await storage.getPropertiesByDeveloper(ownerId);
       const rates = await getExchangeRates();
 
       // Compute per-project rollup stats
@@ -5738,6 +6120,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new project (starts as draft)
   app.post("/api/developer/projects", requireDeveloper, async (req: any, res) => {
     try {
+      if (!(await checkTrialActive(req, res))) return;
+      const ownerId = await getOwnerId(req);
+      const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+      const owner: any = await storage.getUser(ownerId);
+      const limits = getPlanLimits(owner?.plan);
+      const activeCount = await storage.countActiveProjectsForDeveloper(ownerId);
+      if (!isUnlimited(limits.maxActiveProjects) && activeCount >= limits.maxActiveProjects) {
+        return res.status(402).json({
+          code: "plan_limit_projects",
+          limit: limits.maxActiveProjects,
+          plan: limits.id,
+          message: `Your ${limits.name} plan allows up to ${limits.maxActiveProjects} active project(s). Upgrade to add more.`,
+        });
+      }
+
       const body = req.body || {};
       const required = ["name", "location", "description", "totalValue", "totalUnits", "unitPrice", "imageUrl"];
       for (const k of required) {
@@ -5776,7 +6173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         district: body.district || null,
         developerNotes: body.developerNotes || null,
         investmentDetails: body.investmentDetails || null,
-        developerId: req.user.id,
+        developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
       };
@@ -6037,10 +6434,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // provisioned).
   app.post("/api/developer/projects/:id/investors", requireDeveloper, async (req: any, res) => {
     try {
+      if (!(await checkTrialActive(req, res))) return;
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
+
+      // Enforce investor cap (counted as distinct emails across all the
+      // owner's projects). New investors are blocked once the cap is hit;
+      // additional investments from an *existing* investor are allowed.
+      {
+        const ownerId = await getOwnerId(req);
+        const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+        const owner: any = await storage.getUser(ownerId);
+        const limits = getPlanLimits(owner?.plan);
+        if (!isUnlimited(limits.maxInvestors)) {
+          const distinct = await storage.countDistinctInvestorsForDeveloper(ownerId);
+          const incomingEmail = String(req.body?.email || "").trim().toLowerCase();
+          // Determine whether this email is already counted in the distinct set.
+          const isExisting = (async () => {
+            if (!incomingEmail) return false;
+            const projects = await storage.getPropertiesByDeveloper(ownerId);
+            for (const p of projects) {
+              const rs = await storage.getReservationsByProperty(p.id);
+              if (rs.some(r => r.status === "converted_to_investment" && (r.email || "").toLowerCase() === incomingEmail)) {
+                return true;
+              }
+            }
+            return false;
+          });
+          if (distinct >= limits.maxInvestors && !(await isExisting())) {
+            return res.status(402).json({
+              code: "plan_limit_investors",
+              limit: limits.maxInvestors,
+              plan: limits.id,
+              message: `Your ${limits.name} plan allows up to ${limits.maxInvestors} investor(s). Upgrade to add more.`,
+            });
+          }
+        }
+      }
 
       const body = req.body || {};
       const email = String(body.email || "").trim().toLowerCase();
@@ -6581,10 +7013,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Project updates — create + broadcast
   app.post("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
     try {
+      if (!(await checkTrialActive(req, res))) return;
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
+
+      // Enforce monthly broadcast cap (Starter = 1/month across all projects).
+      {
+        const ownerId = await getOwnerId(req);
+        const { getPlanLimits, isUnlimited } = await import("@shared/plans");
+        const owner: any = await storage.getUser(ownerId);
+        const limits = getPlanLimits(owner?.plan);
+        if (!isUnlimited(limits.updatesPerMonth)) {
+          const usedThisMonth = await storage.countUpdatesThisMonthForDeveloper(ownerId);
+          if (usedThisMonth >= limits.updatesPerMonth) {
+            return res.status(402).json({
+              code: "plan_limit_updates",
+              limit: limits.updatesPerMonth,
+              plan: limits.id,
+              message: `Your ${limits.name} plan allows ${limits.updatesPerMonth} investor update per month. Upgrade for unlimited.`,
+            });
+          }
+        }
+      }
+
       const { type, subject, body, mediaUrls } = req.body || {};
       if (!subject || !body) return res.status(400).json({ message: "Subject and body are required" });
 

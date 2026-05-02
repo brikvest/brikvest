@@ -149,11 +149,19 @@ export default function DeveloperSignup() {
               </Button>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-slate-200 text-center text-sm">
-              <span className="text-slate-600">Already have a developer account? </span>
-              <Link href="/developer/login" className="text-blue-600 hover:underline font-medium" data-testid="link-login">
-                Sign in
-              </Link>
+            <div className="mt-6 pt-6 border-t border-slate-200 text-center text-sm space-y-2">
+              <div>
+                <span className="text-slate-600">Already have a developer account? </span>
+                <Link href="/developer/login" className="text-blue-600 hover:underline font-medium" data-testid="link-login">
+                  Sign in
+                </Link>
+              </div>
+              <div className="text-slate-500">
+                Want to compare plans first?{" "}
+                <Link href="/developer/pricing" className="text-blue-600 hover:underline font-medium" data-testid="link-pricing">
+                  See pricing
+                </Link>
+              </div>
             </div>
           </CardContent>
         </Card>
