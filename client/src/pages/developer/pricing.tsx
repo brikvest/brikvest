@@ -48,10 +48,15 @@ const PLANS: Plan[] = [
     features: [
       "Up to 5 active projects",
       "Up to 50 investors",
+      "Unlimited team members",
       "Unlimited investor updates",
       "Advanced cap table (per-investor breakdown of holdings)",
       "Capital stack visualization",
+      "Sales analytics",
       "Investor analytics",
+      "Payment tracking",
+      "KPI performance reports",
+      "Investor portal with bi-annual valuation reports",
     ],
   },
 ];
