@@ -70,6 +70,14 @@ function fmt(currency: string | null | undefined, amount: number | string) {
   return `${currency || "NGN"} ${(isNaN(n) ? 0 : n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+// Format a units value (decimal column from DB serializes as a string like "2.00").
+// Whole numbers render without decimals; fractional values keep up to 2 dp.
+function fmtUnits(v: number | string | null | undefined): string {
+  const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
+  if (!isFinite(n as number)) return "0";
+  return (n as number).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export default function DeveloperProjectDetail() {
   const [, params] = useRoute("/developer/projects/:id");
   // `projectKey` is what we put into the URL — either a numeric id or a slug.
@@ -444,7 +452,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                           </div>
                         </TableCell>
                         <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
-                        <TableCell className="text-right font-medium">{i.units}</TableCell>
+                        <TableCell className="text-right font-medium">{fmtUnits(i.units)}</TableCell>
                         <TableCell className="text-right">{fmt(i.currency, i.amount)}</TableCell>
                         <TableCell className="text-right text-xs text-slate-500">{i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "—"}</TableCell>
                         <TableCell className="text-right">
@@ -509,7 +517,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                 </div>
                 <div>
                   <div className="text-xs text-slate-500 uppercase">Units</div>
-                  <div className="font-semibold text-slate-900">{drillIn.units}</div>
+                  <div className="font-semibold text-slate-900">{fmtUnits(drillIn.units)}</div>
                 </div>
                 <div>
                   <div className="text-xs text-slate-500 uppercase">Amount</div>
@@ -1246,9 +1254,10 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
   const filtered = stage === "all" ? list : list.filter((i) => i.status === stage);
 
   // Velocity (units sold per week, last 4 calendar weeks)
+  // NOTE: i.units is a decimal column serialized as a string ("2.00") — always coerce with Number.
   const confirmed = list.filter((i) => i.status === "converted_to_investment" && i.confirmedAt);
-  const totalUnits = project.totalUnits || 0;
-  const soldUnits = confirmed.reduce((s, i) => s + (i.units || 0), 0);
+  const totalUnits = Number(project.totalUnits) || 0;
+  const soldUnits = confirmed.reduce((s, i) => s + (Number(i.units) || 0), 0);
   const remainingUnits = Math.max(0, totalUnits - soldUnits);
 
   const now = new Date();
@@ -1262,7 +1271,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
         const d = new Date(i.confirmedAt);
         return d >= start && d < end;
       })
-      .reduce((s, i) => s + (i.units || 0), 0);
+      .reduce((s, i) => s + (Number(i.units) || 0), 0);
     const label = `W-${w}`;
     weekBuckets.push({ label, units, cumulative: 0 });
   }
@@ -1270,7 +1279,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
   const cutoff = new Date(now.getTime() - 4 * weekMs);
   const baseSold = confirmed
     .filter((i) => new Date(i.confirmedAt) < cutoff)
-    .reduce((s, i) => s + (i.units || 0), 0);
+    .reduce((s, i) => s + (Number(i.units) || 0), 0);
   let running = baseSold;
   for (const b of weekBuckets) {
     running += b.units;
@@ -1374,14 +1383,14 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
         <Card>
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Sold units</div>
-            <div className="text-2xl font-bold text-slate-900 mt-1">{soldUnits} <span className="text-sm font-normal text-slate-500">/ {totalUnits}</span></div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{fmtUnits(soldUnits)} <span className="text-sm font-normal text-slate-500">/ {fmtUnits(totalUnits)}</span></div>
             <Progress value={totalUnits > 0 ? (soldUnits / totalUnits) * 100 : 0} className="h-1.5 mt-2" />
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Remaining</div>
-            <div className="text-2xl font-bold text-slate-900 mt-1">{remainingUnits}</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{fmtUnits(remainingUnits)}</div>
             <div className="text-xs text-slate-500 mt-2">units available</div>
           </CardContent>
         </Card>
@@ -1389,7 +1398,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Velocity (4-wk avg)</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">{avgVelocity.toFixed(1)} <span className="text-sm font-normal text-slate-500">units/wk</span></div>
-            <div className="text-xs text-slate-500 mt-2">{totalLast4} sold in last 4 weeks</div>
+            <div className="text-xs text-slate-500 mt-2">{fmtUnits(totalLast4)} sold in last 4 weeks</div>
           </CardContent>
         </Card>
         <Card>
@@ -1511,7 +1520,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                         <div className="font-medium text-slate-900">{inv.name}</div>
                         <div className="text-xs text-slate-500">{inv.email}</div>
                       </TableCell>
-                      <TableCell>{inv.units}</TableCell>
+                      <TableCell>{fmtUnits(inv.units)}</TableCell>
                       <TableCell>{fmt(inv.currency, inv.amount)}</TableCell>
                       <TableCell>
                         <Badge className={inv.kycStatus === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}>
@@ -2124,7 +2133,7 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium">{c.units}</TableCell>
+                        <TableCell className="text-right font-medium">{fmtUnits(c.units)}</TableCell>
                         <TableCell className="text-right font-medium">{equityPct}%</TableCell>
                         <TableCell className="text-right">{fmt(c.currency, c.amount)}</TableCell>
                       </TableRow>
