@@ -29,6 +29,13 @@ export const users = pgTable("users", {
   companyName: text("company_name"),
   companyRegistration: text("company_registration"),
   websiteUrl: text("website_url"),
+  // Developer subscription / trial / team fields (only meaningful when role = 'developer')
+  plan: text("plan").notNull().default("starter"), // 'starter' | 'growth'
+  subscriptionStatus: text("subscription_status").notNull().default("trialing"), // 'trialing' | 'active' | 'expired' | 'cancelled'
+  trialStartedAt: timestamp("trial_started_at"),
+  trialEndsAt: timestamp("trial_ends_at"),
+  parentDeveloperId: integer("parent_developer_id").references((): any => users.id), // For team members: points to the lead developer
+  teamRole: text("team_role").notNull().default("owner"), // 'owner' | 'member'
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor', 'developer'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
@@ -890,6 +897,32 @@ export const insertDeveloperLeadSchema = createInsertSchema(developerLeads).omit
   createdAt: true,
   updatedAt: true,
 });
+
+// Developer team invites — for inviting project managers / co-workers under a Starter/Growth plan.
+export const developerTeamInvites = pgTable("developer_team_invites", {
+  id: serial("id").primaryKey(),
+  developerId: integer("developer_id").notNull().references(() => users.id),
+  email: text("email").notNull(),
+  inviteName: text("invite_name"),
+  inviteRole: text("invite_role").notNull().default("project_manager"), // free-form label
+  token: text("token").notNull().unique(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'accepted' | 'revoked' | 'expired'
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedUserId: integer("accepted_user_id").references((): any => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDeveloperTeamInviteSchema = createInsertSchema(developerTeamInvites).omit({
+  id: true,
+  status: true,
+  acceptedAt: true,
+  acceptedUserId: true,
+  createdAt: true,
+});
+
+export type InsertDeveloperTeamInvite = z.infer<typeof insertDeveloperTeamInviteSchema>;
+export type DeveloperTeamInvite = typeof developerTeamInvites.$inferSelect;
 
 export const developerRegisterSchema = z.object({
   email: z.string().email("Valid email is required"),

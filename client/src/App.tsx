@@ -22,6 +22,8 @@ import DeveloperNewProject from "@/pages/developer/new-project";
 import DeveloperProjectDetail from "@/pages/developer/project-detail";
 import DeveloperCommunications from "@/pages/developer/communications";
 import DeveloperProfile from "@/pages/developer/profile";
+import DeveloperTeam from "@/pages/developer/team";
+import DeveloperAcceptInvite from "@/pages/developer/accept-invite";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -43,6 +45,8 @@ function Router() {
       <Route path="/developer/new" component={DeveloperNewProject} />
       <Route path="/developer/communications" component={DeveloperCommunications} />
       <Route path="/developer/profile" component={DeveloperProfile} />
+      <Route path="/developer/team" component={DeveloperTeam} />
+      <Route path="/developer/accept-invite/:token" component={DeveloperAcceptInvite} />
       <Route path="/developer/projects/:id" component={DeveloperProjectDetail} />
       <Route path="/developer" component={DeveloperProjects} />
       <Route component={NotFound} />

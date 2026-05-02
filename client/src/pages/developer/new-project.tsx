@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { toastFromError } from "@/lib/planErrors";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 
 const STEPS = [
@@ -64,7 +65,7 @@ export default function NewProjectWizard() {
       toast({ title: "Project created", description: "It's saved as a draft. Submit it for approval when ready." });
       setLocation(`/developer/projects/${project.id}`);
     },
-    onError: (err: any) => toast({ title: "Failed to create project", description: err?.message, variant: "destructive" }),
+    onError: (err: any) => toast(toastFromError(err, "Failed to create project")),
   });
 
   const canNext = () => {

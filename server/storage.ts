@@ -69,10 +69,13 @@ import {
   type InsertDeveloperInvestorNote,
   developerLeads,
   type DeveloperLead,
-  type InsertDeveloperLead
+  type InsertDeveloperLead,
+  developerTeamInvites,
+  type DeveloperTeamInvite,
+  type InsertDeveloperTeamInvite,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, ne, sql, inArray, notInArray, lt } from "drizzle-orm";
+import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -249,6 +252,19 @@ export interface IStorage {
   getDeveloperLead(id: number): Promise<DeveloperLead | undefined>;
   updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead>;
   deleteDeveloperLead(id: number): Promise<void>;
+
+  // Developer subscription / team helpers
+  getDeveloperOwnerId(userId: number): Promise<number>;
+  getTeamMembersByDeveloper(developerId: number): Promise<User[]>;
+  countActiveProjectsForDeveloper(developerId: number): Promise<number>;
+  countDistinctInvestorsForDeveloper(developerId: number): Promise<number>;
+  countUpdatesThisMonthForDeveloper(developerId: number): Promise<number>;
+
+  // Developer team invites
+  createDeveloperTeamInvite(invite: InsertDeveloperTeamInvite): Promise<DeveloperTeamInvite>;
+  getDeveloperTeamInvitesByDeveloper(developerId: number): Promise<DeveloperTeamInvite[]>;
+  getDeveloperTeamInviteByToken(token: string): Promise<DeveloperTeamInvite | undefined>;
+  updateDeveloperTeamInvite(id: number, updates: Partial<DeveloperTeamInvite>): Promise<DeveloperTeamInvite>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1445,6 +1461,87 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDeveloperLead(id: number): Promise<void> {
     await db.delete(developerLeads).where(eq(developerLeads.id, id));
+  }
+
+  // ===========================================================================
+  // Developer subscription / team
+  // ===========================================================================
+
+  async getDeveloperOwnerId(userId: number): Promise<number> {
+    const u = await this.getUser(userId);
+    if (!u) return userId;
+    return u.parentDeveloperId ?? userId;
+  }
+
+  async getTeamMembersByDeveloper(developerId: number): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.parentDeveloperId, developerId))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async countActiveProjectsForDeveloper(developerId: number): Promise<number> {
+    const rows = await db.select({ id: properties.id }).from(properties).where(and(
+      eq(properties.developerId, developerId),
+      inArray(properties.projectStatus, ["draft", "pending_approval", "live"]),
+    ));
+    return rows.length;
+  }
+
+  async countDistinctInvestorsForDeveloper(developerId: number): Promise<number> {
+    const projects = await this.getPropertiesByDeveloper(developerId);
+    if (projects.length === 0) return 0;
+    const propertyIds = projects.map(p => p.id);
+    const rows = await db.select({
+      email: investmentReservations.email,
+    }).from(investmentReservations).where(and(
+      inArray(investmentReservations.propertyId, propertyIds),
+      eq(investmentReservations.status, "converted_to_investment"),
+    ));
+    const distinct = new Set(rows.map(r => (r.email || "").toLowerCase()).filter(Boolean));
+    return distinct.size;
+  }
+
+  async countUpdatesThisMonthForDeveloper(developerId: number): Promise<number> {
+    const projects = await this.getPropertiesByDeveloper(developerId);
+    if (projects.length === 0) return 0;
+    const propertyIds = projects.map(p => p.id);
+    const startOfMonth = new Date();
+    startOfMonth.setUTCDate(1);
+    startOfMonth.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select({ id: projectUpdates.id }).from(projectUpdates).where(and(
+      inArray(projectUpdates.propertyId, propertyIds),
+      gte(projectUpdates.sentAt, startOfMonth),
+    ));
+    return rows.length;
+  }
+
+  // ===========================================================================
+  // Developer team invites
+  // ===========================================================================
+
+  async createDeveloperTeamInvite(invite: InsertDeveloperTeamInvite): Promise<DeveloperTeamInvite> {
+    const [result] = await db.insert(developerTeamInvites).values(invite).returning();
+    return result;
+  }
+
+  async getDeveloperTeamInvitesByDeveloper(developerId: number): Promise<DeveloperTeamInvite[]> {
+    return await db.select().from(developerTeamInvites)
+      .where(eq(developerTeamInvites.developerId, developerId))
+      .orderBy(desc(developerTeamInvites.createdAt));
+  }
+
+  async getDeveloperTeamInviteByToken(token: string): Promise<DeveloperTeamInvite | undefined> {
+    const [result] = await db.select().from(developerTeamInvites)
+      .where(eq(developerTeamInvites.token, token));
+    return result;
+  }
+
+  async updateDeveloperTeamInvite(id: number, updates: Partial<DeveloperTeamInvite>): Promise<DeveloperTeamInvite> {
+    const [result] = await db.update(developerTeamInvites)
+      .set(updates)
+      .where(eq(developerTeamInvites.id, id))
+      .returning();
+    return result;
   }
 }
 
