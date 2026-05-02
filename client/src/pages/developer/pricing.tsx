@@ -23,8 +23,8 @@ const PLANS: Plan[] = [
     id: "starter",
     name: "Starter",
     tagline: "For developers launching their first 1–2 projects on Brikvest.",
-    monthly: 25000,
-    yearly: 240000,
+    monthly: 50000,
+    yearly: 480000,
     cta: "Start free trial",
     features: [
       "Up to 2 active projects",
