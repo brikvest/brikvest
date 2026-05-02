@@ -40,8 +40,8 @@ const PLANS: Plan[] = [
     id: "growth",
     name: "Growth",
     tagline: "For active developers managing a growing portfolio of projects.",
-    monthly: 75000,
-    yearly: 720000,
+    monthly: 150000,
+    yearly: 1440000,
     highlight: true,
     cta: "Start free trial",
     features: [
