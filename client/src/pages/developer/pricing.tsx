@@ -22,7 +22,7 @@ const PLANS: Plan[] = [
   {
     id: "starter",
     name: "Starter",
-    tagline: "For developers launching their first project on Brikvest.",
+    tagline: "Launch your first project and raise from a small group of investors.",
     monthly: 50000,
     yearly: 480000,
     cta: "Start free trial",
@@ -40,7 +40,7 @@ const PLANS: Plan[] = [
   {
     id: "growth",
     name: "Growth",
-    tagline: "For active developers managing a growing portfolio of projects.",
+    tagline: "Run multiple projects with deeper analytics and a full cap table.",
     monthly: 150000,
     yearly: 1440000,
     highlight: true,
@@ -98,7 +98,7 @@ export default function DeveloperPricing() {
             Simple pricing for developers
           </h1>
           <p className="mt-4 text-base sm:text-lg text-slate-600">
-            Reach vetted investors, manage your fundraising, and keep your cap table clean — all from one place. No setup fees. Cancel anytime.
+            One place to raise from investors, track your build, and keep your cap table tidy. No setup fees. Cancel anytime.
           </p>
         </div>
 
@@ -203,9 +203,9 @@ export default function DeveloperPricing() {
             <Sparkles className="w-6 h-6 text-emerald-600" />
           </div>
           <div className="flex-1">
-            <div className="font-semibold text-slate-900">Try it for 3 months, free</div>
+            <div className="font-semibold text-slate-900">3 months free, no card needed</div>
             <p className="text-sm text-slate-600 mt-0.5">
-              List a project, talk to real investors, and run a full sales cycle before you pay anything. We'll email you a reminder 7 days before your trial ends.
+              Try Brikvest with a real project. We'll remind you a week before your trial ends.
             </p>
           </div>
           <Link href="/developer/signup">
@@ -221,24 +221,24 @@ export default function DeveloperPricing() {
           <div className="mt-8 space-y-4">
             {[
               {
-                q: "How does the 3-month free trial work?",
-                a: "Sign up with your company details and you'll get full access to your chosen plan for 90 days. No card required upfront. You'll receive a reminder before the trial ends and can pick a plan or downgrade at that time.",
+                q: "How does the free trial work?",
+                a: "Sign up and get full access to your plan for 3 months. No card needed. We'll remind you before it ends so you can pick a plan or step down.",
               },
               {
                 q: "What's the difference between Starter and Growth?",
-                a: "Starter is built for developers launching one or two projects with the core CRM, sales analytics, and milestone tools. Growth unlocks unlimited projects, off-platform investor recording, branded landing pages, and priority support.",
+                a: "Starter covers one project, up to 10 investors, and the basics — updates, sales tracking, and a simple cap table. Growth lifts the limits to 5 projects and 50 investors and adds a per-investor cap table, capital stack view, and investor analytics.",
               },
               {
-                q: "Can I switch plans or cancel later?",
-                a: "Yes. Upgrade, downgrade, or cancel at any time from your developer profile. Yearly subscribers can switch to monthly at renewal.",
+                q: "Can I switch plans or cancel?",
+                a: "Yes — upgrade, downgrade, or cancel anytime from your developer profile.",
               },
               {
-                q: "Does Brikvest take a commission on the funds I raise?",
-                a: "Your subscription covers platform usage. Transaction and escrow fees on raised funds are billed separately and itemized on each settlement statement.",
+                q: "Does Brikvest take a cut of what I raise?",
+                a: "No commission on funds raised. Transaction and escrow fees are billed separately and shown on each settlement.",
               },
               {
-                q: "Do you offer custom or enterprise pricing?",
-                a: "Yes — for developers running 10+ active projects or needing white-label/SLA arrangements, contact us for a tailored quote.",
+                q: "Need something bigger?",
+                a: "If you're running more than 5 projects or need a custom setup, reach out and we'll put together a plan that fits.",
               },
             ].map((item) => (
               <details
