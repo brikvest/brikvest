@@ -252,7 +252,6 @@ function FundingModelCard({ project }: { project: any }) {
     fixed_return: { label: "Fixed return",          tone: "bg-emerald-100 text-emerald-700", blurb: "You've committed a fixed % return to investors." },
     profit_share: { label: "Profit share",          tone: "bg-purple-100 text-purple-700",   blurb: "Investors share a % of net profit at exit." },
     loan:         { label: "Loan / Debt",           tone: "bg-amber-100 text-amber-700",     blurb: "Capital is repaid with interest at the end of the term." },
-    hybrid:       { label: "Hybrid",                tone: "bg-indigo-100 text-indigo-700",   blurb: "Combined model — see funding notes for details." },
     self_funded:  { label: "Self-funded",           tone: "bg-slate-100 text-slate-600",     blurb: "No external investors on this project." },
   };
   const PAYOUT: Record<string, string> = {
@@ -265,9 +264,15 @@ function FundingModelCard({ project }: { project: any }) {
   const PERIOD: Record<string, string> = {
     annual: "p.a.", project_lifetime: "total", monthly: "per month", quarterly: "per quarter",
   };
-  const fundingType = project.fundingType || "equity";
-  const meta = FUNDING_LABELS[fundingType] || FUNDING_LABELS.equity;
-  const isSelfFunded = fundingType === "self_funded" || project.acceptsExternalInvestors === false;
+  const rawTypes: string[] = Array.isArray(project.fundingTypes) && project.fundingTypes.length > 0
+    ? project.fundingTypes
+    : (project.fundingType ? [project.fundingType] : ["equity"]);
+  const isSelfFunded = rawTypes.includes("self_funded") || project.acceptsExternalInvestors === false;
+  const types = isSelfFunded ? ["self_funded"] : rawTypes.filter(t => t !== "self_funded");
+  const isCombo = types.length > 1;
+  const blurb = isCombo
+    ? "Combined model — see funding notes for the full structure."
+    : (FUNDING_LABELS[types[0]] || FUNDING_LABELS.equity).blurb;
 
   const returnText = project.expectedReturnPercent
     ? `${parseFloat(project.expectedReturnPercent).toLocaleString()}% ${PERIOD[project.returnPeriod || "annual"] || ""}`.trim()
@@ -278,11 +283,22 @@ function FundingModelCard({ project }: { project: any }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle>Funding model</CardTitle>
-          <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full ${meta.tone}`} data-testid="badge-funding-type">
-            {meta.label}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {types.map((t) => {
+              const m = FUNDING_LABELS[t] || FUNDING_LABELS.equity;
+              return (
+                <span
+                  key={t}
+                  className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full ${m.tone}`}
+                  data-testid={`badge-funding-${t}`}
+                >
+                  {m.label}
+                </span>
+              );
+            })}
+          </div>
         </div>
-        <p className="text-sm text-slate-500 mt-1">{meta.blurb}</p>
+        <p className="text-sm text-slate-500 mt-1">{blurb}</p>
       </CardHeader>
       <CardContent>
         {isSelfFunded ? (

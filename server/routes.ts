@@ -6236,8 +6236,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
-        // Funding model
-        fundingType: body.fundingType || "equity",
+        // Funding model (multi-select)
+        fundingTypes: Array.isArray(body.fundingTypes) && body.fundingTypes.length > 0
+          ? body.fundingTypes
+          : (body.acceptsExternalInvestors === false ? ["self_funded"] : ["equity"]),
         acceptsExternalInvestors: body.acceptsExternalInvestors !== false,
         expectedReturnPercent: body.expectedReturnPercent !== undefined && body.expectedReturnPercent !== null && body.expectedReturnPercent !== ""
           ? String(body.expectedReturnPercent)

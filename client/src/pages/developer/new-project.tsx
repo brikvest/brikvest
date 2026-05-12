@@ -13,8 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
 import {
-  Loader2, ChevronLeft, ChevronRight, CheckCircle2,
-  PieChart, TrendingUp, Banknote, Coins, Layers, Wallet,
+  Loader2, ChevronLeft, ChevronRight, CheckCircle2, Check,
+  PieChart, TrendingUp, Banknote, Coins, Wallet,
 } from "lucide-react";
 import HelpTip from "@/components/developer/HelpTip";
 
@@ -26,58 +26,51 @@ const STEPS = [
   { id: 5, label: "Review" },
 ];
 
-type FundingType = "equity" | "fixed_return" | "profit_share" | "loan" | "hybrid" | "self_funded";
+type FundingType = "equity" | "fixed_return" | "profit_share" | "loan" | "self_funded";
 
 const FUNDING_OPTIONS: {
   value: FundingType;
   label: string;
   short: string;
   icon: any;
-  description: string;
+  example: string;
 }[] = [
   {
     value: "equity",
     label: "Equity / Co-ownership",
-    short: "Investors own a fractional share. Returns come from sale, appreciation or rental income.",
+    short: "Investors own a share of the project. They earn when the property is sold, rented out, or appreciates.",
     icon: PieChart,
-    description: "Best for off-plan land banking and BTL projects where investors share in the upside.",
+    example: "Example: 100 investors each own 1% of a Lekki land plot and split the proceeds when it's sold.",
   },
   {
     value: "fixed_return",
     label: "Fixed return (ROI)",
-    short: "You commit to a specific return %. Capital + return paid back at the end of the term.",
+    short: "You commit to paying a specific percentage return. Investors get their capital plus that return at the end of the agreed term.",
     icon: TrendingUp,
-    description: "Common in Nigeria — e.g. 25% ROI in 12 months. Lower risk for investors, fixed obligation for you.",
+    example: "Example: ₦1m today returns ₦1.25m in 12 months — 25% ROI.",
   },
   {
     value: "profit_share",
     label: "Profit share",
-    short: "Investors get a % of net profit at exit. Returns vary with project performance.",
+    short: "Investors get a share of the project's net profit at exit. Returns go up if the project does well, down if it doesn't.",
     icon: Coins,
-    description: "Aligned upside. Best when the exit value is uncertain but expected to be strong.",
+    example: "Example: Investors collectively take 40% of net profit when the development is sold.",
   },
   {
     value: "loan",
     label: "Loan / Debt",
-    short: "Investors lend capital for a fixed term + interest. No ownership.",
+    short: "Investors lend money for a set period and earn interest. They don't own any part of the project.",
     icon: Banknote,
-    description: "Pure debt. Use for short-term bridge financing or construction loans.",
-  },
-  {
-    value: "hybrid",
-    label: "Hybrid",
-    short: "Combination — e.g. fixed base return plus upside profit share.",
-    icon: Layers,
-    description: "Use the funding notes field to spell out the structure clearly for investors.",
-  },
-  {
-    value: "self_funded",
-    label: "Self-funded",
-    short: "No external investors. You're funding it yourself; we'll just track the build.",
-    icon: Wallet,
-    description: "Skips investor-facing fields. Useful for showcase or pipeline projects.",
+    example: "Example: ₦50m loan at 18% interest, repaid in full after 18 months.",
   },
 ];
+
+const SELF_FUNDED: { value: FundingType; label: string; short: string; icon: any } = {
+  value: "self_funded",
+  label: "Self-funded",
+  short: "No external investors. You're funding the project yourself; we'll just track the build.",
+  icon: Wallet,
+};
 
 export default function NewProjectWizard() {
   const [, setLocation] = useLocation();
@@ -93,7 +86,7 @@ export default function NewProjectWizard() {
     currency: "NGN",
     spvName: "",
     // Funding model
-    fundingType: "equity" as FundingType,
+    fundingTypes: ["equity"] as FundingType[],
     acceptsExternalInvestors: true,
     expectedReturnPercent: "",
     returnPeriod: "annual",
@@ -118,9 +111,19 @@ export default function NewProjectWizard() {
 
   const u = (k: string) => (e: any) => setForm({ ...form, [k]: e?.target ? e.target.value : e });
 
-  const isSelfFunded = form.fundingType === "self_funded" || !form.acceptsExternalInvestors;
-  const showReturnFields = !isSelfFunded && (form.fundingType === "fixed_return" || form.fundingType === "loan" || form.fundingType === "hybrid");
-  const showExitField   = !isSelfFunded && (form.fundingType === "equity" || form.fundingType === "profit_share" || form.fundingType === "hybrid");
+  const toggleFundingType = (t: FundingType) => {
+    const has = form.fundingTypes.includes(t);
+    const next = has
+      ? form.fundingTypes.filter(x => x !== t)
+      : [...form.fundingTypes, t];
+    setForm({ ...form, fundingTypes: next.length === 0 ? ["equity"] : next });
+  };
+
+  const isSelfFunded = !form.acceptsExternalInvestors;
+  const types = isSelfFunded ? ["self_funded"] : form.fundingTypes;
+  const showReturnFields = !isSelfFunded && (types.includes("fixed_return") || types.includes("loan"));
+  const showExitField   = !isSelfFunded && (types.includes("equity") || types.includes("profit_share"));
+  const isCombo = !isSelfFunded && form.fundingTypes.length > 1;
 
   const create = useMutation({
     mutationFn: async () => {
@@ -132,6 +135,7 @@ export default function NewProjectWizard() {
         minInvestment: form.minInvestment ? parseFloat(form.minInvestment) : parseFloat(form.unitPrice),
         developerEquityUnits: parseInt(form.developerEquityUnits) || 0,
         // Funding fields — only send when meaningful
+        fundingTypes: isSelfFunded ? ["self_funded"] : form.fundingTypes,
         acceptsExternalInvestors: !isSelfFunded,
         expectedReturnPercent: showReturnFields && form.expectedReturnPercent ? parseFloat(form.expectedReturnPercent) : null,
         returnPeriod: showReturnFields ? form.returnPeriod || null : null,
@@ -140,6 +144,7 @@ export default function NewProjectWizard() {
         exitStrategy: showExitField ? form.exitStrategy || null : null,
         fundingNotes: form.fundingNotes || null,
       };
+      delete payload.fundingType;
       return await apiRequest("POST", "/api/developer/projects", payload);
     },
     onSuccess: (project: any) => {
@@ -154,6 +159,7 @@ export default function NewProjectWizard() {
     if (step === 1) return form.name && form.location && form.propertyType && form.currency;
     if (step === 2) {
       if (isSelfFunded) return true;
+      if (form.fundingTypes.length === 0) return false;
       if (showReturnFields) {
         return !!form.expectedReturnPercent && !!form.investmentTermMonths;
       }
@@ -164,7 +170,9 @@ export default function NewProjectWizard() {
     return true;
   };
 
-  const fundingLabel = FUNDING_OPTIONS.find(o => o.value === form.fundingType)?.label || form.fundingType;
+  const fundingLabels = isSelfFunded
+    ? [SELF_FUNDED.label]
+    : form.fundingTypes.map(t => FUNDING_OPTIONS.find(o => o.value === t)?.label || t);
 
   return (
     <DeveloperLayout backTo="/developer" title="Create new project" subtitle="Tell us about your development. You can edit anything later.">
@@ -257,12 +265,12 @@ export default function NewProjectWizard() {
                   <div className="min-w-0">
                     <Label className="text-sm">Will this project have external investors?</Label>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Turn off if you're funding the project yourself and just want it tracked.
+                      Turn off if you're funding it yourself and just want it tracked here.
                     </p>
                   </div>
                   <Switch
                     checked={form.acceptsExternalInvestors}
-                    onCheckedChange={(v) => setForm({ ...form, acceptsExternalInvestors: v, fundingType: v && form.fundingType === "self_funded" ? "equity" : (!v ? "self_funded" : form.fundingType) })}
+                    onCheckedChange={(v) => setForm({ ...form, acceptsExternalInvestors: v })}
                     data-testid="switch-external-investors"
                   />
                 </div>
@@ -270,38 +278,55 @@ export default function NewProjectWizard() {
 
               {form.acceptsExternalInvestors && (
                 <div>
-                  <Label className="text-sm">How are investors funding this project? *</Label>
-                  <p className="text-xs text-slate-500 mb-3">Pick the model that best matches what you're offering investors. You can refine the details below.</p>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <Label className="text-sm">How are investors funding this project? *</Label>
+                    <span className="text-xs text-slate-500">Select one or more</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Pick every model that applies. You can combine them — for example a fixed return plus equity upside.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {FUNDING_OPTIONS.filter(o => o.value !== "self_funded").map((opt) => {
+                    {FUNDING_OPTIONS.map((opt) => {
                       const Icon = opt.icon;
-                      const active = form.fundingType === opt.value;
+                      const active = form.fundingTypes.includes(opt.value);
                       return (
                         <button
                           type="button"
                           key={opt.value}
-                          onClick={() => setForm({ ...form, fundingType: opt.value })}
-                          className={`text-left rounded-lg border p-3 transition-all ${
+                          onClick={() => toggleFundingType(opt.value)}
+                          aria-pressed={active}
+                          className={`relative text-left rounded-lg border p-3 transition-all ${
                             active
                               ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100"
                               : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
                           }`}
                           data-testid={`card-funding-${opt.value}`}
                         >
-                          <div className="flex items-start gap-2.5">
+                          {active && (
+                            <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center">
+                              <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                            </div>
+                          )}
+                          <div className="flex items-start gap-2.5 pr-6">
                             <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>
                               <Icon className="w-4 h-4" />
                             </div>
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-slate-900">{opt.label}</div>
                               <div className="text-xs text-slate-600 mt-0.5">{opt.short}</div>
-                              <div className="text-[11px] text-slate-500 mt-1">{opt.description}</div>
+                              <div className="text-[11px] text-slate-500 mt-1 italic">{opt.example}</div>
                             </div>
                           </div>
                         </button>
                       );
                     })}
                   </div>
+                  {isCombo && (
+                    <div className="mt-3 rounded-md bg-indigo-50 border border-indigo-100 p-2.5 text-xs text-indigo-900">
+                      <strong>Combined model selected.</strong> Use the funding notes below to spell out exactly how
+                      the structures fit together for investors.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -390,7 +415,11 @@ export default function NewProjectWizard() {
                     placeholder="e.g. 30% deposit, balance over 12 months. Returns paid quarterly. Early-bird investors before March get an extra 2%."
                     data-testid="input-funding-notes"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Spell out payment plans, milestones, or special terms investors should know.</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {isCombo
+                      ? "Spell out how the combined models fit together — e.g. base ROI plus profit share at exit."
+                      : "Spell out payment plans, milestones, or special terms investors should know."}
+                  </p>
                 </div>
               )}
 
@@ -514,7 +543,7 @@ export default function NewProjectWizard() {
               <RowKV label="Location" value={form.location} />
               <RowKV label="Property type" value={form.propertyType} />
               <RowKV label="Currency" value={form.currency} />
-              <RowKV label="Funding model" value={fundingLabel} />
+              <RowKV label="Funding model" value={fundingLabels.join(" + ")} />
               {showReturnFields && (
                 <>
                   <RowKV label="Expected return" value={form.expectedReturnPercent ? `${form.expectedReturnPercent}% ${form.returnPeriod === "project_lifetime" ? "total" : (form.returnPeriod || "")}` : "—"} />
