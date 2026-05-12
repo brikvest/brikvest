@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,14 +12,71 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
-import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import {
+  Loader2, ChevronLeft, ChevronRight, CheckCircle2,
+  PieChart, TrendingUp, Banknote, Coins, Layers, Wallet,
+} from "lucide-react";
 import HelpTip from "@/components/developer/HelpTip";
 
 const STEPS = [
   { id: 1, label: "Basics" },
-  { id: 2, label: "Pricing & Units" },
-  { id: 3, label: "Description & Media" },
-  { id: 4, label: "Review" },
+  { id: 2, label: "Funding model" },
+  { id: 3, label: "Pricing & Units" },
+  { id: 4, label: "Description & Media" },
+  { id: 5, label: "Review" },
+];
+
+type FundingType = "equity" | "fixed_return" | "profit_share" | "loan" | "hybrid" | "self_funded";
+
+const FUNDING_OPTIONS: {
+  value: FundingType;
+  label: string;
+  short: string;
+  icon: any;
+  description: string;
+}[] = [
+  {
+    value: "equity",
+    label: "Equity / Co-ownership",
+    short: "Investors own a fractional share. Returns come from sale, appreciation or rental income.",
+    icon: PieChart,
+    description: "Best for off-plan land banking and BTL projects where investors share in the upside.",
+  },
+  {
+    value: "fixed_return",
+    label: "Fixed return (ROI)",
+    short: "You commit to a specific return %. Capital + return paid back at the end of the term.",
+    icon: TrendingUp,
+    description: "Common in Nigeria — e.g. 25% ROI in 12 months. Lower risk for investors, fixed obligation for you.",
+  },
+  {
+    value: "profit_share",
+    label: "Profit share",
+    short: "Investors get a % of net profit at exit. Returns vary with project performance.",
+    icon: Coins,
+    description: "Aligned upside. Best when the exit value is uncertain but expected to be strong.",
+  },
+  {
+    value: "loan",
+    label: "Loan / Debt",
+    short: "Investors lend capital for a fixed term + interest. No ownership.",
+    icon: Banknote,
+    description: "Pure debt. Use for short-term bridge financing or construction loans.",
+  },
+  {
+    value: "hybrid",
+    label: "Hybrid",
+    short: "Combination — e.g. fixed base return plus upside profit share.",
+    icon: Layers,
+    description: "Use the funding notes field to spell out the structure clearly for investors.",
+  },
+  {
+    value: "self_funded",
+    label: "Self-funded",
+    short: "No external investors. You're funding it yourself; we'll just track the build.",
+    icon: Wallet,
+    description: "Skips investor-facing fields. Useful for showcase or pipeline projects.",
+  },
 ];
 
 export default function NewProjectWizard() {
@@ -27,6 +84,7 @@ export default function NewProjectWizard() {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
+    // Basics
     name: "",
     location: "",
     city: "",
@@ -34,12 +92,23 @@ export default function NewProjectWizard() {
     propertyType: "land",
     currency: "NGN",
     spvName: "",
+    // Funding model
+    fundingType: "equity" as FundingType,
+    acceptsExternalInvestors: true,
+    expectedReturnPercent: "",
+    returnPeriod: "annual",
+    investmentTermMonths: "",
+    payoutFrequency: "on_exit",
+    exitStrategy: "sale",
+    fundingNotes: "",
+    // Pricing & units
     totalValue: "",
     totalUnits: "",
     unitPrice: "",
     minInvestment: "",
     developerEquityUnits: "0",
     isTransferable: false,
+    // Description & media
     description: "",
     investmentDetails: "",
     imageUrl: "",
@@ -49,15 +118,27 @@ export default function NewProjectWizard() {
 
   const u = (k: string) => (e: any) => setForm({ ...form, [k]: e?.target ? e.target.value : e });
 
+  const isSelfFunded = form.fundingType === "self_funded" || !form.acceptsExternalInvestors;
+  const showReturnFields = !isSelfFunded && (form.fundingType === "fixed_return" || form.fundingType === "loan" || form.fundingType === "hybrid");
+  const showExitField   = !isSelfFunded && (form.fundingType === "equity" || form.fundingType === "profit_share" || form.fundingType === "hybrid");
+
   const create = useMutation({
     mutationFn: async () => {
-      const payload = {
+      const payload: any = {
         ...form,
         totalValue: parseFloat(form.totalValue),
         totalUnits: parseInt(form.totalUnits),
         unitPrice: parseFloat(form.unitPrice),
         minInvestment: form.minInvestment ? parseFloat(form.minInvestment) : parseFloat(form.unitPrice),
         developerEquityUnits: parseInt(form.developerEquityUnits) || 0,
+        // Funding fields — only send when meaningful
+        acceptsExternalInvestors: !isSelfFunded,
+        expectedReturnPercent: showReturnFields && form.expectedReturnPercent ? parseFloat(form.expectedReturnPercent) : null,
+        returnPeriod: showReturnFields ? form.returnPeriod || null : null,
+        investmentTermMonths: showReturnFields && form.investmentTermMonths ? parseInt(form.investmentTermMonths) : null,
+        payoutFrequency: showReturnFields ? form.payoutFrequency || null : null,
+        exitStrategy: showExitField ? form.exitStrategy || null : null,
+        fundingNotes: form.fundingNotes || null,
       };
       return await apiRequest("POST", "/api/developer/projects", payload);
     },
@@ -71,29 +152,38 @@ export default function NewProjectWizard() {
 
   const canNext = () => {
     if (step === 1) return form.name && form.location && form.propertyType && form.currency;
-    if (step === 2) return form.totalValue && form.totalUnits && form.unitPrice;
-    if (step === 3) return form.description && form.imageUrl;
+    if (step === 2) {
+      if (isSelfFunded) return true;
+      if (showReturnFields) {
+        return !!form.expectedReturnPercent && !!form.investmentTermMonths;
+      }
+      return true;
+    }
+    if (step === 3) return form.totalValue && form.totalUnits && form.unitPrice;
+    if (step === 4) return form.description && form.imageUrl;
     return true;
   };
+
+  const fundingLabel = FUNDING_OPTIONS.find(o => o.value === form.fundingType)?.label || form.fundingType;
 
   return (
     <DeveloperLayout backTo="/developer" title="Create new project" subtitle="Tell us about your development. You can edit anything later.">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between overflow-x-auto">
             {STEPS.map((s, idx) => (
-              <div key={s.id} className="flex items-center flex-1">
+              <div key={s.id} className="flex items-center flex-1 min-w-fit">
                 <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
                     step > s.id ? "bg-emerald-600 text-white"
                     : step === s.id ? "bg-blue-600 text-white"
                     : "bg-slate-200 text-slate-600"
                   }`}>
                     {step > s.id ? <CheckCircle2 className="w-4 h-4" /> : s.id}
                   </div>
-                  <span className={`text-sm font-medium ${step >= s.id ? "text-slate-900" : "text-slate-500"}`}>{s.label}</span>
+                  <span className={`text-sm font-medium whitespace-nowrap ${step >= s.id ? "text-slate-900" : "text-slate-500"}`}>{s.label}</span>
                 </div>
-                {idx < STEPS.length - 1 && <div className="flex-1 h-0.5 bg-slate-200 mx-3" />}
+                {idx < STEPS.length - 1 && <div className="flex-1 h-0.5 bg-slate-200 mx-3 min-w-[12px]" />}
               </div>
             ))}
           </div>
@@ -147,18 +237,174 @@ export default function NewProjectWizard() {
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label>SPV / Holding entity</Label>
+                  <span className="text-xs text-slate-400 font-normal">(optional)</span>
                   <HelpTip>
                     The Special Purpose Vehicle (SPV) is the legal entity that holds title to the property on
                     behalf of investors. Investors own units in this SPV, not the underlying land directly.
-                    Leave blank if you haven't incorporated one yet.
+                    Leave blank if you haven't incorporated one yet — you can add it later.
                   </HelpTip>
                 </div>
-                <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd" data-testid="input-spv" />
+                <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd (optional)" data-testid="input-spv" />
+                <p className="text-xs text-slate-500 mt-1">Optional — you can add this later once your SPV is incorporated.</p>
               </div>
             </div>
           )}
 
           {step === 2 && (
+            <div className="space-y-5">
+              <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <Label className="text-sm">Will this project have external investors?</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Turn off if you're funding the project yourself and just want it tracked.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form.acceptsExternalInvestors}
+                    onCheckedChange={(v) => setForm({ ...form, acceptsExternalInvestors: v, fundingType: v && form.fundingType === "self_funded" ? "equity" : (!v ? "self_funded" : form.fundingType) })}
+                    data-testid="switch-external-investors"
+                  />
+                </div>
+              </div>
+
+              {form.acceptsExternalInvestors && (
+                <div>
+                  <Label className="text-sm">How are investors funding this project? *</Label>
+                  <p className="text-xs text-slate-500 mb-3">Pick the model that best matches what you're offering investors. You can refine the details below.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {FUNDING_OPTIONS.filter(o => o.value !== "self_funded").map((opt) => {
+                      const Icon = opt.icon;
+                      const active = form.fundingType === opt.value;
+                      return (
+                        <button
+                          type="button"
+                          key={opt.value}
+                          onClick={() => setForm({ ...form, fundingType: opt.value })}
+                          className={`text-left rounded-lg border p-3 transition-all ${
+                            active
+                              ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100"
+                              : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                          data-testid={`card-funding-${opt.value}`}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-slate-900">{opt.label}</div>
+                              <div className="text-xs text-slate-600 mt-0.5">{opt.short}</div>
+                              <div className="text-[11px] text-slate-500 mt-1">{opt.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {showReturnFields && (
+                <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/30 p-4">
+                  <div className="text-sm font-semibold text-slate-900">Return terms</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label>Expected return % *</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={form.expectedReturnPercent}
+                        onChange={u("expectedReturnPercent")}
+                        placeholder="25"
+                        data-testid="input-expected-return"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">e.g. 25 for 25%.</p>
+                    </div>
+                    <div>
+                      <Label>Return period</Label>
+                      <Select value={form.returnPeriod} onValueChange={u("returnPeriod")}>
+                        <SelectTrigger data-testid="select-return-period"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="annual">Per annum (annualized)</SelectItem>
+                          <SelectItem value="project_lifetime">Over the full term (total)</SelectItem>
+                          <SelectItem value="quarterly">Per quarter</SelectItem>
+                          <SelectItem value="monthly">Per month</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label>Investment term (months) *</Label>
+                      <Input
+                        type="number"
+                        value={form.investmentTermMonths}
+                        onChange={u("investmentTermMonths")}
+                        placeholder="12"
+                        data-testid="input-term-months"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">How long is investor capital locked up?</p>
+                    </div>
+                    <div>
+                      <Label>Payout frequency</Label>
+                      <Select value={form.payoutFrequency} onValueChange={u("payoutFrequency")}>
+                        <SelectTrigger data-testid="select-payout-frequency"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="on_exit">On exit / end of term</SelectItem>
+                          <SelectItem value="lump_sum">Single lump sum (capital + returns)</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="quarterly">Quarterly</SelectItem>
+                          <SelectItem value="annually">Annually</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showExitField && (
+                <div>
+                  <Label>How do investors exit / earn? *</Label>
+                  <Select value={form.exitStrategy} onValueChange={u("exitStrategy")}>
+                    <SelectTrigger data-testid="select-exit-strategy"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sale">Sale of property at completion</SelectItem>
+                      <SelectItem value="land_appreciation">Land appreciation (sell anytime after)</SelectItem>
+                      <SelectItem value="rental_income">Ongoing rental income</SelectItem>
+                      <SelectItem value="buyback">Developer buyback at agreed price</SelectItem>
+                      <SelectItem value="refinance">Refinance and return capital</SelectItem>
+                      <SelectItem value="other">Other (explain in notes)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {!isSelfFunded && (
+                <div>
+                  <Label>Funding notes <span className="text-xs text-slate-400 font-normal">(optional)</span></Label>
+                  <Textarea
+                    value={form.fundingNotes}
+                    onChange={u("fundingNotes")}
+                    rows={3}
+                    placeholder="e.g. 30% deposit, balance over 12 months. Returns paid quarterly. Early-bird investors before March get an extra 2%."
+                    data-testid="input-funding-notes"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Spell out payment plans, milestones, or special terms investors should know.</p>
+                </div>
+              )}
+
+              {isSelfFunded && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                  <div className="font-medium text-slate-900 mb-1">No external investors</div>
+                  We'll skip the investor-facing return fields. You can still track the build, milestones, and notes.
+                  Toggle external investors back on at any time if your plans change.
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 3 && (
             <div className="space-y-4">
               <div>
                 <div className="flex items-center gap-1.5">
@@ -236,7 +482,7 @@ export default function NewProjectWizard() {
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div className="space-y-4">
               <div>
                 <Label>Description *</Label>
@@ -262,12 +508,21 @@ export default function NewProjectWizard() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="space-y-3 text-sm">
               <RowKV label="Project name" value={form.name} />
               <RowKV label="Location" value={form.location} />
               <RowKV label="Property type" value={form.propertyType} />
               <RowKV label="Currency" value={form.currency} />
+              <RowKV label="Funding model" value={fundingLabel} />
+              {showReturnFields && (
+                <>
+                  <RowKV label="Expected return" value={form.expectedReturnPercent ? `${form.expectedReturnPercent}% ${form.returnPeriod === "project_lifetime" ? "total" : (form.returnPeriod || "")}` : "—"} />
+                  <RowKV label="Investment term" value={form.investmentTermMonths ? `${form.investmentTermMonths} months` : "—"} />
+                  <RowKV label="Payout" value={prettyPayout(form.payoutFrequency)} />
+                </>
+              )}
+              {showExitField && <RowKV label="Exit / earnings via" value={prettyExit(form.exitStrategy)} />}
               <RowKV label="Total value" value={`${form.currency} ${parseFloat(form.totalValue || "0").toLocaleString()}`} />
               <RowKV label="Total units" value={form.totalUnits} />
               <RowKV label="Unit price" value={`${form.currency} ${parseFloat(form.unitPrice || "0").toLocaleString()}`} />
@@ -287,7 +542,7 @@ export default function NewProjectWizard() {
         <Button variant="outline" disabled={step === 1} onClick={() => setStep(step - 1)} data-testid="button-back">
           <ChevronLeft className="w-4 h-4 mr-1" /> Back
         </Button>
-        {step < 4 ? (
+        {step < STEPS.length ? (
           <Button className="bg-blue-600 hover:bg-blue-700" disabled={!canNext()} onClick={() => setStep(step + 1)} data-testid="button-next">
             Next <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
@@ -309,4 +564,27 @@ function RowKV({ label, value }: { label: string; value: string }) {
       <span className="font-medium text-slate-900">{value || <span className="text-slate-400">—</span>}</span>
     </div>
   );
+}
+
+function prettyPayout(p: string): string {
+  switch (p) {
+    case "on_exit":   return "On exit / end of term";
+    case "lump_sum":  return "Single lump sum";
+    case "monthly":   return "Monthly";
+    case "quarterly": return "Quarterly";
+    case "annually":  return "Annually";
+    default:          return "—";
+  }
+}
+
+function prettyExit(s: string): string {
+  switch (s) {
+    case "sale":               return "Sale at completion";
+    case "land_appreciation":  return "Land appreciation";
+    case "rental_income":      return "Rental income";
+    case "buyback":            return "Developer buyback";
+    case "refinance":          return "Refinance";
+    case "other":              return "Other";
+    default:                   return "—";
+  }
 }

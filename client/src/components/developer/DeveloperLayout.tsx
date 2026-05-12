@@ -42,20 +42,31 @@ interface NavItem {
   icon: any;
   testId: string;
   match?: (path: string) => boolean;
+  requires?: string; // permission key needed to see this nav item (members only)
 }
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/developer",                label: "My Projects",    icon: LayoutGrid, testId: "link-projects",       match: (p) => p === "/developer" || p.startsWith("/developer/projects") },
-  { href: "/developer/new",            label: "New Project",    icon: Plus,       testId: "link-new-project",    match: (p) => p === "/developer/new" },
-  { href: "/developer/communications", label: "Communications", icon: Megaphone,  testId: "link-communications", match: (p) => p === "/developer/communications" },
+  { href: "/developer/new",            label: "New Project",    icon: Plus,       testId: "link-new-project",    match: (p) => p === "/developer/new",            requires: "settings" },
+  { href: "/developer/communications", label: "Communications", icon: Megaphone,  testId: "link-communications", match: (p) => p === "/developer/communications", requires: "comms" },
   { href: "/developer/team",           label: "Team",           icon: Users,      testId: "link-team",           match: (p) => p === "/developer/team" },
   { href: "/developer/profile",        label: "Profile",        icon: User,       testId: "link-profile",        match: (p) => p === "/developer/profile" },
 ];
 
-function NavLinks({ location, onNavigate }: { location: string; onNavigate?: () => void }) {
+function NavLinks({ location, onNavigate, permissions, isOwner }: {
+  location: string;
+  onNavigate?: () => void;
+  permissions: string[];
+  isOwner: boolean;
+}) {
+  const visible = NAV_ITEMS.filter((item) => {
+    if (!item.requires) return true;
+    if (isOwner) return true;
+    return permissions.includes(item.requires);
+  });
   return (
     <nav className="flex-1 px-3 py-3 space-y-1">
-      {NAV_ITEMS.map((item) => {
+      {visible.map((item) => {
         const Icon = item.icon;
         const active = item.match ? item.match(location) : location === item.href;
         return (
@@ -129,6 +140,8 @@ export default function DeveloperLayout({ children, title, subtitle, backTo, act
   const initials =
     `${(me.firstName || "")[0] || ""}${(me.lastName || "")[0] || ""}`.toUpperCase() || "D";
   const displayName = me.companyName || `${me.firstName || ""} ${me.lastName || ""}`.trim() || "Developer";
+  const permissions: string[] = Array.isArray(me.permissions) ? me.permissions : [];
+  const isOwner = !!me.isOwner;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -137,7 +150,7 @@ export default function DeveloperLayout({ children, title, subtitle, backTo, act
         <div className="px-5 py-5 border-b border-slate-100">
           <BrandMark />
         </div>
-        <NavLinks location={location} />
+        <NavLinks location={location} permissions={permissions} isOwner={isOwner} />
         <div className="p-3 border-t border-slate-100">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -206,7 +219,7 @@ export default function DeveloperLayout({ children, title, subtitle, backTo, act
                       </div>
                     </SheetTitle>
                   </SheetHeader>
-                  <NavLinks location={location} onNavigate={() => setMobileNavOpen(false)} />
+                  <NavLinks location={location} onNavigate={() => setMobileNavOpen(false)} permissions={permissions} isOwner={isOwner} />
                   <div className="p-3 border-t border-slate-100">
                     <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 mb-2">
                       <Avatar className="w-9 h-9">
