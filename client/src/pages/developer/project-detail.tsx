@@ -59,12 +59,12 @@ const UPDATE_TYPE: Record<string, { label: string; className: string }> = {
 };
 
 const TAB_ITEMS = [
-  { value: "overview",     label: "Overview",       short: "Overview", icon: BarChart3 },
-  { value: "fundraising",  label: "Fundraising",    short: "Funding",  icon: TrendingUp },
-  { value: "construction", label: "Construction",   short: "Build",    icon: Hammer },
-  { value: "sales",        label: "Sales",          short: "Sales",    icon: Building2 },
-  { value: "captable",     label: "Cap Table",      short: "Cap",      icon: Users },
-  { value: "comms",        label: "Communications", short: "Comms",    icon: Mail },
+  { value: "overview",     label: "Overview",       short: "Overview", icon: BarChart3,    requires: null },
+  { value: "fundraising",  label: "Fundraising",    short: "Funding",  icon: TrendingUp,   requires: "fundraising" },
+  { value: "construction", label: "Construction",   short: "Build",    icon: Hammer,       requires: "construction" },
+  { value: "sales",        label: "Sales",          short: "Sales",    icon: Building2,    requires: "sales" },
+  { value: "captable",     label: "Cap Table",      short: "Cap",      icon: Users,        requires: "cap_table" },
+  { value: "comms",        label: "Communications", short: "Comms",    icon: Mail,         requires: "comms" },
 ] as const;
 
 function fmt(currency: string | null | undefined, amount: number | string) {
@@ -87,6 +87,11 @@ export default function DeveloperProjectDetail() {
   // the API is used for cache keys and any places that need a stable handle.
   const projectKey = params?.id || "";
   const [tab, setTab] = useState("overview");
+
+  const { data: me } = useQuery<any>({ queryKey: ["/api/developer/me"] });
+  const isOwner = !!me?.isOwner;
+  const myPermissions: string[] = Array.isArray(me?.permissions) ? me.permissions : [];
+  const visibleTabs = TAB_ITEMS.filter((t) => !t.requires || isOwner || myPermissions.includes(t.requires));
 
   const { data: project, isLoading } = useQuery<any>({
     queryKey: ["/api/developer/projects", projectKey],
@@ -149,7 +154,7 @@ export default function DeveloperProjectDetail() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TAB_ITEMS.map((t) => (
+              {visibleTabs.map((t) => (
                 <SelectItem key={t.value} value={t.value} data-testid={`tab-mobile-${t.value}`}>
                   <span className="inline-flex items-center">
                     <t.icon className="w-4 h-4 mr-2 text-slate-500" />
@@ -163,9 +168,10 @@ export default function DeveloperProjectDetail() {
 
         {/* Tablet+ : tab strip — equal-width grid so labels never crowd */}
         <TabsList
-          className="hidden md:grid w-full grid-cols-6 bg-white border border-slate-200 p-1 h-auto"
+          className="hidden md:grid w-full bg-white border border-slate-200 p-1 h-auto"
+          style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}
         >
-          {TAB_ITEMS.map((t) => (
+          {visibleTabs.map((t) => (
             <TabsTrigger
               key={t.value}
               value={t.value}
@@ -180,11 +186,11 @@ export default function DeveloperProjectDetail() {
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>
-        <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>
-        <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>
+        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "construction") && <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "sales")        && <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "captable")     && <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "comms")        && <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>}
       </Tabs>
     </DeveloperLayout>
   );

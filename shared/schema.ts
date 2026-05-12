@@ -1,7 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // Session storage table for Replit Auth
 export const sessions = pgTable(
@@ -36,6 +36,7 @@ export const users = pgTable("users", {
   trialEndsAt: timestamp("trial_ends_at"),
   parentDeveloperId: integer("parent_developer_id").references((): any => users.id), // For team members: points to the lead developer
   teamRole: text("team_role").notNull().default("owner"), // 'owner' | 'member'
+  permissions: text("permissions").array().notNull().default(sql`ARRAY[]::text[]`), // Per-feature permission keys for team members; owners ignore (implicit all)
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor', 'developer'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
@@ -905,6 +906,7 @@ export const developerTeamInvites = pgTable("developer_team_invites", {
   email: text("email").notNull(),
   inviteName: text("invite_name"),
   inviteRole: text("invite_role").notNull().default("project_manager"), // free-form label
+  permissions: text("permissions").array().notNull().default(sql`ARRAY[]::text[]`), // Per-feature permission keys to grant on accept
   token: text("token").notNull().unique(),
   status: text("status").notNull().default("pending"), // 'pending' | 'accepted' | 'revoked' | 'expired'
   expiresAt: timestamp("expires_at").notNull(),

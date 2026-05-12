@@ -5546,6 +5546,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   }
 
+  // Per-feature permission gate. Owners always pass; team members must have
+  // the corresponding key in their `permissions` array.
+  function requirePermission(key: string) {
+    return async (req: any, res: any, next: any) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: "Authentication required" });
+      const u = req.user as any;
+      if (u.role !== "developer") return res.status(403).json({ message: "Developer access required" });
+      const isMember = u.teamRole === "member" && !!u.parentDeveloperId;
+      if (!isMember) return next();
+      const perms: string[] = Array.isArray(u.permissions) ? u.permissions : [];
+      if (!perms.includes(key)) {
+        return res.status(403).json({
+          code: "permission_denied",
+          permission: key,
+          message: `You don't have permission to manage this. Ask the account owner to grant the "${key.replace(/_/g, " ")}" permission.`,
+        });
+      }
+      next();
+    };
+  }
+
   // Resolve the lead-developer "owner" for the requesting user. Owners return
   // their own id; team members return their parentDeveloperId. All ownership,
   // limit, and project-list lookups should use the owner id.
@@ -5714,6 +5735,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ownerEmail: owner?.email || null,
         ownerUserId: ownerId,
         isOwner: ownerId === self.id,
+        permissions: (() => {
+          const isMember = self.teamRole === "member" && !!self.parentDeveloperId;
+          if (!isMember) {
+            return ["fundraising", "construction", "cap_table", "sales", "comms", "settings"];
+          }
+          return Array.isArray(self.permissions) ? self.permissions : [];
+        })(),
         usage: {
           activeProjects,
           distinctInvestors,
@@ -5795,6 +5823,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           createdAt: m.createdAt,
           lastLogin: m.lastLogin,
           isActive: m.isActive,
+          teamRole: m.teamRole,
+          permissions: Array.isArray(m.permissions) ? m.permissions : [],
         })),
         invites,
         seats: {
@@ -5822,6 +5852,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const email = String(req.body?.email || "").trim().toLowerCase();
       const inviteName = String(req.body?.inviteName || "").trim().slice(0, 100) || null;
       const inviteRole = String(req.body?.inviteRole || "project_manager").trim().slice(0, 50);
+      const { sanitizePermissions } = await import("@shared/permissions");
+      const permissions = sanitizePermissions(req.body?.permissions);
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ message: "A valid email is required" });
       }
@@ -5861,6 +5893,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email,
         inviteName,
         inviteRole,
+        permissions,
         token,
         expiresAt,
       } as any);
@@ -5872,6 +5905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           inviteName,
           inviteEmail: email,
           inviteRole,
+          permissions,
           companyName: owner?.companyName || `${owner?.firstName || ""} ${owner?.lastName || ""}`.trim() || "Brikvest developer",
           inviterName: `${owner?.firstName || ""} ${owner?.lastName || ""}`.trim() || owner?.email || "the team",
           acceptUrl,
@@ -5933,6 +5967,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update a team member's permissions (owner only).
+  app.patch("/api/developer/team/members/:id/permissions", requireDeveloperOwner, async (req: any, res) => {
+    try {
+      const memberId = parseInt(req.params.id);
+      if (!Number.isFinite(memberId)) return res.status(400).json({ message: "Invalid member id" });
+      const ownerId = await getOwnerId(req);
+      const member = await storage.getUser(memberId);
+      if (!member || member.parentDeveloperId !== ownerId) {
+        return res.status(404).json({ message: "Team member not found" });
+      }
+      const { sanitizePermissions } = await import("@shared/permissions");
+      const permissions = sanitizePermissions(req.body?.permissions);
+      const updated = await storage.updateUser(memberId, { permissions } as any);
+      res.json({
+        id: updated.id,
+        permissions: Array.isArray((updated as any).permissions) ? (updated as any).permissions : [],
+      });
+    } catch (err) {
+      console.error("Failed to update member permissions:", err);
+      res.status(500).json({ message: "Failed to update permissions" });
+    }
+  });
+
   // Public: fetch invite metadata by token (used by accept-invite page).
   app.get("/api/developer/team/invites/by-token/:token", async (req, res) => {
     try {
@@ -5945,6 +6002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: invite.email,
         inviteName: invite.inviteName,
         inviteRole: invite.inviteRole,
+        permissions: Array.isArray((invite as any).permissions) ? (invite as any).permissions : [],
         status: expired ? "expired" : invite.status,
         expiresAt: invite.expiresAt,
         companyName: owner?.companyName || null,
@@ -5990,6 +6048,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!owner) return res.status(400).json({ message: "Inviting account no longer exists." });
 
       const hashed = await hashPassword(String(password));
+      const invitePermissions = Array.isArray((invite as any).permissions) ? (invite as any).permissions : [];
       const user = await storage.createUser({
         email: invite.email,
         password: hashed,
@@ -6002,6 +6061,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyName: owner.companyName || null,
         parentDeveloperId: owner.id,
         teamRole: "member",
+        permissions: invitePermissions,
       } as any);
 
       await storage.updateDeveloperTeamInvite(invite.id, {
@@ -6118,7 +6178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a new project (starts as draft)
-  app.post("/api/developer/projects", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
       if (!(await checkTrialActive(req, res))) return;
       const ownerId = await getOwnerId(req);
@@ -6195,7 +6255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update project
-  app.patch("/api/developer/projects/:id", requireDeveloper, async (req: any, res) => {
+  app.patch("/api/developer/projects/:id", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6255,7 +6315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Submit project for admin approval
-  app.post("/api/developer/projects/:id/submit", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/submit", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     const propertyId = await resolveDevProjectId(req, res);
     if (propertyId === null) return;
     const property = await ensureProjectOwnership(req, res, propertyId);
@@ -6432,7 +6492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // reservation + ownership certificate in one shot, and emails the investor
   // a "track your investment" link (with a temp password if a new account was
   // provisioned).
-  app.post("/api/developer/projects/:id/investors", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/investors", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
     try {
       if (!(await checkTrialActive(req, res))) return;
       const propertyId = await resolveDevProjectId(req, res);
@@ -6712,7 +6772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a new lead
-  app.post("/api/developer/projects/:id/leads", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/leads", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6744,7 +6804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update a lead (stage change, notes, contact info)
-  app.patch("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
+  app.patch("/api/developer/projects/:id/leads/:leadId", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6782,7 +6842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete a lead
-  app.delete("/api/developer/projects/:id/leads/:leadId", requireDeveloper, async (req: any, res) => {
+  app.delete("/api/developer/projects/:id/leads/:leadId", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6802,7 +6862,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Convert a lead into a reservation (creates a soft-locked reservation, marks lead as converted)
-  app.post("/api/developer/projects/:id/leads/:leadId/convert", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/leads/:leadId/convert", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6871,7 +6931,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Milestones — create
-  app.post("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/milestones", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6901,7 +6961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Milestones — bulk reorder (single round-trip for drag-and-drop)
-  app.post("/api/developer/projects/:id/milestones/reorder", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/milestones/reorder", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -6947,7 +7007,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Milestones — update
-  app.patch("/api/developer/milestones/:milestoneId", requireDeveloper, async (req: any, res) => {
+  app.patch("/api/developer/milestones/:milestoneId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const milestone = await storage.getMilestone(parseInt(req.params.milestoneId));
       if (!milestone) return res.status(404).json({ message: "Milestone not found" });
@@ -6976,7 +7036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Milestones — delete
-  app.delete("/api/developer/milestones/:milestoneId", requireDeveloper, async (req: any, res) => {
+  app.delete("/api/developer/milestones/:milestoneId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const milestone = await storage.getMilestone(parseInt(req.params.milestoneId));
       if (!milestone) return res.status(404).json({ message: "Milestone not found" });
@@ -7011,7 +7071,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Project updates — create + broadcast
-  app.post("/api/developer/projects/:id/updates", requireDeveloper, async (req: any, res) => {
+  app.post("/api/developer/projects/:id/updates", requireDeveloper, requirePermission("comms"), async (req: any, res) => {
     try {
       if (!(await checkTrialActive(req, res))) return;
       const propertyId = await resolveDevProjectId(req, res);
