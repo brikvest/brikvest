@@ -6202,6 +6202,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: `Field '${k}' is required` });
         }
       }
+      // Per-type breakdown captured by the wizard (estate: by plot size; vertical: by apartment type).
+      const unitTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray(body.unitTypes)
+          ? body.unitTypes
+              .map((r: any) => ({
+                label: String(r?.label || "").trim(),
+                quantity: Number(r?.quantity) || 0,
+                price: Number(r?.price) || 0,
+              }))
+              .filter((r: any) => r.label && r.quantity > 0 && r.price > 0)
+          : [];
       const totalUnits = Number(body.totalUnits) || 0;
       const developerEquityUnits = Number(body.developerEquityUnits) || 0;
       if (developerEquityUnits > totalUnits) {
@@ -6226,6 +6237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reservedUnits: 0,
         soldUnits: 0,
         unitPrice: Number(body.unitPrice),
+        unitTypes,
         unitPrecision: body.unitPrecision || "1.00",
         isTransferable: !!body.isTransferable,
         spvName: body.spvName || null,
@@ -6236,8 +6248,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
-        // Funding model
-        fundingType: body.fundingType || "equity",
+        // Funding model (multi-select)
+        fundingTypes: Array.isArray(body.fundingTypes) && body.fundingTypes.length > 0
+          ? body.fundingTypes
+          : (body.acceptsExternalInvestors === false ? ["self_funded"] : ["equity"]),
         acceptsExternalInvestors: body.acceptsExternalInvestors !== false,
         expectedReturnPercent: body.expectedReturnPercent !== undefined && body.expectedReturnPercent !== null && body.expectedReturnPercent !== ""
           ? String(body.expectedReturnPercent)
@@ -6324,6 +6338,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to update project:", err);
       res.status(500).json({ message: "Failed to update project" });
+    }
+  });
+
+  // Delete a developer project. Owners (or members with `settings`) only.
+  // Refuses if any reservation has converted to a confirmed investment — those
+  // require an admin-led unwind.
+  app.delete("/api/developer/projects/:id", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const hasConfirmed = reservations.some(r => r.status === "converted_to_investment");
+      if (hasConfirmed) {
+        return res.status(409).json({
+          code: "has_confirmed_investors",
+          message: "This project has confirmed investors and can't be deleted. Contact Brikvest support to unwind it.",
+        });
+      }
+      await storage.deleteDeveloperProject(propertyId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+      res.status(500).json({ message: "Failed to delete project" });
     }
   });
 

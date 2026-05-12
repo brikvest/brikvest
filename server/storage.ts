@@ -106,6 +106,7 @@ export interface IStorage {
   createProperty(property: InsertProperty): Promise<Property>;
   updateProperty(id: number, property: InsertProperty): Promise<Property>;
   deleteProperty(id: number): Promise<void>;
+  deleteDeveloperProject(id: number): Promise<void>;
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
@@ -416,6 +417,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProperty(id: number): Promise<void> {
+    await db.delete(properties).where(eq(properties.id, id));
+  }
+
+  // Cascade-delete a developer project and every child row that references it.
+  // Caller must verify ownership/permission and confirm there are no active
+  // confirmed investors before invoking.
+  async deleteDeveloperProject(id: number): Promise<void> {
+    // Resale audit chain
+    await db.delete(resaleAuditLogs).where(eq(resaleAuditLogs.propertyId, id));
+    const listings = await db.select({ id: resaleListings.id }).from(resaleListings).where(eq(resaleListings.propertyId, id));
+    const listingIds = listings.map(l => l.id);
+    if (listingIds.length) {
+      await db.delete(resaleAuditLogs).where(inArray(resaleAuditLogs.listingId, listingIds));
+      await db.delete(resalePayments).where(inArray(resalePayments.listingId, listingIds));
+      await db.delete(resaleBids).where(inArray(resaleBids.listingId, listingIds));
+    }
+    await db.delete(resaleListings).where(eq(resaleListings.propertyId, id));
+
+    // Reservation-linked rows
+    const reservations = await db.select({ id: investmentReservations.id }).from(investmentReservations).where(eq(investmentReservations.propertyId, id));
+    const reservationIds = reservations.map(r => r.id);
+    if (reservationIds.length) {
+      await db.delete(ownershipCertificates).where(inArray(ownershipCertificates.reservationId, reservationIds));
+      await db.delete(paymentSubmissions).where(inArray(paymentSubmissions.reservationId, reservationIds));
+      await db.delete(investmentPayments).where(inArray(investmentPayments.reservationId, reservationIds));
+      // Null out lead -> reservation links so we can drop the reservations
+      await db.update(developerLeads)
+        .set({ convertedReservationId: null as any })
+        .where(inArray(developerLeads.convertedReservationId, reservationIds));
+    }
+
+    // Property-scoped child tables
+    await db.delete(developerLeads).where(eq(developerLeads.propertyId, id));
+    await db.delete(developerInvestorNotes).where(eq(developerInvestorNotes.propertyId, id));
+    await db.delete(projectUpdates).where(eq(projectUpdates.propertyId, id));
+    await db.delete(projectMilestones).where(eq(projectMilestones.propertyId, id));
+    await db.delete(propertyValuations).where(eq(propertyValuations.propertyId, id));
+    await db.delete(verificationStepCompletions).where(eq(verificationStepCompletions.propertyId, id));
+    await db.delete(propertyVerificationChecklists).where(eq(propertyVerificationChecklists.propertyId, id));
+    await db.delete(investmentReservations).where(eq(investmentReservations.propertyId, id));
+
+    // Investment groups carry a nullable property reference — detach rather than delete.
+    await db.update(investmentGroups)
+      .set({ propertyId: null as any })
+      .where(eq(investmentGroups.propertyId, id));
+
     await db.delete(properties).where(eq(properties.id, id));
   }
 

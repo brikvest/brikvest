@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
@@ -185,7 +186,7 @@ export default function DeveloperProjectDetail() {
           ))}
         </TabsList>
 
-        <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} /></TabsContent>
+        <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} canDelete={isOwner || myPermissions.includes("settings")} /></TabsContent>
         {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>}
         {visibleTabs.some(t => t.value === "construction") && <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>}
         {visibleTabs.some(t => t.value === "sales")        && <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>}
@@ -197,8 +198,9 @@ export default function DeveloperProjectDetail() {
 }
 
 // ======================= OVERVIEW =======================
-function OverviewTab({ project, rollup }: { project: any; rollup: any }) {
+function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any; canDelete: boolean }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const submitMutation = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/developer/projects/${project.id}/submit`),
     onSuccess: () => {
@@ -207,6 +209,16 @@ function OverviewTab({ project, rollup }: { project: any; rollup: any }) {
       toast({ title: "Submitted for approval", description: "Brikvest admin will review your project." });
     },
     onError: () => toast({ title: "Submission failed", variant: "destructive" }),
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/developer/projects/${project.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
+      toast({ title: "Project deleted", description: `"${project.name}" has been removed.` });
+      setLocation("/developer");
+    },
+    onError: (err: any) => toast(toastFromError(err, "Couldn't delete project")),
   });
 
   return (
@@ -242,6 +254,45 @@ function OverviewTab({ project, rollup }: { project: any; rollup: any }) {
           <p className="text-slate-700 whitespace-pre-wrap" data-testid="text-description">{project.description}</p>
         </CardContent>
       </Card>
+
+      {canDelete && (
+        <Card className="border-rose-200">
+          <CardHeader>
+            <CardTitle className="text-rose-900 text-base">Danger zone</CardTitle>
+            <CardDescription>
+              Deleting this project removes its milestones, updates, leads, notes and any pending reservations. Confirmed investors block deletion — contact Brikvest support to unwind those.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" data-testid="button-delete-project" disabled={deleteProjectMutation.isPending}>
+                  {deleteProjectMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                  Delete project
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending reservations. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => deleteProjectMutation.mutate()}
+                    className="bg-rose-600 hover:bg-rose-700"
+                    data-testid="button-confirm-delete"
+                  >
+                    Yes, delete it
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -252,7 +303,6 @@ function FundingModelCard({ project }: { project: any }) {
     fixed_return: { label: "Fixed return",          tone: "bg-emerald-100 text-emerald-700", blurb: "You've committed a fixed % return to investors." },
     profit_share: { label: "Profit share",          tone: "bg-purple-100 text-purple-700",   blurb: "Investors share a % of net profit at exit." },
     loan:         { label: "Loan / Debt",           tone: "bg-amber-100 text-amber-700",     blurb: "Capital is repaid with interest at the end of the term." },
-    hybrid:       { label: "Hybrid",                tone: "bg-indigo-100 text-indigo-700",   blurb: "Combined model — see funding notes for details." },
     self_funded:  { label: "Self-funded",           tone: "bg-slate-100 text-slate-600",     blurb: "No external investors on this project." },
   };
   const PAYOUT: Record<string, string> = {
@@ -265,9 +315,15 @@ function FundingModelCard({ project }: { project: any }) {
   const PERIOD: Record<string, string> = {
     annual: "p.a.", project_lifetime: "total", monthly: "per month", quarterly: "per quarter",
   };
-  const fundingType = project.fundingType || "equity";
-  const meta = FUNDING_LABELS[fundingType] || FUNDING_LABELS.equity;
-  const isSelfFunded = fundingType === "self_funded" || project.acceptsExternalInvestors === false;
+  const rawTypes: string[] = Array.isArray(project.fundingTypes) && project.fundingTypes.length > 0
+    ? project.fundingTypes
+    : (project.fundingType ? [project.fundingType] : ["equity"]);
+  const isSelfFunded = rawTypes.includes("self_funded") || project.acceptsExternalInvestors === false;
+  const types = isSelfFunded ? ["self_funded"] : rawTypes.filter(t => t !== "self_funded");
+  const isCombo = types.length > 1;
+  const blurb = isCombo
+    ? "Combined model — see funding notes for the full structure."
+    : (FUNDING_LABELS[types[0]] || FUNDING_LABELS.equity).blurb;
 
   const returnText = project.expectedReturnPercent
     ? `${parseFloat(project.expectedReturnPercent).toLocaleString()}% ${PERIOD[project.returnPeriod || "annual"] || ""}`.trim()
@@ -278,11 +334,22 @@ function FundingModelCard({ project }: { project: any }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle>Funding model</CardTitle>
-          <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full ${meta.tone}`} data-testid="badge-funding-type">
-            {meta.label}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {types.map((t) => {
+              const m = FUNDING_LABELS[t] || FUNDING_LABELS.equity;
+              return (
+                <span
+                  key={t}
+                  className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full ${m.tone}`}
+                  data-testid={`badge-funding-${t}`}
+                >
+                  {m.label}
+                </span>
+              );
+            })}
+          </div>
         </div>
-        <p className="text-sm text-slate-500 mt-1">{meta.blurb}</p>
+        <p className="text-sm text-slate-500 mt-1">{blurb}</p>
       </CardHeader>
       <CardContent>
         {isSelfFunded ? (

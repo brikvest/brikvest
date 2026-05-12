@@ -117,7 +117,10 @@ export const properties = pgTable("properties", {
   totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
   reservedUnits: integer("reserved_units").notNull().default(0), // Units soft-locked for payment_pending reservations
   soldUnits: integer("sold_units").notNull().default(0), // Units confirmed and sold
-  unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
+  unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit (entry price = cheapest unitTypes row)
+  // Per-type breakdown captured in the wizard (estate: by plot size; vertical: by apartment type).
+  // Each row: { label, quantity, price }. totalUnits/unitPrice/totalValue are derived from this.
+  unitTypes: jsonb("unit_types").$type<Array<{ label: string; quantity: number; price: number }>>().default(sql`'[]'::jsonb`),
   totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
@@ -131,15 +134,15 @@ export const properties = pgTable("properties", {
   district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
 
   // Funding model — how this project is being funded and how investors are rewarded.
+  // Multi-select: a project may combine models (e.g. equity + fixed_return).
   // Captured during project creation so the platform knows what to show investors and
   // what return/repayment terms the developer is committing to.
   // 'equity'        - Investors own a fractional share; returns from sale/appreciation/rental.
-  // 'fixed_return'  - Developer guarantees a fixed % return (very common in NG real estate).
+  // 'fixed_return'  - Developer commits a fixed % return paid back at end of term.
   // 'profit_share'  - Investors get a defined % of net profit at exit.
   // 'loan'          - Investors lend capital for a fixed term + interest, no ownership.
-  // 'hybrid'        - A mix (e.g. base fixed return + upside profit share).
   // 'self_funded'   - No external investors needed; developer is funding the project.
-  fundingType: text("funding_type").notNull().default("equity"),
+  fundingTypes: text("funding_types").array().notNull().default(sql`ARRAY['equity']::text[]`),
   acceptsExternalInvestors: boolean("accepts_external_investors").notNull().default(true),
   expectedReturnPercent: decimal("expected_return_percent", { precision: 6, scale: 2 }), // e.g. 22.50 (%)
   returnPeriod: text("return_period"), // 'annual' | 'project_lifetime' | 'monthly' | 'quarterly'
