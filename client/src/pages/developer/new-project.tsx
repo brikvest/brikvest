@@ -219,14 +219,12 @@ export default function NewProjectWizard() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Property type *</Label>
+                  <Label>Development type *</Label>
                   <Select value={form.propertyType} onValueChange={u("propertyType")}>
                     <SelectTrigger data-testid="select-property-type"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="land">Land</SelectItem>
-                      <SelectItem value="residential">Residential</SelectItem>
-                      <SelectItem value="commercial">Commercial</SelectItem>
-                      <SelectItem value="mixed_use">Mixed-use</SelectItem>
+                      <SelectItem value="land">Estate / Land development</SelectItem>
+                      <SelectItem value="residential">Residential / Vertical development</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
