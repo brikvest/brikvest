@@ -6341,6 +6341,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete a developer project. Owners (or members with `settings`) only.
+  // Refuses if any reservation has converted to a confirmed investment — those
+  // require an admin-led unwind.
+  app.delete("/api/developer/projects/:id", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservations = await storage.getReservationsByProperty(propertyId);
+      const hasConfirmed = reservations.some(r => r.status === "converted_to_investment");
+      if (hasConfirmed) {
+        return res.status(409).json({
+          code: "has_confirmed_investors",
+          message: "This project has confirmed investors and can't be deleted. Contact Brikvest support to unwind it.",
+        });
+      }
+      await storage.deleteDeveloperProject(propertyId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+      res.status(500).json({ message: "Failed to delete project" });
+    }
+  });
+
   // Submit project for admin approval
   app.post("/api/developer/projects/:id/submit", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     const propertyId = await resolveDevProjectId(req, res);
