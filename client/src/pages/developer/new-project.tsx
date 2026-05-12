@@ -59,7 +59,7 @@ const FUNDING_OPTIONS: {
   {
     value: "loan",
     label: "Loan / Debt",
-    short: "Investors lend money for a set period and earn interest. They don't own any part of the project.",
+    short: "Individuals or financial institutions lend money for a set period and earn interest. They don't own any part of the project.",
     icon: Banknote,
     example: "Example: ₦50m loan at 18% interest, repaid in full after 18 months.",
   },
