@@ -14,7 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
 import {
   Loader2, ChevronLeft, ChevronRight, CheckCircle2, Check,
-  PieChart, TrendingUp, Banknote, Coins, Wallet,
+  PieChart, TrendingUp, Banknote, Coins, Wallet, Plus, Trash2,
 } from "lucide-react";
 import HelpTip from "@/components/developer/HelpTip";
 
@@ -79,19 +79,20 @@ function devTypeNouns(propertyType: string) {
       singular: "unit",
       plural: "units",
       Plural: "Units",
-      totalLabel: "Total units",
-      priceLabel: "Price per unit",
       retainedLabel: "Developer-retained units",
-      totalHelp:
-        "Each unit is one apartment or sellable space. For a 24-apartment block, that's 24 units. Investors buy one or more units of the development.",
-      priceHelp: (cur: string) =>
-        `The price an investor pays for one unit (one apartment / sellable space) in ${cur}. Usually equals Total project value ÷ Total units.`,
       retainedHelp:
         "Units (apartments) you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
-      placeholderTotal: "24",
-      placeholderPrice: "20000000",
       resaleHelp:
         "When ON, investors who buy units can later list those units for resale to other approved Brikvest members.",
+      // Per-type rows
+      sectionTitle: "Unit types & pricing",
+      sectionHelp:
+        "List each type of unit you're selling — for example 2-bedroom apartment, 3-bedroom apartment, penthouse. Add a row for every type with how many you have and the price each.",
+      typeLabel: "Unit type",
+      typePlaceholder: "e.g. 2-bedroom apartment",
+      qtyLabel: "How many",
+      pricePlaceholder: "20000000",
+      addRowLabel: "Add another unit type",
     };
   }
   // default: land / estate
@@ -99,21 +100,24 @@ function devTypeNouns(propertyType: string) {
     singular: "plot",
     plural: "plots",
     Plural: "Plots",
-    totalLabel: "Total plots",
-    priceLabel: "Price per plot",
     retainedLabel: "Developer-retained plots",
-    totalHelp:
-      "How many plots (or sub-plots) are you splitting the estate into? For a 100-plot estate that's 100. Investors buy one or more plots.",
-    priceHelp: (cur: string) =>
-      `The price an investor pays for one plot in ${cur}. Usually equals Total project value ÷ Total plots.`,
     retainedHelp:
       "Plots you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
-    placeholderTotal: "100",
-    placeholderPrice: "5000000",
     resaleHelp:
       "When ON, investors who buy plots can later list those plots for resale to other approved Brikvest members.",
+    // Per-type rows
+    sectionTitle: "Plot sizes & pricing",
+    sectionHelp:
+      "List each plot size you're selling — for example 500 sqm, 1000 sqm. Add a row for every size with how many plots you have and the price each.",
+    typeLabel: "Plot size",
+    typePlaceholder: "e.g. 500 sqm",
+    qtyLabel: "How many plots",
+    pricePlaceholder: "5000000",
+    addRowLabel: "Add another plot size",
   };
 }
+
+type UnitTypeRow = { label: string; quantity: string; price: string };
 
 export default function NewProjectWizard() {
   const [, setLocation] = useLocation();
@@ -137,11 +141,8 @@ export default function NewProjectWizard() {
     payoutFrequency: "on_exit",
     exitStrategy: "sale",
     fundingNotes: "",
-    // Pricing & units
-    totalValue: "",
-    totalUnits: "",
-    unitPrice: "",
-    minInvestment: "",
+    // Pricing & units — per-type breakdown (estate: by plot size; vertical: by apartment type)
+    unitTypes: [{ label: "", quantity: "", price: "" }] as UnitTypeRow[],
     developerEquityUnits: "0",
     isTransferable: false,
     // Description & media
@@ -153,6 +154,23 @@ export default function NewProjectWizard() {
   });
 
   const u = (k: string) => (e: any) => setForm({ ...form, [k]: e?.target ? e.target.value : e });
+
+  const updateUnitType = (idx: number, field: keyof UnitTypeRow, value: string) => {
+    const next = form.unitTypes.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
+    setForm({ ...form, unitTypes: next });
+  };
+  const addUnitType = () => setForm({ ...form, unitTypes: [...form.unitTypes, { label: "", quantity: "", price: "" }] });
+  const removeUnitType = (idx: number) => {
+    const next = form.unitTypes.filter((_, i) => i !== idx);
+    setForm({ ...form, unitTypes: next.length ? next : [{ label: "", quantity: "", price: "" }] });
+  };
+
+  const validUnitTypes = form.unitTypes
+    .map(r => ({ label: r.label.trim(), quantity: parseInt(r.quantity) || 0, price: parseFloat(r.price) || 0 }))
+    .filter(r => r.label && r.quantity > 0 && r.price > 0);
+  const totalUnitsCalc = validUnitTypes.reduce((s, r) => s + r.quantity, 0);
+  const totalValueCalc = validUnitTypes.reduce((s, r) => s + r.quantity * r.price, 0);
+  const minPriceCalc = validUnitTypes.length ? Math.min(...validUnitTypes.map(r => r.price)) : 0;
 
   const toggleFundingType = (t: FundingType) => {
     const has = form.fundingTypes.includes(t);
@@ -172,10 +190,11 @@ export default function NewProjectWizard() {
     mutationFn: async () => {
       const payload: any = {
         ...form,
-        totalValue: parseFloat(form.totalValue),
-        totalUnits: parseInt(form.totalUnits),
-        unitPrice: parseFloat(form.unitPrice),
-        minInvestment: form.minInvestment ? parseFloat(form.minInvestment) : parseFloat(form.unitPrice),
+        unitTypes: validUnitTypes,
+        totalValue: totalValueCalc,
+        totalUnits: totalUnitsCalc,
+        unitPrice: minPriceCalc,
+        minInvestment: minPriceCalc,
         developerEquityUnits: parseInt(form.developerEquityUnits) || 0,
         // Funding fields — only send when meaningful
         fundingTypes: isSelfFunded ? ["self_funded"] : form.fundingTypes,
@@ -208,7 +227,7 @@ export default function NewProjectWizard() {
       }
       return true;
     }
-    if (step === 3) return form.totalValue && form.totalUnits && form.unitPrice;
+    if (step === 3) return validUnitTypes.length > 0;
     if (step === 4) return form.description && form.imageUrl;
     return true;
   };
@@ -477,34 +496,89 @@ export default function NewProjectWizard() {
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <div className="flex items-center gap-1.5">
-                  <Label>Total project value *</Label>
-                  <HelpTip>
-                    The full capital you're raising for this project, in {form.currency}. This is the
-                    target raise — once investors collectively commit this amount the project is fully funded.
-                  </HelpTip>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <Label className="text-sm">{nouns.sectionTitle} *</Label>
+                  <span className="text-xs text-slate-500">Add a row per {nouns.singular === "plot" ? "size" : "type"}</span>
                 </div>
-                <Input type="number" value={form.totalValue} onChange={u("totalValue")} placeholder="500000000" data-testid="input-total-value" />
-                <p className="text-xs text-slate-500 mt-1">Total raise size in {form.currency}.</p>
+                <p className="text-xs text-slate-500 mb-3">{nouns.sectionHelp}</p>
+
+                <div className="space-y-2">
+                  {form.unitTypes.map((row, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-start">
+                      <div className="col-span-12 sm:col-span-5">
+                        {idx === 0 && <Label className="text-xs text-slate-500">{nouns.typeLabel}</Label>}
+                        <Input
+                          value={row.label}
+                          onChange={(e) => updateUnitType(idx, "label", e.target.value)}
+                          placeholder={nouns.typePlaceholder}
+                          data-testid={`input-unittype-label-${idx}`}
+                        />
+                      </div>
+                      <div className="col-span-5 sm:col-span-2">
+                        {idx === 0 && <Label className="text-xs text-slate-500">{nouns.qtyLabel}</Label>}
+                        <Input
+                          type="number"
+                          value={row.quantity}
+                          onChange={(e) => updateUnitType(idx, "quantity", e.target.value)}
+                          placeholder="10"
+                          data-testid={`input-unittype-qty-${idx}`}
+                        />
+                      </div>
+                      <div className="col-span-6 sm:col-span-4">
+                        {idx === 0 && <Label className="text-xs text-slate-500">Price each ({form.currency})</Label>}
+                        <Input
+                          type="number"
+                          value={row.price}
+                          onChange={(e) => updateUnitType(idx, "price", e.target.value)}
+                          placeholder={nouns.pricePlaceholder}
+                          data-testid={`input-unittype-price-${idx}`}
+                        />
+                      </div>
+                      <div className="col-span-1 flex items-end h-full">
+                        {idx === 0 && <Label className="text-xs text-slate-500 invisible">x</Label>}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-slate-500 hover:text-rose-600"
+                          onClick={() => removeUnitType(idx)}
+                          disabled={form.unitTypes.length === 1}
+                          data-testid={`button-remove-unittype-${idx}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={addUnitType}
+                  data-testid="button-add-unittype"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" /> {nouns.addRowLabel}
+                </Button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <Label>{nouns.totalLabel} *</Label>
-                    <HelpTip>{nouns.totalHelp}</HelpTip>
-                  </div>
-                  <Input type="number" value={form.totalUnits} onChange={u("totalUnits")} placeholder={nouns.placeholderTotal} data-testid="input-total-units" />
+                  <div className="text-xs text-slate-500">Total {nouns.plural}</div>
+                  <div className="font-semibold text-slate-900" data-testid="text-total-units-calc">{totalUnitsCalc.toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <Label>{nouns.priceLabel} *</Label>
-                    <HelpTip>{nouns.priceHelp(form.currency)}</HelpTip>
+                  <div className="text-xs text-slate-500">Total project value</div>
+                  <div className="font-semibold text-slate-900" data-testid="text-total-value-calc">
+                    {form.currency} {totalValueCalc.toLocaleString()}
                   </div>
-                  <Input type="number" value={form.unitPrice} onChange={u("unitPrice")} placeholder={nouns.placeholderPrice} data-testid="input-unit-price" />
                 </div>
               </div>
+
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label>{nouns.retainedLabel}</Label>
@@ -513,6 +587,7 @@ export default function NewProjectWizard() {
                 <Input type="number" value={form.developerEquityUnits} onChange={u("developerEquityUnits")} data-testid="input-developer-units" />
                 <p className="text-xs text-slate-500 mt-1">{nouns.Plural} you keep as the developer (sweat equity).</p>
               </div>
+
               <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                 <div>
                   <div className="flex items-center gap-1.5">
@@ -567,9 +642,19 @@ export default function NewProjectWizard() {
                 </>
               )}
               {showExitField && <RowKV label="Exit / earnings via" value={prettyExit(form.exitStrategy)} />}
-              <RowKV label="Total value" value={`${form.currency} ${parseFloat(form.totalValue || "0").toLocaleString()}`} />
-              <RowKV label={nouns.totalLabel} value={form.totalUnits} />
-              <RowKV label={nouns.priceLabel} value={`${form.currency} ${parseFloat(form.unitPrice || "0").toLocaleString()}`} />
+              <RowKV label="Total value" value={`${form.currency} ${totalValueCalc.toLocaleString()}`} />
+              <RowKV label={`Total ${nouns.plural}`} value={totalUnitsCalc.toLocaleString()} />
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Breakdown</div>
+                <div className="rounded-lg border border-slate-200 divide-y">
+                  {validUnitTypes.map((r, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="text-slate-700">{r.label} × {r.quantity}</span>
+                      <span className="font-medium text-slate-900">{form.currency} {r.price.toLocaleString()} each</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <RowKV label={nouns.retainedLabel} value={form.developerEquityUnits} />
               <RowKV label="Resale allowed" value={form.isTransferable ? "Yes" : "No"} />
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">

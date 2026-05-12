@@ -117,7 +117,10 @@ export const properties = pgTable("properties", {
   totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
   reservedUnits: integer("reserved_units").notNull().default(0), // Units soft-locked for payment_pending reservations
   soldUnits: integer("sold_units").notNull().default(0), // Units confirmed and sold
-  unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit
+  unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit (entry price = cheapest unitTypes row)
+  // Per-type breakdown captured in the wizard (estate: by plot size; vertical: by apartment type).
+  // Each row: { label, quantity, price }. totalUnits/unitPrice/totalValue are derived from this.
+  unitTypes: jsonb("unit_types").$type<Array<{ label: string; quantity: number; price: number }>>().default(sql`'[]'::jsonb`),
   totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   

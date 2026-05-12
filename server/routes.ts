@@ -6202,6 +6202,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: `Field '${k}' is required` });
         }
       }
+      // Per-type breakdown captured by the wizard (estate: by plot size; vertical: by apartment type).
+      const unitTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray(body.unitTypes)
+          ? body.unitTypes
+              .map((r: any) => ({
+                label: String(r?.label || "").trim(),
+                quantity: Number(r?.quantity) || 0,
+                price: Number(r?.price) || 0,
+              }))
+              .filter((r: any) => r.label && r.quantity > 0 && r.price > 0)
+          : [];
       const totalUnits = Number(body.totalUnits) || 0;
       const developerEquityUnits = Number(body.developerEquityUnits) || 0;
       if (developerEquityUnits > totalUnits) {
@@ -6226,6 +6237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reservedUnits: 0,
         soldUnits: 0,
         unitPrice: Number(body.unitPrice),
+        unitTypes,
         unitPrecision: body.unitPrecision || "1.00",
         isTransferable: !!body.isTransferable,
         spvName: body.spvName || null,
