@@ -505,26 +505,13 @@ export default function NewProjectWizard() {
                   <Input type="number" value={form.unitPrice} onChange={u("unitPrice")} placeholder={nouns.placeholderPrice} data-testid="input-unit-price" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Label>Minimum investment</Label>
-                    <HelpTip>
-                      The smallest amount an investor can commit. Defaults to the price of one {nouns.singular}. Set this
-                      lower if you want to allow micro-investments below a single {nouns.singular} (Brikvest will
-                      pool fractional commitments).
-                    </HelpTip>
-                  </div>
-                  <Input type="number" value={form.minInvestment} onChange={u("minInvestment")} placeholder={`Defaults to price per ${nouns.singular}`} data-testid="input-min-investment" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <Label>{nouns.retainedLabel}</Label>
+                  <HelpTip>{nouns.retainedHelp} Leave at 0 if you're selling the full development.</HelpTip>
                 </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Label>{nouns.retainedLabel}</Label>
-                    <HelpTip>{nouns.retainedHelp} Leave at 0 if you're raising the full amount externally.</HelpTip>
-                  </div>
-                  <Input type="number" value={form.developerEquityUnits} onChange={u("developerEquityUnits")} data-testid="input-developer-units" />
-                  <p className="text-xs text-slate-500 mt-1">{nouns.Plural} you keep as the developer (sweat equity).</p>
-                </div>
+                <Input type="number" value={form.developerEquityUnits} onChange={u("developerEquityUnits")} data-testid="input-developer-units" />
+                <p className="text-xs text-slate-500 mt-1">{nouns.Plural} you keep as the developer (sweat equity).</p>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                 <div>
