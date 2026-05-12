@@ -72,6 +72,49 @@ const SELF_FUNDED: { value: FundingType; label: string; short: string; icon: any
   icon: Wallet,
 };
 
+function devTypeNouns(propertyType: string) {
+  // Affects how "units" are described downstream (Pricing & Units, Review).
+  if (propertyType === "residential") {
+    return {
+      singular: "unit",
+      plural: "units",
+      Plural: "Units",
+      totalLabel: "Total units",
+      priceLabel: "Price per unit",
+      retainedLabel: "Developer-retained units",
+      totalHelp:
+        "Each unit is one apartment or sellable space. For a 24-apartment block, that's 24 units. Investors buy one or more units of the development.",
+      priceHelp: (cur: string) =>
+        `The price an investor pays for one unit (one apartment / sellable space) in ${cur}. Usually equals Total project value ÷ Total units.`,
+      retainedHelp:
+        "Units (apartments) you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
+      placeholderTotal: "24",
+      placeholderPrice: "20000000",
+      resaleHelp:
+        "When ON, investors who buy units can later list those units for resale to other approved Brikvest members.",
+    };
+  }
+  // default: land / estate
+  return {
+    singular: "plot",
+    plural: "plots",
+    Plural: "Plots",
+    totalLabel: "Total plots",
+    priceLabel: "Price per plot",
+    retainedLabel: "Developer-retained plots",
+    totalHelp:
+      "How many plots (or sub-plots) are you splitting the estate into? For a 100-plot estate that's 100. Investors buy one or more plots.",
+    priceHelp: (cur: string) =>
+      `The price an investor pays for one plot in ${cur}. Usually equals Total project value ÷ Total plots.`,
+    retainedHelp:
+      "Plots you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
+    placeholderTotal: "100",
+    placeholderPrice: "5000000",
+    resaleHelp:
+      "When ON, investors who buy plots can later list those plots for resale to other approved Brikvest members.",
+  };
+}
+
 export default function NewProjectWizard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -169,6 +212,8 @@ export default function NewProjectWizard() {
     if (step === 4) return form.description && form.imageUrl;
     return true;
   };
+
+  const nouns = devTypeNouns(form.propertyType);
 
   const fundingLabels = isSelfFunded
     ? [SELF_FUNDED.label]
@@ -447,24 +492,17 @@ export default function NewProjectWizard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <Label>Total units *</Label>
-                    <HelpTip>
-                      Fractional ownership shares. The project is split into this many equal pieces — for
-                      example, 100 units of a ₦500m project means each unit represents ₦5m of ownership.
-                      More units = lower entry price = more investors can participate.
-                    </HelpTip>
+                    <Label>{nouns.totalLabel} *</Label>
+                    <HelpTip>{nouns.totalHelp}</HelpTip>
                   </div>
-                  <Input type="number" value={form.totalUnits} onChange={u("totalUnits")} placeholder="100" data-testid="input-total-units" />
+                  <Input type="number" value={form.totalUnits} onChange={u("totalUnits")} placeholder={nouns.placeholderTotal} data-testid="input-total-units" />
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <Label>Unit price *</Label>
-                    <HelpTip>
-                      The price of a single unit, in {form.currency}. Usually equals
-                      Total project value ÷ Total units. Investors pay this amount per unit they buy.
-                    </HelpTip>
+                    <Label>{nouns.priceLabel} *</Label>
+                    <HelpTip>{nouns.priceHelp(form.currency)}</HelpTip>
                   </div>
-                  <Input type="number" value={form.unitPrice} onChange={u("unitPrice")} placeholder="5000000" data-testid="input-unit-price" />
+                  <Input type="number" value={form.unitPrice} onChange={u("unitPrice")} placeholder={nouns.placeholderPrice} data-testid="input-unit-price" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -472,37 +510,29 @@ export default function NewProjectWizard() {
                   <div className="flex items-center gap-1.5">
                     <Label>Minimum investment</Label>
                     <HelpTip>
-                      The smallest amount an investor can commit. Defaults to one unit price. Set this
-                      lower if you want to allow micro-investments below a single unit (Brikvest will
+                      The smallest amount an investor can commit. Defaults to the price of one {nouns.singular}. Set this
+                      lower if you want to allow micro-investments below a single {nouns.singular} (Brikvest will
                       pool fractional commitments).
                     </HelpTip>
                   </div>
-                  <Input type="number" value={form.minInvestment} onChange={u("minInvestment")} placeholder="Defaults to unit price" data-testid="input-min-investment" />
+                  <Input type="number" value={form.minInvestment} onChange={u("minInvestment")} placeholder={`Defaults to price per ${nouns.singular}`} data-testid="input-min-investment" />
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <Label>Developer-retained units</Label>
-                    <HelpTip>
-                      Units you keep for yourself (or your team) as the developer — your "sweat equity".
-                      These are removed from the units available to investors. Leave at 0 if you're
-                      raising the full amount externally.
-                    </HelpTip>
+                    <Label>{nouns.retainedLabel}</Label>
+                    <HelpTip>{nouns.retainedHelp} Leave at 0 if you're raising the full amount externally.</HelpTip>
                   </div>
                   <Input type="number" value={form.developerEquityUnits} onChange={u("developerEquityUnits")} data-testid="input-developer-units" />
-                  <p className="text-xs text-slate-500 mt-1">Units you keep as the developer (sweat equity).</p>
+                  <p className="text-xs text-slate-500 mt-1">{nouns.Plural} you keep as the developer (sweat equity).</p>
                 </div>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
                 <div>
                   <div className="flex items-center gap-1.5">
                     <Label className="text-sm">Allow secondary-market resale</Label>
-                    <HelpTip>
-                      When ON, investors who buy units can later list them for resale to other approved
-                      Brikvest members (P2P marketplace). Off-plan projects often disable this until
-                      construction is further along.
-                    </HelpTip>
+                    <HelpTip>{nouns.resaleHelp} Off-plan projects often disable this until construction is further along.</HelpTip>
                   </div>
-                  <p className="text-xs text-slate-500">Investors can list their units to other members.</p>
+                  <p className="text-xs text-slate-500">Investors can list their {nouns.plural} to other members.</p>
                 </div>
                 <Switch checked={form.isTransferable} onCheckedChange={(v) => setForm({ ...form, isTransferable: v })} data-testid="switch-transferable" />
               </div>
@@ -551,9 +581,9 @@ export default function NewProjectWizard() {
               )}
               {showExitField && <RowKV label="Exit / earnings via" value={prettyExit(form.exitStrategy)} />}
               <RowKV label="Total value" value={`${form.currency} ${parseFloat(form.totalValue || "0").toLocaleString()}`} />
-              <RowKV label="Total units" value={form.totalUnits} />
-              <RowKV label="Unit price" value={`${form.currency} ${parseFloat(form.unitPrice || "0").toLocaleString()}`} />
-              <RowKV label="Developer-retained units" value={form.developerEquityUnits} />
+              <RowKV label={nouns.totalLabel} value={form.totalUnits} />
+              <RowKV label={nouns.priceLabel} value={`${form.currency} ${parseFloat(form.unitPrice || "0").toLocaleString()}`} />
+              <RowKV label={nouns.retainedLabel} value={form.developerEquityUnits} />
               <RowKV label="Resale allowed" value={form.isTransferable ? "Yes" : "No"} />
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
                 <p className="text-sm text-blue-900">
