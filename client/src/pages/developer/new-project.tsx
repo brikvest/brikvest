@@ -147,13 +147,15 @@ export default function NewProjectWizard() {
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label>SPV / Holding entity</Label>
+                  <span className="text-xs text-slate-400 font-normal">(optional)</span>
                   <HelpTip>
                     The Special Purpose Vehicle (SPV) is the legal entity that holds title to the property on
                     behalf of investors. Investors own units in this SPV, not the underlying land directly.
-                    Leave blank if you haven't incorporated one yet.
+                    Leave blank if you haven't incorporated one yet — you can add it later.
                   </HelpTip>
                 </div>
-                <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd" data-testid="input-spv" />
+                <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd (optional)" data-testid="input-spv" />
+                <p className="text-xs text-slate-500 mt-1">Optional — you can add this later once your SPV is incorporated.</p>
               </div>
             </div>
           )}
