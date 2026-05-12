@@ -588,16 +588,6 @@ export default function NewProjectWizard() {
                 <p className="text-xs text-slate-500 mt-1">{nouns.Plural} you keep as the developer (sweat equity).</p>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Label className="text-sm">Allow secondary-market resale</Label>
-                    <HelpTip>{nouns.resaleHelp} Off-plan projects often disable this until construction is further along.</HelpTip>
-                  </div>
-                  <p className="text-xs text-slate-500">Investors can list their {nouns.plural} to other members.</p>
-                </div>
-                <Switch checked={form.isTransferable} onCheckedChange={(v) => setForm({ ...form, isTransferable: v })} data-testid="switch-transferable" />
-              </div>
             </div>
           )}
 
@@ -656,7 +646,6 @@ export default function NewProjectWizard() {
                 </div>
               </div>
               <RowKV label={nouns.retainedLabel} value={form.developerEquityUnits} />
-              <RowKV label="Resale allowed" value={form.isTransferable ? "Yes" : "No"} />
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
                 <p className="text-sm text-blue-900">
                   Once created, your project is saved as a <strong>Draft</strong> and is not visible to investors. You can edit details and submit it for Brikvest approval from the project page.
