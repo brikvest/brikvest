@@ -543,7 +543,7 @@ export default function NewProjectWizard() {
               <RowKV label="Location" value={form.location} />
               <RowKV label="Property type" value={form.propertyType} />
               <RowKV label="Currency" value={form.currency} />
-              <RowKV label="Funding model" value={fundingLabels.join(" + ")} />
+              <RowKV label="Funding model" value={fundingLabels.join(", ")} />
               {showReturnFields && (
                 <>
                   <RowKV label="Expected return" value={form.expectedReturnPercent ? `${form.expectedReturnPercent}% ${form.returnPeriod === "project_lifetime" ? "total" : (form.returnPeriod || "")}` : "—"} />
