@@ -9,16 +9,20 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
 import { Building2, Loader2, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { PERMISSIONS } from "@shared/permissions";
 
 interface InviteInfo {
   email: string;
   inviteName: string | null;
   inviteRole: string;
+  permissions?: string[];
   status: "pending" | "accepted" | "revoked" | "expired";
   expiresAt: string;
   companyName: string | null;
   inviterName: string | null;
 }
+
+const PERM_LABEL: Record<string, string> = Object.fromEntries(PERMISSIONS.map((p) => [p.key, p.label]));
 
 export default function AcceptInvitePage() {
   const [, params] = useRoute("/developer/accept-invite/:token");
@@ -123,6 +127,25 @@ export default function AcceptInvitePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {(data.permissions && data.permissions.length > 0) ? (
+                  <div className="mb-4 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+                    <div className="text-xs font-semibold text-indigo-900 mb-1.5">You'll have access to:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.permissions.map((p) => (
+                        <span
+                          key={p}
+                          className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full bg-white text-indigo-700 font-medium border border-indigo-200"
+                        >
+                          {PERM_LABEL[p] || p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                    Your access starts limited — the account owner can grant you areas (fundraising, sales, etc.) after you join.
+                  </div>
+                )}
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();

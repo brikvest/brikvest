@@ -725,6 +725,7 @@ export function developerTeamInviteEmailTemplate({
   inviteName,
   inviteEmail,
   inviteRole,
+  permissions,
   companyName,
   inviterName,
   acceptUrl,
@@ -733,6 +734,7 @@ export function developerTeamInviteEmailTemplate({
   inviteName?: string | null;
   inviteEmail: string;
   inviteRole: string;
+  permissions?: string[];
   companyName: string;
   inviterName: string;
   acceptUrl: string;
@@ -740,6 +742,23 @@ export function developerTeamInviteEmailTemplate({
 }) {
   const greeting = inviteName ? `Hi ${inviteName},` : "Hello,";
   const roleLabel = inviteRole.replace(/_/g, " ");
+  const permLabels: Record<string, string> = {
+    fundraising: "Fundraising",
+    construction: "Construction",
+    cap_table: "Cap table",
+    sales: "Sales & clients",
+    comms: "Communications",
+    settings: "Project settings",
+  };
+  const permList = (permissions || []).map((p) => permLabels[p] || p).filter(Boolean);
+  const permissionsBlock = permList.length > 0
+    ? `<div style="margin: 16px 0 0;">
+         <p style="margin: 0 0 6px; font-size: 13px; color: #475569;"><strong>Access granted:</strong></p>
+         <div style="display: block;">
+           ${permList.map(p => `<span style="display:inline-block;background:#e0e7ff;color:#3730a3;font-size:12px;padding:3px 10px;border-radius:999px;margin:0 4px 4px 0;">${p}</span>`).join("")}
+         </div>
+       </div>`
+    : `<p style="margin: 16px 0 0; font-size: 13px; color: #64748b;"><em>The owner hasn't granted any feature access yet — they may update your permissions after you accept.</em></p>`;
   return {
     subject: `${inviterName} invited you to ${companyName} on Brikvest`,
     html: `
@@ -767,6 +786,7 @@ export function developerTeamInviteEmailTemplate({
           <div style="background: #f1f5f9; border-radius: 8px; padding: 16px; margin: 24px 0;">
             <p style="margin: 0 0 6px; font-size: 13px; color: #475569;"><strong>Invited email:</strong> ${inviteEmail}</p>
             <p style="margin: 0; font-size: 13px; color: #475569;"><strong>Invitation expires:</strong> ${expiresAt}</p>
+            ${permissionsBlock}
           </div>
           <p style="font-size: 13px; color: #94a3b8; text-align: center; margin-top: 24px;">
             If you weren't expecting this invitation, you can safely ignore this email.

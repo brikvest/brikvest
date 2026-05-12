@@ -1,7 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // Session storage table for Replit Auth
 export const sessions = pgTable(
@@ -36,6 +36,7 @@ export const users = pgTable("users", {
   trialEndsAt: timestamp("trial_ends_at"),
   parentDeveloperId: integer("parent_developer_id").references((): any => users.id), // For team members: points to the lead developer
   teamRole: text("team_role").notNull().default("owner"), // 'owner' | 'member'
+  permissions: text("permissions").array().notNull().default(sql`ARRAY[]::text[]`), // Per-feature permission keys for team members; owners ignore (implicit all)
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor', 'developer'
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
@@ -128,6 +129,24 @@ export const properties = pgTable("properties", {
   spvName: text("spv_name"),
   city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
   district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
+
+  // Funding model — how this project is being funded and how investors are rewarded.
+  // Captured during project creation so the platform knows what to show investors and
+  // what return/repayment terms the developer is committing to.
+  // 'equity'        - Investors own a fractional share; returns from sale/appreciation/rental.
+  // 'fixed_return'  - Developer guarantees a fixed % return (very common in NG real estate).
+  // 'profit_share'  - Investors get a defined % of net profit at exit.
+  // 'loan'          - Investors lend capital for a fixed term + interest, no ownership.
+  // 'hybrid'        - A mix (e.g. base fixed return + upside profit share).
+  // 'self_funded'   - No external investors needed; developer is funding the project.
+  fundingType: text("funding_type").notNull().default("equity"),
+  acceptsExternalInvestors: boolean("accepts_external_investors").notNull().default(true),
+  expectedReturnPercent: decimal("expected_return_percent", { precision: 6, scale: 2 }), // e.g. 22.50 (%)
+  returnPeriod: text("return_period"), // 'annual' | 'project_lifetime' | 'monthly' | 'quarterly'
+  investmentTermMonths: integer("investment_term_months"), // Lock-up duration for fixed_return/loan
+  payoutFrequency: text("payout_frequency"), // 'lump_sum' | 'monthly' | 'quarterly' | 'annually' | 'on_exit'
+  exitStrategy: text("exit_strategy"), // 'sale' | 'buyback' | 'refinance' | 'rental_income' | 'land_appreciation' | 'other'
+  fundingNotes: text("funding_notes"), // Free-form: payment plans, milestones, special terms
   
   // Land/title registration metadata (legacy columns preserved)
   firstOwnerName: text("first_owner_name"),
@@ -905,6 +924,7 @@ export const developerTeamInvites = pgTable("developer_team_invites", {
   email: text("email").notNull(),
   inviteName: text("invite_name"),
   inviteRole: text("invite_role").notNull().default("project_manager"), // free-form label
+  permissions: text("permissions").array().notNull().default(sql`ARRAY[]::text[]`), // Per-feature permission keys to grant on accept
   token: text("token").notNull().unique(),
   status: text("status").notNull().default("pending"), // 'pending' | 'accepted' | 'revoked' | 'expired'
   expiresAt: timestamp("expires_at").notNull(),

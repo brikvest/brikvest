@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -26,8 +27,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toastFromError } from "@/lib/planErrors";
-import { Loader2, UserPlus, Trash2, Mail, Crown, Shield } from "lucide-react";
+import { Loader2, UserPlus, Trash2, Mail, Crown, Shield, KeyRound } from "lucide-react";
 import { Link } from "wouter";
+import { PERMISSIONS, ALL_PERMISSION_KEYS, type PermissionKey } from "@shared/permissions";
 
 interface TeamMember {
   id: number;
@@ -38,6 +40,8 @@ interface TeamMember {
   createdAt: string;
   lastLogin: string | null;
   isActive: boolean;
+  teamRole: string;
+  permissions: string[];
 }
 
 interface TeamInvite {
@@ -45,6 +49,7 @@ interface TeamInvite {
   email: string;
   inviteName: string | null;
   inviteRole: string;
+  permissions?: string[];
   status: "pending" | "accepted" | "revoked" | "expired";
   expiresAt: string;
   createdAt: string;
@@ -57,6 +62,8 @@ interface TeamData {
   seats: { used: number; max: number | null; plan: string; planName: string };
 }
 
+const PERM_LABEL: Record<string, string> = Object.fromEntries(PERMISSIONS.map((p) => [p.key, p.label]));
+
 function initialsOf(first?: string | null, last?: string | null, fallback?: string) {
   const a = (first || "")[0] || "";
   const b = (last || "")[0] || "";
@@ -68,11 +75,33 @@ function fmtDate(d?: string | null) {
   try { return new Date(d).toLocaleDateString(); } catch { return "—"; }
 }
 
+function PermissionChips({ keys }: { keys: string[] }) {
+  if (!keys || keys.length === 0) {
+    return <span className="text-xs text-slate-400 italic">No feature access yet</span>;
+  }
+  if (keys.length === ALL_PERMISSION_KEYS.length) {
+    return <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 text-[11px]">Full access</Badge>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {keys.map((k) => (
+        <span
+          key={k}
+          className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium"
+        >
+          {PERM_LABEL[k] || k}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function DeveloperTeamPage() {
   const { toast } = useToast();
   const { data: me } = useQuery<any>({ queryKey: ["/api/developer/me"] });
   const { data, isLoading } = useQuery<TeamData>({ queryKey: ["/api/developer/team"] });
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
 
   const isOwner = !!me?.isOwner;
   const seatsUsed = data?.seats?.used ?? 1;
@@ -102,7 +131,7 @@ export default function DeveloperTeamPage() {
   return (
     <DeveloperLayout
       title="Team"
-      subtitle="Invite teammates to help manage projects, investors, and communications."
+      subtitle="Invite teammates, set their role, and pick exactly which areas they can access."
       actions={
         isOwner && (
           <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
@@ -148,7 +177,7 @@ export default function DeveloperTeamPage() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Members</CardTitle>
-          <CardDescription>Everyone with access to this developer workspace.</CardDescription>
+          <CardDescription>Everyone with access to this developer workspace, and what they can do.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -163,6 +192,7 @@ export default function DeveloperTeamPage() {
                   name={`${data.owner.firstName || ""} ${data.owner.lastName || ""}`.trim() || data.owner.email}
                   email={data.owner.email}
                   badge={<Badge variant="secondary" className="bg-amber-50 text-amber-700"><Crown className="w-3 h-3 mr-1" /> Owner</Badge>}
+                  permissionsNode={<Badge variant="secondary" className="bg-emerald-50 text-emerald-700 text-[11px]">Full access</Badge>}
                   rightMeta="Founding member"
                 />
               )}
@@ -173,22 +203,33 @@ export default function DeveloperTeamPage() {
                   name={`${m.firstName || ""} ${m.lastName || ""}`.trim() || m.email}
                   email={m.email}
                   badge={<Badge variant="secondary" className="bg-blue-50 text-blue-700"><Shield className="w-3 h-3 mr-1" /> Member</Badge>}
+                  permissionsNode={<PermissionChips keys={m.permissions || []} />}
                   rightMeta={m.lastLogin ? `Last active ${fmtDate(m.lastLogin)}` : `Joined ${fmtDate(m.createdAt)}`}
                   action={isOwner && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                      onClick={() => {
-                        if (confirm(`Remove ${m.firstName || m.email} from the team?`)) {
-                          removeMember.mutate(m.id);
-                        }
-                      }}
-                      disabled={removeMember.isPending}
-                      data-testid={`button-remove-member-${m.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingMember(m)}
+                        data-testid={`button-edit-permissions-${m.id}`}
+                      >
+                        <KeyRound className="w-4 h-4 mr-1" /> Edit access
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        onClick={() => {
+                          if (confirm(`Remove ${m.firstName || m.email} from the team?`)) {
+                            removeMember.mutate(m.id);
+                          }
+                        }}
+                        disabled={removeMember.isPending}
+                        data-testid={`button-remove-member-${m.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   )}
                 />
               ))}
@@ -214,16 +255,19 @@ export default function DeveloperTeamPage() {
           ) : (
             <div className="divide-y">
               {(data?.invites || []).map((inv) => (
-                <div key={inv.id} className="py-3 flex items-center justify-between gap-3 flex-wrap" data-testid={`row-invite-${inv.id}`}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center">
+                <div key={inv.id} className="py-3 flex items-start justify-between gap-3 flex-wrap" data-testid={`row-invite-${inv.id}`}>
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
                       <Mail className="w-4 h-4 text-slate-500" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-slate-900 truncate">{inv.email}</div>
                       <div className="text-xs text-slate-500 truncate">
                         {inv.inviteName ? `${inv.inviteName} · ` : ""}
                         {inv.inviteRole.replace(/_/g, " ")} · expires {fmtDate(inv.expiresAt)}
+                      </div>
+                      <div className="mt-1.5">
+                        <PermissionChips keys={inv.permissions || []} />
                       </div>
                     </div>
                   </div>
@@ -248,35 +292,46 @@ export default function DeveloperTeamPage() {
           )}
         </CardContent>
       </Card>
+
+      {editingMember && (
+        <EditPermissionsDialog
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+        />
+      )}
     </DeveloperLayout>
   );
 }
 
 function MemberRow({
-  initials, name, email, badge, rightMeta, action,
+  initials, name, email, badge, permissionsNode, rightMeta, action,
 }: {
   initials: string;
   name: string;
   email: string;
   badge: React.ReactNode;
+  permissionsNode?: React.ReactNode;
   rightMeta?: string;
   action?: React.ReactNode;
 }) {
   return (
-    <div className="py-3 flex items-center justify-between gap-3 flex-wrap">
-      <div className="flex items-center gap-3 min-w-0">
+    <div className="py-3 flex items-start justify-between gap-3 flex-wrap">
+      <div className="flex items-start gap-3 min-w-0 flex-1">
         <Avatar className="w-9 h-9">
           <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-xs font-semibold">
             {initials}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-slate-900 truncate">{name}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-sm font-medium text-slate-900 truncate">{name}</div>
+            {badge}
+          </div>
           <div className="text-xs text-slate-500 truncate">{email}</div>
+          {permissionsNode && <div className="mt-1.5">{permissionsNode}</div>}
         </div>
       </div>
-      <div className="flex items-center gap-3">
-        {badge}
+      <div className="flex items-center gap-3 flex-shrink-0">
         {rightMeta && <div className="text-xs text-slate-500 hidden sm:block">{rightMeta}</div>}
         {action}
       </div>
@@ -295,17 +350,75 @@ function InviteStatusBadge({ status }: { status: TeamInvite["status"] }) {
   return <Badge variant="secondary" className={m.cls}>{m.label}</Badge>;
 }
 
+function PermissionGrid({
+  selected, onChange,
+}: {
+  selected: PermissionKey[];
+  onChange: (next: PermissionKey[]) => void;
+}) {
+  const toggle = (k: PermissionKey) => {
+    if (selected.includes(k)) onChange(selected.filter((x) => x !== k));
+    else onChange([...selected, k]);
+  };
+  const allSelected = selected.length === ALL_PERMISSION_KEYS.length;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <Label className="text-sm">What can they access?</Label>
+        <button
+          type="button"
+          className="text-xs text-blue-600 hover:underline"
+          onClick={() => onChange(allSelected ? [] : [...ALL_PERMISSION_KEYS])}
+          data-testid="button-toggle-all-permissions"
+        >
+          {allSelected ? "Clear all" : "Select all"}
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border rounded-lg p-3 bg-slate-50">
+        {PERMISSIONS.map((p) => {
+          const checked = selected.includes(p.key);
+          return (
+            <label
+              key={p.key}
+              className={`flex items-start gap-2.5 p-2 rounded-md cursor-pointer transition-colors ${
+                checked ? "bg-white border border-blue-200" : "hover:bg-white/60 border border-transparent"
+              }`}
+              data-testid={`label-permission-${p.key}`}
+            >
+              <Checkbox
+                checked={checked}
+                onCheckedChange={() => toggle(p.key)}
+                data-testid={`checkbox-permission-${p.key}`}
+                className="mt-0.5"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900">{p.label}</div>
+                <div className="text-xs text-slate-500 leading-snug">{p.description}</div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-500 mt-2">
+        Members only see the tabs and actions for areas they have access to. You can change this any time.
+      </p>
+    </div>
+  );
+}
+
 function InviteDialog({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState("project_manager");
+  const [permissions, setPermissions] = useState<PermissionKey[]>([]);
 
   const send = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/developer/team/invites", {
       email: email.trim().toLowerCase(),
       inviteName: inviteName.trim() || undefined,
       inviteRole,
+      permissions,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/team"] });
@@ -314,15 +427,16 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
       onClose();
       setEmail("");
       setInviteName("");
+      setPermissions([]);
     },
     onError: (err: any) => toast(toastFromError(err, "Failed to send invite")),
   });
 
   return (
-    <DialogContent className="sm:max-w-md">
+    <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Invite a teammate</DialogTitle>
-        <DialogDescription>They'll receive an email with a link to join your developer workspace.</DialogDescription>
+        <DialogDescription>Pick their role and exactly which areas of the workspace they can access.</DialogDescription>
       </DialogHeader>
       <form
         onSubmit={(e) => {
@@ -358,7 +472,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div>
-          <Label>Role label</Label>
+          <Label>Role</Label>
           <Select value={inviteRole} onValueChange={setInviteRole}>
             <SelectTrigger data-testid="select-invite-role">
               <SelectValue />
@@ -368,11 +482,15 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
               <SelectItem value="sales">Sales</SelectItem>
               <SelectItem value="finance">Finance</SelectItem>
               <SelectItem value="operations">Operations</SelectItem>
+              <SelectItem value="construction">Construction lead</SelectItem>
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-slate-500 mt-1">Just a label — all teammates have the same access.</p>
+          <p className="text-xs text-slate-500 mt-1">A label for your records. Real access comes from the permissions below.</p>
         </div>
+
+        <PermissionGrid selected={permissions} onChange={setPermissions} />
+
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={send.isPending} data-testid="button-send-invite">
@@ -381,5 +499,52 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+function EditPermissionsDialog({
+  member, onClose,
+}: {
+  member: TeamMember;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [permissions, setPermissions] = useState<PermissionKey[]>(
+    (member.permissions || []).filter((p): p is PermissionKey =>
+      ALL_PERMISSION_KEYS.includes(p as PermissionKey)
+    )
+  );
+
+  const save = useMutation({
+    mutationFn: async () =>
+      apiRequest("PATCH", `/api/developer/team/members/${member.id}/permissions`, { permissions }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/team"] });
+      toast({ title: "Permissions updated" });
+      onClose();
+    },
+    onError: (err: any) => toast(toastFromError(err, "Failed to update permissions")),
+  });
+
+  const memberName = `${member.firstName || ""} ${member.lastName || ""}`.trim() || member.email;
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit access for {memberName}</DialogTitle>
+          <DialogDescription>Change which areas of the workspace this teammate can see and manage.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <PermissionGrid selected={permissions} onChange={setPermissions} />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="button-save-permissions">
+            {save.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

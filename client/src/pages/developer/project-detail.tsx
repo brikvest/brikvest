@@ -59,12 +59,12 @@ const UPDATE_TYPE: Record<string, { label: string; className: string }> = {
 };
 
 const TAB_ITEMS = [
-  { value: "overview",     label: "Overview",       short: "Overview", icon: BarChart3 },
-  { value: "fundraising",  label: "Fundraising",    short: "Funding",  icon: TrendingUp },
-  { value: "construction", label: "Construction",   short: "Build",    icon: Hammer },
-  { value: "sales",        label: "Sales",          short: "Sales",    icon: Building2 },
-  { value: "captable",     label: "Cap Table",      short: "Cap",      icon: Users },
-  { value: "comms",        label: "Communications", short: "Comms",    icon: Mail },
+  { value: "overview",     label: "Overview",       short: "Overview", icon: BarChart3,    requires: null },
+  { value: "fundraising",  label: "Fundraising",    short: "Funding",  icon: TrendingUp,   requires: "fundraising" },
+  { value: "construction", label: "Construction",   short: "Build",    icon: Hammer,       requires: "construction" },
+  { value: "sales",        label: "Sales",          short: "Sales",    icon: Building2,    requires: "sales" },
+  { value: "captable",     label: "Cap Table",      short: "Cap",      icon: Users,        requires: "cap_table" },
+  { value: "comms",        label: "Communications", short: "Comms",    icon: Mail,         requires: "comms" },
 ] as const;
 
 function fmt(currency: string | null | undefined, amount: number | string) {
@@ -87,6 +87,11 @@ export default function DeveloperProjectDetail() {
   // the API is used for cache keys and any places that need a stable handle.
   const projectKey = params?.id || "";
   const [tab, setTab] = useState("overview");
+
+  const { data: me } = useQuery<any>({ queryKey: ["/api/developer/me"] });
+  const isOwner = !!me?.isOwner;
+  const myPermissions: string[] = Array.isArray(me?.permissions) ? me.permissions : [];
+  const visibleTabs = TAB_ITEMS.filter((t) => !t.requires || isOwner || myPermissions.includes(t.requires));
 
   const { data: project, isLoading } = useQuery<any>({
     queryKey: ["/api/developer/projects", projectKey],
@@ -149,7 +154,7 @@ export default function DeveloperProjectDetail() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TAB_ITEMS.map((t) => (
+              {visibleTabs.map((t) => (
                 <SelectItem key={t.value} value={t.value} data-testid={`tab-mobile-${t.value}`}>
                   <span className="inline-flex items-center">
                     <t.icon className="w-4 h-4 mr-2 text-slate-500" />
@@ -163,9 +168,10 @@ export default function DeveloperProjectDetail() {
 
         {/* Tablet+ : tab strip — equal-width grid so labels never crowd */}
         <TabsList
-          className="hidden md:grid w-full grid-cols-6 bg-white border border-slate-200 p-1 h-auto"
+          className="hidden md:grid w-full bg-white border border-slate-200 p-1 h-auto"
+          style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}
         >
-          {TAB_ITEMS.map((t) => (
+          {visibleTabs.map((t) => (
             <TabsTrigger
               key={t.value}
               value={t.value}
@@ -180,11 +186,11 @@ export default function DeveloperProjectDetail() {
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>
-        <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>
-        <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>
-        <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>
+        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "construction") && <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "sales")        && <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "captable")     && <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "comms")        && <TabsContent value="comms"><CommunicationsTab projectId={projectId} project={project} /></TabsContent>}
       </Tabs>
     </DeveloperLayout>
   );
@@ -226,6 +232,8 @@ function OverviewTab({ project, rollup }: { project: any; rollup: any }) {
         <StatCard icon={Building2} label="Units sold" value={`${rollup?.sales?.investorUnits || 0} / ${rollup?.sales?.totalUnits || 0}`} sub={`${rollup?.sales?.availableUnits || 0} available`} />
       </div>
 
+      <FundingModelCard project={project} />
+
       <Card>
         <CardHeader>
           <CardTitle>Project description</CardTitle>
@@ -234,6 +242,90 @@ function OverviewTab({ project, rollup }: { project: any; rollup: any }) {
           <p className="text-slate-700 whitespace-pre-wrap" data-testid="text-description">{project.description}</p>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function FundingModelCard({ project }: { project: any }) {
+  const FUNDING_LABELS: Record<string, { label: string; tone: string; blurb: string }> = {
+    equity:       { label: "Equity / Co-ownership", tone: "bg-blue-100 text-blue-700",       blurb: "Investors own a fractional share of the SPV." },
+    fixed_return: { label: "Fixed return",          tone: "bg-emerald-100 text-emerald-700", blurb: "You've committed a fixed % return to investors." },
+    profit_share: { label: "Profit share",          tone: "bg-purple-100 text-purple-700",   blurb: "Investors share a % of net profit at exit." },
+    loan:         { label: "Loan / Debt",           tone: "bg-amber-100 text-amber-700",     blurb: "Capital is repaid with interest at the end of the term." },
+    hybrid:       { label: "Hybrid",                tone: "bg-indigo-100 text-indigo-700",   blurb: "Combined model — see funding notes for details." },
+    self_funded:  { label: "Self-funded",           tone: "bg-slate-100 text-slate-600",     blurb: "No external investors on this project." },
+  };
+  const PAYOUT: Record<string, string> = {
+    on_exit: "On exit", lump_sum: "Lump sum", monthly: "Monthly", quarterly: "Quarterly", annually: "Annually",
+  };
+  const EXIT: Record<string, string> = {
+    sale: "Sale at completion", land_appreciation: "Land appreciation", rental_income: "Rental income",
+    buyback: "Developer buyback", refinance: "Refinance", other: "Other",
+  };
+  const PERIOD: Record<string, string> = {
+    annual: "p.a.", project_lifetime: "total", monthly: "per month", quarterly: "per quarter",
+  };
+  const fundingType = project.fundingType || "equity";
+  const meta = FUNDING_LABELS[fundingType] || FUNDING_LABELS.equity;
+  const isSelfFunded = fundingType === "self_funded" || project.acceptsExternalInvestors === false;
+
+  const returnText = project.expectedReturnPercent
+    ? `${parseFloat(project.expectedReturnPercent).toLocaleString()}% ${PERIOD[project.returnPeriod || "annual"] || ""}`.trim()
+    : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle>Funding model</CardTitle>
+          <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full ${meta.tone}`} data-testid="badge-funding-type">
+            {meta.label}
+          </span>
+        </div>
+        <p className="text-sm text-slate-500 mt-1">{meta.blurb}</p>
+      </CardHeader>
+      <CardContent>
+        {isSelfFunded ? (
+          <p className="text-sm text-slate-600">
+            This project isn't accepting external investors. You can still track milestones, photos, and updates here.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {returnText && (
+              <FundingMetric label="Expected return" value={returnText} />
+            )}
+            {project.investmentTermMonths && (
+              <FundingMetric label="Investment term" value={`${project.investmentTermMonths} mo`} />
+            )}
+            {project.payoutFrequency && (
+              <FundingMetric label="Payout" value={PAYOUT[project.payoutFrequency] || project.payoutFrequency} />
+            )}
+            {project.exitStrategy && (
+              <FundingMetric label="Exit / earnings" value={EXIT[project.exitStrategy] || project.exitStrategy} />
+            )}
+            {!returnText && !project.investmentTermMonths && !project.payoutFrequency && !project.exitStrategy && (
+              <div className="col-span-full text-sm text-slate-500">
+                No detailed return terms set. Edit the project to add them.
+              </div>
+            )}
+          </div>
+        )}
+        {project.fundingNotes && (
+          <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3">
+            <div className="text-xs font-semibold text-slate-700 mb-1">Funding notes</div>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">{project.fundingNotes}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FundingMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+      <div className="text-base font-semibold text-slate-900 mt-0.5">{value}</div>
     </div>
   );
 }
