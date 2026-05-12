@@ -6236,6 +6236,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
+        // Funding model
+        fundingType: body.fundingType || "equity",
+        acceptsExternalInvestors: body.acceptsExternalInvestors !== false,
+        expectedReturnPercent: body.expectedReturnPercent !== undefined && body.expectedReturnPercent !== null && body.expectedReturnPercent !== ""
+          ? String(body.expectedReturnPercent)
+          : null,
+        returnPeriod: body.returnPeriod || null,
+        investmentTermMonths: body.investmentTermMonths !== undefined && body.investmentTermMonths !== null && body.investmentTermMonths !== ""
+          ? Number(body.investmentTermMonths)
+          : null,
+        payoutFrequency: body.payoutFrequency || null,
+        exitStrategy: body.exitStrategy || null,
+        fundingNotes: body.fundingNotes || null,
       };
       const property = await storage.createProperty(newProperty);
       res.status(201).json(property);

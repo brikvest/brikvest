@@ -129,6 +129,24 @@ export const properties = pgTable("properties", {
   spvName: text("spv_name"),
   city: text("city"), // City for SPV generation (e.g., Abuja, Lagos)
   district: text("district"), // District/area for SPV generation (e.g., Guzape, Lekki)
+
+  // Funding model — how this project is being funded and how investors are rewarded.
+  // Captured during project creation so the platform knows what to show investors and
+  // what return/repayment terms the developer is committing to.
+  // 'equity'        - Investors own a fractional share; returns from sale/appreciation/rental.
+  // 'fixed_return'  - Developer guarantees a fixed % return (very common in NG real estate).
+  // 'profit_share'  - Investors get a defined % of net profit at exit.
+  // 'loan'          - Investors lend capital for a fixed term + interest, no ownership.
+  // 'hybrid'        - A mix (e.g. base fixed return + upside profit share).
+  // 'self_funded'   - No external investors needed; developer is funding the project.
+  fundingType: text("funding_type").notNull().default("equity"),
+  acceptsExternalInvestors: boolean("accepts_external_investors").notNull().default(true),
+  expectedReturnPercent: decimal("expected_return_percent", { precision: 6, scale: 2 }), // e.g. 22.50 (%)
+  returnPeriod: text("return_period"), // 'annual' | 'project_lifetime' | 'monthly' | 'quarterly'
+  investmentTermMonths: integer("investment_term_months"), // Lock-up duration for fixed_return/loan
+  payoutFrequency: text("payout_frequency"), // 'lump_sum' | 'monthly' | 'quarterly' | 'annually' | 'on_exit'
+  exitStrategy: text("exit_strategy"), // 'sale' | 'buyback' | 'refinance' | 'rental_income' | 'land_appreciation' | 'other'
+  fundingNotes: text("funding_notes"), // Free-form: payment plans, milestones, special terms
   
   // Land/title registration metadata (legacy columns preserved)
   firstOwnerName: text("first_owner_name"),
