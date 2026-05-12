@@ -17,6 +17,7 @@ import {
   PieChart, TrendingUp, Banknote, Coins, Wallet, Plus, Trash2,
 } from "lucide-react";
 import HelpTip from "@/components/developer/HelpTip";
+import { FileUpload } from "@/components/FileUpload";
 
 const STEPS = [
   { id: 1, label: "Basics" },
@@ -601,15 +602,20 @@ export default function NewProjectWizard() {
                 <Label>Investment thesis</Label>
                 <Textarea value={form.investmentDetails} onChange={u("investmentDetails")} rows={4} placeholder="Expected returns, exit strategy, comparables…" data-testid="input-investment-details" />
               </div>
-              <div>
-                <Label>Cover image URL *</Label>
-                <Input value={form.imageUrl} onChange={u("imageUrl")} placeholder="https://res.cloudinary.com/…" data-testid="input-image-url" />
-                <p className="text-xs text-slate-500 mt-1">Paste a publicly hosted image URL (Cloudinary or other).</p>
-              </div>
-              <div>
-                <Label>Video URL</Label>
-                <Input value={form.videoUrl} onChange={u("videoUrl")} placeholder="https://…" data-testid="input-video-url" />
-              </div>
+              <FileUpload
+                label="Cover image *"
+                uploadType="image"
+                accept="image/*"
+                currentFile={form.imageUrl}
+                onUploadSuccess={(url) => setForm((f) => ({ ...f, imageUrl: url }))}
+              />
+              <FileUpload
+                label="Video (optional)"
+                uploadType="video"
+                accept="video/*"
+                currentFile={form.videoUrl}
+                onUploadSuccess={(url) => setForm((f) => ({ ...f, videoUrl: url }))}
+              />
               <div>
                 <Label>Developer notes (private)</Label>
                 <Textarea value={form.developerNotes} onChange={u("developerNotes")} rows={3} placeholder="Internal notes. Not shown to investors." data-testid="input-developer-notes" />
