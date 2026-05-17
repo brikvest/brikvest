@@ -7172,6 +7172,341 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // Construction Budget & Vendors
+  // ============================================================================
+
+  // Aggregated budget rollup: totals, per-stage spend, per-vendor spend, monthly burn.
+  app.get("/api/developer/projects/:id/budget", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+
+      await storage.seedDefaultConstructionStages(propertyId);
+      const [stages, allVendors, allPayments] = await Promise.all([
+        storage.getConstructionStagesByProperty(propertyId),
+        storage.getVendorsByProperty(propertyId),
+        storage.getVendorPaymentsByProperty(propertyId),
+      ]);
+
+      const num = (v: any) => (v === null || v === undefined ? 0 : Number(v) || 0);
+      const totalBudget = num((property as any).totalBudget);
+
+      // Per-vendor rollup with contract + paid + outstanding
+      const paidByVendor = new Map<number, number>();
+      for (const p of allPayments) paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) || 0) + num(p.amount));
+      const vendorRollups = allVendors.map(v => {
+        const contract = num(v.contractAmount);
+        const paid = paidByVendor.get(v.id) || 0;
+        return {
+          id: v.id,
+          name: v.name,
+          workCategory: v.workCategory || null,
+          stageId: v.stageId || null,
+          currency: v.currency,
+          contractAmount: contract,
+          paid,
+          outstanding: Math.max(contract - paid, 0),
+          status: v.status,
+        };
+      });
+
+      // Per-stage rollup
+      const vendorsByStage = new Map<number | null, typeof vendorRollups>();
+      for (const v of vendorRollups) {
+        const k = v.stageId ?? null;
+        if (!vendorsByStage.has(k)) vendorsByStage.set(k, []);
+        vendorsByStage.get(k)!.push(v);
+      }
+      const stageRollups = stages.map(s => {
+        const vs = vendorsByStage.get(s.id) || [];
+        const stageContract = vs.reduce((a, b) => a + b.contractAmount, 0);
+        const stageSpent = vs.reduce((a, b) => a + b.paid, 0);
+        return {
+          stageId: s.id,
+          stageKey: s.stageKey,
+          name: s.name,
+          sortOrder: s.sortOrder,
+          budgetAmount: num((s as any).budgetAmount),
+          vendorContract: stageContract,
+          spent: stageSpent,
+          outstanding: Math.max(stageContract - stageSpent, 0),
+          vendorCount: vs.length,
+        };
+      });
+      // "Unassigned" bucket for vendors with no stage
+      const unassigned = vendorsByStage.get(null) || [];
+      if (unassigned.length > 0) {
+        const c = unassigned.reduce((a, b) => a + b.contractAmount, 0);
+        const s = unassigned.reduce((a, b) => a + b.paid, 0);
+        stageRollups.push({
+          stageId: null as any,
+          stageKey: "unassigned",
+          name: "Unassigned",
+          sortOrder: 999,
+          budgetAmount: 0,
+          vendorContract: c,
+          spent: s,
+          outstanding: Math.max(c - s, 0),
+          vendorCount: unassigned.length,
+        });
+      }
+
+      const totalContract = vendorRollups.reduce((a, b) => a + b.contractAmount, 0);
+      const totalSpent = vendorRollups.reduce((a, b) => a + b.paid, 0);
+      const totalOutstanding = Math.max(totalContract - totalSpent, 0);
+
+      // Monthly cumulative burn (last 12 months)
+      const months: { ym: string; spent: number; cumulative: number }[] = [];
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        months.push({ ym, spent: 0, cumulative: 0 });
+      }
+      // Sum payments that happened before each month-end (cumulative)
+      let priorCumulative = 0;
+      for (const p of allPayments) {
+        if (!p.paidAt) continue;
+        const d = new Date(p.paidAt);
+        if (d < start) { priorCumulative += num(p.amount); continue; }
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const slot = months.find(m => m.ym === ym);
+        if (slot) slot.spent += num(p.amount);
+      }
+      let running = priorCumulative;
+      for (const m of months) { running += m.spent; m.cumulative = running; }
+
+      // Required burn rate to hit totalBudget by plannedCompletionDate
+      let requiredMonthlyBurn: number | null = null;
+      if (totalBudget > 0 && (property as any).plannedCompletionDate) {
+        const end = new Date((property as any).plannedCompletionDate);
+        const monthsLeft = Math.max(
+          1,
+          (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth()),
+        );
+        requiredMonthlyBurn = Math.max(0, (totalBudget - totalSpent) / monthsLeft);
+      }
+
+      res.json({
+        currency: (property as any).currency || "NGN",
+        totalBudget,
+        totalContract,
+        totalSpent,
+        totalOutstanding,
+        remaining: Math.max(totalBudget - totalSpent, 0),
+        plannedCompletionDate: (property as any).plannedCompletionDate || null,
+        stages: stageRollups,
+        vendors: vendorRollups,
+        monthlyBurn: months,
+        requiredMonthlyBurn,
+      });
+    } catch (err) {
+      console.error("Failed to compute budget rollup:", err);
+      res.status(500).json({ message: "Failed to compute budget rollup" });
+    }
+  });
+
+  // Vendors — list (with derived totals)
+  app.get("/api/developer/projects/:id/vendors", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const [vs, payments] = await Promise.all([
+        storage.getVendorsByProperty(propertyId),
+        storage.getVendorPaymentsByProperty(propertyId),
+      ]);
+      const paidByVendor = new Map<number, number>();
+      for (const p of payments) paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) || 0) + Number(p.amount || 0));
+      const enriched = vs.map(v => {
+        const contract = Number(v.contractAmount || 0);
+        const paid = paidByVendor.get(v.id) || 0;
+        return { ...v, paid, outstanding: Math.max(contract - paid, 0) };
+      });
+      res.json(enriched);
+    } catch (err) {
+      console.error("Failed to list vendors:", err);
+      res.status(500).json({ message: "Failed to list vendors" });
+    }
+  });
+
+  // Vendors — create
+  app.post("/api/developer/projects/:id/vendors", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const body = req.body || {};
+      const name = String(body.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Vendor name is required" });
+      const stageId = body.stageId === null || body.stageId === undefined || body.stageId === "" ? null : Number(body.stageId);
+      if (stageId !== null && !Number.isInteger(stageId)) return res.status(400).json({ message: "Invalid stageId" });
+      const contractAmount = body.contractAmount === undefined || body.contractAmount === null || body.contractAmount === ""
+        ? "0"
+        : String(Number(body.contractAmount) || 0);
+      const created = await storage.createVendor({
+        propertyId,
+        stageId,
+        name,
+        workCategory: body.workCategory ? String(body.workCategory).trim() : null,
+        contractAmount,
+        currency: String(body.currency || (property as any).currency || "NGN"),
+        contactName: body.contactName ? String(body.contactName).trim() : null,
+        contactPhone: body.contactPhone ? String(body.contactPhone).trim() : null,
+        contactEmail: body.contactEmail ? String(body.contactEmail).trim() : null,
+        notes: body.notes ? String(body.notes) : null,
+        status: "active",
+      } as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      console.error("Failed to create vendor:", err);
+      res.status(500).json({ message: err?.message || "Failed to create vendor" });
+    }
+  });
+
+  // Vendors — update
+  app.patch("/api/developer/projects/:id/vendors/:vendorId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      if (!Number.isInteger(vendorId)) return res.status(400).json({ message: "Invalid vendorId" });
+      const existing = await storage.getVendor(vendorId);
+      if (!existing || existing.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+
+      const body = req.body || {};
+      const updates: any = {};
+      if (body.name !== undefined) updates.name = String(body.name).trim() || existing.name;
+      if (body.workCategory !== undefined) updates.workCategory = body.workCategory ? String(body.workCategory).trim() : null;
+      if (body.contractAmount !== undefined) updates.contractAmount = String(Number(body.contractAmount) || 0);
+      if (body.currency !== undefined) updates.currency = String(body.currency);
+      if (body.contactName !== undefined) updates.contactName = body.contactName ? String(body.contactName).trim() : null;
+      if (body.contactPhone !== undefined) updates.contactPhone = body.contactPhone ? String(body.contactPhone).trim() : null;
+      if (body.contactEmail !== undefined) updates.contactEmail = body.contactEmail ? String(body.contactEmail).trim() : null;
+      if (body.notes !== undefined) updates.notes = body.notes ? String(body.notes) : null;
+      if (body.status !== undefined) {
+        const allowed = ["active", "completed", "cancelled"];
+        if (!allowed.includes(body.status)) return res.status(400).json({ message: "Invalid status" });
+        updates.status = body.status;
+      }
+      if (body.stageId !== undefined) {
+        const sid = body.stageId === null || body.stageId === "" ? null : Number(body.stageId);
+        if (sid !== null && !Number.isInteger(sid)) return res.status(400).json({ message: "Invalid stageId" });
+        updates.stageId = sid;
+      }
+      const updated = await storage.updateVendor(vendorId, updates);
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Failed to update vendor:", err);
+      res.status(500).json({ message: err?.message || "Failed to update vendor" });
+    }
+  });
+
+  // Vendors — delete (cascades payments)
+  app.delete("/api/developer/projects/:id/vendors/:vendorId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const existing = await storage.getVendor(vendorId);
+      if (!existing || existing.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+      await storage.deleteVendor(vendorId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to delete vendor:", err);
+      res.status(500).json({ message: "Failed to delete vendor" });
+    }
+  });
+
+  // Vendor payments — list for one vendor
+  app.get("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor || vendor.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+      const payments = await storage.getVendorPaymentsByVendor(vendorId);
+      res.json(payments);
+    } catch (err) {
+      console.error("Failed to list payments:", err);
+      res.status(500).json({ message: "Failed to list payments" });
+    }
+  });
+
+  // Vendor payments — create
+  app.post("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor || vendor.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+
+      const body = req.body || {};
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "Amount must be a positive number" });
+      const paidAt = body.paidAt ? new Date(body.paidAt) : new Date();
+      if (Number.isNaN(paidAt.getTime())) return res.status(400).json({ message: "Invalid paidAt date" });
+
+      const method = body.method ? String(body.method) : null;
+      const allowedMethods = ["bank_transfer", "cash", "cheque", "card", "other"];
+      if (method && !allowedMethods.includes(method)) return res.status(400).json({ message: "Invalid method" });
+
+      const created = await storage.createVendorPayment({
+        vendorId,
+        propertyId,
+        amount: String(amount),
+        currency: String(body.currency || vendor.currency || "NGN"),
+        paidAt,
+        method,
+        reference: body.reference ? String(body.reference).trim() : null,
+        proofUrl: body.proofUrl ? String(body.proofUrl) : null,
+        proofType: body.proofType ? String(body.proofType) : null,
+        notes: body.notes ? String(body.notes) : null,
+        createdByUserId: (req.user as any)?.id || null,
+      } as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      console.error("Failed to record payment:", err);
+      res.status(500).json({ message: err?.message || "Failed to record payment" });
+    }
+  });
+
+  // Vendor payments — delete one
+  app.delete("/api/developer/projects/:id/payments/:paymentId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const paymentId = Number(req.params.paymentId);
+      if (!Number.isInteger(paymentId)) return res.status(400).json({ message: "Invalid paymentId" });
+      // Verify the payment belongs to this project before deleting
+      const payments = await storage.getVendorPaymentsByProperty(propertyId);
+      if (!payments.some(p => p.id === paymentId)) return res.status(404).json({ message: "Payment not found" });
+      await storage.deleteVendorPayment(paymentId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to delete payment:", err);
+      res.status(500).json({ message: "Failed to delete payment" });
+    }
+  });
+
   // Milestones — list
   app.get("/api/developer/projects/:id/milestones", requireDeveloper, async (req: any, res) => {
     const propertyId = await resolveDevProjectId(req, res);

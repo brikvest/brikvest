@@ -24,9 +24,10 @@ import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
-  GripVertical, ImagePlus, X, UserPlus,
+  GripVertical, ImagePlus, X, UserPlus, Wallet, Receipt, FileText as FileTextIcon,
 } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, Area, CartesianGrid, ComposedChart } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, Area, CartesianGrid, ComposedChart, ReferenceLine } from "recharts";
+import { FileUpload } from "@/components/FileUpload";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -1363,6 +1364,10 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
         onSave={(updates) => editingStage && updateStageMutation.mutate({ id: editingStage.id, updates })}
         saving={updateStageMutation.isPending}
       />
+
+      {/* Budget & vendor tracking. The tab itself is only rendered to users with the
+          `construction` permission, so all mutations within are safe to expose. */}
+      <BudgetSection projectId={projectId} project={project} stages={sortedStages} />
 
       {/* Legacy: project status fields + free-form milestones, collapsed by default */}
       <Accordion type="single" collapsible>
@@ -3280,5 +3285,914 @@ function CommunicationsTab({ projectId, project }: { projectId: string | number;
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============================================================================
+// BUDGET & VENDOR TRACKING (Construction tab)
+// ============================================================================
+
+interface BudgetStageRow {
+  stageId: number | null;
+  stageKey: string;
+  name: string;
+  sortOrder: number;
+  budgetAmount: number;
+  vendorContract: number;
+  spent: number;
+  outstanding: number;
+  vendorCount: number;
+}
+interface BudgetVendorRow {
+  id: number;
+  name: string;
+  workCategory: string | null;
+  stageId: number | null;
+  currency: string;
+  contractAmount: number;
+  paid: number;
+  outstanding: number;
+  status: string;
+}
+interface BudgetRollup {
+  currency: string;
+  totalBudget: number;
+  totalContract: number;
+  totalSpent: number;
+  totalOutstanding: number;
+  remaining: number;
+  plannedCompletionDate: string | null;
+  stages: BudgetStageRow[];
+  vendors: BudgetVendorRow[];
+  monthlyBurn: { ym: string; spent: number; cumulative: number }[];
+  requiredMonthlyBurn: number | null;
+}
+
+const STAGE_COLORS = [
+  "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6",
+  "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#64748b",
+];
+
+function fmtMoney(currency: string, n: number): string {
+  return `${currency} ${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function BudgetSection({
+  projectId, project, stages,
+}: {
+  projectId: string | number;
+  project: any;
+  stages: any[];
+}) {
+  const { toast } = useToast();
+  const currency: string = project?.currency || "NGN";
+
+  const { data: budget, isLoading: budgetLoading } = useQuery<BudgetRollup>({
+    queryKey: ["/api/developer/projects", projectId, "budget"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/budget`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const { data: vendors } = useQuery<BudgetVendorRow[]>({
+    queryKey: ["/api/developer/projects", projectId, "vendors"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/vendors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const { data: rates } = useQuery<any>({ queryKey: ["/api/exchange-rates"] });
+
+  // Inline edit for project's totalBudget
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState<string>("");
+  useEffect(() => {
+    if (project?.totalBudget != null) setBudgetInput(String(project.totalBudget));
+  }, [project?.totalBudget]);
+
+  const saveBudget = useMutation({
+    mutationFn: async (value: number | null) =>
+      apiRequest("PATCH", `/api/developer/projects/${projectId}`, { totalBudget: value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      setEditingBudget(false);
+      toast({ title: "Total budget saved" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to save total budget")),
+  });
+
+  const [addVendorStageId, setAddVendorStageId] = useState<number | null | "open">(null);
+  const [vendorDetail, setVendorDetail] = useState<BudgetVendorRow | null>(null);
+
+  // Convert project-currency amount to the three display currencies using
+  // /api/exchange-rates (rates are USD-based). Skip if rates not loaded yet.
+  function toEquivalents(amount: number): { NGN: number; USD: number; GBP: number } | null {
+    if (!rates?.rates) return null;
+    const fromRate = currency === "USD" ? 1 : rates.rates[currency];
+    const ngnRate = rates.rates["NGN"];
+    const gbpRate = rates.rates["GBP"];
+    if (!fromRate || !ngnRate || !gbpRate) return null;
+    const usd = amount / fromRate;
+    return { USD: usd, NGN: usd * ngnRate, GBP: usd * gbpRate };
+  }
+
+  const totalBudget = budget?.totalBudget ?? 0;
+  const totalSpent = budget?.totalSpent ?? 0;
+  const remaining = Math.max(totalBudget - totalSpent, 0);
+  const overspent = totalBudget > 0 && totalSpent > totalBudget;
+
+  // Per-stage vendor groupings for the cards
+  const vendorsByStageId = new Map<number | null, BudgetVendorRow[]>();
+  for (const v of vendors || []) {
+    const k = v.stageId ?? null;
+    if (!vendorsByStageId.has(k)) vendorsByStageId.set(k, []);
+    vendorsByStageId.get(k)!.push(v);
+  }
+
+  // Chart data: Budget vs Actual (per stage)
+  const budgetVsActualData = (budget?.stages || []).map(s => ({
+    name: s.name.length > 12 ? s.name.slice(0, 12) + "…" : s.name,
+    Budget: s.vendorContract,
+    Spent: s.spent,
+  }));
+
+  // Chart data: Cost Breakdown donut (spend share per stage)
+  const costBreakdownData = (budget?.stages || [])
+    .filter(s => s.spent > 0)
+    .map(s => ({ name: s.name, value: s.spent }));
+
+  // Chart data: Vendor spend (horizontal stacked: paid + outstanding)
+  const vendorSpendData = (budget?.vendors || [])
+    .slice()
+    .sort((a, b) => b.contractAmount - a.contractAmount)
+    .slice(0, 10)
+    .map(v => ({
+      name: v.name.length > 18 ? v.name.slice(0, 18) + "…" : v.name,
+      Paid: v.paid,
+      Outstanding: v.outstanding,
+    }));
+
+  // Chart data: monthly burn line
+  const burnData = (budget?.monthlyBurn || []).map(m => {
+    const [y, mo] = m.ym.split("-");
+    const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleString(undefined, { month: "short", year: "2-digit" });
+    return { name: label, Cumulative: m.cumulative, Monthly: m.spent };
+  });
+
+  const equivalents = toEquivalents(totalBudget);
+  const spentEq = toEquivalents(totalSpent);
+  const remainingEq = toEquivalents(remaining);
+
+  return (
+    <Card className="border-blue-100" data-testid="card-budget-section">
+      <CardHeader>
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-blue-600" /> Budget & vendors</CardTitle>
+            <CardDescription>Track total construction budget, vendor contracts, and payments with proof of payment.</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* KPI cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Total budget */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-total-budget">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs uppercase text-slate-500">Total budget</div>
+              {!editingBudget && (
+                <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => setEditingBudget(true)} data-testid="button-edit-total-budget">
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+            {editingBudget ? (
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  type="number"
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  className="h-8 text-sm"
+                  placeholder="0"
+                  data-testid="input-total-budget"
+                />
+                <Button
+                  size="sm"
+                  className="h-8 bg-blue-600 hover:bg-blue-700"
+                  disabled={saveBudget.isPending}
+                  onClick={() => {
+                    const v = budgetInput === "" ? null : Number(budgetInput);
+                    if (v !== null && (!Number.isFinite(v) || v < 0)) {
+                      toast({ title: "Enter a valid amount", variant: "destructive" });
+                      return;
+                    }
+                    saveBudget.mutate(v);
+                  }}
+                  data-testid="button-save-total-budget"
+                >
+                  {saveBudget.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8" onClick={() => { setEditingBudget(false); setBudgetInput(project?.totalBudget != null ? String(project.totalBudget) : ""); }}>Cancel</Button>
+              </div>
+            ) : (
+              <div className="text-2xl font-bold text-slate-900 mt-1" data-testid="text-total-budget">
+                {fmtMoney(currency, totalBudget)}
+              </div>
+            )}
+            {equivalents && totalBudget > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{equivalents.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${equivalents.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{equivalents.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+            {totalBudget === 0 && !editingBudget && (
+              <div className="text-xs text-slate-500 mt-1">Set a total to enable progress tracking.</div>
+            )}
+          </div>
+          {/* Total spent */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-total-spent">
+            <div className="text-xs uppercase text-slate-500">Total spent</div>
+            <div className={`text-2xl font-bold mt-1 ${overspent ? "text-red-600" : "text-slate-900"}`} data-testid="text-total-spent">
+              {fmtMoney(currency, totalSpent)}
+            </div>
+            {totalBudget > 0 && (
+              <Progress
+                value={Math.min(100, Math.round((totalSpent / totalBudget) * 100))}
+                className={`h-2 mt-2 ${overspent ? "[&>div]:bg-red-500" : ""}`}
+              />
+            )}
+            {spentEq && totalSpent > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{spentEq.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${spentEq.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{spentEq.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+          </div>
+          {/* Remaining */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-remaining">
+            <div className="text-xs uppercase text-slate-500">Remaining</div>
+            <div className={`text-2xl font-bold mt-1 ${overspent ? "text-red-600" : "text-emerald-700"}`} data-testid="text-remaining">
+              {overspent ? `−${fmtMoney(currency, totalSpent - totalBudget)}` : fmtMoney(currency, remaining)}
+            </div>
+            {overspent && <div className="text-xs text-red-600 mt-1">Over budget</div>}
+            {remainingEq && remaining > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{remainingEq.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${remainingEq.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{remainingEq.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Charts: 2x2 grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Budget vs Actual Spend (per stage)</CardTitle></CardHeader>
+            <CardContent>
+              {budgetVsActualData.length === 0 || budgetVsActualData.every(d => d.Budget === 0 && d.Spent === 0) ? (
+                <EmptyChart message="Add vendor contracts and record payments to see budget vs actual." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={budgetVsActualData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Budget" fill="#93c5fd" />
+                    <Bar dataKey="Spent" fill="#3b82f6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Cost Breakdown by Stage</CardTitle></CardHeader>
+            <CardContent>
+              {costBreakdownData.length === 0 ? (
+                <EmptyChart message="No spend recorded yet across construction stages." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie data={costBreakdownData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                      {costBreakdownData.map((_, i) => <Cell key={i} fill={STAGE_COLORS[i % STAGE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Vendor / Subcontractor Spend</CardTitle></CardHeader>
+            <CardContent>
+              {vendorSpendData.length === 0 ? (
+                <EmptyChart message="Add vendors and contract amounts to see spend by vendor." />
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(240, vendorSpendData.length * 32 + 40)}>
+                  <BarChart layout="vertical" data={vendorSpendData} margin={{ left: 8, right: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Paid" stackId="contract" fill="#3b82f6" />
+                    <Bar dataKey="Outstanding" stackId="contract" fill="#fbbf24" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Burn Rate (last 12 months)</CardTitle></CardHeader>
+            <CardContent>
+              {burnData.length === 0 || burnData.every(d => d.Cumulative === 0) ? (
+                <EmptyChart message="No payments recorded yet. Record vendor payments to see your burn rate." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={burnData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line type="monotone" dataKey="Cumulative" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                    {budget?.requiredMonthlyBurn != null && budget.requiredMonthlyBurn > 0 && (
+                      <ReferenceLine
+                        y={(budget.requiredMonthlyBurn || 0) * 12}
+                        stroke="#10b981"
+                        strokeDasharray="4 4"
+                        label={{ value: "Target pace", fill: "#059669", fontSize: 10, position: "insideTopRight" }}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              {budget?.requiredMonthlyBurn != null && (
+                <div className="text-xs text-slate-500 mt-2">
+                  To finish by {budget.plannedCompletionDate ? new Date(budget.plannedCompletionDate).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "the planned completion date"}, average monthly burn needed: <span className="font-medium text-slate-900">{fmtMoney(currency, budget.requiredMonthlyBurn)}</span>.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Per-stage vendor cards */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-slate-900">Vendors by stage</h3>
+            <Button size="sm" variant="outline" onClick={() => setAddVendorStageId("open")} data-testid="button-add-vendor-top">
+              <Plus className="w-4 h-4 mr-1" /> Add vendor
+            </Button>
+          </div>
+          {budgetLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map(i => <div key={i} className="h-32 bg-slate-100 rounded animate-pulse" />)}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {stages.map((s) => {
+                const stageVendors = vendorsByStageId.get(s.id) || [];
+                const stageContract = stageVendors.reduce((a, v) => a + v.contractAmount, 0);
+                const stagePaid = stageVendors.reduce((a, v) => a + v.paid, 0);
+                const pct = stageContract > 0 ? Math.round((stagePaid / stageContract) * 100) : 0;
+                return (
+                  <div key={s.id} className="border rounded-lg p-3 bg-white" data-testid={`stage-budget-card-${s.stageKey}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <div className="font-medium text-slate-900">{s.name}</div>
+                        <div className="text-xs text-slate-500">{stageVendors.length} vendor{stageVendors.length === 1 ? "" : "s"}</div>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => setAddVendorStageId(s.id)} data-testid={`button-add-vendor-${s.stageKey}`}>
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Add
+                      </Button>
+                    </div>
+                    {stageContract > 0 && (
+                      <div className="mb-2">
+                        <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                          <span>{fmtMoney(currency, stagePaid)} / {fmtMoney(currency, stageContract)}</span>
+                          <span className="font-medium">{pct}%</span>
+                        </div>
+                        <Progress value={pct} className="h-1.5" />
+                      </div>
+                    )}
+                    {stageVendors.length === 0 ? (
+                      <div className="text-xs text-slate-400 italic py-2">No vendors yet.</div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {stageVendors.map(v => {
+                          const vp = v.contractAmount > 0 ? Math.round((v.paid / v.contractAmount) * 100) : 0;
+                          const status = v.outstanding === 0 && v.contractAmount > 0 ? "Paid" : v.paid > 0 ? "Partial" : "Unpaid";
+                          const statusCls = status === "Paid" ? "bg-emerald-100 text-emerald-700" : status === "Partial" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600";
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => setVendorDetail(v)}
+                              className="w-full text-left flex items-center justify-between gap-2 p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
+                              data-testid={`vendor-row-${v.id}`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium text-slate-900 truncate">{v.name}</div>
+                                <div className="text-xs text-slate-500 truncate">{v.workCategory || "—"}</div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-xs text-slate-700">{fmtMoney(currency, v.paid)} / {fmtMoney(currency, v.contractAmount)}</div>
+                                <Badge className={`${statusCls} text-xs mt-0.5`}>{status} • {vp}%</Badge>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </CardContent>
+
+      {/* Dialogs */}
+      <AddVendorDialog
+        open={addVendorStageId !== null}
+        defaultStageId={typeof addVendorStageId === "number" ? addVendorStageId : null}
+        stages={stages}
+        currency={currency}
+        projectId={projectId}
+        onClose={() => setAddVendorStageId(null)}
+      />
+      <VendorDetailDialog
+        vendor={vendorDetail}
+        stages={stages}
+        currency={currency}
+        projectId={projectId}
+        onClose={() => setVendorDetail(null)}
+      />
+    </Card>
+  );
+}
+
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="h-[240px] flex items-center justify-center text-center text-xs text-slate-500 px-6">
+      {message}
+    </div>
+  );
+}
+
+function AddVendorDialog({
+  open, defaultStageId, stages, currency, projectId, onClose,
+}: {
+  open: boolean;
+  defaultStageId: number | null;
+  stages: any[];
+  currency: string;
+  projectId: string | number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    name: "",
+    workCategory: "",
+    stageId: defaultStageId ? String(defaultStageId) : "",
+    contractAmount: "",
+    currency,
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (open) {
+      setForm(f => ({ ...f, stageId: defaultStageId ? String(defaultStageId) : "", currency }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultStageId]);
+
+  const create = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/vendors`, {
+      name: form.name,
+      workCategory: form.workCategory || null,
+      stageId: form.stageId ? Number(form.stageId) : null,
+      contractAmount: form.contractAmount ? Number(form.contractAmount) : 0,
+      currency: form.currency,
+      contactName: form.contactName || null,
+      contactPhone: form.contactPhone || null,
+      contactEmail: form.contactEmail || null,
+      notes: form.notes || null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor added" });
+      setForm({
+        name: "", workCategory: "", stageId: "", contractAmount: "", currency,
+        contactName: "", contactPhone: "", contactEmail: "", notes: "",
+      });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to add vendor")),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg" data-testid="dialog-add-vendor">
+        <DialogHeader>
+          <DialogTitle>Add vendor</DialogTitle>
+          <DialogDescription>Capture the contractor, their work scope, and contract value.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Vendor name *</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Acme Plumbing Ltd" data-testid="input-vendor-name" />
+            </div>
+            <div>
+              <Label>Work category</Label>
+              <Input value={form.workCategory} onChange={(e) => setForm({ ...form, workCategory: e.target.value })} placeholder="e.g. Plumbing, Architect" data-testid="input-vendor-category" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Construction stage</Label>
+              <Select value={form.stageId || "none"} onValueChange={(v) => setForm({ ...form, stageId: v === "none" ? "" : v })}>
+                <SelectTrigger data-testid="select-vendor-stage"><SelectValue placeholder="Select stage" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {stages.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Contract amount ({form.currency})</Label>
+              <Input type="number" value={form.contractAmount} onChange={(e) => setForm({ ...form, contractAmount: e.target.value })} placeholder="0" data-testid="input-vendor-contract" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Contact name</Label>
+              <Input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} data-testid="input-vendor-contact-name" />
+            </div>
+            <div>
+              <Label>Contact phone</Label>
+              <Input value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} data-testid="input-vendor-contact-phone" />
+            </div>
+          </div>
+          <div>
+            <Label>Contact email</Label>
+            <Input type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} data-testid="input-vendor-contact-email" />
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="textarea-vendor-notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={!form.name.trim() || create.isPending}
+            onClick={() => create.mutate()}
+            data-testid="button-save-vendor"
+          >
+            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+            Add vendor
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VendorDetailDialog({
+  vendor, stages, currency, projectId, onClose,
+}: {
+  vendor: BudgetVendorRow | null;
+  stages: any[];
+  currency: string;
+  projectId: string | number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [tab, setTab] = useState("details");
+  const [details, setDetails] = useState({
+    name: "", workCategory: "", stageId: "", contractAmount: "",
+    contactName: "", contactPhone: "", contactEmail: "", notes: "", status: "active",
+  });
+
+  useEffect(() => {
+    if (vendor) {
+      setDetails({
+        name: vendor.name,
+        workCategory: vendor.workCategory || "",
+        stageId: vendor.stageId ? String(vendor.stageId) : "",
+        contractAmount: String(vendor.contractAmount || 0),
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+        notes: "",
+        status: vendor.status || "active",
+      });
+      setTab("details");
+    }
+  }, [vendor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { data: payments } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"],
+    enabled: !!vendor?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/vendors/${vendor!.id}/payments`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const saveDetails = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/developer/projects/${projectId}/vendors/${vendor!.id}`, {
+      name: details.name,
+      workCategory: details.workCategory || null,
+      stageId: details.stageId ? Number(details.stageId) : null,
+      contractAmount: details.contractAmount ? Number(details.contractAmount) : 0,
+      status: details.status,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor updated" });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to update vendor")),
+  });
+
+  const deleteVendor = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/developer/projects/${projectId}/vendors/${vendor!.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor deleted" });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to delete vendor")),
+  });
+
+  // Add-payment form (lives inside the Payments tab)
+  const [payForm, setPayForm] = useState({
+    amount: "",
+    paidAt: new Date().toISOString().slice(0, 10),
+    method: "bank_transfer",
+    reference: "",
+    notes: "",
+    proofUrl: "",
+    proofType: "",
+  });
+  const resetPayForm = () => setPayForm({
+    amount: "", paidAt: new Date().toISOString().slice(0, 10), method: "bank_transfer",
+    reference: "", notes: "", proofUrl: "", proofType: "",
+  });
+
+  const addPayment = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/vendors/${vendor!.id}/payments`, {
+      amount: Number(payForm.amount),
+      paidAt: payForm.paidAt,
+      method: payForm.method,
+      reference: payForm.reference || null,
+      notes: payForm.notes || null,
+      proofUrl: payForm.proofUrl || null,
+      proofType: payForm.proofType || null,
+      currency,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Payment recorded" });
+      resetPayForm();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to record payment")),
+  });
+
+  const deletePayment = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/developer/projects/${projectId}/payments/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Payment deleted" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to delete payment")),
+  });
+
+  if (!vendor) return null;
+  const totalPaid = (payments || []).reduce((a, p) => a + Number(p.amount || 0), 0);
+  const contractValue = Number(details.contractAmount || 0);
+  const outstanding = Math.max(contractValue - totalPaid, 0);
+
+  return (
+    <Dialog open={!!vendor} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="dialog-vendor-detail">
+        <DialogHeader>
+          <DialogTitle>{vendor.name}</DialogTitle>
+          <DialogDescription>
+            {fmtMoney(currency, totalPaid)} paid of {fmtMoney(currency, contractValue)}
+            {outstanding > 0 && ` · ${fmtMoney(currency, outstanding)} outstanding`}
+          </DialogDescription>
+        </DialogHeader>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="grid grid-cols-2">
+            <TabsTrigger value="details" data-testid="tab-vendor-details">Details</TabsTrigger>
+            <TabsTrigger value="payments" data-testid="tab-vendor-payments">Payments ({(payments || []).length})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="details" className="space-y-3 mt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Vendor name</Label>
+                <Input value={details.name} onChange={(e) => setDetails({ ...details, name: e.target.value })} data-testid="input-detail-name" />
+              </div>
+              <div>
+                <Label>Work category</Label>
+                <Input value={details.workCategory} onChange={(e) => setDetails({ ...details, workCategory: e.target.value })} data-testid="input-detail-category" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Stage</Label>
+                <Select value={details.stageId || "none"} onValueChange={(v) => setDetails({ ...details, stageId: v === "none" ? "" : v })}>
+                  <SelectTrigger data-testid="select-detail-stage"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {stages.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Contract amount ({currency})</Label>
+                <Input type="number" value={details.contractAmount} onChange={(e) => setDetails({ ...details, contractAmount: e.target.value })} data-testid="input-detail-contract" />
+              </div>
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={details.status} onValueChange={(v) => setDetails({ ...details, status: v })}>
+                <SelectTrigger data-testid="select-detail-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-between pt-2">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" className="text-red-600 hover:text-red-700" data-testid="button-delete-vendor">
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete vendor
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes {vendor.name} and all {(payments || []).length} recorded payment(s). This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deleteVendor.mutate()}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <Button className="bg-blue-600 hover:bg-blue-700" disabled={saveDetails.isPending} onClick={() => saveDetails.mutate()} data-testid="button-save-detail">
+                {saveDetails.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                Save changes
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="payments" className="space-y-4 mt-4">
+            {/* Add-payment form */}
+            <div className="border rounded-lg p-3 bg-slate-50 space-y-3">
+              <div className="font-medium text-sm text-slate-900 flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-blue-600" /> Record a new payment
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Amount ({currency}) *</Label>
+                  <Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} placeholder="0" data-testid="input-payment-amount" />
+                </div>
+                <div>
+                  <Label className="text-xs">Paid date *</Label>
+                  <Input type="date" value={payForm.paidAt} onChange={(e) => setPayForm({ ...payForm, paidAt: e.target.value })} data-testid="input-payment-date" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Method</Label>
+                  <Select value={payForm.method} onValueChange={(v) => setPayForm({ ...payForm, method: v })}>
+                    <SelectTrigger data-testid="select-payment-method"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Reference</Label>
+                  <Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} placeholder="Transfer ID, cheque #, etc." data-testid="input-payment-reference" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Notes</Label>
+                <Textarea rows={2} value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} data-testid="textarea-payment-notes" />
+              </div>
+              <div>
+                <FileUpload
+                  label="Proof of payment (receipt, transfer slip, etc.)"
+                  uploadType={payForm.proofType === "pdf" ? "document" : "image"}
+                  accept="image/*,application/pdf"
+                  currentFile={payForm.proofUrl || undefined}
+                  onUploadSuccess={(url, name) => {
+                    const isPdf = (name || url).toLowerCase().endsWith(".pdf");
+                    setPayForm(f => ({ ...f, proofUrl: url, proofType: url ? (isPdf ? "pdf" : "image") : "" }));
+                  }}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={!payForm.amount || Number(payForm.amount) <= 0 || !payForm.paidAt || addPayment.isPending}
+                  onClick={() => addPayment.mutate()}
+                  data-testid="button-record-payment"
+                >
+                  {addPayment.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Record payment
+                </Button>
+              </div>
+            </div>
+
+            {/* Payment history list */}
+            <div>
+              <div className="text-sm font-medium text-slate-900 mb-2">Payment history</div>
+              {(!payments || payments.length === 0) ? (
+                <div className="text-xs text-slate-500 italic py-4 text-center border rounded-lg bg-slate-50">
+                  No payments recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {payments.map((p) => (
+                    <div key={p.id} className="border rounded-lg p-3 flex items-start gap-3" data-testid={`payment-row-${p.id}`}>
+                      {p.proofUrl ? (
+                        p.proofType === "image" ? (
+                          <a href={p.proofUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                            <img src={p.proofUrl} alt="proof" className="w-14 h-14 object-cover rounded border" />
+                          </a>
+                        ) : (
+                          <a href={p.proofUrl} target="_blank" rel="noreferrer" className="shrink-0 w-14 h-14 flex items-center justify-center bg-slate-50 border rounded text-slate-500">
+                            <FileTextIcon className="w-6 h-6" />
+                          </a>
+                        )
+                      ) : (
+                        <div className="shrink-0 w-14 h-14 flex items-center justify-center bg-slate-50 border rounded text-slate-300">
+                          <Receipt className="w-6 h-6" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-slate-900">{fmtMoney(p.currency || currency, Number(p.amount))}</div>
+                          <Button size="sm" variant="ghost" className="h-7 text-red-600 hover:text-red-700" onClick={() => deletePayment.mutate(p.id)} data-testid={`button-delete-payment-${p.id}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        <div className="text-xs text-slate-500 space-x-2">
+                          <span>{new Date(p.paidAt).toLocaleDateString()}</span>
+                          {p.method && <span>· {String(p.method).replace(/_/g, " ")}</span>}
+                          {p.reference && <span>· Ref: <span className="font-mono">{p.reference}</span></span>}
+                        </div>
+                        {p.notes && <div className="text-xs text-slate-600 mt-1">{p.notes}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   );
 }
