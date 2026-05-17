@@ -47,7 +47,8 @@ export default function Home() {
     email: "",
     phone: "",
     units: "",
-    referralCode: ""
+    referralCode: "",
+    unitTypeLabel: "",
   });
 
   useEffect(() => {
@@ -135,7 +136,8 @@ export default function Home() {
         email: "",
         phone: "",
         units: "",
-        referralCode: ""
+        referralCode: "",
+        unitTypeLabel: "",
       });
     },
     onError: (error) => {
@@ -154,7 +156,27 @@ export default function Home() {
     const units = parseFloat(investmentForm.units);
     
     // Use original property price (not converted for display)
-    const originalUnitPrice = (selectedProperty as any).originalUnitPrice || selectedProperty.unitPrice || selectedProperty.minInvestment || 0;
+    const cfgUnitTypes: Array<{ label: string; quantity: number; price: number }> =
+      Array.isArray((selectedProperty as any).unitTypes) ? (selectedProperty as any).unitTypes : [];
+    const chosenType = investmentForm.unitTypeLabel
+      ? cfgUnitTypes.find(t => String(t.label) === investmentForm.unitTypeLabel)
+      : null;
+
+    // Require a selection whenever the property has multiple unit types,
+    // even if they share a price — attribution by label is the only way to
+    // keep the unit-mix chart accurate.
+    if (cfgUnitTypes.length > 1 && !chosenType) {
+      toast({
+        title: "Pick a unit type",
+        description: "Please select which unit type you'd like to reserve.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const originalUnitPrice = chosenType
+      ? Number(chosenType.price)
+      : ((selectedProperty as any).originalUnitPrice || selectedProperty.unitPrice || selectedProperty.minInvestment || 0);
     const originalCurrency = (selectedProperty as any).originalCurrency || selectedProperty.currency || 'NGN';
     const amount = units * originalUnitPrice;
 
@@ -169,6 +191,7 @@ export default function Home() {
       currency: originalCurrency,
       status: 'reserved',
       referralCode: investmentForm.referralCode || undefined,
+      unitTypeLabel: chosenType ? chosenType.label : undefined,
     };
 
     investmentMutation.mutate(reservationData);
@@ -184,7 +207,8 @@ export default function Home() {
         email: user.email,
         phone: (user as any).phone || "",
         units: "",
-        referralCode: ""
+        referralCode: "",
+        unitTypeLabel: "",
       });
     }
     
@@ -1189,6 +1213,35 @@ export default function Home() {
                 </div>
               </>
             )}
+            {(() => {
+              const cfg: Array<{ label: string; quantity: number; price: number }> =
+                Array.isArray((selectedProperty as any)?.unitTypes) ? (selectedProperty as any).unitTypes : [];
+              if (cfg.length <= 1) return null;
+              const originalCurrency = (selectedProperty as any)?.originalCurrency || selectedProperty?.currency || "NGN";
+              return (
+                <div>
+                  <Label htmlFor="unit-type">Unit type *</Label>
+                  <Select
+                    value={investmentForm.unitTypeLabel}
+                    onValueChange={(v) => setInvestmentForm(prev => ({ ...prev, unitTypeLabel: v }))}
+                  >
+                    <SelectTrigger id="unit-type" data-testid="select-unit-type">
+                      <SelectValue placeholder="Pick a unit type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cfg.map(t => (
+                        <SelectItem key={String(t.label)} value={String(t.label)} data-testid={`unit-type-option-${t.label}`}>
+                          {t.label} — {originalCurrency} {Number(t.price).toLocaleString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    The price per unit shown below uses the type you pick.
+                  </p>
+                </div>
+              );
+            })()}
             <div>
               <Label htmlFor="units">Number of Units *</Label>
               <Input
@@ -1201,14 +1254,26 @@ export default function Home() {
                 onChange={(e) => setInvestmentForm(prev => ({ ...prev, units: e.target.value }))}
                 placeholder="Enter number of units (e.g., 1, 5, 10)"
               />
-              <div className="mt-2 p-3 bg-slate-50 rounded-lg">
-                <p className="text-sm text-slate-600">
-                  Price per Unit: {formatCurrency(selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000)}
-                </p>
-                <p className="text-base font-semibold text-slate-900 mt-1">
-                  Total: {formatCurrency(parseFloat(investmentForm.units || "0") * (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000))}
-                </p>
-              </div>
+              {(() => {
+                const cfg: Array<{ label: string; quantity: number; price: number }> =
+                  Array.isArray((selectedProperty as any)?.unitTypes) ? (selectedProperty as any).unitTypes : [];
+                const chosen = investmentForm.unitTypeLabel
+                  ? cfg.find(t => String(t.label) === investmentForm.unitTypeLabel)
+                  : null;
+                const unitPrice = chosen
+                  ? Number(chosen.price)
+                  : (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000);
+                return (
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600">
+                      Price per Unit: {formatCurrency(unitPrice)}
+                    </p>
+                    <p className="text-base font-semibold text-slate-900 mt-1">
+                      Total: {formatCurrency(parseFloat(investmentForm.units || "0") * unitPrice)}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <Label htmlFor="referralCode">Referral Code (Optional)</Label>

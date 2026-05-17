@@ -192,6 +192,9 @@ export const investmentReservations = pgTable("investment_reservations", {
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(), // Total amount (units * unitPriceSnapshot)
   currency: text("currency").notNull().default("NGN"), // Currency for the investment (NGN = Nigerian Naira - platform default)
   unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
+  // Snapshot of the unit-type label (from properties.unitTypes) the buyer chose.
+  // Null for legacy rows or projects with no configured unit-type breakdown.
+  unitTypeLabel: text("unit_type_label"),
   referralCode: text("referral_code"),
   status: text("status").notNull().default("reserved"), // 'reserved', 'expired', 'converted_to_investment', 'cancelled'
   // Developer-portal conversion funnel stage. Independent of platform-level `status`.

@@ -2696,12 +2696,18 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [note, setNote] = useState<string>("");
+  const projectUnitTypes: Array<{ label: string; quantity: number; price: number }> =
+    Array.isArray(project?.unitTypes) ? project.unitTypes : [];
+  const [unitTypeLabel, setUnitTypeLabel] = useState<string>(
+    projectUnitTypes.length > 0 ? String(projectUnitTypes[0].label) : ""
+  );
 
   const reset = () => {
     setEmail(""); setFullName(""); setPhone("");
     setUnits("1"); setAmount(""); setPaymentMethod("bank_transfer");
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setPaymentReference(""); setNote("");
+    setUnitTypeLabel(projectUnitTypes.length > 0 ? String(projectUnitTypes[0].label) : "");
   };
 
   const mutation = useMutation({
@@ -2715,6 +2721,7 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
         paymentDate,
         paymentReference: paymentReference.trim() || undefined,
         note: note.trim() || undefined,
+        unitTypeLabel: unitTypeLabel || undefined,
       };
       if (amount.trim()) payload.amount = Number(amount);
       return await apiRequest("POST", `/api/developer/projects/${projectId}/investors`, payload);
@@ -2744,7 +2751,10 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
     mutation.mutate();
   };
 
-  const unitPrice = Number(project?.unitPrice ?? project?.minInvestment ?? 0);
+  const selectedType = projectUnitTypes.find(t => String(t.label) === unitTypeLabel) || null;
+  const unitPrice = selectedType
+    ? Number(selectedType.price)
+    : Number(project?.unitPrice ?? project?.minInvestment ?? 0);
   const computedAmount = Number(units) > 0 && unitPrice > 0 ? Number(units) * unitPrice : null;
   const currency = project?.currency || "NGN";
 
@@ -2777,6 +2787,27 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
             <Label htmlFor="ai-phone">Phone (optional)</Label>
             <Input id="ai-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234..." data-testid="input-investor-phone" />
           </div>
+          {projectUnitTypes.length > 1 && (
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="ai-unit-type">Unit type *</Label>
+                <HelpTip>
+                  Which configured {noun.singular} type this client is buying. The
+                  amount and per-{noun.singular} price will be taken from this type.
+                </HelpTip>
+              </div>
+              <Select value={unitTypeLabel} onValueChange={setUnitTypeLabel}>
+                <SelectTrigger id="ai-unit-type" data-testid="select-unit-type"><SelectValue placeholder="Pick a unit type" /></SelectTrigger>
+                <SelectContent>
+                  {projectUnitTypes.map((t) => (
+                    <SelectItem key={String(t.label)} value={String(t.label)} data-testid={`unit-type-option-${t.label}`}>
+                      {t.label} — {currency} {Number(t.price).toLocaleString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <div className="flex items-center gap-1.5">

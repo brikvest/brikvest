@@ -2148,10 +2148,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Set 24-hour expiration for reservation
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-      
+
+      // Validate the optional unitTypeLabel against the property's configured
+      // unit types, and snapshot the chosen type's price.
+      const cfgTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const rawLabel = reservationData.unitTypeLabel
+        ? String(reservationData.unitTypeLabel).trim()
+        : "";
+      let chosenType = rawLabel ? cfgTypes.find(t => String(t.label) === rawLabel) : null;
+      if (rawLabel && cfgTypes.length > 0 && !chosenType) {
+        return res.status(400).json({ message: `Please pick a valid unit type` });
+      }
+      // If the project only has one configured type, auto-attribute to it
+      // so every reservation gets a labeled unit-type for the Sales chart.
+      if (!chosenType && cfgTypes.length === 1) {
+        chosenType = cfgTypes[0];
+      }
+      // When the project has multiple unit types and one wasn't chosen,
+      // require a selection so we attribute the sale correctly — even when
+      // types share a price, since attribution by label is the only way to
+      // keep the unit-mix chart accurate.
+      if (!chosenType && cfgTypes.length > 1) {
+        return res.status(400).json({ message: "Please select which unit type you are buying" });
+      }
+
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
+        unitTypeLabel: chosenType ? chosenType.label : null,
+        unitPriceSnapshot: chosenType
+          ? String(chosenType.price)
+          : reservationData.unitPriceSnapshot,
         expiresAt,
       };
       
@@ -6559,29 +6587,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Unit mix — for each unit type configured on the property, count
-      // confirmed reservations whose unit_price_snapshot matches the type's
-      // price. Used by the Sales tab's "Sold vs Remaining by unit type" chart.
-      //
-      // Reservations don't currently carry a stable unitTypeId, so we match
-      // on price. To avoid double-counting when multiple unit types share
-      // the same price, we bucket sold units by price and greedily fill
-      // each matching type up to its `quantity` in declared order.
+      // confirmed reservations attributed to that type. New reservations
+      // carry the chosen `unitTypeLabel` so attribution is exact; legacy
+      // rows without a label fall back to matching by price (bucketed to
+      // avoid double-counting when multiple types share a price).
       type UnitTypeRow = { label: string; quantity: number; price: number };
       const unitTypes: UnitTypeRow[] = Array.isArray(property.unitTypes) ? property.unitTypes : [];
+      const soldByLabel = new Map<string, number>();
       const soldByPrice = new Map<number, number>();
       for (const r of confirmed) {
-        const p = Number(r.unitPriceSnapshot || 0);
-        soldByPrice.set(p, (soldByPrice.get(p) || 0) + Number(r.units || 0));
+        const u = Number(r.units || 0);
+        const label = (r as any).unitTypeLabel ? String((r as any).unitTypeLabel) : null;
+        if (label) {
+          soldByLabel.set(label, (soldByLabel.get(label) || 0) + u);
+        } else {
+          const p = Number(r.unitPriceSnapshot || 0);
+          soldByPrice.set(p, (soldByPrice.get(p) || 0) + u);
+        }
       }
       const remainingByPrice = new Map(soldByPrice);
       const unitMix = unitTypes.map(t => {
-        const typePrice = Number(t.price);
+        const typeLabel = String(t.label || "");
         const total = Number(t.quantity || 0);
-        const pool = remainingByPrice.get(typePrice) || 0;
-        const sold = Math.min(pool, total);
-        remainingByPrice.set(typePrice, pool - sold);
+        let sold = soldByLabel.get(typeLabel) || 0;
+        // Backfill with legacy price-matched reservations up to the type's quantity.
+        if (sold < total) {
+          const typePrice = Number(t.price);
+          const pool = remainingByPrice.get(typePrice) || 0;
+          const extra = Math.min(pool, total - sold);
+          sold += extra;
+          remainingByPrice.set(typePrice, pool - extra);
+        }
+        sold = Math.min(sold, total);
         return {
-          label: String(t.label || ""),
+          label: typeLabel,
           total,
           sold,
           remaining: Math.max(0, total - sold),
@@ -6892,6 +6931,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paymentDate = body.paymentDate ? String(body.paymentDate) : new Date().toISOString().slice(0, 10);
       const paymentMethod = String(body.paymentMethod || "developer_recorded");
       const note = String(body.note || "").trim();
+      const unitTypeLabelInput = body.unitTypeLabel ? String(body.unitTypeLabel).trim() : "";
 
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ message: "A valid email is required" });
@@ -6902,10 +6942,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Units must be a positive number" });
       }
 
+      // Resolve the chosen unit type (if any) so we can both snapshot its
+      // label on the reservation and price the purchase off that type.
+      const cfgTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      let chosenType = unitTypeLabelInput
+        ? cfgTypes.find(t => String(t.label) === unitTypeLabelInput)
+        : null;
+      if (unitTypeLabelInput && cfgTypes.length > 0 && !chosenType) {
+        return res.status(400).json({ message: `Unknown unit type "${unitTypeLabelInput}"` });
+      }
+      // If the project only has one configured type, auto-attribute to it.
+      if (!chosenType && cfgTypes.length === 1) {
+        chosenType = cfgTypes[0];
+      }
+      // When the project has multiple unit types configured, require an
+      // explicit selection so attribution stays exact — even if two types
+      // share a price.
+      if (!chosenType && cfgTypes.length > 1) {
+        return res.status(400).json({ message: "Please select which unit type the investor is buying" });
+      }
+      const unitTypeLabel = chosenType ? chosenType.label : null;
+
       // Compute amount from unit price snapshot if not explicitly provided.
-      const unitPriceSnapshot = (property as any).unitPrice
-        || (property as any).minInvestment
-        || 0;
+      // Prefer the chosen unit type's price so the snapshot matches what the
+      // buyer was actually offered.
+      const unitPriceSnapshot = chosenType
+        ? Number(chosenType.price)
+        : ((property as any).unitPrice || (property as any).minInvestment || 0);
       const amount = amountInput !== null && Number.isFinite(amountInput) && amountInput > 0
         ? amountInput
         : Math.round(unitsNum * Number(unitPriceSnapshot));
@@ -6963,6 +7027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount: String(amount),
         currency: (property as any).currency || "NGN",
         unitPriceSnapshot: String(unitPriceSnapshot || 0),
+        unitTypeLabel,
         status: "converted_to_investment",
         paymentMethod,
         paymentReference: `DEV-${paymentDate.replace(/-/g, "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
