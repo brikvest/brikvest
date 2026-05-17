@@ -25,7 +25,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
   GripVertical, ImagePlus, X, UserPlus,
 } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ReferenceLine, CartesianGrid } from "recharts";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -187,7 +187,7 @@ export default function DeveloperProjectDetail() {
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} canDelete={isOwner || myPermissions.includes("settings")} /></TabsContent>
-        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} projectKey={projectKey} /></TabsContent>}
         {visibleTabs.some(t => t.value === "construction") && <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>}
         {visibleTabs.some(t => t.value === "sales")        && <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>}
         {visibleTabs.some(t => t.value === "captable")     && <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>}
@@ -239,7 +239,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard icon={TrendingUp} label="Funding raised" value={fmt(project.currency, rollup?.funding?.totalRaised || 0)} sub={`${rollup?.funding?.percent || 0}% of target`} />
-        <StatCard icon={Users} label="Investors" value={String(rollup?.funnel?.confirmed || 0)} sub={`${rollup?.funnel?.reserved || 0} total reservations`} />
+        <StatCard icon={Users} label="Investors" value={String(rollup?.funnel?.confirmed || 0)} sub={`${(rollup?.funnel?.prospective || 0) + (rollup?.funnel?.dueDiligence || 0) + (rollup?.funnel?.documentation || 0) + (rollup?.funnel?.paymentIncomplete || 0)} prospective investors`} />
         <StatCard icon={Hammer} label="Construction" value={`${rollup?.construction?.overall || 0}%`} sub={rollup?.construction?.nextMilestone?.name || "No milestones"} />
         <StatCard icon={Building2} label="Units sold" value={`${rollup?.sales?.investorUnits || 0} / ${rollup?.sales?.totalUnits || 0}`} sub={`${rollup?.sales?.availableUnits || 0} available`} />
       </div>
@@ -260,7 +260,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
           <CardHeader>
             <CardTitle className="text-rose-900 text-base">Danger zone</CardTitle>
             <CardDescription>
-              Deleting this project removes its milestones, updates, leads, notes and any pending reservations. Confirmed investors block deletion — contact Brikvest support to unwind those.
+              Deleting this project removes its milestones, updates, leads, notes and any pending prospective investors. Confirmed investors block deletion — contact Brikvest support to unwind those.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -275,7 +275,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending reservations. This can't be undone.
+                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending prospective investors. This can't be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -415,9 +415,13 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string;
 }
 
 // ======================= FUNDRAISING =======================
-function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
+function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup: any; projectKey: string }) {
+  const { toast } = useToast();
   const f = rollup?.funding || {};
   const funnel = rollup?.funnel || {};
+  const velocityData: { weekStart: string; cumulativeRaised: number }[] = rollup?.velocity || [];
+  const weeklyTarget: number | null = rollup?.weeklyTarget ?? null;
+  const conversionEfficiency: { month: string; percent: number; confirmed: number; total: number }[] = rollup?.conversionEfficiency || [];
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [drillIn, setDrillIn] = useState<any | null>(null);
@@ -432,6 +436,20 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
     },
   });
 
+  const updateStageMutation = useMutation({
+    mutationFn: async (args: { reservationId: number; funnelStage: string | null }) =>
+      apiRequest("PATCH", `/api/developer/reservations/${args.reservationId}/stage`, { funnelStage: args.funnelStage }),
+    onSuccess: () => {
+      // The parent rollup + investors queries are keyed by the URL projectKey
+      // (slug or numeric id), not project.id, so invalidate using projectKey.
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectKey, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectKey, "rollup"] });
+      toast({ title: "Stage updated" });
+    },
+    onError: (err: any) => toast(toastFromError(err, "Couldn't update stage")),
+  });
+
   const STAGE_LABEL: Record<string, { label: string; className: string }> = {
     reserved:                { label: "Reserved",          className: "bg-amber-100 text-amber-700" },
     payment_pending:         { label: "Payment Pending",   className: "bg-orange-100 text-orange-700" },
@@ -440,12 +458,28 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
     cancelled:               { label: "Cancelled",         className: "bg-slate-100 text-slate-600" },
   };
 
-  const funnelData = [
-    { stage: "Reserved",          count: funnel.reserved || 0 },
-    { stage: "KYC Complete",      count: funnel.kycComplete || 0 },
-    { stage: "Payment Submitted", count: funnel.paymentSubmitted || 0 },
-    { stage: "Confirmed",         count: funnel.confirmed || 0 },
+  const FUNNEL_STAGE_OPTIONS: { value: string; label: string }[] = [
+    { value: "prospective",        label: "Prospective" },
+    { value: "due_diligence",      label: "Due Diligence" },
+    { value: "documentation",      label: "Documentation" },
+    { value: "payment_incomplete", label: "Payment Incomplete" },
+    { value: "confirmed",          label: "Confirmed" },
   ];
+
+  const funnelData = [
+    { stage: "Prospective",        count: funnel.prospective || 0 },
+    { stage: "Due Diligence",      count: funnel.dueDiligence || 0 },
+    { stage: "Documentation",      count: funnel.documentation || 0 },
+    { stage: "Payment Incomplete", count: funnel.paymentIncomplete || 0 },
+    { stage: "Confirmed",          count: funnel.confirmed || 0 },
+  ];
+  const funnelTotal = funnelData.reduce((s, x) => s + x.count, 0);
+  const dropOff = funnelData.map((d, i) => {
+    if (i === 0) return null;
+    const prev = funnelData[i - 1].count;
+    if (prev === 0) return null;
+    return Math.round(((prev - d.count) / prev) * 100);
+  });
 
   const stuckInFunnel = (investors || []).filter((i) => {
     if (i.status === "converted_to_investment" || i.status === "expired" || i.status === "cancelled") return false;
@@ -504,22 +538,139 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-testid="card-velocity">
         <CardHeader>
-          <CardTitle>Conversion funnel</CardTitle>
-          <CardDescription>From reservation to confirmed investment.</CardDescription>
+          <CardTitle>Fundraising velocity</CardTitle>
+          <CardDescription>
+            Cumulative {project.currency || "NGN"} raised over the last 12 weeks
+            {weeklyTarget ? ` — target ${fmt(project.currency, weeklyTarget)} per week to hit your planned completion` : ""}
+            .
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={funnelData} layout="vertical" margin={{ left: 60 }}>
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis dataKey="stage" type="category" width={140} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#2563eb" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {velocityData.every(v => v.cumulativeRaised === 0) ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-velocity">
+              No funding raised yet — share your project link to start tracking velocity.
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={velocityData} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+                  <defs>
+                    <linearGradient id="velocityFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor="#2563eb" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="weekStart"
+                    tickFormatter={(d: string) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${Math.round(v / 1_000)}k` : String(v)}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    formatter={(v: number) => fmt(project.currency, v)}
+                    labelFormatter={(d: string) => `Week of ${new Date(d).toLocaleDateString()}`}
+                  />
+                  {weeklyTarget && velocityData.length > 0 && (
+                    <ReferenceLine
+                      y={(velocityData[velocityData.length - 1]?.cumulativeRaised || 0) + weeklyTarget}
+                      stroke="#10b981"
+                      strokeDasharray="4 4"
+                      label={{ value: "Weekly target", position: "insideTopRight", fill: "#10b981", fontSize: 11 }}
+                    />
+                  )}
+                  <Area type="monotone" dataKey="cumulativeRaised" stroke="#2563eb" strokeWidth={2} fill="url(#velocityFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-funnel">
+        <CardHeader>
+          <CardTitle>Conversion funnel</CardTitle>
+          <CardDescription>From prospective investor to confirmed investment. Drop-off shown between stages.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {funnelTotal === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-funnel">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {funnelData.map((d, i) => {
+                const widthPct = funnelData[0].count > 0 ? Math.max(8, Math.round((d.count / funnelData[0].count) * 100)) : 8;
+                return (
+                  <div key={d.stage} data-testid={`funnel-row-${i}`}>
+                    {i > 0 && dropOff[i] !== null && (
+                      <div className="flex items-center gap-2 pl-2 mb-1 text-xs text-rose-600">
+                        <span>↓ {dropOff[i]}% drop-off</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <div className="w-40 text-sm font-medium text-slate-700">{d.stage}</div>
+                      <div className="flex-1 bg-slate-100 rounded-md h-9 relative overflow-hidden">
+                        <div
+                          className="h-full bg-blue-600 transition-all rounded-md flex items-center justify-end pr-3 text-xs font-semibold text-white"
+                          style={{ width: `${widthPct}%` }}
+                        >
+                          {d.count}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-conversion-efficiency">
+        <CardHeader>
+          <CardTitle>Investor Conversion Efficiency</CardTitle>
+          <CardDescription>Confirmed ÷ total prospects each month, last 12 months.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {conversionEfficiency.every(c => c.total === 0) ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-efficiency">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={conversionEfficiency} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="month"
+                    tickFormatter={(m: string) => {
+                      const [y, mo] = m.split("-");
+                      return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, { month: "short" });
+                    }}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11 }} domain={[0, 100]} />
+                  <Tooltip
+                    formatter={(_v: any, _name: any, ctx: any) => {
+                      const p = ctx?.payload as { percent: number; confirmed: number; total: number };
+                      return [`${p.percent}% (${p.confirmed}/${p.total})`, "Efficiency"];
+                    }}
+                    labelFormatter={(m: string) => {
+                      const [y, mo] = m.split("-");
+                      return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+                    }}
+                  />
+                  <Line type="monotone" dataKey="percent" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -559,7 +710,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
       <Card>
         <CardHeader>
           <CardTitle>Investors</CardTitle>
-          <CardDescription>Search, filter, and drill down to see each investor's reservation and payment history.</CardDescription>
+          <CardDescription>Search, filter, and drill down to see each prospective investor's history and payment activity.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-2">
@@ -583,7 +734,11 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
             </Select>
           </div>
 
-          {filtered.length === 0 ? (
+          {investors.length === 0 ? (
+            <div className="text-center py-10 text-slate-500" data-testid="empty-investors">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No investors match the current filters.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -594,13 +749,14 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                     <TableHead>Stage</TableHead>
                     <TableHead className="text-right">Units</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Reserved</TableHead>
+                    <TableHead className="text-right">Created</TableHead>
                     <TableHead className="text-right"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((i) => {
                     const meta = STAGE_LABEL[i.status] || { label: i.status, className: "bg-slate-100" };
+                    const isTerminal = i.status === "expired" || i.status === "cancelled";
                     return (
                       <TableRow key={i.reservationId} data-testid={`row-investor-${i.reservationId}`}>
                         <TableCell>
@@ -612,7 +768,26 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
+                        <TableCell>
+                          {isTerminal ? (
+                            <Badge className={meta.className}>{meta.label}</Badge>
+                          ) : (
+                            <Select
+                              value={i.funnelStage || "prospective"}
+                              onValueChange={(v) => updateStageMutation.mutate({ reservationId: i.reservationId, funnelStage: v })}
+                              disabled={updateStageMutation.isPending}
+                            >
+                              <SelectTrigger className="h-8 w-44 text-xs" data-testid={`select-stage-${i.reservationId}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FUNNEL_STAGE_OPTIONS.map(o => (
+                                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-medium">{fmtUnits(i.units)}</TableCell>
                         <TableCell className="text-right">{fmt(i.currency, i.amount)}</TableCell>
                         <TableCell className="text-right text-xs text-slate-500">{i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "—"}</TableCell>
@@ -665,7 +840,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                   </Badge>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500 uppercase">Reservation ID</div>
+                  <div className="text-xs text-slate-500 uppercase">Investor ID</div>
                   <div className="font-mono text-xs text-slate-700">#{drillIn.reservationId}</div>
                 </div>
               </div>
@@ -686,14 +861,14 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                 </div>
               </div>
 
-              {/* Reservation timeline */}
+              {/* Funnel timeline */}
               <div className="border-t border-slate-200 pt-4">
-                <div className="text-xs text-slate-500 uppercase mb-2">Reservation timeline</div>
+                <div className="text-xs text-slate-500 uppercase mb-2">Funnel timeline</div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-start gap-3">
                     <div className="w-2 h-2 rounded-full bg-blue-500 mt-2" />
                     <div>
-                      <div className="font-medium text-slate-900">Reservation created</div>
+                      <div className="font-medium text-slate-900">Prospect created</div>
                       <div className="text-xs text-slate-500">{drillIn.createdAt ? new Date(drillIn.createdAt).toLocaleString() : "—"}</div>
                     </div>
                   </div>
@@ -710,7 +885,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                     <div className="flex items-start gap-3">
                       <div className="w-2 h-2 rounded-full bg-red-500 mt-2" />
                       <div>
-                        <div className="font-medium text-slate-900">Reservation expired</div>
+                        <div className="font-medium text-slate-900">Expired</div>
                         <div className="text-xs text-slate-500">Did not convert in time</div>
                       </div>
                     </div>
@@ -2026,7 +2201,7 @@ function LeadsSection({
       setConvertOpen(false);
       setConvertLead(null);
       setConvertUnits("");
-      toast({ title: "Lead converted to a reservation" });
+      toast({ title: "Lead converted to a prospective investor" });
     },
     onError: (err: any) => toast({ title: "Conversion failed", description: err?.message || "Please try again", variant: "destructive" }),
   });
@@ -2040,8 +2215,8 @@ function LeadsSection({
         <div>
           <CardTitle>Leads</CardTitle>
           <CardDescription>
-            Track demand before it becomes a reservation. {leadCounts.qualified} qualified •{" "}
-            {Math.round(qualifiedConversionRate * 100)}% historical conversion to reservation.
+            Track demand before it becomes a prospective investor. {leadCounts.qualified} qualified •{" "}
+            {Math.round(qualifiedConversionRate * 100)}% historical conversion to prospective investor.
           </CardDescription>
         </div>
         <Button size="sm" onClick={() => setAddOpen(true)} data-testid="button-add-lead">
@@ -2077,7 +2252,7 @@ function LeadsSection({
           <div className="h-24 bg-slate-100 rounded animate-pulse" />
         ) : filtered.length === 0 ? (
           <div className="text-center py-10 text-sm text-slate-500" data-testid="text-leads-empty">
-            {leads.length === 0 ? "No leads yet. Add one to start tracking pre-reservation demand." : "No leads in this stage."}
+            {leads.length === 0 ? "No leads yet. Add one to start tracking early demand before it becomes a prospective investor." : "No leads in this stage."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -2168,7 +2343,7 @@ function LeadsSection({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add a lead</DialogTitle>
-              <DialogDescription>Capture interest before it becomes a reservation.</DialogDescription>
+              <DialogDescription>Capture interest before it becomes a prospective investor.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
@@ -2239,9 +2414,9 @@ function LeadsSection({
         <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Convert {convertLead?.fullName} to a reservation</DialogTitle>
+              <DialogTitle>Convert {convertLead?.fullName} to a prospective investor</DialogTitle>
               <DialogDescription>
-                A new reserved entry will be created in the reservation list. The lead will be marked as Converted.
+                A new prospective investor entry will be created in your investor list. The lead will be marked as Converted.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -2265,7 +2440,7 @@ function LeadsSection({
                 data-testid="button-confirm-convert-lead"
               >
                 {convertLeadMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                Create reservation
+                Create prospective investor
               </Button>
             </DialogFooter>
           </DialogContent>

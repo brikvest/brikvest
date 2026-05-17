@@ -61,6 +61,7 @@ import {
   type ProjectMilestone,
   type User,
   type DeveloperLead,
+  RESERVATION_FUNNEL_STAGES,
 } from "@shared/schema";
 import { ObjectStorageService } from "./objectStorage";
 
@@ -6416,15 +6417,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalRaised = confirmed.reduce((s, r) => s + Number(r.amount || 0), 0);
       const fundingTarget = (totalUnits - developerEquityUnits) * Number(property.unitPrice || 0);
 
-      // Funnel
+      // Funnel — 5-stage, funnel_stage-driven (Prospective → Due Diligence →
+      // Documentation → Payment Incomplete → Confirmed). Rows with funnel_stage
+      // IS NULL (expired/cancelled) are excluded by the storage helper.
+      const funnelCounts = await storage.getReservationFunnelCounts(propertyId);
       const reservedCount = reservations.length;
-      const reservationsWithUsers = await Promise.all(reservations.map(async r => {
-        const user = r.userId ? await storage.getUser(r.userId) : null;
-        const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
-        return { ...r, user, hasPayment: submissions.length > 0 };
-      }));
-      const kycComplete = reservationsWithUsers.filter(r => r.user?.kycStatus === "approved").length;
-      const paymentSubmitted = reservationsWithUsers.filter(r => r.hasPayment).length;
       const confirmedCount = confirmed.length;
 
       // Construction
@@ -6446,6 +6443,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
         USD: { raised: convertCurrency(totalRaised, baseCurrency, "USD", rates), target: convertCurrency(fundingTarget, baseCurrency, "USD", rates) },
         GBP: { raised: convertCurrency(totalRaised, baseCurrency, "GBP", rates), target: convertCurrency(fundingTarget, baseCurrency, "GBP", rates) },
       };
+
+      // Fundraising velocity — cumulative raised per week for the last 12 weeks,
+      // in the project's currency. Buckets confirmed reservations by ISO week
+      // (Mon-anchored). Past weeks with no confirmations carry the running total
+      // forward so the line chart reads as a smooth cumulative curve.
+      const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+      const startOfWeekMon = (d: Date) => {
+        const x = new Date(d);
+        x.setHours(0, 0, 0, 0);
+        const dow = x.getDay(); // Sun=0..Sat=6
+        const diff = (dow + 6) % 7; // Mon=0
+        x.setDate(x.getDate() - diff);
+        return x;
+      };
+      const thisWeekStart = startOfWeekMon(new Date());
+      const weekBuckets: { weekStart: string; raised: number }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const ws = new Date(thisWeekStart.getTime() - i * WEEK_MS);
+        weekBuckets.push({ weekStart: ws.toISOString().slice(0, 10), raised: 0 });
+      }
+      // Convert each reservation's amount from its own stored currency to the
+      // project's base currency, so mixed-currency reservations roll up correctly.
+      for (const r of confirmed) {
+        if (!r.createdAt) continue;
+        const created = new Date(r.createdAt as any);
+        const ws = startOfWeekMon(created).toISOString().slice(0, 10);
+        const bucket = weekBuckets.find(b => b.weekStart === ws);
+        if (bucket) {
+          const fromCcy = r.currency || baseCurrency;
+          const amt = convertCurrency(Number(r.amount || 0), fromCcy, baseCurrency, rates);
+          bucket.raised += amt;
+        }
+      }
+      // Carry forward: include raised from confirmations before our 12-week window.
+      const earliestWeekStart = new Date(weekBuckets[0].weekStart);
+      let priorRaised = 0;
+      for (const r of confirmed) {
+        if (!r.createdAt) continue;
+        const created = new Date(r.createdAt as any);
+        if (created < earliestWeekStart) {
+          const fromCcy = r.currency || baseCurrency;
+          priorRaised += convertCurrency(Number(r.amount || 0), fromCcy, baseCurrency, rates);
+        }
+      }
+      let running = priorRaised;
+      const velocity = weekBuckets.map(b => {
+        running += b.raised;
+        return { weekStart: b.weekStart, cumulativeRaised: Math.round(running) };
+      });
+
+      // Weekly target needed to hit fundingTarget by plannedCompletionDate.
+      let weeklyTarget: number | null = null;
+      if (property.plannedCompletionDate && fundingTarget > 0) {
+        const finish = new Date(property.plannedCompletionDate as any);
+        const weeksLeft = Math.max(1, Math.ceil((finish.getTime() - Date.now()) / WEEK_MS));
+        const remaining = Math.max(0, fundingTarget - totalRaised);
+        weeklyTarget = Math.round(remaining / weeksLeft);
+      }
+
+      // Investor Conversion Efficiency — monthly, last 12 months.
+      const monthlyEff = await storage.getMonthlyConversionEfficiency(propertyId, 12);
+      const conversionEfficiency = monthlyEff.map(m => {
+        const total = m.confirmedCount + m.prospectiveCount;
+        return {
+          month: m.month,
+          confirmed: m.confirmedCount,
+          total,
+          percent: total > 0 ? Math.round((m.confirmedCount / total) * 100) : 0,
+        };
+      });
 
       // Lead funnel + qualified-lead conversion rate (used by sell-out forecast)
       const leadCounts = {
@@ -6469,7 +6536,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           equivalents,
         },
         sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100, salesStage: property.salesStage || "off_plan" },
-        funnel: { reserved: reservedCount, kycComplete, paymentSubmitted, confirmed: confirmedCount },
+        funnel: {
+          prospective: funnelCounts.prospective,
+          dueDiligence: funnelCounts.due_diligence,
+          documentation: funnelCounts.documentation,
+          paymentIncomplete: funnelCounts.payment_incomplete,
+          confirmed: funnelCounts.confirmed,
+          // legacy keys kept for any callers still reading them
+          reserved: reservedCount,
+          kycComplete: 0,
+          paymentSubmitted: 0,
+        },
+        velocity,
+        weeklyTarget,
+        conversionEfficiency,
         leads: {
           total: leads.length,
           ...leadCounts,
@@ -6521,6 +6601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: r.amount,
           currency: r.currency,
           status: r.status,
+          funnelStage: r.funnelStage,
           kycStatus: user?.kycStatus || "not_started",
           hasPayment: submissions.length > 0,
           paymentStatus: sortedPayments[0]?.status || null,
@@ -6544,6 +6625,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to fetch investors:", err);
       res.status(500).json({ message: "Failed to fetch investors" });
+    }
+  });
+
+  // Inline funnel-stage editor for an individual reservation. Gated by `sales`
+  // permission. The reservation must belong to one of the requesting developer's
+  // own projects. Null is allowed to drop a reservation back out of the funnel
+  // (e.g. after a manual cancellation).
+  app.patch("/api/developer/reservations/:id/stage", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
+    try {
+      const reservationId = Number(req.params.id);
+      if (!Number.isFinite(reservationId)) return res.status(400).json({ message: "Invalid reservation id" });
+      const { funnelStage } = req.body ?? {};
+      const allowed = [...RESERVATION_FUNNEL_STAGES, null] as (string | null)[];
+      if (funnelStage !== null && !RESERVATION_FUNNEL_STAGES.includes(funnelStage)) {
+        return res.status(400).json({ message: "Invalid funnel stage" });
+      }
+      void allowed;
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) return res.status(404).json({ message: "Reservation not found" });
+      const property = await ensureProjectOwnership(req, res, reservation.propertyId);
+      if (!property) return;
+      const updated = await storage.updateReservation(reservationId, { funnelStage });
+      res.json({ reservationId: updated.id, funnelStage: updated.funnelStage });
+    } catch (err) {
+      console.error("Failed to update funnel stage:", err);
+      res.status(500).json({ message: "Failed to update stage" });
     }
   });
 
