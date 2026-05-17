@@ -7177,7 +7177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
 
   // Aggregated budget rollup: totals, per-stage spend, per-vendor spend, monthly burn.
-  app.get("/api/developer/projects/:id/budget", requireDeveloper, async (req: any, res) => {
+  app.get("/api/developer/projects/:id/budget", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -7311,7 +7311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Vendors — list (with derived totals)
-  app.get("/api/developer/projects/:id/vendors", requireDeveloper, async (req: any, res) => {
+  app.get("/api/developer/projects/:id/vendors", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
@@ -7347,6 +7347,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!name) return res.status(400).json({ message: "Vendor name is required" });
       const stageId = body.stageId === null || body.stageId === undefined || body.stageId === "" ? null : Number(body.stageId);
       if (stageId !== null && !Number.isInteger(stageId)) return res.status(400).json({ message: "Invalid stageId" });
+      if (stageId !== null) {
+        const projectStages = await storage.getConstructionStagesByProperty(propertyId);
+        if (!projectStages.some(s => s.id === stageId)) return res.status(400).json({ message: "Stage does not belong to this project" });
+      }
       const contractAmount = body.contractAmount === undefined || body.contractAmount === null || body.contractAmount === ""
         ? "0"
         : String(Number(body.contractAmount) || 0);
@@ -7400,6 +7404,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.stageId !== undefined) {
         const sid = body.stageId === null || body.stageId === "" ? null : Number(body.stageId);
         if (sid !== null && !Number.isInteger(sid)) return res.status(400).json({ message: "Invalid stageId" });
+        if (sid !== null) {
+          const projectStages = await storage.getConstructionStagesByProperty(propertyId);
+          if (!projectStages.some(s => s.id === sid)) return res.status(400).json({ message: "Stage does not belong to this project" });
+        }
         updates.stageId = sid;
       }
       const updated = await storage.updateVendor(vendorId, updates);
@@ -7429,7 +7437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Vendor payments — list for one vendor
-  app.get("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, async (req: any, res) => {
+  app.get("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
     try {
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
