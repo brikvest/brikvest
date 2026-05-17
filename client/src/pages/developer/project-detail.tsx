@@ -3426,23 +3426,37 @@ function BudgetSection({
     .filter(s => s.spent > 0)
     .map(s => ({ name: s.name, value: s.spent }));
 
-  // Chart data: Vendor spend (horizontal stacked: paid + outstanding)
+  // Chart data: Vendor spend (per-vendor: contract, spent, outstanding shown as 3 series)
   const vendorSpendData = (budget?.vendors || [])
     .slice()
     .sort((a, b) => b.contractAmount - a.contractAmount)
     .slice(0, 10)
     .map(v => ({
       name: v.name.length > 18 ? v.name.slice(0, 18) + "…" : v.name,
-      Paid: v.paid,
+      Contract: v.contractAmount,
+      Spent: v.paid,
       Outstanding: v.outstanding,
     }));
 
-  // Chart data: monthly burn line
+  // Chart data: monthly cumulative burn + a linear "Target" cumulative trajectory.
+  // Target trajectory goes from (plannedStartDate, 0) → (plannedCompletionDate, totalBudget)
+  // so it can be compared like-for-like against actual cumulative spend.
+  const planStart = project?.plannedStartDate ? new Date(project.plannedStartDate) : null;
+  const planEnd = budget?.plannedCompletionDate ? new Date(budget.plannedCompletionDate) : null;
+  const targetSpan = planStart && planEnd ? planEnd.getTime() - planStart.getTime() : 0;
   const burnData = (budget?.monthlyBurn || []).map(m => {
     const [y, mo] = m.ym.split("-");
+    const monthEnd = new Date(Number(y), Number(mo), 0); // last day of that month
     const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleString(undefined, { month: "short", year: "2-digit" });
-    return { name: label, Cumulative: m.cumulative, Monthly: m.spent };
+    let target: number | null = null;
+    if (planStart && planEnd && targetSpan > 0 && totalBudget > 0) {
+      if (monthEnd <= planStart) target = 0;
+      else if (monthEnd >= planEnd) target = totalBudget;
+      else target = totalBudget * ((monthEnd.getTime() - planStart.getTime()) / targetSpan);
+    }
+    return { name: label, Cumulative: m.cumulative, Monthly: m.spent, Target: target };
   });
+  const showTargetLine = burnData.some(d => d.Target !== null);
 
   const equivalents = toEquivalents(totalBudget);
   const spentEq = toEquivalents(totalSpent);
@@ -3607,8 +3621,9 @@ function BudgetSection({
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
                     <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Paid" stackId="contract" fill="#3b82f6" />
-                    <Bar dataKey="Outstanding" stackId="contract" fill="#fbbf24" />
+                    <Bar dataKey="Contract" fill="#93c5fd" />
+                    <Bar dataKey="Spent" fill="#3b82f6" />
+                    <Bar dataKey="Outstanding" fill="#fbbf24" />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -3628,14 +3643,9 @@ function BudgetSection({
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="Cumulative" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                    {budget?.requiredMonthlyBurn != null && budget.requiredMonthlyBurn > 0 && (
-                      <ReferenceLine
-                        y={(budget.requiredMonthlyBurn || 0) * 12}
-                        stroke="#10b981"
-                        strokeDasharray="4 4"
-                        label={{ value: "Target pace", fill: "#059669", fontSize: 10, position: "insideTopRight" }}
-                      />
+                    <Line type="monotone" dataKey="Cumulative" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} name="Actual cumulative" />
+                    {showTargetLine && (
+                      <Line type="monotone" dataKey="Target" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} name="On-track cumulative" />
                     )}
                   </LineChart>
                 </ResponsiveContainer>
@@ -3697,22 +3707,39 @@ function BudgetSection({
                           const status = v.outstanding === 0 && v.contractAmount > 0 ? "Paid" : v.paid > 0 ? "Partial" : "Unpaid";
                           const statusCls = status === "Paid" ? "bg-emerald-100 text-emerald-700" : status === "Partial" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600";
                           return (
-                            <button
+                            <div
                               key={v.id}
-                              type="button"
-                              onClick={() => setVendorDetail(v)}
-                              className="w-full text-left flex items-center justify-between gap-2 p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
+                              className="flex items-center justify-between gap-2 p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
                               data-testid={`vendor-row-${v.id}`}
                             >
-                              <div className="min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={() => setVendorDetail(v)}
+                                className="min-w-0 flex-1 text-left"
+                                data-testid={`vendor-row-open-${v.id}`}
+                              >
                                 <div className="text-sm font-medium text-slate-900 truncate">{v.name}</div>
                                 <div className="text-xs text-slate-500 truncate">{v.workCategory || "—"}</div>
-                              </div>
+                              </button>
                               <div className="text-right shrink-0">
                                 <div className="text-xs text-slate-700">{fmtMoney(currency, v.paid)} / {fmtMoney(currency, v.contractAmount)}</div>
+                                <div className="text-xs text-amber-700" data-testid={`vendor-outstanding-${v.id}`}>
+                                  Outstanding: {fmtMoney(currency, v.outstanding)}
+                                </div>
                                 <Badge className={`${statusCls} text-xs mt-0.5`}>{status} • {vp}%</Badge>
                               </div>
-                            </button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 shrink-0"
+                                title="View payment history"
+                                onClick={(e) => { e.stopPropagation(); setVendorDetail({ ...v, __openTab: "payments" } as any); }}
+                                data-testid={`button-vendor-history-${v.id}`}
+                              >
+                                <Receipt className="w-4 h-4 mr-1" />
+                                <span className="hidden sm:inline text-xs">History</span>
+                              </Button>
+                            </div>
                           );
                         })}
                       </div>
@@ -3907,7 +3934,8 @@ function VendorDetailDialog({
         notes: "",
         status: vendor.status || "active",
       });
-      setTab("details");
+      const requested = (vendor as any).__openTab;
+      setTab(requested === "payments" ? "payments" : "details");
     }
   }, [vendor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 

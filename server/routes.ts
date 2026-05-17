@@ -7354,13 +7354,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contractAmount = body.contractAmount === undefined || body.contractAmount === null || body.contractAmount === ""
         ? "0"
         : String(Number(body.contractAmount) || 0);
+      // Enforce single-currency: vendors must use the project's currency to keep rollups coherent.
+      const projectCurrency = String((property as any).currency || "NGN");
       const created = await storage.createVendor({
         propertyId,
         stageId,
         name,
         workCategory: body.workCategory ? String(body.workCategory).trim() : null,
         contractAmount,
-        currency: String(body.currency || (property as any).currency || "NGN"),
+        currency: projectCurrency,
         contactName: body.contactName ? String(body.contactName).trim() : null,
         contactPhone: body.contactPhone ? String(body.contactPhone).trim() : null,
         contactEmail: body.contactEmail ? String(body.contactEmail).trim() : null,
@@ -7391,7 +7393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.name !== undefined) updates.name = String(body.name).trim() || existing.name;
       if (body.workCategory !== undefined) updates.workCategory = body.workCategory ? String(body.workCategory).trim() : null;
       if (body.contractAmount !== undefined) updates.contractAmount = String(Number(body.contractAmount) || 0);
-      if (body.currency !== undefined) updates.currency = String(body.currency);
+      // Currency is locked to the project's currency; ignore any client override.
       if (body.contactName !== undefined) updates.contactName = body.contactName ? String(body.contactName).trim() : null;
       if (body.contactPhone !== undefined) updates.contactPhone = body.contactPhone ? String(body.contactPhone).trim() : null;
       if (body.contactEmail !== undefined) updates.contactEmail = body.contactEmail ? String(body.contactEmail).trim() : null;
@@ -7475,11 +7477,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allowedMethods = ["bank_transfer", "cash", "cheque", "card", "other"];
       if (method && !allowedMethods.includes(method)) return res.status(400).json({ message: "Invalid method" });
 
+      // Payments inherit the project's currency to keep rollups coherent (single-currency policy).
+      const paymentCurrency = String((property as any).currency || vendor.currency || "NGN");
       const created = await storage.createVendorPayment({
         vendorId,
         propertyId,
         amount: String(amount),
-        currency: String(body.currency || vendor.currency || "NGN"),
+        currency: paymentCurrency,
         paidAt,
         method,
         reference: body.reference ? String(body.reference).trim() : null,
