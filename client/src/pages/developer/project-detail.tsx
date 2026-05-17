@@ -981,20 +981,25 @@ function daysBetween(a: Date, b: Date): number {
 }
 
 function stageVariance(stage: any): { label: string; className: string; days: number | null } {
-  // Variance is plannedCompletion vs (actualCompletion || today)
+  // Variance compares plannedCompletion against (actualCompletion ?? today):
+  //   green  → on time or early (days <= 0, including incomplete stages still on track)
+  //   amber  → up to 7 days late / overdue
+  //   red    → more than 7 days late / overdue
   if (!stage.plannedCompletionDate) return { label: "No plan", className: "bg-slate-100 text-slate-500", days: null };
   const planned = new Date(stage.plannedCompletionDate);
   const ref = stage.actualCompletionDate ? new Date(stage.actualCompletionDate) : new Date();
   const days = daysBetween(planned, ref);
-  if (stage.actualCompletionDate) {
-    if (days <= 0)  return { label: days === 0 ? "On time" : `${-days}d early`, className: "bg-emerald-100 text-emerald-700", days };
-    if (days <= 7)  return { label: `${days}d late`,  className: "bg-amber-100 text-amber-700", days };
-    return { label: `${days}d late`, className: "bg-red-100 text-red-700", days };
+  const isComplete = !!stage.actualCompletionDate;
+  if (days <= 0) {
+    // On schedule (incomplete) or completed on/before plan
+    let label: string;
+    if (isComplete) label = days === 0 ? "On time" : `${-days}d early`;
+    else            label = days === 0 ? "Due today" : `${-days}d to go`;
+    return { label, className: "bg-emerald-100 text-emerald-700", days };
   }
-  // Not yet complete
-  if (days <= 0)  return { label: `${-days}d to go`,  className: "bg-slate-100 text-slate-600", days };
-  if (days <= 7)  return { label: `${days}d overdue`, className: "bg-amber-100 text-amber-700", days };
-  return { label: `${days}d overdue`, className: "bg-red-100 text-red-700", days };
+  const suffix = isComplete ? "late" : "overdue";
+  if (days <= 7) return { label: `${days}d ${suffix}`, className: "bg-amber-100 text-amber-700", days };
+  return { label: `${days}d ${suffix}`, className: "bg-red-100 text-red-700", days };
 }
 
 function ScheduleGantt({ stages }: { stages: any[] }) {
@@ -1396,6 +1401,8 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
   const [projectFields, setProjectFields] = useState({
     currentStage: project?.currentStage || "",
     expectedCompletionDate: project?.expectedCompletionDate ? new Date(project.expectedCompletionDate).toISOString().slice(0, 10) : "",
+    plannedStartDate: project?.plannedStartDate ? new Date(project.plannedStartDate).toISOString().slice(0, 10) : "",
+    plannedCompletionDate: project?.plannedCompletionDate ? new Date(project.plannedCompletionDate).toISOString().slice(0, 10) : "",
     risksDelays: project?.risksDelays || "",
     latestUpdateText: project?.latestUpdateText || "",
   });
@@ -1405,6 +1412,8 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
     mutationFn: async () => apiRequest("PATCH", `/api/developer/projects/${projectId}`, {
       currentStage: projectFields.currentStage || null,
       expectedCompletionDate: projectFields.expectedCompletionDate || null,
+      plannedStartDate: projectFields.plannedStartDate || null,
+      plannedCompletionDate: projectFields.plannedCompletionDate || null,
       risksDelays: projectFields.risksDelays || null,
       latestUpdateText: projectFields.latestUpdateText || null,
     }),
@@ -1531,6 +1540,32 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
                 value={projectFields.expectedCompletionDate}
                 onChange={(e) => updateField("expectedCompletionDate", e.target.value)}
                 data-testid="input-expected-completion"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label>Planned start date</Label>
+                <HelpTip>Used by the Construction schedule (top of this tab) as the start of the project timeline.</HelpTip>
+              </div>
+              <Input
+                type="date"
+                value={projectFields.plannedStartDate}
+                onChange={(e) => updateField("plannedStartDate", e.target.value)}
+                data-testid="input-edit-planned-start"
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label>Planned completion date</Label>
+                <HelpTip>The target end date for construction. Drives the schedule's planned duration and slippage indicators.</HelpTip>
+              </div>
+              <Input
+                type="date"
+                value={projectFields.plannedCompletionDate}
+                onChange={(e) => updateField("plannedCompletionDate", e.target.value)}
+                data-testid="input-edit-planned-completion"
               />
             </div>
           </div>

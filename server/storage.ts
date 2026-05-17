@@ -138,6 +138,7 @@ export interface IStorage {
   getProperty(id: number): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
   updateProperty(id: number, property: InsertProperty): Promise<Property>;
+  updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property>;
   deleteProperty(id: number): Promise<void>;
   deleteDeveloperProject(id: number): Promise<void>;
 
@@ -485,6 +486,18 @@ export class DatabaseStorage implements IStorage {
     const [property] = await db
       .update(properties)
       .set(updateData)
+      .where(eq(properties.id, id))
+      .returning();
+    return property;
+  }
+
+  // Typed minimal-patch update — only the supplied columns are written. Use this
+  // instead of updateProperty() when you only want to change a few fields and
+  // don't want to risk clobbering other columns by round-tripping the full row.
+  async updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set(fields)
       .where(eq(properties.id, id))
       .returning();
     return property;

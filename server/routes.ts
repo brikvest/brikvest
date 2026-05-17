@@ -7159,10 +7159,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projectActual = allDone
         ? new Date(Math.max(...allStages.map(s => new Date(s.actualCompletionDate as any).getTime())))
         : null;
-      if (
-        (projectActual?.getTime() ?? null) !== (property.actualCompletionDate ? new Date(property.actualCompletionDate as any).getTime() : null)
-      ) {
-        await storage.updateProperty(propertyId, { ...property, actualCompletionDate: projectActual } as any);
+      const currentActual = property.actualCompletionDate ? new Date(property.actualCompletionDate as any).getTime() : null;
+      const nextActual = projectActual?.getTime() ?? null;
+      if (currentActual !== nextActual) {
+        await storage.updatePropertyFields(propertyId, { actualCompletionDate: projectActual });
       }
 
       res.json(updated);
