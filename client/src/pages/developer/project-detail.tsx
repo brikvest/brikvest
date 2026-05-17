@@ -2593,6 +2593,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                     <TableHead>Amount</TableHead>
                     <TableHead>KYC</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Last contacted</TableHead>
                     <TableHead>Note</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -2616,6 +2617,14 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                           : inv.status === "reserved" ? "bg-amber-100 text-amber-700"
                           : "bg-slate-100 text-slate-700"
                         }>{inv.status.replace(/_/g, " ")}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <ReminderHistoryCell
+                          reservationId={inv.reservationId}
+                          count={inv.reminderCount ?? (inv.reminderHistory?.length ?? 0)}
+                          history={inv.reminderHistory || []}
+                          lastReminderSentAt={inv.lastReminderSentAt ?? null}
+                        />
                       </TableCell>
                       <TableCell>
                         {inv.investorUserId ? (
