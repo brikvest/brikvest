@@ -6296,14 +6296,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
         // Construction project-level fields
         "currentStage", "expectedCompletionDate", "risksDelays", "latestUpdateText",
+        // Construction tab — schedule + budget (Task #14 groundwork)
+        "plannedStartDate", "plannedCompletionDate", "actualCompletionDate", "totalBudget",
         // Sales lifecycle stage: 'off_plan' | 'completed'
         "salesStage",
       ];
+      const dateFields = new Set([
+        "expectedCompletionDate",
+        "plannedStartDate",
+        "plannedCompletionDate",
+        "actualCompletionDate",
+      ]);
       const payload: any = {};
       for (const k of allowed) {
         if (updates[k] !== undefined) {
           // Coerce date strings to Date objects (Drizzle requires Date for timestamp columns)
-          if (k === "expectedCompletionDate" && updates[k]) {
+          if (dateFields.has(k) && updates[k]) {
             payload[k] = new Date(updates[k]);
           } else if (k === "salesStage") {
             const v = String(updates[k]);

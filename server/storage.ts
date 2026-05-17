@@ -461,19 +461,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProperty(insertProperty: InsertProperty): Promise<Property> {
-    const [property] = await db
-      .insert(properties)
-      .values(insertProperty)
-      .returning();
-    // Auto-seed the 8 default construction stages so the Construction tab can
-    // render a populated timeline immediately. Idempotent (unique index on
-    // propertyId + stageKey). We deliberately do NOT swallow errors here:
-    // every project must have its 8 stages — that's a core invariant the
-    // Fundraising/Construction tabs depend on, so failure here surfaces to
-    // the caller and any partial property row will be cleaned up by the
-    // request handler.
-    await this.seedDefaultConstructionStages(property.id);
-    return property;
+    // Run the property insert + default-stage seeding in a single transaction
+    // so the invariant "every project has its 8 construction stages" is
+    // atomic — either both succeed or neither persists. Stage seeding is
+    // idempotent via the (propertyId, stageKey) unique index.
+    return await db.transaction(async (tx) => {
+      const [property] = await tx
+        .insert(properties)
+        .values(insertProperty)
+        .returning();
+      const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+        propertyId: property.id,
+        stageKey: s.stageKey,
+        name: s.name,
+        sortOrder: s.sortOrder,
+      }));
+      await tx.insert(constructionStages).values(rows).onConflictDoNothing();
+      return property;
+    });
   }
 
   async updateProperty(id: number, updateData: InsertProperty): Promise<Property> {
