@@ -1734,6 +1734,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor> {
+    // Mirror the createVendor guard: if propertyId and/or stageId are being
+    // changed, ensure the resulting (propertyId, stageId) pair stays
+    // consistent — the stage must belong to the same property.
+    if (updates.propertyId != null || updates.stageId != null) {
+      const [current] = await db.select().from(vendors).where(eq(vendors.id, id));
+      if (!current) throw new Error(`Vendor ${id} not found`);
+      const nextPropertyId = updates.propertyId ?? current.propertyId;
+      const nextStageId = updates.stageId !== undefined ? updates.stageId : current.stageId;
+      if (nextStageId != null) {
+        const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+          .from(constructionStages).where(eq(constructionStages.id, nextStageId));
+        if (!stage || stage.propertyId !== nextPropertyId) {
+          throw new Error(`Vendor.stageId ${nextStageId} does not belong to propertyId ${nextPropertyId}`);
+        }
+      }
+    }
     const [result] = await db.update(vendors)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(vendors.id, id))
