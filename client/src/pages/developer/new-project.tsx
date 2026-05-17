@@ -133,6 +133,9 @@ export default function NewProjectWizard() {
     propertyType: "land",
     currency: "NGN",
     spvName: "",
+    // Schedule
+    plannedStartDate: "",
+    plannedCompletionDate: "",
     // Funding model
     fundingTypes: ["equity"] as FundingType[],
     acceptsExternalInvestors: true,
@@ -206,6 +209,8 @@ export default function NewProjectWizard() {
         payoutFrequency: showReturnFields ? form.payoutFrequency || null : null,
         exitStrategy: showExitField ? form.exitStrategy || null : null,
         fundingNotes: form.fundingNotes || null,
+        plannedStartDate: form.plannedStartDate || null,
+        plannedCompletionDate: form.plannedCompletionDate || null,
       };
       delete payload.fundingType;
       return await apiRequest("POST", "/api/developer/projects", payload);
@@ -317,6 +322,22 @@ export default function NewProjectWizard() {
                 </div>
                 <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd (optional)" data-testid="input-spv" />
                 <p className="text-xs text-slate-500 mt-1">Optional — you can add this later once your SPV is incorporated.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Planned start date</Label>
+                    <HelpTip>When you plan to break ground on the project. Used to track schedule slippage on the Construction tab.</HelpTip>
+                  </div>
+                  <Input type="date" value={form.plannedStartDate} onChange={u("plannedStartDate")} data-testid="input-planned-start" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Planned completion date</Label>
+                    <HelpTip>When you plan to finish construction. Used by the schedule timeline and to flag delays.</HelpTip>
+                  </div>
+                  <Input type="date" value={form.plannedCompletionDate} onChange={u("plannedCompletionDate")} data-testid="input-planned-completion" />
+                </div>
               </div>
             </div>
           )}

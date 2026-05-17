@@ -6249,6 +6249,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
+        plannedStartDate: body.plannedStartDate ? new Date(body.plannedStartDate) : null,
+        plannedCompletionDate: body.plannedCompletionDate ? new Date(body.plannedCompletionDate) : null,
         // Funding model (multi-select)
         fundingTypes: Array.isArray(body.fundingTypes) && body.fundingTypes.length > 0
           ? body.fundingTypes
@@ -7096,6 +7098,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to convert lead:", err);
       res.status(500).json({ message: "Failed to convert lead" });
+    }
+  });
+
+  // Construction stages — list the 8 predefined stages for a project
+  app.get("/api/developer/projects/:id/stages", requireDeveloper, async (req: any, res) => {
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    // Idempotently ensure the 8 default stages exist (covers legacy projects
+    // created before construction_stages was wired into createProperty).
+    await storage.seedDefaultConstructionStages(propertyId);
+    const stages = await storage.getConstructionStagesByProperty(propertyId);
+    res.json(stages);
+  });
+
+  // Construction stages — update planned/actual dates, status, notes for a single stage
+  app.patch("/api/developer/projects/:id/stages/:stageId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const stageId = Number(req.params.stageId);
+      if (!Number.isInteger(stageId) || stageId <= 0) {
+        return res.status(400).json({ message: "Invalid stage id" });
+      }
+      // Verify the stage belongs to this project (prevents cross-project edits)
+      const stages = await storage.getConstructionStagesByProperty(propertyId);
+      const target = stages.find(s => s.id === stageId);
+      if (!target) return res.status(404).json({ message: "Stage not found" });
+
+      const body = req.body || {};
+      const dateOrNull = (v: any) => (v === null || v === "" || v === undefined ? null : new Date(v));
+      const updates: any = {};
+      if (body.plannedStartDate !== undefined)      updates.plannedStartDate = dateOrNull(body.plannedStartDate);
+      if (body.plannedCompletionDate !== undefined) updates.plannedCompletionDate = dateOrNull(body.plannedCompletionDate);
+      if (body.actualStartDate !== undefined)       updates.actualStartDate = dateOrNull(body.actualStartDate);
+      if (body.actualCompletionDate !== undefined)  updates.actualCompletionDate = dateOrNull(body.actualCompletionDate);
+      if (body.status !== undefined) {
+        const allowed = ["not_started", "in_progress", "done", "delayed"];
+        if (!allowed.includes(body.status)) return res.status(400).json({ message: "Invalid status" });
+        updates.status = body.status;
+      }
+      if (body.notes !== undefined) updates.notes = body.notes || null;
+
+      // Auto-derive status from actualCompletionDate if status not explicitly set
+      if (updates.status === undefined && updates.actualCompletionDate !== undefined) {
+        updates.status = updates.actualCompletionDate ? "done" : (target.actualStartDate || updates.actualStartDate ? "in_progress" : "not_started");
+      }
+
+      const updated = await storage.updateConstructionStage(stageId, updates);
+
+      // Recompute project-level actualCompletionDate: if every stage has an
+      // actualCompletionDate, set the property's actualCompletionDate to the
+      // latest of them. Otherwise clear it.
+      const allStages = await storage.getConstructionStagesByProperty(propertyId);
+      const allDone = allStages.length > 0 && allStages.every(s => !!s.actualCompletionDate);
+      const projectActual = allDone
+        ? new Date(Math.max(...allStages.map(s => new Date(s.actualCompletionDate as any).getTime())))
+        : null;
+      if (
+        (projectActual?.getTime() ?? null) !== (property.actualCompletionDate ? new Date(property.actualCompletionDate as any).getTime() : null)
+      ) {
+        await storage.updateProperty(propertyId, { ...property, actualCompletionDate: projectActual } as any);
+      }
+
+      res.json(updated);
+    } catch (err) {
+      console.error("Failed to update construction stage:", err);
+      res.status(500).json({ message: "Failed to update stage" });
     }
   });
 

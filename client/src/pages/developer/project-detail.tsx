@@ -1,9 +1,10 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -962,7 +963,422 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
 }
 
 // ======================= CONSTRUCTION =======================
+
+const STAGE_STATUS_META: Record<string, { label: string; className: string }> = {
+  not_started: { label: "Not started", className: "bg-slate-100 text-slate-700" },
+  in_progress: { label: "In progress", className: "bg-blue-100 text-blue-700" },
+  done:        { label: "Done",        className: "bg-emerald-100 text-emerald-700" },
+  delayed:     { label: "Delayed",     className: "bg-amber-100 text-amber-700" },
+};
+
+function fmtDate(d: any): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function daysBetween(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function stageVariance(stage: any): { label: string; className: string; days: number | null } {
+  // Variance is plannedCompletion vs (actualCompletion || today)
+  if (!stage.plannedCompletionDate) return { label: "No plan", className: "bg-slate-100 text-slate-500", days: null };
+  const planned = new Date(stage.plannedCompletionDate);
+  const ref = stage.actualCompletionDate ? new Date(stage.actualCompletionDate) : new Date();
+  const days = daysBetween(planned, ref);
+  if (stage.actualCompletionDate) {
+    if (days <= 0)  return { label: days === 0 ? "On time" : `${-days}d early`, className: "bg-emerald-100 text-emerald-700", days };
+    if (days <= 7)  return { label: `${days}d late`,  className: "bg-amber-100 text-amber-700", days };
+    return { label: `${days}d late`, className: "bg-red-100 text-red-700", days };
+  }
+  // Not yet complete
+  if (days <= 0)  return { label: `${-days}d to go`,  className: "bg-slate-100 text-slate-600", days };
+  if (days <= 7)  return { label: `${days}d overdue`, className: "bg-amber-100 text-amber-700", days };
+  return { label: `${days}d overdue`, className: "bg-red-100 text-red-700", days };
+}
+
+function ScheduleGantt({ stages }: { stages: any[] }) {
+  // Compute the timeline bounds across all planned + actual dates.
+  const dates: number[] = [];
+  for (const s of stages) {
+    for (const k of ["plannedStartDate", "plannedCompletionDate", "actualStartDate", "actualCompletionDate"]) {
+      if (s[k]) dates.push(new Date(s[k]).getTime());
+    }
+  }
+  if (dates.length < 2) {
+    return (
+      <div className="text-center py-8 text-sm text-slate-500">
+        Add planned dates to your stages to see a timeline.
+      </div>
+    );
+  }
+  const min = Math.min(...dates);
+  const max = Math.max(...dates, Date.now());
+  const span = Math.max(max - min, 1);
+  const pct = (t: number) => `${((t - min) / span) * 100}%`;
+  const todayPct = pct(Date.now());
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+        <span>{fmtDate(min)}</span>
+        <span>Today: {fmtDate(Date.now())}</span>
+        <span>{fmtDate(max)}</span>
+      </div>
+      <div className="relative">
+        {/* Today reference line */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-blue-500 z-10 pointer-events-none"
+          style={{ left: todayPct }}
+          aria-hidden
+        >
+          <div className="absolute -top-1 -translate-x-1/2 w-2 h-2 rounded-full bg-blue-500" />
+        </div>
+        <div className="space-y-2">
+          {stages.map((s) => {
+            const ps = s.plannedStartDate      ? new Date(s.plannedStartDate).getTime()      : null;
+            const pe = s.plannedCompletionDate ? new Date(s.plannedCompletionDate).getTime() : null;
+            const as = s.actualStartDate       ? new Date(s.actualStartDate).getTime()       : null;
+            const ae = s.actualCompletionDate  ? new Date(s.actualCompletionDate).getTime()  : (as ? Date.now() : null);
+            return (
+              <div key={s.id} className="grid grid-cols-12 gap-2 items-center text-xs" data-testid={`gantt-row-${s.stageKey}`}>
+                <div className="col-span-3 truncate text-slate-700 font-medium">{s.name}</div>
+                <div className="col-span-9 relative h-6 bg-slate-50 rounded">
+                  {ps !== null && pe !== null && pe > ps && (
+                    <div
+                      className="absolute top-0.5 h-2 rounded bg-blue-200"
+                      style={{ left: pct(ps), width: `calc(${pct(pe)} - ${pct(ps)})` }}
+                      title={`Planned: ${fmtDate(ps)} → ${fmtDate(pe)}`}
+                    />
+                  )}
+                  {as !== null && ae !== null && ae > as && (
+                    <div
+                      className={`absolute bottom-0.5 h-2 rounded ${s.actualCompletionDate ? "bg-emerald-500" : "bg-blue-500"}`}
+                      style={{ left: pct(as), width: `calc(${pct(ae)} - ${pct(as)})` }}
+                      title={`Actual: ${fmtDate(as)} → ${s.actualCompletionDate ? fmtDate(ae) : "in progress"}`}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex items-center gap-4 pt-2 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-blue-200" /> Planned</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-blue-500" /> In progress</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-emerald-500" /> Completed</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-0.5 h-3 bg-blue-500" /> Today</span>
+      </div>
+    </div>
+  );
+}
+
+function StageEditDialog({
+  stage,
+  onClose,
+  onSave,
+  saving,
+}: {
+  stage: any | null;
+  onClose: () => void;
+  onSave: (updates: any) => void;
+  saving: boolean;
+}) {
+  const toIso = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  const [form, setForm] = useState({
+    plannedStartDate: toIso(stage?.plannedStartDate),
+    plannedCompletionDate: toIso(stage?.plannedCompletionDate),
+    actualStartDate: toIso(stage?.actualStartDate),
+    actualCompletionDate: toIso(stage?.actualCompletionDate),
+    status: stage?.status || "not_started",
+    notes: stage?.notes || "",
+  });
+  // Re-sync state when a different stage opens
+  const stageId = stage?.id;
+  useEffect(() => {
+    setForm({
+      plannedStartDate: toIso(stage?.plannedStartDate),
+      plannedCompletionDate: toIso(stage?.plannedCompletionDate),
+      actualStartDate: toIso(stage?.actualStartDate),
+      actualCompletionDate: toIso(stage?.actualCompletionDate),
+      status: stage?.status || "not_started",
+      notes: stage?.notes || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageId]);
+
+  if (!stage) return null;
+  return (
+    <Dialog open={!!stage} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit stage — {stage.name}</DialogTitle>
+          <DialogDescription>Set planned and actual dates. Variance and overall completion update automatically.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Planned start</Label>
+              <Input type="date" value={form.plannedStartDate} onChange={(e) => setForm({ ...form, plannedStartDate: e.target.value })} data-testid="input-planned-start" />
+            </div>
+            <div>
+              <Label>Planned completion</Label>
+              <Input type="date" value={form.plannedCompletionDate} onChange={(e) => setForm({ ...form, plannedCompletionDate: e.target.value })} data-testid="input-planned-completion" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Actual start</Label>
+              <Input type="date" value={form.actualStartDate} onChange={(e) => setForm({ ...form, actualStartDate: e.target.value })} data-testid="input-actual-start" />
+            </div>
+            <div>
+              <Label>Actual completion</Label>
+              <Input type="date" value={form.actualCompletionDate} onChange={(e) => setForm({ ...form, actualCompletionDate: e.target.value })} data-testid="input-actual-completion" />
+            </div>
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+              <SelectTrigger data-testid="select-stage-status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="not_started">Not started</SelectItem>
+                <SelectItem value="in_progress">In progress</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="delayed">Delayed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes about this stage" data-testid="textarea-stage-notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={saving}
+            onClick={() => onSave({
+              plannedStartDate: form.plannedStartDate || null,
+              plannedCompletionDate: form.plannedCompletionDate || null,
+              actualStartDate: form.actualStartDate || null,
+              actualCompletionDate: form.actualCompletionDate || null,
+              status: form.status,
+              notes: form.notes,
+            })}
+            data-testid="button-save-stage"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Save stage
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ConstructionTab({ projectId, project }: { projectId: string | number; project: any }) {
+  const { toast } = useToast();
+  const { data: stages, isLoading: stagesLoading } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", projectId, "stages"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/stages`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const [editingStage, setEditingStage] = useState<any | null>(null);
+
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: number; updates: any }) =>
+      apiRequest("PATCH", `/api/developer/projects/${projectId}/stages/${id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "stages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
+      setEditingStage(null);
+      toast({ title: "Stage updated" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to update stage")),
+  });
+
+  const sortedStages = stages ? [...stages].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : [];
+  const completedCount = sortedStages.filter(s => !!s.actualCompletionDate).length;
+  const totalStages = sortedStages.length || 8;
+  const completionPct = totalStages > 0 ? Math.round((completedCount / totalStages) * 100) : 0;
+  const nextStage = sortedStages.find(s => !s.actualCompletionDate);
+
+  // Project-level duration in months (planned)
+  const projectDurationMonths = (() => {
+    if (!project?.plannedStartDate || !project?.plannedCompletionDate) return null;
+    const s = new Date(project.plannedStartDate);
+    const e = new Date(project.plannedCompletionDate);
+    const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+    return Math.max(months, 0);
+  })();
+
+  return (
+    <div className="space-y-6">
+      {/* Schedule overview (read-only — project-level dates are edited in project settings) */}
+      <Card data-testid="card-schedule-overview">
+        <CardHeader>
+          <CardTitle>Schedule</CardTitle>
+          <CardDescription>Project-level dates that frame the construction timeline. Stage dates live below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Planned start</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-planned-start">{fmtDate(project?.plannedStartDate)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Planned completion</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-planned-completion">{fmtDate(project?.plannedCompletionDate)}</div>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <div className="text-xs text-slate-500 uppercase">Actual completion</div>
+                <HelpTip>Auto-set when every stage below has an actual completion date.</HelpTip>
+              </div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-actual-completion">{fmtDate(project?.actualCompletionDate)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Duration (planned)</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-duration">
+                {projectDurationMonths === null ? "—" : `${projectDurationMonths} month${projectDurationMonths === 1 ? "" : "s"}`}
+              </div>
+            </div>
+          </div>
+          {!project?.plannedStartDate && !project?.plannedCompletionDate && (
+            <p className="text-xs text-slate-500 mt-3">
+              Set planned start and completion dates in project settings to populate the timeline.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Completion progress */}
+      <Card data-testid="card-completion-progress">
+        <CardContent className="py-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm text-slate-500">Project completion</div>
+              <div className="text-3xl font-bold text-slate-900 mt-1">{completionPct}%</div>
+              <div className="text-xs text-slate-500 mt-0.5">{completedCount} of {totalStages} stages complete</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-slate-500 uppercase">Next stage</div>
+              <div className="text-sm font-medium text-slate-900 mt-1">{nextStage?.name || "All complete"}</div>
+              {nextStage?.plannedCompletionDate && (
+                <div className="text-xs text-slate-500 mt-0.5">by {fmtDate(nextStage.plannedCompletionDate)}</div>
+              )}
+            </div>
+          </div>
+          <Progress value={completionPct} className="h-3" />
+        </CardContent>
+      </Card>
+
+      {/* Stages table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Construction stages</CardTitle>
+          <CardDescription>Track each of the 8 stages — planned vs actual dates and delay variance.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {stagesLoading ? (
+            <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-12 bg-slate-100 rounded animate-pulse" />)}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Stage</TableHead>
+                    <TableHead>Planned</TableHead>
+                    <TableHead>Actual</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Variance</TableHead>
+                    <TableHead className="text-right"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedStages.map((s) => {
+                    const meta = STAGE_STATUS_META[s.status] || STAGE_STATUS_META.not_started;
+                    const variance = stageVariance(s);
+                    const ps = s.plannedStartDate ? new Date(s.plannedStartDate) : null;
+                    const pe = s.plannedCompletionDate ? new Date(s.plannedCompletionDate) : null;
+                    const durationDays = ps && pe ? Math.max(daysBetween(ps, pe), 0) : null;
+                    return (
+                      <TableRow key={s.id} data-testid={`row-stage-${s.stageKey}`}>
+                        <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell className="text-xs text-slate-600 whitespace-nowrap">
+                          {fmtDate(s.plannedStartDate)} → {fmtDate(s.plannedCompletionDate)}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 whitespace-nowrap">
+                          {fmtDate(s.actualStartDate)} → {fmtDate(s.actualCompletionDate)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-slate-600">
+                          {durationDays === null ? "—" : `${durationDays}d`}
+                        </TableCell>
+                        <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
+                        <TableCell><Badge className={variance.className} data-testid={`variance-${s.stageKey}`}>{variance.label}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingStage(s)} data-testid={`button-edit-stage-${s.stageKey}`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Planned vs actual timeline */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Planned vs actual timeline</CardTitle>
+          <CardDescription>Top bar (light blue) is the plan, bottom bar is what actually happened. Slippage is the gap.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {stagesLoading ? (
+            <div className="h-40 bg-slate-100 rounded animate-pulse" />
+          ) : (
+            <ScheduleGantt stages={sortedStages} />
+          )}
+        </CardContent>
+      </Card>
+
+      <StageEditDialog
+        stage={editingStage}
+        onClose={() => setEditingStage(null)}
+        onSave={(updates) => editingStage && updateStageMutation.mutate({ id: editingStage.id, updates })}
+        saving={updateStageMutation.isPending}
+      />
+
+      {/* Legacy: project status fields + free-form milestones, collapsed by default */}
+      <Accordion type="single" collapsible>
+        <AccordionItem value="detailed-milestones" className="border border-slate-200 rounded-lg bg-white">
+          <AccordionTrigger className="px-4 py-3 hover:no-underline" data-testid="accordion-detailed-milestones">
+            <div className="text-left">
+              <div className="font-semibold text-slate-900">Detailed milestones</div>
+              <div className="text-xs text-slate-500 font-normal">Optional free-form milestone list with photos and a public status summary.</div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <LegacyMilestonesSection projectId={projectId} project={project} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  );
+}
+
+// Legacy free-form milestone list + project-status fields, preserved per task spec.
+function LegacyMilestonesSection({ projectId, project }: { projectId: string | number; project: any }) {
   const { toast } = useToast();
   const { data: milestones, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "milestones"],
@@ -1075,20 +1491,11 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
     setFieldsDirty(true);
   };
 
+  // `overall` is computed but unused — the new completion progress card above replaces this metric.
+  void overall;
+
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="flex items-center justify-between py-5">
-          <div>
-            <div className="text-sm text-slate-500">Overall construction progress</div>
-            <div className="text-3xl font-bold text-slate-900 mt-1">{overall}%</div>
-          </div>
-          <div className="w-1/2">
-            <Progress value={overall} className="h-3" />
-          </div>
-        </CardContent>
-      </Card>
-
       <Card data-testid="card-project-fields">
         <CardHeader>
           <CardTitle>Project status</CardTitle>
