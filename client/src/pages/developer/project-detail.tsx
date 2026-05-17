@@ -2048,6 +2048,24 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       return res.json();
     },
   });
+  const { data: rollup } = useQuery<any>({
+    queryKey: ["/api/developer/projects", projectId, "rollup"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/rollup`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const sendReminder = useMutation({
+    mutationFn: async (reservationId: number) =>
+      apiRequest("POST", `/api/developer/projects/${projectId}/reservations/${reservationId}/remind`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
+      toast({ title: "Reminder sent", description: "The investor has been emailed a payment reminder." });
+    },
+    onError: (err: any) => toast({ title: "Could not send reminder", description: err?.message || "Try again later", variant: "destructive" }),
+  });
   const [stage, setStage] = useState<SalesStage>("all");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteInvestor, setNoteInvestor] = useState<any | null>(null);
@@ -2208,7 +2226,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       </Card>
 
       {/* Velocity / Forecast cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Sold {noun.plural}</div>
@@ -2257,6 +2275,26 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
             )}
           </CardContent>
         </Card>
+        <Card data-testid="card-lead-conversion">
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Lead conversion</div>
+            {rollup?.leadConversionRate ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900 mt-1">
+                  {rollup.leadConversionRate.percent}<span className="text-base font-normal text-slate-500">%</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-2">
+                  {rollup.leadConversionRate.confirmed} confirmed / {rollup.leadConversionRate.totalProspects} prospects
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-slate-400 mt-1">—</div>
+                <div className="text-xs text-slate-500 mt-2">No pipeline data yet</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Sales chart */}
@@ -2280,6 +2318,106 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           </div>
         </CardContent>
       </Card>
+
+      {/* Unit mix — Sold vs Remaining by unit type */}
+      {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sold vs Remaining by unit type</CardTitle>
+            <CardDescription>Inventory breakdown across the {rollup.unitMix.length} configured unit type{rollup.unitMix.length === 1 ? "" : "s"}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={rollup.unitMix} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="sold" name="Sold" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="remaining" name="Remaining" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Clients still owing — reservations pending payment */}
+      {(() => {
+        const owing = list.filter((i: any) => i.status === "reserved" || i.funnelStage === "payment_incomplete");
+        if (owing.length === 0) return null;
+        return (
+          <Card data-testid="card-owing-clients">
+            <CardHeader>
+              <CardTitle>Clients still owing</CardTitle>
+              <CardDescription>{owing.length} {owing.length === 1 ? "reservation" : "reservations"} with pending payment. Reminders are throttled to one per 24 hours.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>{noun.Plural}</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Due</TableHead>
+                      <TableHead>Last reminder</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {owing.map((inv: any) => {
+                      const due = inv.expiresAt ? new Date(inv.expiresAt) : null;
+                      const overdue = due ? due.getTime() < Date.now() : false;
+                      const last = inv.lastReminderSentAt ? new Date(inv.lastReminderSentAt) : null;
+                      const throttled = last ? (Date.now() - last.getTime()) < 24 * 60 * 60 * 1000 : false;
+                      const isSending = sendReminder.isPending && sendReminder.variables === inv.reservationId;
+                      return (
+                        <TableRow key={inv.reservationId} data-testid={`row-owing-${inv.reservationId}`}>
+                          <TableCell>
+                            <div className="font-medium text-slate-900">{inv.name}</div>
+                            <div className="text-xs text-slate-500">{inv.email}</div>
+                          </TableCell>
+                          <TableCell>{fmtUnits(inv.units)}</TableCell>
+                          <TableCell>{fmt(inv.currency, inv.amount)}</TableCell>
+                          <TableCell>
+                            {due ? (
+                              <span className={overdue ? "text-red-600 font-medium" : "text-slate-700"}>
+                                {due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                {overdue && <span className="ml-1 text-xs">(overdue)</span>}
+                              </span>
+                            ) : <span className="text-slate-400">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {last ? (
+                              <span className="text-xs text-slate-600">{last.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                            ) : <span className="text-xs text-slate-400">Never</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={throttled || isSending}
+                              onClick={() => sendReminder.mutate(inv.reservationId)}
+                              data-testid={`button-send-reminder-${inv.reservationId}`}
+                              title={throttled ? "A reminder was already sent in the last 24 hours" : "Send a payment reminder email"}
+                            >
+                              {isSending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Mail className="w-3.5 h-3.5 mr-1.5" />}
+                              {throttled ? "Sent recently" : "Send reminder"}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* CRM Leads sub-section (pre-reservation funnel) */}
       <LeadsSection

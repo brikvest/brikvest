@@ -32,6 +32,7 @@ import {
   investmentConfirmedEmailTemplate,
   developerInvestmentRecordedEmailTemplate,
   developerTeamInviteEmailTemplate,
+  paymentReminderEmailTemplate,
 } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
@@ -6546,6 +6547,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const qualifiedDenom = leadCounts.qualified + leadCounts.converted;
       const qualifiedConversionRate = qualifiedDenom > 0 ? leadCounts.converted / qualifiedDenom : 0;
 
+      // Lead conversion rate: confirmed ÷ (non-converted leads + all reservations)
+      // Subtracting leads with stage='converted' avoids double-counting those who
+      // already turned into a reservation row.
+      const nonConvertedLeads = leads.filter(l => l.stage !== "converted").length;
+      const leadConversionDenom = nonConvertedLeads + reservations.length;
+      const leadConversionRate = {
+        confirmed: confirmedCount,
+        totalProspects: leadConversionDenom,
+        percent: leadConversionDenom > 0 ? Math.round((confirmedCount / leadConversionDenom) * 100) : 0,
+      };
+
+      // Unit mix — for each unit type configured on the property, count
+      // confirmed reservations whose unit_price_snapshot matches the type's
+      // price. Used by the Sales tab's "Sold vs Remaining by unit type" chart.
+      //
+      // Reservations don't currently carry a stable unitTypeId, so we match
+      // on price. To avoid double-counting when multiple unit types share
+      // the same price, we bucket sold units by price and greedily fill
+      // each matching type up to its `quantity` in declared order.
+      type UnitTypeRow = { label: string; quantity: number; price: number };
+      const unitTypes: UnitTypeRow[] = Array.isArray(property.unitTypes) ? property.unitTypes : [];
+      const soldByPrice = new Map<number, number>();
+      for (const r of confirmed) {
+        const p = Number(r.unitPriceSnapshot || 0);
+        soldByPrice.set(p, (soldByPrice.get(p) || 0) + Number(r.units || 0));
+      }
+      const remainingByPrice = new Map(soldByPrice);
+      const unitMix = unitTypes.map(t => {
+        const typePrice = Number(t.price);
+        const total = Number(t.quantity || 0);
+        const pool = remainingByPrice.get(typePrice) || 0;
+        const sold = Math.min(pool, total);
+        remainingByPrice.set(typePrice, pool - sold);
+        return {
+          label: String(t.label || ""),
+          total,
+          sold,
+          remaining: Math.max(0, total - sold),
+        };
+      });
+
       res.json({
         funding: {
           totalRaised,
@@ -6574,6 +6616,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...leadCounts,
           qualifiedConversionRate: Math.round(qualifiedConversionRate * 1000) / 1000,
         },
+        leadConversionRate,
+        unitMix,
         construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
         capTable: {
           investorEquityPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
@@ -6637,6 +6681,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })),
           createdAt: r.createdAt,
           confirmedAt: r.status === "converted_to_investment" ? r.updatedAt : null,
+          expiresAt: r.expiresAt,
+          lastReminderSentAt: r.lastReminderSentAt,
           notes: note?.notes || "",
         };
       }));
@@ -6668,6 +6714,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to update funnel stage:", err);
       res.status(500).json({ message: "Failed to update stage" });
+    }
+  });
+
+  // Send a templated payment-reminder email to an investor whose reservation
+  // is still pending payment. Throttled to one reminder per reservation per
+  // 24h to prevent spam. Gated by the `sales` permission.
+  app.post("/api/developer/projects/:id/reservations/:reservationId/remind", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservationId = Number(req.params.reservationId);
+      if (!Number.isFinite(reservationId)) return res.status(400).json({ message: "Invalid reservation id" });
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.propertyId !== propertyId) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+      // Only allow reminders for reservations actually pending payment.
+      const isPending = reservation.status === "reserved" || reservation.funnelStage === "payment_incomplete";
+      if (!isPending) {
+        return res.status(400).json({
+          code: "reminder_not_applicable",
+          message: "Reminders can only be sent for reservations pending payment.",
+        });
+      }
+      const now = Date.now();
+      if (reservation.lastReminderSentAt) {
+        const last = new Date(reservation.lastReminderSentAt).getTime();
+        if (now - last < 24 * 60 * 60 * 1000) {
+          const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - last)) / (60 * 60 * 1000));
+          return res.status(429).json({
+            code: "reminder_throttled",
+            message: `A reminder was already sent recently. Try again in ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"}.`,
+          });
+        }
+      }
+      const dueDate = reservation.expiresAt ? new Date(reservation.expiresAt) : null;
+      const emailData = paymentReminderEmailTemplate({
+        investorName: reservation.fullName || "Investor",
+        propertyName: property.name,
+        units: Number(reservation.units || 0),
+        amount: Number(reservation.amount || 0),
+        currency: reservation.currency || property.currency || "NGN",
+        dueDate,
+        paymentLink: "https://www.brikvest.net/dashboard",
+      });
+      try {
+        await sendEmail({ to: reservation.email, subject: emailData.subject, html: emailData.html });
+      } catch (e) {
+        console.error("Failed to send payment reminder email:", e);
+        return res.status(500).json({ message: "Failed to send reminder email" });
+      }
+      await storage.updateReservation(reservationId, { lastReminderSentAt: new Date() });
+      res.json({ ok: true, sentAt: new Date().toISOString() });
+    } catch (err) {
+      console.error("Payment reminder failed:", err);
+      res.status(500).json({ message: "Failed to send reminder" });
     }
   });
 
