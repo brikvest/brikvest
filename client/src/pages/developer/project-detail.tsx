@@ -2064,7 +2064,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
       toast({ title: "Reminder sent", description: "The investor has been emailed a payment reminder." });
     },
-    onError: (err: any) => toast({ title: "Could not send reminder", description: err?.message || "Try again later", variant: "destructive" }),
+    onError: (err: any) => toast(toastFromError(err, "Could not send reminder")),
   });
   const [stage, setStage] = useState<SalesStage>("all");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -2320,13 +2320,17 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       </Card>
 
       {/* Unit mix — Sold vs Remaining by unit type */}
-      {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Sold vs Remaining by unit type</CardTitle>
-            <CardDescription>Inventory breakdown across the {rollup.unitMix.length} configured unit type{rollup.unitMix.length === 1 ? "" : "s"}.</CardDescription>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <CardTitle>Sold vs Remaining by unit type</CardTitle>
+          <CardDescription>
+            {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0
+              ? `Inventory breakdown across the ${rollup.unitMix.length} configured unit type${rollup.unitMix.length === 1 ? "" : "s"}.`
+              : "Configure unit types in project settings to see this breakdown."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0 ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={rollup.unitMix} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -2340,9 +2344,13 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <div className="text-center py-12 text-sm text-slate-500" data-testid="empty-unit-mix">
+              Add unit types in project settings to see this breakdown.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Clients still owing — reservations pending payment */}
       {(() => {
@@ -2363,6 +2371,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                       <TableHead>{noun.Plural}</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Due</TableHead>
+                      <TableHead>Days overdue</TableHead>
                       <TableHead>Last reminder</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
@@ -2371,6 +2380,9 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                     {owing.map((inv: any) => {
                       const due = inv.expiresAt ? new Date(inv.expiresAt) : null;
                       const overdue = due ? due.getTime() < Date.now() : false;
+                      const daysOverdue = overdue && due
+                        ? Math.floor((Date.now() - due.getTime()) / (24 * 60 * 60 * 1000))
+                        : 0;
                       const last = inv.lastReminderSentAt ? new Date(inv.lastReminderSentAt) : null;
                       const throttled = last ? (Date.now() - last.getTime()) < 24 * 60 * 60 * 1000 : false;
                       const isSending = sendReminder.isPending && sendReminder.variables === inv.reservationId;
@@ -2386,9 +2398,19 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                             {due ? (
                               <span className={overdue ? "text-red-600 font-medium" : "text-slate-700"}>
                                 {due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                                {overdue && <span className="ml-1 text-xs">(overdue)</span>}
                               </span>
                             ) : <span className="text-slate-400">—</span>}
+                          </TableCell>
+                          <TableCell data-testid={`cell-days-overdue-${inv.reservationId}`}>
+                            {overdue ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-xs font-semibold border border-red-200">
+                                {daysOverdue} {daysOverdue === 1 ? "day" : "days"}
+                              </span>
+                            ) : due ? (
+                              <span className="text-xs text-slate-500">—</span>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {last ? (

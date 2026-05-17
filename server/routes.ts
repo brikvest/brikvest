@@ -6588,6 +6588,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
 
+      // Sales-permission gate for sales-specific fields. Owners and team
+      // members with the `sales` permission see leadConversionRate + unitMix;
+      // other members get null (their UI hides the Sales tab anyway).
+      const u = req.user as any;
+      const isOwner = !(u?.teamRole === "member" && !!u?.parentDeveloperId);
+      const hasSalesPerm = isOwner || (Array.isArray(u?.permissions) && u.permissions.includes("sales"));
+
       res.json({
         funding: {
           totalRaised,
@@ -6616,8 +6623,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...leadCounts,
           qualifiedConversionRate: Math.round(qualifiedConversionRate * 1000) / 1000,
         },
-        leadConversionRate,
-        unitMix,
+        leadConversionRate: hasSalesPerm ? leadConversionRate : null,
+        unitMix: hasSalesPerm ? unitMix : null,
         construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
         capTable: {
           investorEquityPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
