@@ -12,6 +12,7 @@ import { hashPassword } from "../server/auth";
 import {
   users, properties, investmentReservations,
   projectMilestones, projectUpdates,
+  constructionStages, vendors, vendorPayments,
 } from "../shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -393,6 +394,101 @@ async function ensureInvestors(propertyId: number, unitPrice: number, seeds: Pro
   console.log(`[SEED]   Investors → confirmed:${counts.converted_to_investment}  reserved:${counts.reserved}  expired:${counts.expired}  (${created} created, ${seeds.length - created} reused; ${submissionsCreated} payment submissions seeded)`);
 }
 
+// Populate the 8-stage construction template with realistic planned/actual dates,
+// a per-stage budget, and per-stage status. Pulls existing stages auto-seeded by
+// createProperty (or backfilled by the migration helper).
+async function ensureConstructionStageDates(propertyId: number, salesStage: "off_plan" | "completed", totalBudget: number) {
+  await storage.seedDefaultConstructionStages(propertyId); // idempotent guard
+  const stages = await storage.getConstructionStagesByProperty(propertyId);
+  // 8 stages * roughly equal slices of the project budget
+  const budgetPerStage = Math.round(totalBudget / stages.length);
+  const today = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+
+  // For 'completed' projects: stages 0..6 done, stage 7 done as well.
+  // For 'off_plan' projects: stages 0..3 done, stage 4 in_progress, rest not_started.
+  const doneThrough = salesStage === "completed" ? 7 : 3;
+  const inProgressIndex = salesStage === "completed" ? -1 : 4;
+
+  for (let i = 0; i < stages.length; i++) {
+    const s = stages[i];
+    // Plan: each stage takes ~90 days, sequenced
+    const plannedStart = new Date(today + (i - 4) * 90 * day);
+    const plannedEnd = new Date(today + (i - 3) * 90 * day);
+    let actualStart: Date | null = null;
+    let actualEnd: Date | null = null;
+    let status: string = "not_started";
+    if (i <= doneThrough) {
+      actualStart = new Date(plannedStart.getTime() + Math.floor((Math.random() - 0.5) * 7 * day));
+      actualEnd = new Date(plannedEnd.getTime() + Math.floor((Math.random() - 0.5) * 7 * day));
+      status = "done";
+    } else if (i === inProgressIndex) {
+      actualStart = new Date(plannedStart.getTime() + 3 * day);
+      actualEnd = null;
+      status = "in_progress";
+    }
+    await storage.updateConstructionStage(s.id, {
+      plannedStartDate: plannedStart,
+      plannedCompletionDate: plannedEnd,
+      actualStartDate: actualStart,
+      actualCompletionDate: actualEnd,
+      budgetAmount: String(budgetPerStage),
+      status,
+    } as any);
+  }
+  console.log(`[SEED]   Updated ${stages.length} construction stages`);
+}
+
+// Two vendors per project with a handful of recorded payments each.
+async function ensureVendorsAndPayments(propertyId: number, totalBudget: number, developerUserId: number) {
+  const existing = await storage.getVendorsByProperty(propertyId);
+  if (existing.length > 0) {
+    console.log(`[SEED]   Vendors already seeded (${existing.length})`);
+    return;
+  }
+  const stages = await storage.getConstructionStagesByProperty(propertyId);
+  const foundation = stages.find(s => s.stageKey === "foundation");
+  const finishes = stages.find(s => s.stageKey === "finishes");
+
+  const vendorSeeds = [
+    { name: "Adebayo & Sons Construction Ltd",       category: "General Contractor", stageId: foundation?.id, contractAmount: Math.round(totalBudget * 0.35), payments: 4 },
+    { name: "Bright Star Plumbing & Electrical",     category: "MEP",                stageId: finishes?.id,   contractAmount: Math.round(totalBudget * 0.12), payments: 3 },
+  ];
+
+  const day = 24 * 60 * 60 * 1000;
+  for (const v of vendorSeeds) {
+    const vendor = await storage.createVendor({
+      propertyId,
+      stageId: v.stageId ?? null,
+      name: v.name,
+      workCategory: v.category,
+      contractAmount: String(v.contractAmount),
+      currency: "NGN",
+      contactName: "Demo Contact",
+      contactPhone: "+2348011112222",
+      contactEmail: `${v.name.toLowerCase().replace(/[^a-z]+/g, "")}@demo.brikvest.net`,
+      status: "active",
+    } as any);
+    const perPayment = Math.round((v.contractAmount * 0.6) / v.payments);
+    for (let i = 0; i < v.payments; i++) {
+      await storage.createVendorPayment({
+        vendorId: vendor.id,
+        propertyId,
+        amount: String(perPayment),
+        currency: "NGN",
+        paidAt: new Date(Date.now() - (v.payments - i) * 14 * day),
+        method: "bank_transfer",
+        reference: `DEMO-VP-${vendor.id}-${i + 1}`,
+        proofUrl: "https://res.cloudinary.com/demo/image/upload/v1/sample-receipt.png",
+        proofType: "image",
+        notes: `Milestone ${i + 1} payment to ${v.name}`,
+        createdByUserId: developerUserId,
+      } as any);
+    }
+  }
+  console.log(`[SEED]   Seeded ${vendorSeeds.length} vendors with payments`);
+}
+
 async function ensureUpdates(propertyId: number, developerId: number, recipientCount: number, seeds: ProjectSeed["updates"]) {
   const existing = await storage.getProjectUpdatesByProperty(propertyId);
   if (existing.length > 0) {
@@ -426,6 +522,9 @@ async function main() {
     await ensureMilestones(project.id, projectSeed.milestones);
     await ensureInvestors(project.id, projectSeed.unitPrice, projectSeed.investors);
     await ensureUpdates(project.id, developer.id, projectSeed.investors.length, projectSeed.updates);
+    const totalBudget = projectSeed.totalUnits * projectSeed.unitPrice;
+    await ensureConstructionStageDates(project.id, projectSeed.salesStage, totalBudget);
+    await ensureVendorsAndPayments(project.id, totalBudget, developer.id);
   }
 
   console.log("\n[SEED] ✅ Demo developer seed complete!\n");

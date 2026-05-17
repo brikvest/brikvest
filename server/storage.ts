@@ -73,6 +73,16 @@ import {
   developerTeamInvites,
   type DeveloperTeamInvite,
   type InsertDeveloperTeamInvite,
+  constructionStages,
+  type ConstructionStage,
+  type InsertConstructionStage,
+  vendors,
+  type Vendor,
+  type InsertVendor,
+  vendorPayments,
+  type VendorPayment,
+  type InsertVendorPayment,
+  DEFAULT_CONSTRUCTION_STAGES,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
@@ -107,6 +117,28 @@ export interface IStorage {
   updateProperty(id: number, property: InsertProperty): Promise<Property>;
   deleteProperty(id: number): Promise<void>;
   deleteDeveloperProject(id: number): Promise<void>;
+
+  // Construction stages (predefined 8-stage template per project)
+  getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]>;
+  seedDefaultConstructionStages(propertyId: number): Promise<void>;
+  updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+
+  // Vendors / subcontractors
+  getVendorsByProperty(propertyId: number): Promise<Vendor[]>;
+  getVendor(id: number): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor>;
+  deleteVendor(id: number): Promise<void>;
+
+  // Vendor payments (developer-recorded payments to a vendor)
+  getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]>;
+  getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]>;
+  createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment>;
+  deleteVendorPayment(id: number): Promise<void>;
+
+  // Reservation funnel / conversion rollups for the Fundraising tab.
+  getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>>;
+  getMonthlyConversionEfficiency(propertyId: number, months?: number): Promise<{ month: string; confirmed: number; total: number; percent: number }[]>;
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
@@ -404,6 +436,14 @@ export class DatabaseStorage implements IStorage {
       .insert(properties)
       .values(insertProperty)
       .returning();
+    // Auto-seed the 8 default construction stages so the Construction tab can render
+    // a populated timeline immediately. Idempotent: ignores duplicates via the
+    // (propertyId, stageKey) unique index.
+    try {
+      await this.seedDefaultConstructionStages(property.id);
+    } catch (err) {
+      console.error("[createProperty] Failed to seed construction stages:", err);
+    }
     return property;
   }
 
@@ -457,6 +497,18 @@ export class DatabaseStorage implements IStorage {
     await db.delete(verificationStepCompletions).where(eq(verificationStepCompletions.propertyId, id));
     await db.delete(propertyVerificationChecklists).where(eq(propertyVerificationChecklists.propertyId, id));
     await db.delete(investmentReservations).where(eq(investmentReservations.propertyId, id));
+    // Construction tab data (payments must drop before vendors before stages due to FKs).
+    // We delete payments by vendorId too — covers any legacy/inconsistent rows whose
+    // payment.propertyId drifted from vendor.propertyId, so the vendor delete never
+    // hits an FK violation.
+    const projectVendors = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.propertyId, id));
+    const vendorIds = projectVendors.map(v => v.id);
+    if (vendorIds.length) {
+      await db.delete(vendorPayments).where(inArray(vendorPayments.vendorId, vendorIds));
+    }
+    await db.delete(vendorPayments).where(eq(vendorPayments.propertyId, id));
+    await db.delete(vendors).where(eq(vendors.propertyId, id));
+    await db.delete(constructionStages).where(eq(constructionStages.propertyId, id));
 
     // Investment groups carry a nullable property reference — detach rather than delete.
     await db.update(investmentGroups)
@@ -1589,6 +1641,178 @@ export class DatabaseStorage implements IStorage {
       .where(eq(developerTeamInvites.id, id))
       .returning();
     return result;
+  }
+
+  // ==========================================================================
+  // Construction stages (predefined 8-stage template per project)
+  // ==========================================================================
+  async getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]> {
+    return await db.select().from(constructionStages)
+      .where(eq(constructionStages.propertyId, propertyId))
+      .orderBy(constructionStages.sortOrder, constructionStages.id);
+  }
+
+  async seedDefaultConstructionStages(propertyId: number): Promise<void> {
+    const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+      propertyId,
+      stageKey: s.stageKey,
+      name: s.name,
+      sortOrder: s.sortOrder,
+    }));
+    // Idempotent: skip on conflict with the (propertyId, stageKey) unique index.
+    await db.insert(constructionStages).values(rows).onConflictDoNothing();
+  }
+
+  async updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage> {
+    const [result] = await db.update(constructionStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(constructionStages.id, id))
+      .returning();
+    return result;
+  }
+
+  // ==========================================================================
+  // Vendors
+  // ==========================================================================
+  async getVendorsByProperty(propertyId: number): Promise<Vendor[]> {
+    return await db.select().from(vendors)
+      .where(eq(vendors.propertyId, propertyId))
+      .orderBy(vendors.name);
+  }
+
+  async getVendor(id: number): Promise<Vendor | undefined> {
+    const [result] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result;
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    // Guard cross-table integrity: if a stageId is provided it MUST belong to the
+    // same property as the vendor. Schema-level composite FK isn't available in
+    // Drizzle, so we enforce it here.
+    if (vendor.stageId != null) {
+      const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+        .from(constructionStages).where(eq(constructionStages.id, vendor.stageId));
+      if (!stage || stage.propertyId !== vendor.propertyId) {
+        throw new Error(`Vendor.stageId ${vendor.stageId} does not belong to propertyId ${vendor.propertyId}`);
+      }
+    }
+    const [result] = await db.insert(vendors).values(vendor).returning();
+    return result;
+  }
+
+  async updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor> {
+    const [result] = await db.update(vendors)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(vendors.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteVendor(id: number): Promise<void> {
+    // Drop child payments first to satisfy FK
+    await db.delete(vendorPayments).where(eq(vendorPayments.vendorId, id));
+    await db.delete(vendors).where(eq(vendors.id, id));
+  }
+
+  // ==========================================================================
+  // Vendor payments
+  // ==========================================================================
+  async getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.vendorId, vendorId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.propertyId, propertyId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment> {
+    // Guard: payment.propertyId must match the parent vendor's propertyId so we
+    // never end up with orphan payments after a project delete.
+    const [vendor] = await db.select({ propertyId: vendors.propertyId })
+      .from(vendors).where(eq(vendors.id, payment.vendorId));
+    if (!vendor) {
+      throw new Error(`VendorPayment references unknown vendorId ${payment.vendorId}`);
+    }
+    if (vendor.propertyId !== payment.propertyId) {
+      throw new Error(`VendorPayment.propertyId ${payment.propertyId} does not match vendor.propertyId ${vendor.propertyId}`);
+    }
+    const [result] = await db.insert(vendorPayments).values(payment).returning();
+    return result;
+  }
+
+  async deleteVendorPayment(id: number): Promise<void> {
+    await db.delete(vendorPayments).where(eq(vendorPayments.id, id));
+  }
+
+  // ==========================================================================
+  // Reservation funnel / monthly conversion efficiency
+  // ==========================================================================
+  async getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>> {
+    const rows = await db
+      .select({ funnelStage: investmentReservations.funnelStage, count: sql<number>`count(*)::int` })
+      .from(investmentReservations)
+      .where(eq(investmentReservations.propertyId, propertyId))
+      .groupBy(investmentReservations.funnelStage);
+
+    const counts: Record<string, number> = {
+      prospective: 0,
+      due_diligence: 0,
+      documentation: 0,
+      payment_incomplete: 0,
+      confirmed: 0,
+    };
+    for (const r of rows) {
+      const key = r.funnelStage || "prospective";
+      if (key in counts) counts[key] += Number(r.count);
+    }
+    return counts;
+  }
+
+  async getMonthlyConversionEfficiency(
+    propertyId: number,
+    months: number = 12,
+  ): Promise<{ month: string; confirmed: number; total: number; percent: number }[]> {
+    // Last `months` calendar months including the current one.
+    const now = new Date();
+    const startBoundary = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const rows = await db
+      .select({
+        month: sql<string>`to_char(date_trunc('month', ${investmentReservations.createdAt}), 'YYYY-MM')`,
+        status: investmentReservations.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(investmentReservations)
+      .where(and(
+        eq(investmentReservations.propertyId, propertyId),
+        gte(investmentReservations.createdAt, startBoundary),
+      ))
+      .groupBy(sql`date_trunc('month', ${investmentReservations.createdAt})`, investmentReservations.status);
+
+    const byMonth = new Map<string, { confirmed: number; total: number }>();
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      byMonth.set(key, { confirmed: 0, total: 0 });
+    }
+    for (const r of rows) {
+      const slot = byMonth.get(r.month);
+      if (!slot) continue;
+      const c = Number(r.count);
+      slot.total += c;
+      if (r.status === "converted_to_investment") slot.confirmed += c;
+    }
+
+    return Array.from(byMonth.entries()).map(([month, v]) => ({
+      month,
+      confirmed: v.confirmed,
+      total: v.total,
+      percent: v.total > 0 ? Math.round((v.confirmed / v.total) * 100) : 0,
+    }));
   }
 }
 
