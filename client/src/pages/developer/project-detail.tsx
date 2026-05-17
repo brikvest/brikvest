@@ -25,7 +25,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
   GripVertical, ImagePlus, X, UserPlus,
 } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ReferenceLine, CartesianGrid, ComposedChart } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, Area, CartesianGrid, ComposedChart } from "recharts";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -550,7 +550,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
         <CardContent>
           {velocityData.every(v => v.cumulativeRaised === 0) ? (
             <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-velocity">
-              No funding raised yet — share your project link to start tracking velocity.
+              No prospective investors yet — share your project link to start tracking conversion.
             </div>
           ) : (
             <div className="h-64">
