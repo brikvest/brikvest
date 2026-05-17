@@ -1493,15 +1493,11 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
     const items = reordered.map((m, i) => ({ id: m.id, sortOrder: i }));
     reorderMutation.mutate(items);
   };
-  const overall = sortedMilestones.length === 0 ? 0 : Math.round(sortedMilestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / sortedMilestones.length);
 
   const updateField = (k: keyof typeof projectFields, v: string) => {
     setProjectFields((prev) => ({ ...prev, [k]: v }));
     setFieldsDirty(true);
   };
-
-  // `overall` is computed but unused — the new completion progress card above replaces this metric.
-  void overall;
 
   return (
     <div className="space-y-6">
