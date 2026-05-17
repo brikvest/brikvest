@@ -145,6 +145,7 @@ export default function NewProjectWizard() {
     payoutFrequency: "on_exit",
     exitStrategy: "sale",
     fundingNotes: "",
+    totalBudget: "",
     // Pricing & units — per-type breakdown (estate: by plot size; vertical: by apartment type)
     unitTypes: [{ label: "", quantity: "", price: "" }] as UnitTypeRow[],
     developerEquityUnits: "0",
@@ -211,6 +212,7 @@ export default function NewProjectWizard() {
         fundingNotes: form.fundingNotes || null,
         plannedStartDate: form.plannedStartDate || null,
         plannedCompletionDate: form.plannedCompletionDate || null,
+        totalBudget: form.totalBudget ? parseFloat(form.totalBudget) : null,
       };
       delete payload.fundingType;
       return await apiRequest("POST", "/api/developer/projects", payload);
@@ -358,6 +360,21 @@ export default function NewProjectWizard() {
                     data-testid="switch-external-investors"
                   />
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4">
+                <Label htmlFor="totalBudget" className="text-sm">Total construction budget ({form.currency})</Label>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                  Optional. Set the total you expect to spend on construction — used to track spend vs budget on the Construction tab.
+                </p>
+                <Input
+                  id="totalBudget"
+                  type="number"
+                  value={form.totalBudget}
+                  onChange={u("totalBudget")}
+                  placeholder="e.g. 50000000"
+                  data-testid="input-total-budget"
+                />
               </div>
 
               {form.acceptsExternalInvestors && (

@@ -6266,6 +6266,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payoutFrequency: body.payoutFrequency || null,
         exitStrategy: body.exitStrategy || null,
         fundingNotes: body.fundingNotes || null,
+        totalBudget: body.totalBudget !== undefined && body.totalBudget !== null && body.totalBudget !== ""
+          ? String(body.totalBudget)
+          : null,
       };
       const property = await storage.createProperty(newProperty);
       res.status(201).json(property);

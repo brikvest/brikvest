@@ -4150,8 +4150,8 @@ function VendorDetailDialog({
               </div>
               <div>
                 <FileUpload
-                  label="Proof of payment (receipt, transfer slip, etc.)"
-                  uploadType={payForm.proofType === "pdf" ? "document" : "image"}
+                  label="Proof of payment (receipt, transfer slip — image or PDF)"
+                  uploadType="document"
                   accept="image/*,application/pdf"
                   currentFile={payForm.proofUrl || undefined}
                   onUploadSuccess={(url, name) => {
