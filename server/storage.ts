@@ -70,12 +70,48 @@ import {
   developerLeads,
   type DeveloperLead,
   type InsertDeveloperLead,
+  reservationReminders,
+  type ReservationReminder,
+  type InsertReservationReminder,
   developerTeamInvites,
   type DeveloperTeamInvite,
   type InsertDeveloperTeamInvite,
+  constructionStages,
+  type ConstructionStage,
+  type InsertConstructionStage,
+  vendors,
+  type Vendor,
+  type InsertVendor,
+  vendorPayments,
+  type VendorPayment,
+  type InsertVendorPayment,
+  DEFAULT_CONSTRUCTION_STAGES,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
+
+/**
+ * Map a reservation's platform status to its funnel_stage bucket. Centralised
+ * here so both `createInvestmentReservation` and `updateReservation` keep the
+ * funnel column in sync at write time (the startup backfill is just a safety
+ * net for legacy rows).
+ *   converted_to_investment -> 'confirmed'
+ *   payment_pending         -> 'payment_incomplete'
+ *   reserved                -> 'prospective'
+ *   expired / cancelled / *  -> null  (out of funnel)
+ */
+function deriveFunnelStageFromStatus(status: string): string | null {
+  switch (status) {
+    case "converted_to_investment":
+      return "confirmed";
+    case "payment_pending":
+      return "payment_incomplete";
+    case "reserved":
+      return "prospective";
+    default:
+      return null;
+  }
+}
 
 export interface IStorage {
   // User methods (Email/Password Auth)
@@ -105,8 +141,37 @@ export interface IStorage {
   getProperty(id: number): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
   updateProperty(id: number, property: InsertProperty): Promise<Property>;
+  updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property>;
   deleteProperty(id: number): Promise<void>;
   deleteDeveloperProject(id: number): Promise<void>;
+
+  // Construction stages (predefined 8-stage template per project)
+  getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]>;
+  seedDefaultConstructionStages(propertyId: number): Promise<void>;
+  updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+  // Idempotent create-or-update by (propertyId, stageKey) — the natural key
+  // backed by a unique index. Used by the Construction tab's stage editor.
+  upsertConstructionStage(propertyId: number, stageKey: string, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+
+  // Vendors / subcontractors
+  getVendorsByProperty(propertyId: number): Promise<Vendor[]>;
+  getVendor(id: number): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor>;
+  deleteVendor(id: number): Promise<void>;
+
+  // Vendor payments (developer-recorded payments to a vendor)
+  getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]>;
+  getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]>;
+  createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment>;
+  deleteVendorPayment(id: number): Promise<void>;
+
+  // Reservation funnel / conversion rollups for the Fundraising tab.
+  getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>>;
+  getMonthlyConversionEfficiency(propertyId: number, months?: number): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]>;
+  // One-shot startup backfill — defaults funnel_stage on any pre-existing
+  // reservations from their platform-level status. Idempotent.
+  backfillReservationFunnelStages(): Promise<number>;
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
@@ -118,6 +183,9 @@ export interface IStorage {
   getAllReservations(): Promise<InvestmentReservation[]>;
   getReservation(id: number): Promise<InvestmentReservation | undefined>;
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
+  createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder>;
+  getReservationReminders(reservationId: number): Promise<ReservationReminder[]>;
+  getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
   extendReservationsOnKycSubmission(userId: number): Promise<number>;
@@ -400,17 +468,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProperty(insertProperty: InsertProperty): Promise<Property> {
-    const [property] = await db
-      .insert(properties)
-      .values(insertProperty)
-      .returning();
-    return property;
+    // Run the property insert + default-stage seeding in a single transaction
+    // so the invariant "every project has its 8 construction stages" is
+    // atomic — either both succeed or neither persists. Stage seeding is
+    // idempotent via the (propertyId, stageKey) unique index.
+    return await db.transaction(async (tx) => {
+      const [property] = await tx
+        .insert(properties)
+        .values(insertProperty)
+        .returning();
+      const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+        propertyId: property.id,
+        stageKey: s.stageKey,
+        name: s.name,
+        sortOrder: s.sortOrder,
+      }));
+      await tx.insert(constructionStages).values(rows).onConflictDoNothing();
+      return property;
+    });
   }
 
   async updateProperty(id: number, updateData: InsertProperty): Promise<Property> {
     const [property] = await db
       .update(properties)
       .set(updateData)
+      .where(eq(properties.id, id))
+      .returning();
+    return property;
+  }
+
+  // Typed minimal-patch update — only the supplied columns are written. Use this
+  // instead of updateProperty() when you only want to change a few fields and
+  // don't want to risk clobbering other columns by round-tripping the full row.
+  async updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set(fields)
       .where(eq(properties.id, id))
       .returning();
     return property;
@@ -457,6 +550,18 @@ export class DatabaseStorage implements IStorage {
     await db.delete(verificationStepCompletions).where(eq(verificationStepCompletions.propertyId, id));
     await db.delete(propertyVerificationChecklists).where(eq(propertyVerificationChecklists.propertyId, id));
     await db.delete(investmentReservations).where(eq(investmentReservations.propertyId, id));
+    // Construction tab data (payments must drop before vendors before stages due to FKs).
+    // We delete payments by vendorId too — covers any legacy/inconsistent rows whose
+    // payment.propertyId drifted from vendor.propertyId, so the vendor delete never
+    // hits an FK violation.
+    const projectVendors = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.propertyId, id));
+    const vendorIds = projectVendors.map(v => v.id);
+    if (vendorIds.length) {
+      await db.delete(vendorPayments).where(inArray(vendorPayments.vendorId, vendorIds));
+    }
+    await db.delete(vendorPayments).where(eq(vendorPayments.propertyId, id));
+    await db.delete(vendors).where(eq(vendors.propertyId, id));
+    await db.delete(constructionStages).where(eq(constructionStages.propertyId, id));
 
     // Investment groups carry a nullable property reference — detach rather than delete.
     await db.update(investmentGroups)
@@ -485,9 +590,15 @@ export class DatabaseStorage implements IStorage {
 
   // Investment reservation methods
   async createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation> {
+    // Derive funnel_stage at write time so funnel/conversion charts are
+    // accurate in real time (no reliance on the startup backfill).
+    const withFunnel = {
+      ...reservation,
+      funnelStage: reservation.funnelStage ?? deriveFunnelStageFromStatus(reservation.status ?? "reserved"),
+    };
     const [newReservation] = await db
       .insert(investmentReservations)
-      .values(reservation)
+      .values(withFunnel)
       .returning();
 
     // Update property slots and funding progress
@@ -637,7 +748,9 @@ export class DatabaseStorage implements IStorage {
       
       const [updated] = await db
         .update(investmentReservations)
-        .set({ status: 'expired' })
+        // status='expired' means the reservation has left the funnel — null
+        // out funnel_stage so analytics don't keep counting it.
+        .set({ status: 'expired', funnelStage: null })
         .where(
           and(
             eq(investmentReservations.id, reservation.id),
@@ -699,12 +812,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    // If the caller changes status without explicitly setting funnelStage,
+    // re-derive it so funnel analytics stay correct in real time. Callers
+    // can still pass funnelStage explicitly to override this default.
+    const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.status != null && updates.funnelStage === undefined) {
+      merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+    }
     const [updated] = await db
       .update(investmentReservations)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(merged)
       .where(eq(investmentReservations.id, id))
       .returning();
     return updated;
+  }
+
+  async createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder> {
+    const [row] = await db.insert(reservationReminders).values(reminder).returning();
+    return row;
+  }
+
+  async getReservationReminders(reservationId: number): Promise<ReservationReminder[]> {
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(eq(reservationReminders.reservationId, reservationId))
+      .orderBy(desc(reservationReminders.sentAt));
+  }
+
+  async getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]> {
+    if (reservationIds.length === 0) return [];
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(inArray(reservationReminders.reservationId, reservationIds))
+      .orderBy(desc(reservationReminders.sentAt));
   }
 
   async updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void> {
@@ -1589,6 +1734,258 @@ export class DatabaseStorage implements IStorage {
       .where(eq(developerTeamInvites.id, id))
       .returning();
     return result;
+  }
+
+  // ==========================================================================
+  // Construction stages (predefined 8-stage template per project)
+  // ==========================================================================
+  async getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]> {
+    return await db.select().from(constructionStages)
+      .where(eq(constructionStages.propertyId, propertyId))
+      .orderBy(constructionStages.sortOrder, constructionStages.id);
+  }
+
+  async seedDefaultConstructionStages(propertyId: number): Promise<void> {
+    const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+      propertyId,
+      stageKey: s.stageKey,
+      name: s.name,
+      sortOrder: s.sortOrder,
+    }));
+    // Idempotent: skip on conflict with the (propertyId, stageKey) unique index.
+    await db.insert(constructionStages).values(rows).onConflictDoNothing();
+  }
+
+  async updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage> {
+    const [result] = await db.update(constructionStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(constructionStages.id, id))
+      .returning();
+    return result;
+  }
+
+  async upsertConstructionStage(
+    propertyId: number,
+    stageKey: string,
+    updates: Partial<InsertConstructionStage>,
+  ): Promise<ConstructionStage> {
+    // Look up the stage template (sortOrder + default name) so a fresh row
+    // can be created if it doesn't exist yet.
+    const template = DEFAULT_CONSTRUCTION_STAGES.find((s) => s.stageKey === stageKey);
+    const [existing] = await db.select().from(constructionStages)
+      .where(and(eq(constructionStages.propertyId, propertyId), eq(constructionStages.stageKey, stageKey)));
+    if (existing) {
+      const [result] = await db.update(constructionStages)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(constructionStages.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(constructionStages).values({
+      propertyId,
+      stageKey,
+      name: updates.name ?? template?.name ?? stageKey,
+      sortOrder: updates.sortOrder ?? template?.sortOrder ?? 0,
+      ...updates,
+    }).returning();
+    return result;
+  }
+
+  // ==========================================================================
+  // Vendors
+  // ==========================================================================
+  async getVendorsByProperty(propertyId: number): Promise<Vendor[]> {
+    return await db.select().from(vendors)
+      .where(eq(vendors.propertyId, propertyId))
+      .orderBy(vendors.name);
+  }
+
+  async getVendor(id: number): Promise<Vendor | undefined> {
+    const [result] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result;
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    // Guard cross-table integrity: if a stageId is provided it MUST belong to the
+    // same property as the vendor. Schema-level composite FK isn't available in
+    // Drizzle, so we enforce it here.
+    if (vendor.stageId != null) {
+      const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+        .from(constructionStages).where(eq(constructionStages.id, vendor.stageId));
+      if (!stage || stage.propertyId !== vendor.propertyId) {
+        throw new Error(`Vendor.stageId ${vendor.stageId} does not belong to propertyId ${vendor.propertyId}`);
+      }
+    }
+    const [result] = await db.insert(vendors).values(vendor).returning();
+    return result;
+  }
+
+  async updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor> {
+    // Mirror the createVendor guard: if propertyId and/or stageId are being
+    // changed, ensure the resulting (propertyId, stageId) pair stays
+    // consistent — the stage must belong to the same property.
+    if (updates.propertyId != null || updates.stageId != null) {
+      const [current] = await db.select().from(vendors).where(eq(vendors.id, id));
+      if (!current) throw new Error(`Vendor ${id} not found`);
+      const nextPropertyId = updates.propertyId ?? current.propertyId;
+      const nextStageId = updates.stageId !== undefined ? updates.stageId : current.stageId;
+      if (nextStageId != null) {
+        const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+          .from(constructionStages).where(eq(constructionStages.id, nextStageId));
+        if (!stage || stage.propertyId !== nextPropertyId) {
+          throw new Error(`Vendor.stageId ${nextStageId} does not belong to propertyId ${nextPropertyId}`);
+        }
+      }
+    }
+    const [result] = await db.update(vendors)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(vendors.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteVendor(id: number): Promise<void> {
+    // Drop child payments first to satisfy FK
+    await db.delete(vendorPayments).where(eq(vendorPayments.vendorId, id));
+    await db.delete(vendors).where(eq(vendors.id, id));
+  }
+
+  // ==========================================================================
+  // Vendor payments
+  // ==========================================================================
+  async getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.vendorId, vendorId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.propertyId, propertyId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment> {
+    // Guard: payment.propertyId must match the parent vendor's propertyId so we
+    // never end up with orphan payments after a project delete.
+    const [vendor] = await db.select({ propertyId: vendors.propertyId })
+      .from(vendors).where(eq(vendors.id, payment.vendorId));
+    if (!vendor) {
+      throw new Error(`VendorPayment references unknown vendorId ${payment.vendorId}`);
+    }
+    if (vendor.propertyId !== payment.propertyId) {
+      throw new Error(`VendorPayment.propertyId ${payment.propertyId} does not match vendor.propertyId ${vendor.propertyId}`);
+    }
+    const [result] = await db.insert(vendorPayments).values(payment).returning();
+    return result;
+  }
+
+  async deleteVendorPayment(id: number): Promise<void> {
+    await db.delete(vendorPayments).where(eq(vendorPayments.id, id));
+  }
+
+  // ==========================================================================
+  // Reservation funnel / monthly conversion efficiency
+  // ==========================================================================
+  async getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>> {
+    const rows = await db
+      .select({ funnelStage: investmentReservations.funnelStage, count: sql<number>`count(*)::int` })
+      .from(investmentReservations)
+      .where(eq(investmentReservations.propertyId, propertyId))
+      .groupBy(investmentReservations.funnelStage);
+
+    const counts: Record<string, number> = {
+      prospective: 0,
+      due_diligence: 0,
+      documentation: 0,
+      payment_incomplete: 0,
+      confirmed: 0,
+    };
+    for (const r of rows) {
+      // NULL funnel_stage means the reservation left the funnel entirely
+      // (expired / cancelled) — we deliberately exclude those rather than
+      // bucketing them as 'prospective' to keep the funnel honest.
+      if (r.funnelStage == null) continue;
+      if (r.funnelStage in counts) counts[r.funnelStage] += Number(r.count);
+    }
+    return counts;
+  }
+
+  async getMonthlyConversionEfficiency(
+    propertyId: number,
+    months: number = 12,
+  ): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]> {
+    // Funnel-stage-driven rollup over the last `months` calendar months.
+    // - confirmedCount    = reservations with funnel_stage = 'confirmed'
+    // - prospectiveCount  = reservations still in funnel (any non-confirmed,
+    //                        non-null stage). Rows with funnel_stage IS NULL
+    //                        (left the funnel — expired/cancelled) are excluded.
+    const now = new Date();
+    const startBoundary = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const rows = await db
+      .select({
+        month: sql<string>`to_char(date_trunc('month', ${investmentReservations.createdAt}), 'YYYY-MM')`,
+        funnelStage: investmentReservations.funnelStage,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(investmentReservations)
+      .where(and(
+        eq(investmentReservations.propertyId, propertyId),
+        gte(investmentReservations.createdAt, startBoundary),
+      ))
+      .groupBy(sql`date_trunc('month', ${investmentReservations.createdAt})`, investmentReservations.funnelStage);
+
+    const byMonth = new Map<string, { confirmedCount: number; prospectiveCount: number }>();
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      byMonth.set(key, { confirmedCount: 0, prospectiveCount: 0 });
+    }
+    for (const r of rows) {
+      const slot = byMonth.get(r.month);
+      if (!slot) continue;
+      const c = Number(r.count);
+      if (r.funnelStage === "confirmed") {
+        slot.confirmedCount += c;
+      } else if (r.funnelStage != null) {
+        // any other in-funnel stage: prospective / due_diligence / documentation / payment_incomplete
+        slot.prospectiveCount += c;
+      }
+    }
+
+    return Array.from(byMonth.entries()).map(([month, v]) => ({
+      month,
+      confirmedCount: v.confirmedCount,
+      prospectiveCount: v.prospectiveCount,
+    }));
+  }
+
+  // ==========================================================================
+  // Funnel-stage backfill — called once on boot. Idempotent (no-op on rows
+  // that already have funnel_stage set).
+  // ==========================================================================
+  async backfillReservationFunnelStages(): Promise<number> {
+    // Mapping rules (kept in SQL so backfill is a single round-trip):
+    //   status = 'converted_to_investment'                          -> 'confirmed'
+    //   status = 'payment_pending'                                   -> 'payment_incomplete'
+    //   status = 'reserved' AND has a payment_submission row         -> 'payment_incomplete'
+    //   status = 'reserved'                                          -> 'prospective'
+    //   status IN ('expired','cancelled') or anything else           -> NULL
+    const result: { rowCount: number | null } = await db.execute(sql`
+      UPDATE investment_reservations r
+      SET funnel_stage = CASE
+        WHEN r.status = 'converted_to_investment' THEN 'confirmed'
+        WHEN r.status = 'payment_pending' THEN 'payment_incomplete'
+        WHEN r.status = 'reserved' AND EXISTS (
+          SELECT 1 FROM payment_submissions ps WHERE ps.reservation_id = r.id
+        ) THEN 'payment_incomplete'
+        WHEN r.status = 'reserved' THEN 'prospective'
+        ELSE NULL
+      END
+      WHERE r.funnel_stage IS NULL
+    `);
+    return result.rowCount ?? 0;
   }
 }
 

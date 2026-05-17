@@ -109,6 +109,12 @@ export const properties = pgTable("properties", {
   // Developer Portal: project-level construction/risk fields (managed in Construction tab)
   currentStage: text("current_stage"), // e.g. 'Land prep', 'Foundation', 'Structural frame', 'Finishes', 'Handover'
   expectedCompletionDate: timestamp("expected_completion_date"), // Developer-stated handover date
+  // Schedule tracking — planned vs actual completion (rendered on the Construction tab)
+  plannedStartDate: timestamp("planned_start_date"),
+  plannedCompletionDate: timestamp("planned_completion_date"),
+  actualCompletionDate: timestamp("actual_completion_date"),
+  // Total project budget (in project currency). Used for budget rollup on the Construction tab.
+  totalBudget: bigint("total_budget", { mode: "number" }),
   risksDelays: text("risks_delays"), // Free-form risks/delays notes
   latestUpdateText: text("latest_update_text"), // Short headline for the most recent project status
   currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
@@ -186,8 +192,16 @@ export const investmentReservations = pgTable("investment_reservations", {
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(), // Total amount (units * unitPriceSnapshot)
   currency: text("currency").notNull().default("NGN"), // Currency for the investment (NGN = Nigerian Naira - platform default)
   unitPriceSnapshot: decimal("unit_price_snapshot", { precision: 15, scale: 2 }).notNull(), // Price per unit at time of reservation
+  // Snapshot of the unit-type label (from properties.unitTypes) the buyer chose.
+  // Null for legacy rows or projects with no configured unit-type breakdown.
+  unitTypeLabel: text("unit_type_label"),
   referralCode: text("referral_code"),
   status: text("status").notNull().default("reserved"), // 'reserved', 'expired', 'converted_to_investment', 'cancelled'
+  // Developer-portal conversion funnel stage. Independent of platform-level `status`.
+  // 'prospective' | 'due_diligence' | 'documentation' | 'payment_incomplete' | 'confirmed'
+  funnelStage: text("funnel_stage"),
+  // Throttle for "Send reminder" emails (one per 24h max) on the Sales tab.
+  lastReminderSentAt: timestamp("last_reminder_sent_at"),
   
   // Payment tracking (admin-assisted)
   paymentMethod: text("payment_method"), // 'bank_transfer', 'card', 'cash', 'check', etc.
@@ -534,6 +548,16 @@ export const insertInvestmentReservationSchema = createInsertSchema(investmentRe
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Restrict funnelStage to the 5 documented values (or null for out-of-funnel).
+  // Values kept in sync with RESERVATION_FUNNEL_STAGES below.
+  funnelStage: z.enum([
+    "prospective",
+    "due_diligence",
+    "documentation",
+    "payment_incomplete",
+    "confirmed",
+  ]).nullable().optional(),
 });
 
 export const insertInvestmentPaymentSchema = createInsertSchema(investmentPayments).omit({
@@ -876,6 +900,18 @@ export const developerInvestorNotes = pgTable("developer_investor_notes", {
     .on(table.propertyId, table.developerUserId, table.investorUserId),
 }));
 
+// Audit log of payment-reminder emails sent from the developer Sales tab.
+// One row per send. Used to render reminder history on the owing-clients table
+// (count + last few dates) so developers can see who they've already contacted
+// and avoid pestering investors.
+export const reservationReminders = pgTable("reservation_reminders", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  sentByUserId: integer("sent_by_user_id").references(() => users.id),
+  recipientEmail: text("recipient_email").notNull(),
+});
+
 // Developer-managed CRM leads (pre-reservation funnel: lead → contacted → qualified → converted/lost)
 export const developerLeads = pgTable("developer_leads", {
   id: serial("id").primaryKey(),
@@ -919,6 +955,113 @@ export const insertDeveloperLeadSchema = createInsertSchema(developerLeads).omit
   createdAt: true,
   updatedAt: true,
 });
+
+// ============================================================================
+// Developer Portal — Construction stages, vendors, vendor payments
+// ============================================================================
+
+// Predefined 8-stage construction template per project. One row per stage per project,
+// auto-seeded by createProperty(). UI lets developers fill in planned/actual dates and
+// per-stage budgets so we can render planned-vs-actual timeline + completion graphs.
+export const constructionStages = pgTable("construction_stages", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  stageKey: text("stage_key").notNull(), // 'site_preparation' | 'foundation' | 'structure' | 'roofing' | 'mep' | 'finishes' | 'landscaping' | 'handover'
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  plannedStartDate: timestamp("planned_start_date"),
+  plannedCompletionDate: timestamp("planned_completion_date"),
+  actualStartDate: timestamp("actual_start_date"),
+  actualCompletionDate: timestamp("actual_completion_date"),
+  budgetAmount: decimal("budget_amount", { precision: 20, scale: 2 }),
+  status: text("status").notNull().default("not_started"), // 'not_started' | 'in_progress' | 'done' | 'delayed'
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqStagePerProperty: uniqueIndex("construction_stages_property_key_idx").on(table.propertyId, table.stageKey),
+}));
+
+// Vendors / subcontractors working on a project, optionally tied to a specific construction stage.
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  stageId: integer("stage_id").references(() => constructionStages.id),
+  name: text("name").notNull(),
+  workCategory: text("work_category"), // free-form, e.g. 'Plumbing', 'Roofing', 'Architect'
+  contractAmount: decimal("contract_amount", { precision: 20, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("NGN"),
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  notes: text("notes"),
+  status: text("status").notNull().default("active"), // 'active' | 'completed' | 'cancelled'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Every payment a developer makes to a vendor. Uploaded receipts/proofs live in proofUrl.
+export const vendorPayments = pgTable("vendor_payments", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull().references(() => vendors.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  paidAt: timestamp("paid_at").notNull(),
+  method: text("method"), // 'bank_transfer' | 'cash' | 'cheque' | 'card' | 'other'
+  reference: text("reference"),
+  proofUrl: text("proof_url"),
+  proofType: text("proof_type"), // 'image' | 'pdf'
+  notes: text("notes"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertConstructionStageSchema = createInsertSchema(constructionStages).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertVendorSchema = createInsertSchema(vendors).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertVendorPaymentSchema = createInsertSchema(vendorPayments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertConstructionStage = z.infer<typeof insertConstructionStageSchema>;
+export type ConstructionStage = typeof constructionStages.$inferSelect;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendorPayment = z.infer<typeof insertVendorPaymentSchema>;
+export type VendorPayment = typeof vendorPayments.$inferSelect;
+
+// Default 8-stage construction template auto-seeded on project creation.
+export const DEFAULT_CONSTRUCTION_STAGES: { stageKey: string; name: string; sortOrder: number }[] = [
+  { stageKey: "site_preparation", name: "Site Preparation", sortOrder: 0 },
+  { stageKey: "foundation",       name: "Foundation",       sortOrder: 1 },
+  { stageKey: "structure",        name: "Structure",        sortOrder: 2 },
+  { stageKey: "roofing",          name: "Roofing",          sortOrder: 3 },
+  { stageKey: "mep",              name: "MEP",              sortOrder: 4 },
+  { stageKey: "finishes",         name: "Finishes",         sortOrder: 5 },
+  { stageKey: "landscaping",      name: "Landscaping",      sortOrder: 6 },
+  { stageKey: "handover",         name: "Handover",         sortOrder: 7 },
+];
+
+// Reservation funnel stages used by the Fundraising tab's funnel + conversion-efficiency charts.
+export const RESERVATION_FUNNEL_STAGES = [
+  "prospective",
+  "due_diligence",
+  "documentation",
+  "payment_incomplete",
+  "confirmed",
+] as const;
+export type ReservationFunnelStage = (typeof RESERVATION_FUNNEL_STAGES)[number];
 
 // Developer team invites — for inviting project managers / co-workers under a Starter/Growth plan.
 export const developerTeamInvites = pgTable("developer_team_invites", {
@@ -969,6 +1112,13 @@ export type DeveloperInvestorNote = typeof developerInvestorNotes.$inferSelect;
 
 export type InsertDeveloperLead = z.infer<typeof insertDeveloperLeadSchema>;
 export type DeveloperLead = typeof developerLeads.$inferSelect;
+
+export type ReservationReminder = typeof reservationReminders.$inferSelect;
+export const insertReservationReminderSchema = createInsertSchema(reservationReminders).omit({
+  id: true,
+  sentAt: true,
+});
+export type InsertReservationReminder = z.infer<typeof insertReservationReminderSchema>;
 
 export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
 

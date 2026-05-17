@@ -133,6 +133,9 @@ export default function NewProjectWizard() {
     propertyType: "land",
     currency: "NGN",
     spvName: "",
+    // Schedule
+    plannedStartDate: "",
+    plannedCompletionDate: "",
     // Funding model
     fundingTypes: ["equity"] as FundingType[],
     acceptsExternalInvestors: true,
@@ -142,6 +145,7 @@ export default function NewProjectWizard() {
     payoutFrequency: "on_exit",
     exitStrategy: "sale",
     fundingNotes: "",
+    totalBudget: "",
     // Pricing & units — per-type breakdown (estate: by plot size; vertical: by apartment type)
     unitTypes: [{ label: "", quantity: "", price: "" }] as UnitTypeRow[],
     developerEquityUnits: "0",
@@ -206,6 +210,9 @@ export default function NewProjectWizard() {
         payoutFrequency: showReturnFields ? form.payoutFrequency || null : null,
         exitStrategy: showExitField ? form.exitStrategy || null : null,
         fundingNotes: form.fundingNotes || null,
+        plannedStartDate: form.plannedStartDate || null,
+        plannedCompletionDate: form.plannedCompletionDate || null,
+        totalBudget: form.totalBudget ? parseFloat(form.totalBudget) : null,
       };
       delete payload.fundingType;
       return await apiRequest("POST", "/api/developer/projects", payload);
@@ -318,6 +325,22 @@ export default function NewProjectWizard() {
                 <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd (optional)" data-testid="input-spv" />
                 <p className="text-xs text-slate-500 mt-1">Optional — you can add this later once your SPV is incorporated.</p>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Planned start date</Label>
+                    <HelpTip>When you plan to break ground on the project. Used to track schedule slippage on the Construction tab.</HelpTip>
+                  </div>
+                  <Input type="date" value={form.plannedStartDate} onChange={u("plannedStartDate")} data-testid="input-planned-start" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Label>Planned completion date</Label>
+                    <HelpTip>When you plan to finish construction. Used by the schedule timeline and to flag delays.</HelpTip>
+                  </div>
+                  <Input type="date" value={form.plannedCompletionDate} onChange={u("plannedCompletionDate")} data-testid="input-planned-completion" />
+                </div>
+              </div>
             </div>
           )}
 
@@ -337,6 +360,21 @@ export default function NewProjectWizard() {
                     data-testid="switch-external-investors"
                   />
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 p-4">
+                <Label htmlFor="totalBudget" className="text-sm">Total construction budget ({form.currency})</Label>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">
+                  Optional. Set the total you expect to spend on construction — used to track spend vs budget on the Construction tab.
+                </p>
+                <Input
+                  id="totalBudget"
+                  type="number"
+                  value={form.totalBudget}
+                  onChange={u("totalBudget")}
+                  placeholder="e.g. 50000000"
+                  data-testid="input-total-budget"
+                />
               </div>
 
               {form.acceptsExternalInvestors && (

@@ -1,0 +1,75 @@
+
+New Updates to be made
+Overview
+Change Reservation to Prospective Investors
+Fundraising
+Graph showing fundraising velocity should be included
+
+Conversion Funnel graph should be included with the following stages in the funnel
+Stages 
+Prospective Investors
+Due Diligence Stage 
+Documentation & Signing 
+Payment Incomplete
+Confirmed Investors 
+
+Conversion Efficiency Graph
+Build a line graph titled “Investor Conversion Efficiency ”
+X-Axis: Time ( monthly)
+Y-Axis: Conversion Efficiency (%)
+
+Construction
+Two primary KPI categories:
+1. Schedule Tracking
+Track project timeline performance.
+Key Features
+Planned project start date
+Planned completion date
+Actual completion date
+Overall project duration
+Construction stages:
+Site Preparation
+Foundation
+Structure
+Roofing
+MEP
+Finishes
+Landscaping
+Handover
+For each stage:
+Planned completion date
+Actual completion date
+Stage duration
+Delay variance( Difference in planned vs actual)
+Graphs
+Planned vs Actual Timeline Graph
+Project Completion Progress %( Bar Graph)
+2. Budget & Cost Tracking
+Track all project expenditures.
+Overall Budget
+Total project budget
+Total spent
+Remaining budget
+Budget Categories
+Budget categories should be each of the stages of construction then the vendors and subcontractors under each stage should be listed how much the developer has paid and how much he owes 
+
+Vendor/Subcontractor Tracking
+For every subcontractor/vendor:
+Contract amount
+Amount paid
+Outstanding balance
+Payment status
+Work category
+Payment upload history
+Developers should upload every payment made into the CRM.
+Graphs
+Budget vs Actual Spend
+Cost Breakdown by Construction Stage
+Vendor/Subcontractor Spend( Bar Graph showing total contract value , total spent and outstanding)
+Burn Rate Graph 
+
+Sales
+Under sales shows leads 
+Lead conversation rate 
+Clients still owing payments and their due dates so we can send reminders to developers
+ There should be a bar graph for each unit type or apartment type ,how much has been sold and  how much is left. 
