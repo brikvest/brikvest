@@ -1881,6 +1881,7 @@ export class DatabaseStorage implements IStorage {
   async backfillReservationFunnelStages(): Promise<number> {
     // Mapping rules (kept in SQL so backfill is a single round-trip):
     //   status = 'converted_to_investment'                          -> 'confirmed'
+    //   status = 'payment_pending'                                   -> 'payment_incomplete'
     //   status = 'reserved' AND has a payment_submission row         -> 'payment_incomplete'
     //   status = 'reserved'                                          -> 'prospective'
     //   status IN ('expired','cancelled') or anything else           -> NULL
@@ -1888,6 +1889,7 @@ export class DatabaseStorage implements IStorage {
       UPDATE investment_reservations r
       SET funnel_stage = CASE
         WHEN r.status = 'converted_to_investment' THEN 'confirmed'
+        WHEN r.status = 'payment_pending' THEN 'payment_incomplete'
         WHEN r.status = 'reserved' AND EXISTS (
           SELECT 1 FROM payment_submissions ps WHERE ps.reservation_id = r.id
         ) THEN 'payment_incomplete'
