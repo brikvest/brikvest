@@ -442,14 +442,14 @@ export class DatabaseStorage implements IStorage {
       .insert(properties)
       .values(insertProperty)
       .returning();
-    // Auto-seed the 8 default construction stages so the Construction tab can render
-    // a populated timeline immediately. Idempotent: ignores duplicates via the
-    // (propertyId, stageKey) unique index.
-    try {
-      await this.seedDefaultConstructionStages(property.id);
-    } catch (err) {
-      console.error("[createProperty] Failed to seed construction stages:", err);
-    }
+    // Auto-seed the 8 default construction stages so the Construction tab can
+    // render a populated timeline immediately. Idempotent (unique index on
+    // propertyId + stageKey). We deliberately do NOT swallow errors here:
+    // every project must have its 8 stages — that's a core invariant the
+    // Fundraising/Construction tabs depend on, so failure here surfaces to
+    // the caller and any partial property row will be cleaned up by the
+    // request handler.
+    await this.seedDefaultConstructionStages(property.id);
     return property;
   }
 
