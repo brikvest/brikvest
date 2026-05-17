@@ -434,7 +434,7 @@ async function ensureConstructionStageDates(propertyId: number, salesStage: "off
       actualCompletionDate: actualEnd,
       budgetAmount: String(budgetPerStage),
       status,
-    } as any);
+    });
   }
   console.log(`[SEED]   Updated ${stages.length} construction stages`);
 }
@@ -468,7 +468,7 @@ async function ensureVendorsAndPayments(propertyId: number, totalBudget: number,
       contactPhone: "+2348011112222",
       contactEmail: `${v.name.toLowerCase().replace(/[^a-z]+/g, "")}@demo.brikvest.net`,
       status: "active",
-    } as any);
+    });
     const perPayment = Math.round((v.contractAmount * 0.6) / v.payments);
     for (let i = 0; i < v.payments; i++) {
       await storage.createVendorPayment({
@@ -483,7 +483,7 @@ async function ensureVendorsAndPayments(propertyId: number, totalBudget: number,
         proofType: "image",
         notes: `Milestone ${i + 1} payment to ${v.name}`,
         createdByUserId: developerUserId,
-      } as any);
+      });
     }
   }
   console.log(`[SEED]   Seeded ${vendorSeeds.length} vendors with payments`);

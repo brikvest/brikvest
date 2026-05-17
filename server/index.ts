@@ -39,6 +39,19 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // One-shot backfill: default funnel_stage on any pre-existing reservation
+  // rows that haven't been assigned one yet. Idempotent, so it's safe to run
+  // on every boot.
+  try {
+    const { storage } = await import("./storage");
+    const n = await storage.backfillReservationFunnelStages();
+    if (n > 0) {
+      log(`[startup] Backfilled funnel_stage on ${n} reservation(s).`);
+    }
+  } catch (err) {
+    console.error("[startup] funnel_stage backfill failed:", err);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

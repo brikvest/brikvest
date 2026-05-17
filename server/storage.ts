@@ -122,6 +122,9 @@ export interface IStorage {
   getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]>;
   seedDefaultConstructionStages(propertyId: number): Promise<void>;
   updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+  // Idempotent create-or-update by (propertyId, stageKey) — the natural key
+  // backed by a unique index. Used by the Construction tab's stage editor.
+  upsertConstructionStage(propertyId: number, stageKey: string, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
 
   // Vendors / subcontractors
   getVendorsByProperty(propertyId: number): Promise<Vendor[]>;
@@ -138,7 +141,10 @@ export interface IStorage {
 
   // Reservation funnel / conversion rollups for the Fundraising tab.
   getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>>;
-  getMonthlyConversionEfficiency(propertyId: number, months?: number): Promise<{ month: string; confirmed: number; total: number; percent: number }[]>;
+  getMonthlyConversionEfficiency(propertyId: number, months?: number): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]>;
+  // One-shot startup backfill — defaults funnel_stage on any pre-existing
+  // reservations from their platform-level status. Idempotent.
+  backfillReservationFunnelStages(): Promise<number>;
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
@@ -1671,6 +1677,33 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async upsertConstructionStage(
+    propertyId: number,
+    stageKey: string,
+    updates: Partial<InsertConstructionStage>,
+  ): Promise<ConstructionStage> {
+    // Look up the stage template (sortOrder + default name) so a fresh row
+    // can be created if it doesn't exist yet.
+    const template = DEFAULT_CONSTRUCTION_STAGES.find((s) => s.stageKey === stageKey);
+    const [existing] = await db.select().from(constructionStages)
+      .where(and(eq(constructionStages.propertyId, propertyId), eq(constructionStages.stageKey, stageKey)));
+    if (existing) {
+      const [result] = await db.update(constructionStages)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(constructionStages.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(constructionStages).values({
+      propertyId,
+      stageKey,
+      name: updates.name ?? template?.name ?? stageKey,
+      sortOrder: updates.sortOrder ?? template?.sortOrder ?? 0,
+      ...updates,
+    }).returning();
+    return result;
+  }
+
   // ==========================================================================
   // Vendors
   // ==========================================================================
@@ -1775,15 +1808,19 @@ export class DatabaseStorage implements IStorage {
   async getMonthlyConversionEfficiency(
     propertyId: number,
     months: number = 12,
-  ): Promise<{ month: string; confirmed: number; total: number; percent: number }[]> {
-    // Last `months` calendar months including the current one.
+  ): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]> {
+    // Funnel-stage-driven rollup over the last `months` calendar months.
+    // - confirmedCount    = reservations with funnel_stage = 'confirmed'
+    // - prospectiveCount  = reservations still in funnel (any non-confirmed,
+    //                        non-null stage). Rows with funnel_stage IS NULL
+    //                        (left the funnel — expired/cancelled) are excluded.
     const now = new Date();
     const startBoundary = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
 
     const rows = await db
       .select({
         month: sql<string>`to_char(date_trunc('month', ${investmentReservations.createdAt}), 'YYYY-MM')`,
-        status: investmentReservations.status,
+        funnelStage: investmentReservations.funnelStage,
         count: sql<number>`count(*)::int`,
       })
       .from(investmentReservations)
@@ -1791,28 +1828,56 @@ export class DatabaseStorage implements IStorage {
         eq(investmentReservations.propertyId, propertyId),
         gte(investmentReservations.createdAt, startBoundary),
       ))
-      .groupBy(sql`date_trunc('month', ${investmentReservations.createdAt})`, investmentReservations.status);
+      .groupBy(sql`date_trunc('month', ${investmentReservations.createdAt})`, investmentReservations.funnelStage);
 
-    const byMonth = new Map<string, { confirmed: number; total: number }>();
+    const byMonth = new Map<string, { confirmedCount: number; prospectiveCount: number }>();
     for (let i = 0; i < months; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      byMonth.set(key, { confirmed: 0, total: 0 });
+      byMonth.set(key, { confirmedCount: 0, prospectiveCount: 0 });
     }
     for (const r of rows) {
       const slot = byMonth.get(r.month);
       if (!slot) continue;
       const c = Number(r.count);
-      slot.total += c;
-      if (r.status === "converted_to_investment") slot.confirmed += c;
+      if (r.funnelStage === "confirmed") {
+        slot.confirmedCount += c;
+      } else if (r.funnelStage != null) {
+        // any other in-funnel stage: prospective / due_diligence / documentation / payment_incomplete
+        slot.prospectiveCount += c;
+      }
     }
 
     return Array.from(byMonth.entries()).map(([month, v]) => ({
       month,
-      confirmed: v.confirmed,
-      total: v.total,
-      percent: v.total > 0 ? Math.round((v.confirmed / v.total) * 100) : 0,
+      confirmedCount: v.confirmedCount,
+      prospectiveCount: v.prospectiveCount,
     }));
+  }
+
+  // ==========================================================================
+  // Funnel-stage backfill — called once on boot. Idempotent (no-op on rows
+  // that already have funnel_stage set).
+  // ==========================================================================
+  async backfillReservationFunnelStages(): Promise<number> {
+    // Mapping rules (kept in SQL so backfill is a single round-trip):
+    //   status = 'converted_to_investment'                          -> 'confirmed'
+    //   status = 'reserved' AND has a payment_submission row         -> 'payment_incomplete'
+    //   status = 'reserved'                                          -> 'prospective'
+    //   status IN ('expired','cancelled') or anything else           -> NULL
+    const result = await db.execute(sql`
+      UPDATE investment_reservations r
+      SET funnel_stage = CASE
+        WHEN r.status = 'converted_to_investment' THEN 'confirmed'
+        WHEN r.status = 'reserved' AND EXISTS (
+          SELECT 1 FROM payment_submissions ps WHERE ps.reservation_id = r.id
+        ) THEN 'payment_incomplete'
+        WHEN r.status = 'reserved' THEN 'prospective'
+        ELSE NULL
+      END
+      WHERE r.funnel_stage IS NULL
+    `);
+    return (result as any).rowCount ?? 0;
   }
 }
 
