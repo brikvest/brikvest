@@ -1,9 +1,10 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -23,9 +25,10 @@ import { RichTextEditor } from "@/components/RichTextEditor";
 import {
   Building2, TrendingUp, Hammer, Users, BarChart3, Mail, Plus, Pencil, Trash2,
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
-  GripVertical, ImagePlus, X, UserPlus,
+  GripVertical, ImagePlus, X, UserPlus, Wallet, Receipt, FileText as FileTextIcon,
 } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, Area, CartesianGrid, ComposedChart, ReferenceLine } from "recharts";
+import { FileUpload } from "@/components/FileUpload";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -79,6 +82,101 @@ function fmtUnits(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   if (!isFinite(n as number)) return "0";
   return (n as number).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function ReminderHistoryCell({
+  reservationId,
+  count,
+  history,
+  lastReminderSentAt,
+}: {
+  reservationId: number;
+  count: number;
+  history: { sentAt: string; sentByName?: string }[];
+  lastReminderSentAt: string | null;
+}) {
+  const effectiveCount = count || history.length;
+  if (effectiveCount === 0 && !lastReminderSentAt) {
+    return <span className="text-xs text-slate-400">Never</span>;
+  }
+  const sorted = [...history].sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+  const recent = sorted.slice(0, 3);
+  const last = sorted[0]?.sentAt
+    ? new Date(sorted[0].sentAt)
+    : lastReminderSentAt
+      ? new Date(lastReminderSentAt)
+      : null;
+  const heavy = effectiveCount >= 3;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-left hover:underline"
+          data-testid={`button-reminder-history-${reservationId}`}
+        >
+          <span
+            className={`inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold border ${
+              heavy
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : "bg-blue-50 text-blue-700 border-blue-200"
+            }`}
+          >
+            {effectiveCount}
+          </span>
+          <span className="text-xs text-slate-600">
+            {last ? last.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-64 p-3"
+        align="start"
+        data-testid={`popover-reminder-history-${reservationId}`}
+      >
+        <div className="text-xs font-semibold text-slate-900 mb-1">
+          Reminder history ({effectiveCount})
+        </div>
+        {heavy && (
+          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+            You've reminded this investor {effectiveCount} times. Consider a phone call instead.
+          </div>
+        )}
+        {recent.length > 0 ? (
+          <ul className="space-y-1">
+            {recent.map((r, i) => (
+              <li key={i} className="text-xs text-slate-700 flex items-center gap-1.5">
+                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                <span>
+                  {new Date(r.sentAt).toLocaleString(undefined, {
+                    month: "short", day: "numeric",
+                    hour: "numeric", minute: "2-digit",
+                  })}
+                  {r.sentByName && (
+                    <span className="text-slate-500"> · {r.sentByName}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+            {effectiveCount > recent.length && (
+              <li className="text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                + {effectiveCount - recent.length} earlier reminder{effectiveCount - recent.length === 1 ? "" : "s"}
+              </li>
+            )}
+          </ul>
+        ) : last ? (
+          <div className="text-xs text-slate-600">
+            Last sent {last.toLocaleString(undefined, {
+              month: "short", day: "numeric", year: "numeric",
+              hour: "numeric", minute: "2-digit",
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-slate-500">No reminders sent yet.</div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function DeveloperProjectDetail() {
@@ -187,7 +285,7 @@ export default function DeveloperProjectDetail() {
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab project={project} rollup={rollup} canDelete={isOwner || myPermissions.includes("settings")} /></TabsContent>
-        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} /></TabsContent>}
+        {visibleTabs.some(t => t.value === "fundraising")  && <TabsContent value="fundraising"><FundraisingTab project={project} rollup={rollup} projectKey={projectKey} /></TabsContent>}
         {visibleTabs.some(t => t.value === "construction") && <TabsContent value="construction"><ConstructionTab projectId={projectId} project={project} /></TabsContent>}
         {visibleTabs.some(t => t.value === "sales")        && <TabsContent value="sales"><SalesTab projectId={projectId} project={project} /></TabsContent>}
         {visibleTabs.some(t => t.value === "captable")     && <TabsContent value="captable"><CapTableTab project={project} rollup={rollup} /></TabsContent>}
@@ -239,7 +337,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard icon={TrendingUp} label="Funding raised" value={fmt(project.currency, rollup?.funding?.totalRaised || 0)} sub={`${rollup?.funding?.percent || 0}% of target`} />
-        <StatCard icon={Users} label="Investors" value={String(rollup?.funnel?.confirmed || 0)} sub={`${rollup?.funnel?.reserved || 0} total reservations`} />
+        <StatCard icon={Users} label="Investors" value={String(rollup?.funnel?.confirmed || 0)} sub={`${(rollup?.funnel?.prospective || 0) + (rollup?.funnel?.dueDiligence || 0) + (rollup?.funnel?.documentation || 0) + (rollup?.funnel?.paymentIncomplete || 0)} prospective investors`} />
         <StatCard icon={Hammer} label="Construction" value={`${rollup?.construction?.overall || 0}%`} sub={rollup?.construction?.nextMilestone?.name || "No milestones"} />
         <StatCard icon={Building2} label="Units sold" value={`${rollup?.sales?.investorUnits || 0} / ${rollup?.sales?.totalUnits || 0}`} sub={`${rollup?.sales?.availableUnits || 0} available`} />
       </div>
@@ -260,7 +358,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
           <CardHeader>
             <CardTitle className="text-rose-900 text-base">Danger zone</CardTitle>
             <CardDescription>
-              Deleting this project removes its milestones, updates, leads, notes and any pending reservations. Confirmed investors block deletion — contact Brikvest support to unwind those.
+              Deleting this project removes its milestones, updates, leads, notes and any pending prospective investors. Confirmed investors block deletion — contact Brikvest support to unwind those.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -275,7 +373,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending reservations. This can't be undone.
+                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending prospective investors. This can't be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -415,9 +513,13 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string;
 }
 
 // ======================= FUNDRAISING =======================
-function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
+function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup: any; projectKey: string }) {
+  const { toast } = useToast();
   const f = rollup?.funding || {};
   const funnel = rollup?.funnel || {};
+  const velocityData: { weekStart: string; cumulativeRaised: number; targetCumulative: number | null }[] = rollup?.velocity || [];
+  const weeklyTarget: number | null = rollup?.weeklyTarget ?? null;
+  const conversionEfficiency: { month: string; percent: number; confirmed: number; total: number }[] = rollup?.conversionEfficiency || [];
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [drillIn, setDrillIn] = useState<any | null>(null);
@@ -432,6 +534,20 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
     },
   });
 
+  const updateStageMutation = useMutation({
+    mutationFn: async (args: { reservationId: number; funnelStage: string | null }) =>
+      apiRequest("PATCH", `/api/developer/reservations/${args.reservationId}/stage`, { funnelStage: args.funnelStage }),
+    onSuccess: () => {
+      // The parent rollup + investors queries are keyed by the URL projectKey
+      // (slug or numeric id), not project.id, so invalidate using projectKey.
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectKey, "investors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectKey, "rollup"] });
+      toast({ title: "Stage updated" });
+    },
+    onError: (err: any) => toast(toastFromError(err, "Couldn't update stage")),
+  });
+
   const STAGE_LABEL: Record<string, { label: string; className: string }> = {
     reserved:                { label: "Reserved",          className: "bg-amber-100 text-amber-700" },
     payment_pending:         { label: "Payment Pending",   className: "bg-orange-100 text-orange-700" },
@@ -440,12 +556,28 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
     cancelled:               { label: "Cancelled",         className: "bg-slate-100 text-slate-600" },
   };
 
-  const funnelData = [
-    { stage: "Reserved",          count: funnel.reserved || 0 },
-    { stage: "KYC Complete",      count: funnel.kycComplete || 0 },
-    { stage: "Payment Submitted", count: funnel.paymentSubmitted || 0 },
-    { stage: "Confirmed",         count: funnel.confirmed || 0 },
+  const FUNNEL_STAGE_OPTIONS: { value: string; label: string }[] = [
+    { value: "prospective",        label: "Prospective" },
+    { value: "due_diligence",      label: "Due Diligence" },
+    { value: "documentation",      label: "Documentation" },
+    { value: "payment_incomplete", label: "Payment Incomplete" },
+    { value: "confirmed",          label: "Confirmed" },
   ];
+
+  const funnelData = [
+    { stage: "Prospective",        count: funnel.prospective || 0 },
+    { stage: "Due Diligence",      count: funnel.dueDiligence || 0 },
+    { stage: "Documentation",      count: funnel.documentation || 0 },
+    { stage: "Payment Incomplete", count: funnel.paymentIncomplete || 0 },
+    { stage: "Confirmed",          count: funnel.confirmed || 0 },
+  ];
+  const funnelTotal = funnelData.reduce((s, x) => s + x.count, 0);
+  const dropOff = funnelData.map((d, i) => {
+    if (i === 0) return null;
+    const prev = funnelData[i - 1].count;
+    if (prev === 0) return null;
+    return Math.round(((prev - d.count) / prev) * 100);
+  });
 
   const stuckInFunnel = (investors || []).filter((i) => {
     if (i.status === "converted_to_investment" || i.status === "expired" || i.status === "cancelled") return false;
@@ -504,22 +636,144 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-testid="card-velocity">
         <CardHeader>
-          <CardTitle>Conversion funnel</CardTitle>
-          <CardDescription>From reservation to confirmed investment.</CardDescription>
+          <CardTitle>Fundraising velocity</CardTitle>
+          <CardDescription>
+            Cumulative {project.currency || "NGN"} raised over the last 12 weeks
+            {weeklyTarget ? ` — target ${fmt(project.currency, weeklyTarget)} per week to hit your planned completion` : ""}
+            .
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={funnelData} layout="vertical" margin={{ left: 60 }}>
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis dataKey="stage" type="category" width={140} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#2563eb" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {velocityData.every(v => v.cumulativeRaised === 0) ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-velocity">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={velocityData} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+                  <defs>
+                    <linearGradient id="velocityFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor="#2563eb" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="weekStart"
+                    tickFormatter={(d: string) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${Math.round(v / 1_000)}k` : String(v)}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    formatter={(v: number) => fmt(project.currency, v)}
+                    labelFormatter={(d: string) => `Week of ${new Date(d).toLocaleDateString()}`}
+                  />
+                  <Area type="monotone" dataKey="cumulativeRaised" name="Raised" stroke="#2563eb" strokeWidth={2} fill="url(#velocityFill)" />
+                  {weeklyTarget && velocityData.some(v => v.targetCumulative !== null) && (
+                    <Line
+                      type="monotone"
+                      dataKey="targetCumulative"
+                      name="Target pace"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  <Legend verticalAlign="top" height={24} iconType="line" wrapperStyle={{ fontSize: 11 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-funnel">
+        <CardHeader>
+          <CardTitle>Conversion funnel</CardTitle>
+          <CardDescription>From prospective investor to confirmed investment. Drop-off shown between stages.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {funnelTotal === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-funnel">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {funnelData.map((d, i) => {
+                const widthPct = funnelData[0].count > 0 ? Math.max(8, Math.round((d.count / funnelData[0].count) * 100)) : 8;
+                return (
+                  <div key={d.stage} data-testid={`funnel-row-${i}`}>
+                    {i > 0 && dropOff[i] !== null && (
+                      <div className="flex items-center gap-2 pl-2 mb-1 text-xs text-rose-600">
+                        <span>↓ {dropOff[i]}% drop-off</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3">
+                      <div className="w-40 text-sm font-medium text-slate-700">{d.stage}</div>
+                      <div className="flex-1 bg-slate-100 rounded-md h-9 relative overflow-hidden">
+                        <div
+                          className="h-full bg-blue-600 transition-all rounded-md flex items-center justify-end pr-3 text-xs font-semibold text-white"
+                          style={{ width: `${widthPct}%` }}
+                        >
+                          {d.count}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-conversion-efficiency">
+        <CardHeader>
+          <CardTitle>Investor Conversion Efficiency</CardTitle>
+          <CardDescription>Confirmed ÷ total prospects each month, last 12 months.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {conversionEfficiency.every(c => c.total === 0) ? (
+            <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-efficiency">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={conversionEfficiency} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="month"
+                    tickFormatter={(m: string) => {
+                      const [y, mo] = m.split("-");
+                      return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, { month: "short" });
+                    }}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <YAxis tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11 }} domain={[0, 100]} />
+                  <Tooltip
+                    formatter={(_v: any, _name: any, ctx: any) => {
+                      const p = ctx?.payload as { percent: number; confirmed: number; total: number };
+                      return [`${p.percent}% (${p.confirmed}/${p.total})`, "Efficiency"];
+                    }}
+                    labelFormatter={(m: string) => {
+                      const [y, mo] = m.split("-");
+                      return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+                    }}
+                  />
+                  <Line type="monotone" dataKey="percent" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -559,7 +813,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
       <Card>
         <CardHeader>
           <CardTitle>Investors</CardTitle>
-          <CardDescription>Search, filter, and drill down to see each investor's reservation and payment history.</CardDescription>
+          <CardDescription>Search, filter, and drill down to see each prospective investor's history and payment activity.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-2">
@@ -583,7 +837,11 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
             </Select>
           </div>
 
-          {filtered.length === 0 ? (
+          {investors.length === 0 ? (
+            <div className="text-center py-10 text-slate-500" data-testid="empty-investors">
+              No prospective investors yet — share your project link to start tracking conversion.
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No investors match the current filters.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -594,13 +852,14 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                     <TableHead>Stage</TableHead>
                     <TableHead className="text-right">Units</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Reserved</TableHead>
+                    <TableHead className="text-right">Created</TableHead>
                     <TableHead className="text-right"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((i) => {
                     const meta = STAGE_LABEL[i.status] || { label: i.status, className: "bg-slate-100" };
+                    const isTerminal = i.status === "expired" || i.status === "cancelled";
                     return (
                       <TableRow key={i.reservationId} data-testid={`row-investor-${i.reservationId}`}>
                         <TableCell>
@@ -612,7 +871,26 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
+                        <TableCell>
+                          {isTerminal ? (
+                            <Badge className={meta.className}>{meta.label}</Badge>
+                          ) : (
+                            <Select
+                              value={i.funnelStage || "prospective"}
+                              onValueChange={(v) => updateStageMutation.mutate({ reservationId: i.reservationId, funnelStage: v })}
+                              disabled={updateStageMutation.isPending}
+                            >
+                              <SelectTrigger className="h-8 w-44 text-xs" data-testid={`select-stage-${i.reservationId}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FUNNEL_STAGE_OPTIONS.map(o => (
+                                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-medium">{fmtUnits(i.units)}</TableCell>
                         <TableCell className="text-right">{fmt(i.currency, i.amount)}</TableCell>
                         <TableCell className="text-right text-xs text-slate-500">{i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "—"}</TableCell>
@@ -665,7 +943,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                   </Badge>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500 uppercase">Reservation ID</div>
+                  <div className="text-xs text-slate-500 uppercase">Investor ID</div>
                   <div className="font-mono text-xs text-slate-700">#{drillIn.reservationId}</div>
                 </div>
               </div>
@@ -686,14 +964,14 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                 </div>
               </div>
 
-              {/* Reservation timeline */}
+              {/* Funnel timeline */}
               <div className="border-t border-slate-200 pt-4">
-                <div className="text-xs text-slate-500 uppercase mb-2">Reservation timeline</div>
+                <div className="text-xs text-slate-500 uppercase mb-2">Funnel timeline</div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-start gap-3">
                     <div className="w-2 h-2 rounded-full bg-blue-500 mt-2" />
                     <div>
-                      <div className="font-medium text-slate-900">Reservation created</div>
+                      <div className="font-medium text-slate-900">Prospect created</div>
                       <div className="text-xs text-slate-500">{drillIn.createdAt ? new Date(drillIn.createdAt).toLocaleString() : "—"}</div>
                     </div>
                   </div>
@@ -710,7 +988,7 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
                     <div className="flex items-start gap-3">
                       <div className="w-2 h-2 rounded-full bg-red-500 mt-2" />
                       <div>
-                        <div className="font-medium text-slate-900">Reservation expired</div>
+                        <div className="font-medium text-slate-900">Expired</div>
                         <div className="text-xs text-slate-500">Did not convert in time</div>
                       </div>
                     </div>
@@ -782,7 +1060,431 @@ function FundraisingTab({ project, rollup }: { project: any; rollup: any }) {
 }
 
 // ======================= CONSTRUCTION =======================
+
+const STAGE_STATUS_META: Record<string, { label: string; className: string }> = {
+  not_started: { label: "Not started", className: "bg-slate-100 text-slate-700" },
+  in_progress: { label: "In progress", className: "bg-blue-100 text-blue-700" },
+  done:        { label: "Done",        className: "bg-emerald-100 text-emerald-700" },
+  delayed:     { label: "Delayed",     className: "bg-amber-100 text-amber-700" },
+};
+
+function fmtDate(d: any): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function daysBetween(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function stageVariance(stage: any): { label: string; className: string; days: number | null } {
+  // Variance compares plannedCompletion against (actualCompletion ?? today):
+  //   green  → on time or early (days <= 0, including incomplete stages still on track)
+  //   amber  → up to 7 days late / overdue
+  //   red    → more than 7 days late / overdue
+  if (!stage.plannedCompletionDate) return { label: "No plan", className: "bg-slate-100 text-slate-500", days: null };
+  const planned = new Date(stage.plannedCompletionDate);
+  const ref = stage.actualCompletionDate ? new Date(stage.actualCompletionDate) : new Date();
+  const days = daysBetween(planned, ref);
+  const isComplete = !!stage.actualCompletionDate;
+  if (days <= 0) {
+    // On schedule (incomplete) or completed on/before plan
+    let label: string;
+    if (isComplete) label = days === 0 ? "On time" : `${-days}d early`;
+    else            label = days === 0 ? "Due today" : `${-days}d to go`;
+    return { label, className: "bg-emerald-100 text-emerald-700", days };
+  }
+  const suffix = isComplete ? "late" : "overdue";
+  if (days <= 7) return { label: `${days}d ${suffix}`, className: "bg-amber-100 text-amber-700", days };
+  return { label: `${days}d ${suffix}`, className: "bg-red-100 text-red-700", days };
+}
+
+function ScheduleGantt({ stages }: { stages: any[] }) {
+  // Compute the timeline bounds across all planned + actual dates.
+  const dates: number[] = [];
+  for (const s of stages) {
+    for (const k of ["plannedStartDate", "plannedCompletionDate", "actualStartDate", "actualCompletionDate"]) {
+      if (s[k]) dates.push(new Date(s[k]).getTime());
+    }
+  }
+  if (dates.length < 2) {
+    return (
+      <div className="text-center py-8 text-sm text-slate-500">
+        Add planned dates to your stages to see a timeline.
+      </div>
+    );
+  }
+  const min = Math.min(...dates);
+  const max = Math.max(...dates, Date.now());
+  const span = Math.max(max - min, 1);
+  const pct = (t: number) => `${((t - min) / span) * 100}%`;
+  const todayPct = pct(Date.now());
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+        <span>{fmtDate(min)}</span>
+        <span>Today: {fmtDate(Date.now())}</span>
+        <span>{fmtDate(max)}</span>
+      </div>
+      <div className="relative">
+        {/* Today reference line */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-blue-500 z-10 pointer-events-none"
+          style={{ left: todayPct }}
+          aria-hidden
+        >
+          <div className="absolute -top-1 -translate-x-1/2 w-2 h-2 rounded-full bg-blue-500" />
+        </div>
+        <div className="space-y-2">
+          {stages.map((s) => {
+            const ps = s.plannedStartDate      ? new Date(s.plannedStartDate).getTime()      : null;
+            const pe = s.plannedCompletionDate ? new Date(s.plannedCompletionDate).getTime() : null;
+            const as = s.actualStartDate       ? new Date(s.actualStartDate).getTime()       : null;
+            const ae = s.actualCompletionDate  ? new Date(s.actualCompletionDate).getTime()  : (as ? Date.now() : null);
+            return (
+              <div key={s.id} className="grid grid-cols-12 gap-2 items-center text-xs" data-testid={`gantt-row-${s.stageKey}`}>
+                <div className="col-span-3 truncate text-slate-700 font-medium">{s.name}</div>
+                <div className="col-span-9 relative h-6 bg-slate-50 rounded">
+                  {ps !== null && pe !== null && pe > ps && (
+                    <div
+                      className="absolute top-0.5 h-2 rounded bg-blue-200"
+                      style={{ left: pct(ps), width: `calc(${pct(pe)} - ${pct(ps)})` }}
+                      title={`Planned: ${fmtDate(ps)} → ${fmtDate(pe)}`}
+                    />
+                  )}
+                  {as !== null && ae !== null && ae > as && (
+                    <div
+                      className={`absolute bottom-0.5 h-2 rounded ${s.actualCompletionDate ? "bg-emerald-500" : "bg-blue-500"}`}
+                      style={{ left: pct(as), width: `calc(${pct(ae)} - ${pct(as)})` }}
+                      title={`Actual: ${fmtDate(as)} → ${s.actualCompletionDate ? fmtDate(ae) : "in progress"}`}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex items-center gap-4 pt-2 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-blue-200" /> Planned</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-blue-500" /> In progress</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded bg-emerald-500" /> Completed</span>
+        <span className="inline-flex items-center gap-1.5"><span className="inline-block w-0.5 h-3 bg-blue-500" /> Today</span>
+      </div>
+    </div>
+  );
+}
+
+function StageEditDialog({
+  stage,
+  onClose,
+  onSave,
+  saving,
+}: {
+  stage: any | null;
+  onClose: () => void;
+  onSave: (updates: any) => void;
+  saving: boolean;
+}) {
+  const toIso = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  const [form, setForm] = useState({
+    plannedStartDate: toIso(stage?.plannedStartDate),
+    plannedCompletionDate: toIso(stage?.plannedCompletionDate),
+    actualStartDate: toIso(stage?.actualStartDate),
+    actualCompletionDate: toIso(stage?.actualCompletionDate),
+    status: stage?.status || "not_started",
+    notes: stage?.notes || "",
+  });
+  // Re-sync state when a different stage opens
+  const stageId = stage?.id;
+  useEffect(() => {
+    setForm({
+      plannedStartDate: toIso(stage?.plannedStartDate),
+      plannedCompletionDate: toIso(stage?.plannedCompletionDate),
+      actualStartDate: toIso(stage?.actualStartDate),
+      actualCompletionDate: toIso(stage?.actualCompletionDate),
+      status: stage?.status || "not_started",
+      notes: stage?.notes || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageId]);
+
+  if (!stage) return null;
+  return (
+    <Dialog open={!!stage} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit stage — {stage.name}</DialogTitle>
+          <DialogDescription>Set planned and actual dates. Variance and overall completion update automatically.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Planned start</Label>
+              <Input type="date" value={form.plannedStartDate} onChange={(e) => setForm({ ...form, plannedStartDate: e.target.value })} data-testid="input-planned-start" />
+            </div>
+            <div>
+              <Label>Planned completion</Label>
+              <Input type="date" value={form.plannedCompletionDate} onChange={(e) => setForm({ ...form, plannedCompletionDate: e.target.value })} data-testid="input-planned-completion" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Actual start</Label>
+              <Input type="date" value={form.actualStartDate} onChange={(e) => setForm({ ...form, actualStartDate: e.target.value })} data-testid="input-actual-start" />
+            </div>
+            <div>
+              <Label>Actual completion</Label>
+              <Input type="date" value={form.actualCompletionDate} onChange={(e) => setForm({ ...form, actualCompletionDate: e.target.value })} data-testid="input-actual-completion" />
+            </div>
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+              <SelectTrigger data-testid="select-stage-status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="not_started">Not started</SelectItem>
+                <SelectItem value="in_progress">In progress</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="delayed">Delayed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes about this stage" data-testid="textarea-stage-notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={saving}
+            onClick={() => onSave({
+              plannedStartDate: form.plannedStartDate || null,
+              plannedCompletionDate: form.plannedCompletionDate || null,
+              actualStartDate: form.actualStartDate || null,
+              actualCompletionDate: form.actualCompletionDate || null,
+              status: form.status,
+              notes: form.notes,
+            })}
+            data-testid="button-save-stage"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+            Save stage
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ConstructionTab({ projectId, project }: { projectId: string | number; project: any }) {
+  const { toast } = useToast();
+  const { data: stages, isLoading: stagesLoading } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", projectId, "stages"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/stages`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const [editingStage, setEditingStage] = useState<any | null>(null);
+
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: number; updates: any }) =>
+      apiRequest("PATCH", `/api/developer/projects/${projectId}/stages/${id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "stages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
+      setEditingStage(null);
+      toast({ title: "Stage updated" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to update stage")),
+  });
+
+  const sortedStages = stages ? [...stages].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) : [];
+  const completedCount = sortedStages.filter(s => !!s.actualCompletionDate).length;
+  const totalStages = sortedStages.length || 8;
+  const completionPct = totalStages > 0 ? Math.round((completedCount / totalStages) * 100) : 0;
+  const nextStage = sortedStages.find(s => !s.actualCompletionDate);
+
+  // Project-level duration in months (planned)
+  const projectDurationMonths = (() => {
+    if (!project?.plannedStartDate || !project?.plannedCompletionDate) return null;
+    const s = new Date(project.plannedStartDate);
+    const e = new Date(project.plannedCompletionDate);
+    const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+    return Math.max(months, 0);
+  })();
+
+  return (
+    <div className="space-y-6">
+      {/* Schedule overview (read-only — project-level dates are edited in project settings) */}
+      <Card data-testid="card-schedule-overview">
+        <CardHeader>
+          <CardTitle>Schedule</CardTitle>
+          <CardDescription>Project-level dates that frame the construction timeline. Stage dates live below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Planned start</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-planned-start">{fmtDate(project?.plannedStartDate)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Planned completion</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-planned-completion">{fmtDate(project?.plannedCompletionDate)}</div>
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <div className="text-xs text-slate-500 uppercase">Actual completion</div>
+                <HelpTip>Auto-set when every stage below has an actual completion date.</HelpTip>
+              </div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-actual-completion">{fmtDate(project?.actualCompletionDate)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase">Duration (planned)</div>
+              <div className="mt-2 text-sm text-slate-900" data-testid="text-project-duration">
+                {projectDurationMonths === null ? "—" : `${projectDurationMonths} month${projectDurationMonths === 1 ? "" : "s"}`}
+              </div>
+            </div>
+          </div>
+          {!project?.plannedStartDate && !project?.plannedCompletionDate && (
+            <p className="text-xs text-slate-500 mt-3">
+              Set planned start and completion dates in project settings to populate the timeline.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Completion progress */}
+      <Card data-testid="card-completion-progress">
+        <CardContent className="py-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm text-slate-500">Project completion</div>
+              <div className="text-3xl font-bold text-slate-900 mt-1">{completionPct}%</div>
+              <div className="text-xs text-slate-500 mt-0.5">{completedCount} of {totalStages} stages complete</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-slate-500 uppercase">Next stage</div>
+              <div className="text-sm font-medium text-slate-900 mt-1">{nextStage?.name || "All complete"}</div>
+              {nextStage?.plannedCompletionDate && (
+                <div className="text-xs text-slate-500 mt-0.5">by {fmtDate(nextStage.plannedCompletionDate)}</div>
+              )}
+            </div>
+          </div>
+          <Progress value={completionPct} className="h-3" />
+        </CardContent>
+      </Card>
+
+      {/* Stages table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Construction stages</CardTitle>
+          <CardDescription>Track each of the 8 stages — planned vs actual dates and delay variance.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {stagesLoading ? (
+            <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-12 bg-slate-100 rounded animate-pulse" />)}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Stage</TableHead>
+                    <TableHead>Planned</TableHead>
+                    <TableHead>Actual</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Variance</TableHead>
+                    <TableHead className="text-right"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedStages.map((s) => {
+                    const meta = STAGE_STATUS_META[s.status] || STAGE_STATUS_META.not_started;
+                    const variance = stageVariance(s);
+                    const ps = s.plannedStartDate ? new Date(s.plannedStartDate) : null;
+                    const pe = s.plannedCompletionDate ? new Date(s.plannedCompletionDate) : null;
+                    const durationDays = ps && pe ? Math.max(daysBetween(ps, pe), 0) : null;
+                    return (
+                      <TableRow key={s.id} data-testid={`row-stage-${s.stageKey}`}>
+                        <TableCell className="font-medium">{s.name}</TableCell>
+                        <TableCell className="text-xs text-slate-600 whitespace-nowrap">
+                          {fmtDate(s.plannedStartDate)} → {fmtDate(s.plannedCompletionDate)}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-600 whitespace-nowrap">
+                          {fmtDate(s.actualStartDate)} → {fmtDate(s.actualCompletionDate)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-slate-600">
+                          {durationDays === null ? "—" : `${durationDays}d`}
+                        </TableCell>
+                        <TableCell><Badge className={meta.className}>{meta.label}</Badge></TableCell>
+                        <TableCell><Badge className={variance.className} data-testid={`variance-${s.stageKey}`}>{variance.label}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingStage(s)} data-testid={`button-edit-stage-${s.stageKey}`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Planned vs actual timeline */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Planned vs actual timeline</CardTitle>
+          <CardDescription>Top bar (light blue) is the plan, bottom bar is what actually happened. Slippage is the gap.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {stagesLoading ? (
+            <div className="h-40 bg-slate-100 rounded animate-pulse" />
+          ) : (
+            <ScheduleGantt stages={sortedStages} />
+          )}
+        </CardContent>
+      </Card>
+
+      <StageEditDialog
+        stage={editingStage}
+        onClose={() => setEditingStage(null)}
+        onSave={(updates) => editingStage && updateStageMutation.mutate({ id: editingStage.id, updates })}
+        saving={updateStageMutation.isPending}
+      />
+
+      {/* Budget & vendor tracking. The tab itself is only rendered to users with the
+          `construction` permission, so all mutations within are safe to expose. */}
+      <BudgetSection projectId={projectId} project={project} stages={sortedStages} />
+
+      {/* Legacy: project status fields + free-form milestones, collapsed by default */}
+      <Accordion type="single" collapsible>
+        <AccordionItem value="detailed-milestones" className="border border-slate-200 rounded-lg bg-white">
+          <AccordionTrigger className="px-4 py-3 hover:no-underline" data-testid="accordion-detailed-milestones">
+            <div className="text-left">
+              <div className="font-semibold text-slate-900">Detailed milestones</div>
+              <div className="text-xs text-slate-500 font-normal">Optional free-form milestone list with photos and a public status summary.</div>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <LegacyMilestonesSection projectId={projectId} project={project} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  );
+}
+
+// Legacy free-form milestone list + project-status fields, preserved per task spec.
+function LegacyMilestonesSection({ projectId, project }: { projectId: string | number; project: any }) {
   const { toast } = useToast();
   const { data: milestones, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "milestones"],
@@ -800,6 +1502,8 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
   const [projectFields, setProjectFields] = useState({
     currentStage: project?.currentStage || "",
     expectedCompletionDate: project?.expectedCompletionDate ? new Date(project.expectedCompletionDate).toISOString().slice(0, 10) : "",
+    plannedStartDate: project?.plannedStartDate ? new Date(project.plannedStartDate).toISOString().slice(0, 10) : "",
+    plannedCompletionDate: project?.plannedCompletionDate ? new Date(project.plannedCompletionDate).toISOString().slice(0, 10) : "",
     risksDelays: project?.risksDelays || "",
     latestUpdateText: project?.latestUpdateText || "",
   });
@@ -809,6 +1513,8 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
     mutationFn: async () => apiRequest("PATCH", `/api/developer/projects/${projectId}`, {
       currentStage: projectFields.currentStage || null,
       expectedCompletionDate: projectFields.expectedCompletionDate || null,
+      plannedStartDate: projectFields.plannedStartDate || null,
+      plannedCompletionDate: projectFields.plannedCompletionDate || null,
       risksDelays: projectFields.risksDelays || null,
       latestUpdateText: projectFields.latestUpdateText || null,
     }),
@@ -888,7 +1594,6 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
     const items = reordered.map((m, i) => ({ id: m.id, sortOrder: i }));
     reorderMutation.mutate(items);
   };
-  const overall = sortedMilestones.length === 0 ? 0 : Math.round(sortedMilestones.reduce((s, m) => s + (m.percentComplete || 0), 0) / sortedMilestones.length);
 
   const updateField = (k: keyof typeof projectFields, v: string) => {
     setProjectFields((prev) => ({ ...prev, [k]: v }));
@@ -897,18 +1602,6 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="flex items-center justify-between py-5">
-          <div>
-            <div className="text-sm text-slate-500">Overall construction progress</div>
-            <div className="text-3xl font-bold text-slate-900 mt-1">{overall}%</div>
-          </div>
-          <div className="w-1/2">
-            <Progress value={overall} className="h-3" />
-          </div>
-        </CardContent>
-      </Card>
-
       <Card data-testid="card-project-fields">
         <CardHeader>
           <CardTitle>Project status</CardTitle>
@@ -944,6 +1637,32 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
                 value={projectFields.expectedCompletionDate}
                 onChange={(e) => updateField("expectedCompletionDate", e.target.value)}
                 data-testid="input-expected-completion"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label>Planned start date</Label>
+                <HelpTip>Used by the Construction schedule (top of this tab) as the start of the project timeline.</HelpTip>
+              </div>
+              <Input
+                type="date"
+                value={projectFields.plannedStartDate}
+                onChange={(e) => updateField("plannedStartDate", e.target.value)}
+                data-testid="input-edit-planned-start"
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label>Planned completion date</Label>
+                <HelpTip>The target end date for construction. Drives the schedule's planned duration and slippage indicators.</HelpTip>
+              </div>
+              <Input
+                type="date"
+                value={projectFields.plannedCompletionDate}
+                onChange={(e) => updateField("plannedCompletionDate", e.target.value)}
+                data-testid="input-edit-planned-completion"
               />
             </div>
           </div>
@@ -1425,6 +2144,24 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       return res.json();
     },
   });
+  const { data: rollup } = useQuery<any>({
+    queryKey: ["/api/developer/projects", projectId, "rollup"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/rollup`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const sendReminder = useMutation({
+    mutationFn: async (reservationId: number) =>
+      apiRequest("POST", `/api/developer/projects/${projectId}/reservations/${reservationId}/remind`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "investors"] });
+      toast({ title: "Reminder sent", description: "The investor has been emailed a payment reminder." });
+    },
+    onError: (err: any) => toast(toastFromError(err, "Could not send reminder")),
+  });
   const [stage, setStage] = useState<SalesStage>("all");
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteInvestor, setNoteInvestor] = useState<any | null>(null);
@@ -1585,7 +2322,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       </Card>
 
       {/* Velocity / Forecast cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardContent className="py-5">
             <div className="text-xs uppercase tracking-wide text-slate-500">Sold {noun.plural}</div>
@@ -1634,6 +2371,26 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
             )}
           </CardContent>
         </Card>
+        <Card data-testid="card-lead-conversion">
+          <CardContent className="py-5">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Lead conversion</div>
+            {rollup?.leadConversionRate ? (
+              <>
+                <div className="text-2xl font-bold text-slate-900 mt-1">
+                  {rollup.leadConversionRate.percent}<span className="text-base font-normal text-slate-500">%</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-2">
+                  {rollup.leadConversionRate.confirmed} confirmed / {rollup.leadConversionRate.totalProspects} prospects
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-slate-400 mt-1">—</div>
+                <div className="text-xs text-slate-500 mt-2">No pipeline data yet</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Sales chart */}
@@ -1657,6 +2414,131 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           </div>
         </CardContent>
       </Card>
+
+      {/* Unit mix — Sold vs Remaining by unit type */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sold vs Remaining by unit type</CardTitle>
+          <CardDescription>
+            {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0
+              ? `Inventory breakdown across the ${rollup.unitMix.length} configured unit type${rollup.unitMix.length === 1 ? "" : "s"}.`
+              : "Configure unit types in project settings to see this breakdown."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0 ? (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={rollup.unitMix} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" stroke="#64748b" fontSize={12} />
+                  <YAxis stroke="#64748b" fontSize={12} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="sold" name="Sold" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="remaining" name="Remaining" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-sm text-slate-500" data-testid="empty-unit-mix">
+              Add unit types in project settings to see this breakdown.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Clients still owing — reservations pending payment */}
+      {(() => {
+        const owing = list.filter((i: any) => i.status === "reserved" || i.funnelStage === "payment_incomplete");
+        if (owing.length === 0) return null;
+        return (
+          <Card data-testid="card-owing-clients">
+            <CardHeader>
+              <CardTitle>Clients still owing</CardTitle>
+              <CardDescription>{owing.length} {owing.length === 1 ? "reservation" : "reservations"} with pending payment. Reminders are throttled to one per 24 hours.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>{noun.Plural}</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Due</TableHead>
+                      <TableHead>Days overdue</TableHead>
+                      <TableHead>Reminders</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {owing.map((inv: any) => {
+                      const due = inv.expiresAt ? new Date(inv.expiresAt) : null;
+                      const overdue = due ? due.getTime() < Date.now() : false;
+                      const daysOverdue = overdue && due
+                        ? Math.floor((Date.now() - due.getTime()) / (24 * 60 * 60 * 1000))
+                        : 0;
+                      const last = inv.lastReminderSentAt ? new Date(inv.lastReminderSentAt) : null;
+                      const throttled = last ? (Date.now() - last.getTime()) < 24 * 60 * 60 * 1000 : false;
+                      const isSending = sendReminder.isPending && sendReminder.variables === inv.reservationId;
+                      return (
+                        <TableRow key={inv.reservationId} data-testid={`row-owing-${inv.reservationId}`}>
+                          <TableCell>
+                            <div className="font-medium text-slate-900">{inv.name}</div>
+                            <div className="text-xs text-slate-500">{inv.email}</div>
+                          </TableCell>
+                          <TableCell>{fmtUnits(inv.units)}</TableCell>
+                          <TableCell>{fmt(inv.currency, inv.amount)}</TableCell>
+                          <TableCell>
+                            {due ? (
+                              <span className={overdue ? "text-red-600 font-medium" : "text-slate-700"}>
+                                {due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                              </span>
+                            ) : <span className="text-slate-400">—</span>}
+                          </TableCell>
+                          <TableCell data-testid={`cell-days-overdue-${inv.reservationId}`}>
+                            {overdue ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-xs font-semibold border border-red-200">
+                                {daysOverdue} {daysOverdue === 1 ? "day" : "days"}
+                              </span>
+                            ) : due ? (
+                              <span className="text-xs text-slate-500">—</span>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <ReminderHistoryCell
+                              reservationId={inv.reservationId}
+                              count={inv.reminderCount ?? (inv.reminderHistory?.length ?? 0)}
+                              history={inv.reminderHistory || []}
+                              lastReminderSentAt={inv.lastReminderSentAt}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={throttled || isSending}
+                              onClick={() => sendReminder.mutate(inv.reservationId)}
+                              data-testid={`button-send-reminder-${inv.reservationId}`}
+                              title={throttled ? "A reminder was already sent in the last 24 hours" : "Send a payment reminder email"}
+                            >
+                              {isSending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Mail className="w-3.5 h-3.5 mr-1.5" />}
+                              {throttled ? "Sent recently" : "Send reminder"}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* CRM Leads sub-section (pre-reservation funnel) */}
       <LeadsSection
@@ -1716,6 +2598,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                     <TableHead>Amount</TableHead>
                     <TableHead>KYC</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Last contacted</TableHead>
                     <TableHead>Note</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1739,6 +2622,14 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                           : inv.status === "reserved" ? "bg-amber-100 text-amber-700"
                           : "bg-slate-100 text-slate-700"
                         }>{inv.status.replace(/_/g, " ")}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <ReminderHistoryCell
+                          reservationId={inv.reservationId}
+                          count={inv.reminderCount ?? (inv.reminderHistory?.length ?? 0)}
+                          history={inv.reminderHistory || []}
+                          lastReminderSentAt={inv.lastReminderSentAt ?? null}
+                        />
                       </TableCell>
                       <TableCell>
                         {inv.investorUserId ? (
@@ -1805,12 +2696,18 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [note, setNote] = useState<string>("");
+  const projectUnitTypes: Array<{ label: string; quantity: number; price: number }> =
+    Array.isArray(project?.unitTypes) ? project.unitTypes : [];
+  const [unitTypeLabel, setUnitTypeLabel] = useState<string>(
+    projectUnitTypes.length > 0 ? String(projectUnitTypes[0].label) : ""
+  );
 
   const reset = () => {
     setEmail(""); setFullName(""); setPhone("");
     setUnits("1"); setAmount(""); setPaymentMethod("bank_transfer");
     setPaymentDate(new Date().toISOString().slice(0, 10));
     setPaymentReference(""); setNote("");
+    setUnitTypeLabel(projectUnitTypes.length > 0 ? String(projectUnitTypes[0].label) : "");
   };
 
   const mutation = useMutation({
@@ -1824,6 +2721,7 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
         paymentDate,
         paymentReference: paymentReference.trim() || undefined,
         note: note.trim() || undefined,
+        unitTypeLabel: unitTypeLabel || undefined,
       };
       if (amount.trim()) payload.amount = Number(amount);
       return await apiRequest("POST", `/api/developer/projects/${projectId}/investors`, payload);
@@ -1853,7 +2751,10 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
     mutation.mutate();
   };
 
-  const unitPrice = Number(project?.unitPrice ?? project?.minInvestment ?? 0);
+  const selectedType = projectUnitTypes.find(t => String(t.label) === unitTypeLabel) || null;
+  const unitPrice = selectedType
+    ? Number(selectedType.price)
+    : Number(project?.unitPrice ?? project?.minInvestment ?? 0);
   const computedAmount = Number(units) > 0 && unitPrice > 0 ? Number(units) * unitPrice : null;
   const currency = project?.currency || "NGN";
 
@@ -1886,6 +2787,27 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
             <Label htmlFor="ai-phone">Phone (optional)</Label>
             <Input id="ai-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234..." data-testid="input-investor-phone" />
           </div>
+          {projectUnitTypes.length > 1 && (
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="ai-unit-type">Unit type *</Label>
+                <HelpTip>
+                  Which configured {noun.singular} type this client is buying. The
+                  amount and per-{noun.singular} price will be taken from this type.
+                </HelpTip>
+              </div>
+              <Select value={unitTypeLabel} onValueChange={setUnitTypeLabel}>
+                <SelectTrigger id="ai-unit-type" data-testid="select-unit-type"><SelectValue placeholder="Pick a unit type" /></SelectTrigger>
+                <SelectContent>
+                  {projectUnitTypes.map((t) => (
+                    <SelectItem key={String(t.label)} value={String(t.label)} data-testid={`unit-type-option-${t.label}`}>
+                      {t.label} — {currency} {Number(t.price).toLocaleString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <div className="flex items-center gap-1.5">
@@ -2026,7 +2948,7 @@ function LeadsSection({
       setConvertOpen(false);
       setConvertLead(null);
       setConvertUnits("");
-      toast({ title: "Lead converted to a reservation" });
+      toast({ title: "Lead converted to a prospective investor" });
     },
     onError: (err: any) => toast({ title: "Conversion failed", description: err?.message || "Please try again", variant: "destructive" }),
   });
@@ -2040,8 +2962,8 @@ function LeadsSection({
         <div>
           <CardTitle>Leads</CardTitle>
           <CardDescription>
-            Track demand before it becomes a reservation. {leadCounts.qualified} qualified •{" "}
-            {Math.round(qualifiedConversionRate * 100)}% historical conversion to reservation.
+            Track demand before it becomes a prospective investor. {leadCounts.qualified} qualified •{" "}
+            {Math.round(qualifiedConversionRate * 100)}% historical conversion to prospective investor.
           </CardDescription>
         </div>
         <Button size="sm" onClick={() => setAddOpen(true)} data-testid="button-add-lead">
@@ -2077,7 +2999,7 @@ function LeadsSection({
           <div className="h-24 bg-slate-100 rounded animate-pulse" />
         ) : filtered.length === 0 ? (
           <div className="text-center py-10 text-sm text-slate-500" data-testid="text-leads-empty">
-            {leads.length === 0 ? "No leads yet. Add one to start tracking pre-reservation demand." : "No leads in this stage."}
+            {leads.length === 0 ? "No leads yet. Add one to start tracking early demand before it becomes a prospective investor." : "No leads in this stage."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -2168,7 +3090,7 @@ function LeadsSection({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add a lead</DialogTitle>
-              <DialogDescription>Capture interest before it becomes a reservation.</DialogDescription>
+              <DialogDescription>Capture interest before it becomes a prospective investor.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
@@ -2239,9 +3161,9 @@ function LeadsSection({
         <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Convert {convertLead?.fullName} to a reservation</DialogTitle>
+              <DialogTitle>Convert {convertLead?.fullName} to a prospective investor</DialogTitle>
               <DialogDescription>
-                A new reserved entry will be created in the reservation list. The lead will be marked as Converted.
+                A new prospective investor entry will be created in your investor list. The lead will be marked as Converted.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -2265,7 +3187,7 @@ function LeadsSection({
                 data-testid="button-confirm-convert-lead"
               >
                 {convertLeadMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                Create reservation
+                Create prospective investor
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2662,5 +3584,942 @@ function CommunicationsTab({ projectId, project }: { projectId: string | number;
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============================================================================
+// BUDGET & VENDOR TRACKING (Construction tab)
+// ============================================================================
+
+interface BudgetStageRow {
+  stageId: number | null;
+  stageKey: string;
+  name: string;
+  sortOrder: number;
+  budgetAmount: number;
+  vendorContract: number;
+  spent: number;
+  outstanding: number;
+  vendorCount: number;
+}
+interface BudgetVendorRow {
+  id: number;
+  name: string;
+  workCategory: string | null;
+  stageId: number | null;
+  currency: string;
+  contractAmount: number;
+  paid: number;
+  outstanding: number;
+  status: string;
+}
+interface BudgetRollup {
+  currency: string;
+  totalBudget: number;
+  totalContract: number;
+  totalSpent: number;
+  totalOutstanding: number;
+  remaining: number;
+  plannedCompletionDate: string | null;
+  stages: BudgetStageRow[];
+  vendors: BudgetVendorRow[];
+  monthlyBurn: { ym: string; spent: number; cumulative: number }[];
+  requiredMonthlyBurn: number | null;
+}
+
+const STAGE_COLORS = [
+  "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6",
+  "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#64748b",
+];
+
+function fmtMoney(currency: string, n: number): string {
+  return `${currency} ${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function BudgetSection({
+  projectId, project, stages,
+}: {
+  projectId: string | number;
+  project: any;
+  stages: any[];
+}) {
+  const { toast } = useToast();
+  const currency: string = project?.currency || "NGN";
+
+  const { data: budget, isLoading: budgetLoading } = useQuery<BudgetRollup>({
+    queryKey: ["/api/developer/projects", projectId, "budget"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/budget`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const { data: vendors } = useQuery<BudgetVendorRow[]>({
+    queryKey: ["/api/developer/projects", projectId, "vendors"],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/vendors`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const { data: rates } = useQuery<any>({ queryKey: ["/api/exchange-rates"] });
+
+  // Inline edit for project's totalBudget
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput] = useState<string>("");
+  useEffect(() => {
+    if (project?.totalBudget != null) setBudgetInput(String(project.totalBudget));
+  }, [project?.totalBudget]);
+
+  const saveBudget = useMutation({
+    mutationFn: async (value: number | null) =>
+      apiRequest("PATCH", `/api/developer/projects/${projectId}`, { totalBudget: value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      setEditingBudget(false);
+      toast({ title: "Total budget saved" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to save total budget")),
+  });
+
+  const [addVendorStageId, setAddVendorStageId] = useState<number | null | "open">(null);
+  const [vendorDetail, setVendorDetail] = useState<BudgetVendorRow | null>(null);
+
+  // Convert project-currency amount to the three display currencies using
+  // /api/exchange-rates (rates are USD-based). Skip if rates not loaded yet.
+  function toEquivalents(amount: number): { NGN: number; USD: number; GBP: number } | null {
+    if (!rates?.rates) return null;
+    const fromRate = currency === "USD" ? 1 : rates.rates[currency];
+    const ngnRate = rates.rates["NGN"];
+    const gbpRate = rates.rates["GBP"];
+    if (!fromRate || !ngnRate || !gbpRate) return null;
+    const usd = amount / fromRate;
+    return { USD: usd, NGN: usd * ngnRate, GBP: usd * gbpRate };
+  }
+
+  const totalBudget = budget?.totalBudget ?? 0;
+  const totalSpent = budget?.totalSpent ?? 0;
+  const remaining = Math.max(totalBudget - totalSpent, 0);
+  const overspent = totalBudget > 0 && totalSpent > totalBudget;
+
+  // Per-stage vendor groupings for the cards
+  const vendorsByStageId = new Map<number | null, BudgetVendorRow[]>();
+  for (const v of vendors || []) {
+    const k = v.stageId ?? null;
+    if (!vendorsByStageId.has(k)) vendorsByStageId.set(k, []);
+    vendorsByStageId.get(k)!.push(v);
+  }
+
+  // Chart data: Budget vs Actual (per stage)
+  const budgetVsActualData = (budget?.stages || []).map(s => ({
+    name: s.name.length > 12 ? s.name.slice(0, 12) + "…" : s.name,
+    Budget: s.vendorContract,
+    Spent: s.spent,
+  }));
+
+  // Chart data: Cost Breakdown donut (spend share per stage)
+  const costBreakdownData = (budget?.stages || [])
+    .filter(s => s.spent > 0)
+    .map(s => ({ name: s.name, value: s.spent }));
+
+  // Chart data: Vendor spend (per-vendor: contract, spent, outstanding shown as 3 series)
+  const vendorSpendData = (budget?.vendors || [])
+    .slice()
+    .sort((a, b) => b.contractAmount - a.contractAmount)
+    .slice(0, 10)
+    .map(v => ({
+      name: v.name.length > 18 ? v.name.slice(0, 18) + "…" : v.name,
+      Contract: v.contractAmount,
+      Spent: v.paid,
+      Outstanding: v.outstanding,
+    }));
+
+  // Chart data: monthly cumulative burn + a linear "Target" cumulative trajectory.
+  // Target trajectory goes from (plannedStartDate, 0) → (plannedCompletionDate, totalBudget)
+  // so it can be compared like-for-like against actual cumulative spend.
+  const planStart = project?.plannedStartDate ? new Date(project.plannedStartDate) : null;
+  const planEnd = budget?.plannedCompletionDate ? new Date(budget.plannedCompletionDate) : null;
+  const targetSpan = planStart && planEnd ? planEnd.getTime() - planStart.getTime() : 0;
+  const burnData = (budget?.monthlyBurn || []).map(m => {
+    const [y, mo] = m.ym.split("-");
+    const monthEnd = new Date(Number(y), Number(mo), 0); // last day of that month
+    const label = new Date(Number(y), Number(mo) - 1, 1).toLocaleString(undefined, { month: "short", year: "2-digit" });
+    let target: number | null = null;
+    if (planStart && planEnd && targetSpan > 0 && totalBudget > 0) {
+      if (monthEnd <= planStart) target = 0;
+      else if (monthEnd >= planEnd) target = totalBudget;
+      else target = totalBudget * ((monthEnd.getTime() - planStart.getTime()) / targetSpan);
+    }
+    return { name: label, Cumulative: m.cumulative, Monthly: m.spent, Target: target };
+  });
+  const showTargetLine = burnData.some(d => d.Target !== null);
+
+  const equivalents = toEquivalents(totalBudget);
+  const spentEq = toEquivalents(totalSpent);
+  const remainingEq = toEquivalents(remaining);
+
+  return (
+    <Card className="border-blue-100" data-testid="card-budget-section">
+      <CardHeader>
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-blue-600" /> Budget & vendors</CardTitle>
+            <CardDescription>Track total construction budget, vendor contracts, and payments with proof of payment.</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* KPI cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Total budget */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-total-budget">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs uppercase text-slate-500">Total budget</div>
+              {!editingBudget && (
+                <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => setEditingBudget(true)} data-testid="button-edit-total-budget">
+                  <Pencil className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+            {editingBudget ? (
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  type="number"
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  className="h-8 text-sm"
+                  placeholder="0"
+                  data-testid="input-total-budget"
+                />
+                <Button
+                  size="sm"
+                  className="h-8 bg-blue-600 hover:bg-blue-700"
+                  disabled={saveBudget.isPending}
+                  onClick={() => {
+                    const v = budgetInput === "" ? null : Number(budgetInput);
+                    if (v !== null && (!Number.isFinite(v) || v < 0)) {
+                      toast({ title: "Enter a valid amount", variant: "destructive" });
+                      return;
+                    }
+                    saveBudget.mutate(v);
+                  }}
+                  data-testid="button-save-total-budget"
+                >
+                  {saveBudget.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8" onClick={() => { setEditingBudget(false); setBudgetInput(project?.totalBudget != null ? String(project.totalBudget) : ""); }}>Cancel</Button>
+              </div>
+            ) : (
+              <div className="text-2xl font-bold text-slate-900 mt-1" data-testid="text-total-budget">
+                {fmtMoney(currency, totalBudget)}
+              </div>
+            )}
+            {equivalents && totalBudget > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{equivalents.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${equivalents.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{equivalents.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+            {totalBudget === 0 && !editingBudget && (
+              <div className="text-xs text-slate-500 mt-1">Set a total to enable progress tracking.</div>
+            )}
+          </div>
+          {/* Total spent */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-total-spent">
+            <div className="text-xs uppercase text-slate-500">Total spent</div>
+            <div className={`text-2xl font-bold mt-1 ${overspent ? "text-red-600" : "text-slate-900"}`} data-testid="text-total-spent">
+              {fmtMoney(currency, totalSpent)}
+            </div>
+            {totalBudget > 0 && (
+              <Progress
+                value={Math.min(100, Math.round((totalSpent / totalBudget) * 100))}
+                className={`h-2 mt-2 ${overspent ? "[&>div]:bg-red-500" : ""}`}
+              />
+            )}
+            {spentEq && totalSpent > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{spentEq.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${spentEq.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{spentEq.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+          </div>
+          {/* Remaining */}
+          <div className="border rounded-lg p-4 bg-white" data-testid="kpi-remaining">
+            <div className="text-xs uppercase text-slate-500">Remaining</div>
+            <div className={`text-2xl font-bold mt-1 ${overspent ? "text-red-600" : "text-emerald-700"}`} data-testid="text-remaining">
+              {overspent ? `−${fmtMoney(currency, totalSpent - totalBudget)}` : fmtMoney(currency, remaining)}
+            </div>
+            {overspent && <div className="text-xs text-red-600 mt-1">Over budget</div>}
+            {remainingEq && remaining > 0 && (
+              <div className="text-xs text-slate-500 mt-2 space-x-2">
+                {currency !== "NGN" && <span>≈ ₦{remainingEq.NGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "USD" && <span>≈ ${remainingEq.USD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+                {currency !== "GBP" && <span>≈ £{remainingEq.GBP.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Charts: 2x2 grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Budget vs Actual Spend (per stage)</CardTitle></CardHeader>
+            <CardContent>
+              {budgetVsActualData.length === 0 || budgetVsActualData.every(d => d.Budget === 0 && d.Spent === 0) ? (
+                <EmptyChart message="Add vendor contracts and record payments to see budget vs actual." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={budgetVsActualData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Budget" fill="#93c5fd" />
+                    <Bar dataKey="Spent" fill="#3b82f6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Cost Breakdown by Stage</CardTitle></CardHeader>
+            <CardContent>
+              {costBreakdownData.length === 0 ? (
+                <EmptyChart message="No spend recorded yet across construction stages." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie data={costBreakdownData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2}>
+                      {costBreakdownData.map((_, i) => <Cell key={i} fill={STAGE_COLORS[i % STAGE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Vendor / Subcontractor Spend</CardTitle></CardHeader>
+            <CardContent>
+              {vendorSpendData.length === 0 ? (
+                <EmptyChart message="Add vendors and contract amounts to see spend by vendor." />
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(240, vendorSpendData.length * 32 + 40)}>
+                  <BarChart layout="vertical" data={vendorSpendData} margin={{ left: 8, right: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Contract" fill="#93c5fd" />
+                    <Bar dataKey="Spent" fill="#3b82f6" />
+                    <Bar dataKey="Outstanding" fill="#fbbf24" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-none border-slate-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Burn Rate (last 12 months)</CardTitle></CardHeader>
+            <CardContent>
+              {burnData.length === 0 || burnData.every(d => d.Cumulative === 0) ? (
+                <EmptyChart message="No payments recorded yet. Record vendor payments to see your burn rate." />
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={burnData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v: any) => fmtMoney(currency, Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line type="monotone" dataKey="Cumulative" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} name="Actual cumulative" />
+                    {showTargetLine && (
+                      <Line type="monotone" dataKey="Target" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} name="On-track cumulative" />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              {budget?.requiredMonthlyBurn != null && (
+                <div className="text-xs text-slate-500 mt-2">
+                  To finish by {budget.plannedCompletionDate ? new Date(budget.plannedCompletionDate).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "the planned completion date"}, average monthly burn needed: <span className="font-medium text-slate-900">{fmtMoney(currency, budget.requiredMonthlyBurn)}</span>.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Per-stage vendor cards */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-slate-900">Vendors by stage</h3>
+            <Button size="sm" variant="outline" onClick={() => setAddVendorStageId("open")} data-testid="button-add-vendor-top">
+              <Plus className="w-4 h-4 mr-1" /> Add vendor
+            </Button>
+          </div>
+          {budgetLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map(i => <div key={i} className="h-32 bg-slate-100 rounded animate-pulse" />)}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {stages.map((s) => {
+                const stageVendors = vendorsByStageId.get(s.id) || [];
+                const stageContract = stageVendors.reduce((a, v) => a + v.contractAmount, 0);
+                const stagePaid = stageVendors.reduce((a, v) => a + v.paid, 0);
+                const pct = stageContract > 0 ? Math.round((stagePaid / stageContract) * 100) : 0;
+                return (
+                  <div key={s.id} className="border rounded-lg p-3 bg-white" data-testid={`stage-budget-card-${s.stageKey}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <div className="font-medium text-slate-900">{s.name}</div>
+                        <div className="text-xs text-slate-500">{stageVendors.length} vendor{stageVendors.length === 1 ? "" : "s"}</div>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => setAddVendorStageId(s.id)} data-testid={`button-add-vendor-${s.stageKey}`}>
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Add
+                      </Button>
+                    </div>
+                    {stageContract > 0 && (
+                      <div className="mb-2">
+                        <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+                          <span>{fmtMoney(currency, stagePaid)} / {fmtMoney(currency, stageContract)}</span>
+                          <span className="font-medium">{pct}%</span>
+                        </div>
+                        <Progress value={pct} className="h-1.5" />
+                      </div>
+                    )}
+                    {stageVendors.length === 0 ? (
+                      <div className="text-xs text-slate-400 italic py-2">No vendors yet.</div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {stageVendors.map(v => {
+                          const vp = v.contractAmount > 0 ? Math.round((v.paid / v.contractAmount) * 100) : 0;
+                          const status = v.outstanding === 0 && v.contractAmount > 0 ? "Paid" : v.paid > 0 ? "Partial" : "Unpaid";
+                          const statusCls = status === "Paid" ? "bg-emerald-100 text-emerald-700" : status === "Partial" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600";
+                          return (
+                            <div
+                              key={v.id}
+                              className="flex items-center justify-between gap-2 p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition"
+                              data-testid={`vendor-row-${v.id}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setVendorDetail(v)}
+                                className="min-w-0 flex-1 text-left"
+                                data-testid={`vendor-row-open-${v.id}`}
+                              >
+                                <div className="text-sm font-medium text-slate-900 truncate">{v.name}</div>
+                                <div className="text-xs text-slate-500 truncate">{v.workCategory || "—"}</div>
+                              </button>
+                              <div className="text-right shrink-0">
+                                <div className="text-xs text-slate-700">{fmtMoney(currency, v.paid)} / {fmtMoney(currency, v.contractAmount)}</div>
+                                <div className="text-xs text-amber-700" data-testid={`vendor-outstanding-${v.id}`}>
+                                  Outstanding: {fmtMoney(currency, v.outstanding)}
+                                </div>
+                                <Badge className={`${statusCls} text-xs mt-0.5`}>{status} • {vp}%</Badge>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 shrink-0"
+                                title="View payment history"
+                                onClick={(e) => { e.stopPropagation(); setVendorDetail({ ...v, __openTab: "payments" } as any); }}
+                                data-testid={`button-vendor-history-${v.id}`}
+                              >
+                                <Receipt className="w-4 h-4 mr-1" />
+                                <span className="hidden sm:inline text-xs">History</span>
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </CardContent>
+
+      {/* Dialogs */}
+      <AddVendorDialog
+        open={addVendorStageId !== null}
+        defaultStageId={typeof addVendorStageId === "number" ? addVendorStageId : null}
+        stages={stages}
+        currency={currency}
+        projectId={projectId}
+        onClose={() => setAddVendorStageId(null)}
+      />
+      <VendorDetailDialog
+        vendor={vendorDetail}
+        stages={stages}
+        currency={currency}
+        projectId={projectId}
+        onClose={() => setVendorDetail(null)}
+      />
+    </Card>
+  );
+}
+
+function EmptyChart({ message }: { message: string }) {
+  return (
+    <div className="h-[240px] flex items-center justify-center text-center text-xs text-slate-500 px-6">
+      {message}
+    </div>
+  );
+}
+
+function AddVendorDialog({
+  open, defaultStageId, stages, currency, projectId, onClose,
+}: {
+  open: boolean;
+  defaultStageId: number | null;
+  stages: any[];
+  currency: string;
+  projectId: string | number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    name: "",
+    workCategory: "",
+    stageId: defaultStageId ? String(defaultStageId) : "",
+    contractAmount: "",
+    currency,
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (open) {
+      setForm(f => ({ ...f, stageId: defaultStageId ? String(defaultStageId) : "", currency }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultStageId]);
+
+  const create = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/vendors`, {
+      name: form.name,
+      workCategory: form.workCategory || null,
+      stageId: form.stageId ? Number(form.stageId) : null,
+      contractAmount: form.contractAmount ? Number(form.contractAmount) : 0,
+      currency: form.currency,
+      contactName: form.contactName || null,
+      contactPhone: form.contactPhone || null,
+      contactEmail: form.contactEmail || null,
+      notes: form.notes || null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor added" });
+      setForm({
+        name: "", workCategory: "", stageId: "", contractAmount: "", currency,
+        contactName: "", contactPhone: "", contactEmail: "", notes: "",
+      });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to add vendor")),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg" data-testid="dialog-add-vendor">
+        <DialogHeader>
+          <DialogTitle>Add vendor</DialogTitle>
+          <DialogDescription>Capture the contractor, their work scope, and contract value.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Vendor name *</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Acme Plumbing Ltd" data-testid="input-vendor-name" />
+            </div>
+            <div>
+              <Label>Work category</Label>
+              <Input value={form.workCategory} onChange={(e) => setForm({ ...form, workCategory: e.target.value })} placeholder="e.g. Plumbing, Architect" data-testid="input-vendor-category" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Construction stage</Label>
+              <Select value={form.stageId || "none"} onValueChange={(v) => setForm({ ...form, stageId: v === "none" ? "" : v })}>
+                <SelectTrigger data-testid="select-vendor-stage"><SelectValue placeholder="Select stage" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {stages.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Contract amount ({form.currency})</Label>
+              <Input type="number" value={form.contractAmount} onChange={(e) => setForm({ ...form, contractAmount: e.target.value })} placeholder="0" data-testid="input-vendor-contract" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Contact name</Label>
+              <Input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} data-testid="input-vendor-contact-name" />
+            </div>
+            <div>
+              <Label>Contact phone</Label>
+              <Input value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} data-testid="input-vendor-contact-phone" />
+            </div>
+          </div>
+          <div>
+            <Label>Contact email</Label>
+            <Input type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} data-testid="input-vendor-contact-email" />
+          </div>
+          <div>
+            <Label>Notes</Label>
+            <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="textarea-vendor-notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={!form.name.trim() || create.isPending}
+            onClick={() => create.mutate()}
+            data-testid="button-save-vendor"
+          >
+            {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+            Add vendor
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VendorDetailDialog({
+  vendor, stages, currency, projectId, onClose,
+}: {
+  vendor: BudgetVendorRow | null;
+  stages: any[];
+  currency: string;
+  projectId: string | number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [tab, setTab] = useState("details");
+  const [details, setDetails] = useState({
+    name: "", workCategory: "", stageId: "", contractAmount: "",
+    contactName: "", contactPhone: "", contactEmail: "", notes: "", status: "active",
+  });
+
+  useEffect(() => {
+    if (vendor) {
+      setDetails({
+        name: vendor.name,
+        workCategory: vendor.workCategory || "",
+        stageId: vendor.stageId ? String(vendor.stageId) : "",
+        contractAmount: String(vendor.contractAmount || 0),
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+        notes: "",
+        status: vendor.status || "active",
+      });
+      const requested = (vendor as any).__openTab;
+      setTab(requested === "payments" ? "payments" : "details");
+    }
+  }, [vendor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { data: payments } = useQuery<any[]>({
+    queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"],
+    enabled: !!vendor?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/developer/projects/${projectId}/vendors/${vendor!.id}/payments`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const saveDetails = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/developer/projects/${projectId}/vendors/${vendor!.id}`, {
+      name: details.name,
+      workCategory: details.workCategory || null,
+      stageId: details.stageId ? Number(details.stageId) : null,
+      contractAmount: details.contractAmount ? Number(details.contractAmount) : 0,
+      status: details.status,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor updated" });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to update vendor")),
+  });
+
+  const deleteVendor = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/developer/projects/${projectId}/vendors/${vendor!.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Vendor deleted" });
+      onClose();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to delete vendor")),
+  });
+
+  // Add-payment form (lives inside the Payments tab)
+  const [payForm, setPayForm] = useState({
+    amount: "",
+    paidAt: new Date().toISOString().slice(0, 10),
+    method: "bank_transfer",
+    reference: "",
+    notes: "",
+    proofUrl: "",
+    proofType: "",
+  });
+  const resetPayForm = () => setPayForm({
+    amount: "", paidAt: new Date().toISOString().slice(0, 10), method: "bank_transfer",
+    reference: "", notes: "", proofUrl: "", proofType: "",
+  });
+
+  const addPayment = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/developer/projects/${projectId}/vendors/${vendor!.id}/payments`, {
+      amount: Number(payForm.amount),
+      paidAt: payForm.paidAt,
+      method: payForm.method,
+      reference: payForm.reference || null,
+      notes: payForm.notes || null,
+      proofUrl: payForm.proofUrl || null,
+      proofType: payForm.proofType || null,
+      currency,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Payment recorded" });
+      resetPayForm();
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to record payment")),
+  });
+
+  const deletePayment = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/developer/projects/${projectId}/payments/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors", vendor?.id, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId, "budget"] });
+      toast({ title: "Payment deleted" });
+    },
+    onError: (e: any) => toast(toastFromError(e, "Failed to delete payment")),
+  });
+
+  if (!vendor) return null;
+  const totalPaid = (payments || []).reduce((a, p) => a + Number(p.amount || 0), 0);
+  const contractValue = Number(details.contractAmount || 0);
+  const outstanding = Math.max(contractValue - totalPaid, 0);
+
+  return (
+    <Dialog open={!!vendor} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="dialog-vendor-detail">
+        <DialogHeader>
+          <DialogTitle>{vendor.name}</DialogTitle>
+          <DialogDescription>
+            {fmtMoney(currency, totalPaid)} paid of {fmtMoney(currency, contractValue)}
+            {outstanding > 0 && ` · ${fmtMoney(currency, outstanding)} outstanding`}
+          </DialogDescription>
+        </DialogHeader>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="grid grid-cols-2">
+            <TabsTrigger value="details" data-testid="tab-vendor-details">Details</TabsTrigger>
+            <TabsTrigger value="payments" data-testid="tab-vendor-payments">Payments ({(payments || []).length})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="details" className="space-y-3 mt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Vendor name</Label>
+                <Input value={details.name} onChange={(e) => setDetails({ ...details, name: e.target.value })} data-testid="input-detail-name" />
+              </div>
+              <div>
+                <Label>Work category</Label>
+                <Input value={details.workCategory} onChange={(e) => setDetails({ ...details, workCategory: e.target.value })} data-testid="input-detail-category" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Stage</Label>
+                <Select value={details.stageId || "none"} onValueChange={(v) => setDetails({ ...details, stageId: v === "none" ? "" : v })}>
+                  <SelectTrigger data-testid="select-detail-stage"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {stages.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Contract amount ({currency})</Label>
+                <Input type="number" value={details.contractAmount} onChange={(e) => setDetails({ ...details, contractAmount: e.target.value })} data-testid="input-detail-contract" />
+              </div>
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={details.status} onValueChange={(v) => setDetails({ ...details, status: v })}>
+                <SelectTrigger data-testid="select-detail-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-between pt-2">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" className="text-red-600 hover:text-red-700" data-testid="button-delete-vendor">
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete vendor
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes {vendor.name} and all {(payments || []).length} recorded payment(s). This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deleteVendor.mutate()}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <Button className="bg-blue-600 hover:bg-blue-700" disabled={saveDetails.isPending} onClick={() => saveDetails.mutate()} data-testid="button-save-detail">
+                {saveDetails.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                Save changes
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="payments" className="space-y-4 mt-4">
+            {/* Add-payment form */}
+            <div className="border rounded-lg p-3 bg-slate-50 space-y-3">
+              <div className="font-medium text-sm text-slate-900 flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-blue-600" /> Record a new payment
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Amount ({currency}) *</Label>
+                  <Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} placeholder="0" data-testid="input-payment-amount" />
+                </div>
+                <div>
+                  <Label className="text-xs">Paid date *</Label>
+                  <Input type="date" value={payForm.paidAt} onChange={(e) => setPayForm({ ...payForm, paidAt: e.target.value })} data-testid="input-payment-date" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Method</Label>
+                  <Select value={payForm.method} onValueChange={(v) => setPayForm({ ...payForm, method: v })}>
+                    <SelectTrigger data-testid="select-payment-method"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Reference</Label>
+                  <Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} placeholder="Transfer ID, cheque #, etc." data-testid="input-payment-reference" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Notes</Label>
+                <Textarea rows={2} value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} data-testid="textarea-payment-notes" />
+              </div>
+              <div>
+                <FileUpload
+                  label="Proof of payment (receipt, transfer slip — image or PDF)"
+                  uploadType="document"
+                  accept="image/*,application/pdf"
+                  currentFile={payForm.proofUrl || undefined}
+                  onUploadSuccess={(url, name) => {
+                    const isPdf = (name || url).toLowerCase().endsWith(".pdf");
+                    setPayForm(f => ({ ...f, proofUrl: url, proofType: url ? (isPdf ? "pdf" : "image") : "" }));
+                  }}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={!payForm.amount || Number(payForm.amount) <= 0 || !payForm.paidAt || addPayment.isPending}
+                  onClick={() => addPayment.mutate()}
+                  data-testid="button-record-payment"
+                >
+                  {addPayment.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Record payment
+                </Button>
+              </div>
+            </div>
+
+            {/* Payment history list */}
+            <div>
+              <div className="text-sm font-medium text-slate-900 mb-2">Payment history</div>
+              {(!payments || payments.length === 0) ? (
+                <div className="text-xs text-slate-500 italic py-4 text-center border rounded-lg bg-slate-50">
+                  No payments recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {payments.map((p) => (
+                    <div key={p.id} className="border rounded-lg p-3 flex items-start gap-3" data-testid={`payment-row-${p.id}`}>
+                      {p.proofUrl ? (
+                        p.proofType === "image" ? (
+                          <a href={p.proofUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                            <img src={p.proofUrl} alt="proof" className="w-14 h-14 object-cover rounded border" />
+                          </a>
+                        ) : (
+                          <a href={p.proofUrl} target="_blank" rel="noreferrer" className="shrink-0 w-14 h-14 flex items-center justify-center bg-slate-50 border rounded text-slate-500">
+                            <FileTextIcon className="w-6 h-6" />
+                          </a>
+                        )
+                      ) : (
+                        <div className="shrink-0 w-14 h-14 flex items-center justify-center bg-slate-50 border rounded text-slate-300">
+                          <Receipt className="w-6 h-6" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-slate-900">{fmtMoney(p.currency || currency, Number(p.amount))}</div>
+                          <Button size="sm" variant="ghost" className="h-7 text-red-600 hover:text-red-700" onClick={() => deletePayment.mutate(p.id)} data-testid={`button-delete-payment-${p.id}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        <div className="text-xs text-slate-500 space-x-2">
+                          <span>{new Date(p.paidAt).toLocaleDateString()}</span>
+                          {p.method && <span>· {String(p.method).replace(/_/g, " ")}</span>}
+                          {p.reference && <span>· Ref: <span className="font-mono">{p.reference}</span></span>}
+                        </div>
+                        {p.notes && <div className="text-xs text-slate-600 mt-1">{p.notes}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   );
 }

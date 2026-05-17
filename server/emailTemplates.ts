@@ -802,3 +802,70 @@ export function developerTeamInviteEmailTemplate({
     `,
   };
 }
+
+export function paymentReminderEmailTemplate({
+  investorName,
+  propertyName,
+  units,
+  amount,
+  currency,
+  dueDate,
+  paymentLink,
+}: {
+  investorName: string;
+  propertyName: string;
+  units: number;
+  amount: number;
+  currency: string;
+  dueDate: Date | string | null;
+  paymentLink: string;
+}) {
+  const sym = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency === "GBP" ? "£" : `${currency} `;
+  const due = dueDate ? new Date(dueDate) : null;
+  const dueStr = due ? due.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : null;
+  const overdue = due ? due.getTime() < Date.now() : false;
+  return {
+    subject: `Payment reminder — ${propertyName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9fafb;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+        </div>
+        <div style="background: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+          <h2 style="color: #0f172a; margin: 0 0 12px;">Friendly payment reminder</h2>
+          <p style="font-size: 15px; color: #334155; line-height: 1.6;">Hello ${investorName},</p>
+          <p style="font-size: 15px; color: #334155; line-height: 1.6;">
+            Your reservation for <strong>${propertyName}</strong> is still pending payment. To secure your ${units} unit${units === 1 ? "" : "s"}, please complete payment of
+            <strong>${sym}${Number(amount).toLocaleString()}</strong>${dueStr ? ` by <strong>${dueStr}</strong>` : ""}.
+          </p>
+          ${overdue ? `
+          <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #7f1d1d;">
+              <strong>Your reservation deadline has passed.</strong> Units may be released to other investors if payment isn't completed shortly.
+            </p>
+          </div>` : `
+          <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0; font-size: 14px; color: #92400e;">
+              <strong>Important:</strong> Reservations are held on a first-come basis. Please complete payment before the deadline to keep your units.
+            </p>
+          </div>`}
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${paymentLink}" style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;">
+              Complete payment
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #64748b; text-align: center; margin: 0;">
+            Or copy this link: <br />
+            <span style="word-break: break-all; color: #2563eb;">${paymentLink}</span>
+          </p>
+          <p style="margin-top: 30px; font-size: 14px; color: #888;">
+            Best regards,<br /><strong>The Brikvest Team</strong>
+          </p>
+        </div>
+        <div style="text-align: center; font-size: 12px; color: #9ca3af; margin-top: 20px;">
+          &copy; ${new Date().getFullYear()} Brikvest. All rights reserved.
+        </div>
+      </div>
+    `,
+  };
+}

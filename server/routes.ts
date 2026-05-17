@@ -32,6 +32,7 @@ import {
   investmentConfirmedEmailTemplate,
   developerInvestmentRecordedEmailTemplate,
   developerTeamInviteEmailTemplate,
+  paymentReminderEmailTemplate,
 } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
@@ -61,6 +62,7 @@ import {
   type ProjectMilestone,
   type User,
   type DeveloperLead,
+  RESERVATION_FUNNEL_STAGES,
 } from "@shared/schema";
 import { ObjectStorageService } from "./objectStorage";
 
@@ -2146,10 +2148,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Set 24-hour expiration for reservation
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-      
+
+      // Validate the optional unitTypeLabel against the property's configured
+      // unit types, and snapshot the chosen type's price.
+      const cfgTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const rawLabel = reservationData.unitTypeLabel
+        ? String(reservationData.unitTypeLabel).trim()
+        : "";
+      let chosenType = rawLabel ? cfgTypes.find(t => String(t.label) === rawLabel) : null;
+      if (rawLabel && cfgTypes.length > 0 && !chosenType) {
+        return res.status(400).json({ message: `Please pick a valid unit type` });
+      }
+      // If the project only has one configured type, auto-attribute to it
+      // so every reservation gets a labeled unit-type for the Sales chart.
+      if (!chosenType && cfgTypes.length === 1) {
+        chosenType = cfgTypes[0];
+      }
+      // When the project has multiple unit types and one wasn't chosen,
+      // require a selection so we attribute the sale correctly — even when
+      // types share a price, since attribution by label is the only way to
+      // keep the unit-mix chart accurate.
+      if (!chosenType && cfgTypes.length > 1) {
+        return res.status(400).json({ message: "Please select which unit type you are buying" });
+      }
+
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
+        unitTypeLabel: chosenType ? chosenType.label : null,
+        unitPriceSnapshot: chosenType
+          ? String(chosenType.price)
+          : reservationData.unitPriceSnapshot,
         expiresAt,
       };
       
@@ -6248,6 +6278,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         developerId: ownerId,
         developerEquityUnits: String(developerEquityUnits),
         projectStatus: "draft",
+        plannedStartDate: body.plannedStartDate ? new Date(body.plannedStartDate) : null,
+        plannedCompletionDate: body.plannedCompletionDate ? new Date(body.plannedCompletionDate) : null,
         // Funding model (multi-select)
         fundingTypes: Array.isArray(body.fundingTypes) && body.fundingTypes.length > 0
           ? body.fundingTypes
@@ -6263,6 +6295,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payoutFrequency: body.payoutFrequency || null,
         exitStrategy: body.exitStrategy || null,
         fundingNotes: body.fundingNotes || null,
+        totalBudget: body.totalBudget !== undefined && body.totalBudget !== null && body.totalBudget !== ""
+          ? String(body.totalBudget)
+          : null,
       };
       const property = await storage.createProperty(newProperty);
       res.status(201).json(property);
@@ -6296,14 +6331,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
         // Construction project-level fields
         "currentStage", "expectedCompletionDate", "risksDelays", "latestUpdateText",
+        // Construction tab — schedule + budget (Task #14 groundwork)
+        "plannedStartDate", "plannedCompletionDate", "actualCompletionDate", "totalBudget",
         // Sales lifecycle stage: 'off_plan' | 'completed'
         "salesStage",
       ];
+      const dateFields = new Set([
+        "expectedCompletionDate",
+        "plannedStartDate",
+        "plannedCompletionDate",
+        "actualCompletionDate",
+      ]);
       const payload: any = {};
       for (const k of allowed) {
         if (updates[k] !== undefined) {
           // Coerce date strings to Date objects (Drizzle requires Date for timestamp columns)
-          if (k === "expectedCompletionDate" && updates[k]) {
+          if (dateFields.has(k) && updates[k]) {
             payload[k] = new Date(updates[k]);
           } else if (k === "salesStage") {
             const v = String(updates[k]);
@@ -6408,15 +6451,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalRaised = confirmed.reduce((s, r) => s + Number(r.amount || 0), 0);
       const fundingTarget = (totalUnits - developerEquityUnits) * Number(property.unitPrice || 0);
 
-      // Funnel
+      // Funnel — 5-stage, funnel_stage-driven (Prospective → Due Diligence →
+      // Documentation → Payment Incomplete → Confirmed). Rows with funnel_stage
+      // IS NULL (expired/cancelled) are excluded by the storage helper.
+      const funnelCounts = await storage.getReservationFunnelCounts(propertyId);
       const reservedCount = reservations.length;
-      const reservationsWithUsers = await Promise.all(reservations.map(async r => {
-        const user = r.userId ? await storage.getUser(r.userId) : null;
-        const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
-        return { ...r, user, hasPayment: submissions.length > 0 };
-      }));
-      const kycComplete = reservationsWithUsers.filter(r => r.user?.kycStatus === "approved").length;
-      const paymentSubmitted = reservationsWithUsers.filter(r => r.hasPayment).length;
       const confirmedCount = confirmed.length;
 
       // Construction
@@ -6439,6 +6478,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
         GBP: { raised: convertCurrency(totalRaised, baseCurrency, "GBP", rates), target: convertCurrency(fundingTarget, baseCurrency, "GBP", rates) },
       };
 
+      // Fundraising velocity — cumulative raised per week for the last 12 weeks,
+      // in the project's currency. Buckets confirmed reservations by ISO week
+      // (Mon-anchored). Past weeks with no confirmations carry the running total
+      // forward so the line chart reads as a smooth cumulative curve.
+      const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+      const startOfWeekMon = (d: Date) => {
+        const x = new Date(d);
+        x.setHours(0, 0, 0, 0);
+        const dow = x.getDay(); // Sun=0..Sat=6
+        const diff = (dow + 6) % 7; // Mon=0
+        x.setDate(x.getDate() - diff);
+        return x;
+      };
+      const thisWeekStart = startOfWeekMon(new Date());
+      const weekBuckets: { weekStart: string; raised: number }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const ws = new Date(thisWeekStart.getTime() - i * WEEK_MS);
+        weekBuckets.push({ weekStart: ws.toISOString().slice(0, 10), raised: 0 });
+      }
+      // Convert each reservation's amount from its own stored currency to the
+      // project's base currency, so mixed-currency reservations roll up correctly.
+      for (const r of confirmed) {
+        if (!r.createdAt) continue;
+        const created = new Date(r.createdAt as any);
+        const ws = startOfWeekMon(created).toISOString().slice(0, 10);
+        const bucket = weekBuckets.find(b => b.weekStart === ws);
+        if (bucket) {
+          const fromCcy = r.currency || baseCurrency;
+          const amt = convertCurrency(Number(r.amount || 0), fromCcy, baseCurrency, rates);
+          bucket.raised += amt;
+        }
+      }
+      // Carry forward: include raised from confirmations before our 12-week window.
+      const earliestWeekStart = new Date(weekBuckets[0].weekStart);
+      let priorRaised = 0;
+      for (const r of confirmed) {
+        if (!r.createdAt) continue;
+        const created = new Date(r.createdAt as any);
+        if (created < earliestWeekStart) {
+          const fromCcy = r.currency || baseCurrency;
+          priorRaised += convertCurrency(Number(r.amount || 0), fromCcy, baseCurrency, rates);
+        }
+      }
+      let running = priorRaised;
+      const cumulativeSeries = weekBuckets.map(b => {
+        running += b.raised;
+        return { weekStart: b.weekStart, cumulativeRaised: Math.round(running) };
+      });
+      const totalRaisedConverted = running;
+
+      // Weekly target needed to hit fundingTarget by plannedCompletionDate.
+      // Use the currency-converted cumulative (in project currency) so the
+      // remaining-to-target math stays consistent with the velocity series.
+      let weeklyTarget: number | null = null;
+      if (property.plannedCompletionDate && fundingTarget > 0) {
+        const finish = new Date(property.plannedCompletionDate as any);
+        const weeksLeft = Math.max(1, Math.ceil((finish.getTime() - Date.now()) / WEEK_MS));
+        const remaining = Math.max(0, fundingTarget - totalRaisedConverted);
+        weeklyTarget = Math.round(remaining / weeksLeft);
+      }
+
+      // Build a target *trajectory* over the same 12-week window so the chart
+      // can render a true pace reference line instead of a flat horizontal
+      // marker. Starts from `priorRaised` and grows by `weeklyTarget` each
+      // week. Null when no completion date / target is configured.
+      const velocity = cumulativeSeries.map((p, i) => ({
+        ...p,
+        targetCumulative: weeklyTarget !== null
+          ? Math.round(priorRaised + weeklyTarget * (i + 1))
+          : null,
+      }));
+
+      // Investor Conversion Efficiency — monthly, last 12 months.
+      const monthlyEff = await storage.getMonthlyConversionEfficiency(propertyId, 12);
+      const conversionEfficiency = monthlyEff.map(m => {
+        const total = m.confirmedCount + m.prospectiveCount;
+        return {
+          month: m.month,
+          confirmed: m.confirmedCount,
+          total,
+          percent: total > 0 ? Math.round((m.confirmedCount / total) * 100) : 0,
+        };
+      });
+
       // Lead funnel + qualified-lead conversion rate (used by sell-out forecast)
       const leadCounts = {
         lead: leads.filter(l => l.stage === "lead").length,
@@ -6452,6 +6575,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const qualifiedDenom = leadCounts.qualified + leadCounts.converted;
       const qualifiedConversionRate = qualifiedDenom > 0 ? leadCounts.converted / qualifiedDenom : 0;
 
+      // Lead conversion rate: confirmed ÷ (non-converted leads + all reservations)
+      // Subtracting leads with stage='converted' avoids double-counting those who
+      // already turned into a reservation row.
+      const nonConvertedLeads = leads.filter(l => l.stage !== "converted").length;
+      const leadConversionDenom = nonConvertedLeads + reservations.length;
+      const leadConversionRate = {
+        confirmed: confirmedCount,
+        totalProspects: leadConversionDenom,
+        percent: leadConversionDenom > 0 ? Math.round((confirmedCount / leadConversionDenom) * 100) : 0,
+      };
+
+      // Unit mix — for each unit type configured on the property, count
+      // confirmed reservations attributed to that type. New reservations
+      // carry the chosen `unitTypeLabel` so attribution is exact; legacy
+      // rows without a label fall back to matching by price (bucketed to
+      // avoid double-counting when multiple types share a price).
+      type UnitTypeRow = { label: string; quantity: number; price: number };
+      const unitTypes: UnitTypeRow[] = Array.isArray(property.unitTypes) ? property.unitTypes : [];
+      const soldByLabel = new Map<string, number>();
+      const soldByPrice = new Map<number, number>();
+      for (const r of confirmed) {
+        const u = Number(r.units || 0);
+        const label = (r as any).unitTypeLabel ? String((r as any).unitTypeLabel) : null;
+        if (label) {
+          soldByLabel.set(label, (soldByLabel.get(label) || 0) + u);
+        } else {
+          const p = Number(r.unitPriceSnapshot || 0);
+          soldByPrice.set(p, (soldByPrice.get(p) || 0) + u);
+        }
+      }
+      const remainingByPrice = new Map(soldByPrice);
+      const unitMix = unitTypes.map(t => {
+        const typeLabel = String(t.label || "");
+        const total = Number(t.quantity || 0);
+        let sold = soldByLabel.get(typeLabel) || 0;
+        // Backfill with legacy price-matched reservations up to the type's quantity.
+        if (sold < total) {
+          const typePrice = Number(t.price);
+          const pool = remainingByPrice.get(typePrice) || 0;
+          const extra = Math.min(pool, total - sold);
+          sold += extra;
+          remainingByPrice.set(typePrice, pool - extra);
+        }
+        sold = Math.min(sold, total);
+        return {
+          label: typeLabel,
+          total,
+          sold,
+          remaining: Math.max(0, total - sold),
+        };
+      });
+
+      // Sales-permission gate for sales-specific fields. Owners and team
+      // members with the `sales` permission see leadConversionRate + unitMix;
+      // other members get null (their UI hides the Sales tab anyway).
+      const u = req.user as any;
+      const isOwner = !(u?.teamRole === "member" && !!u?.parentDeveloperId);
+      const hasSalesPerm = isOwner || (Array.isArray(u?.permissions) && u.permissions.includes("sales"));
+
       res.json({
         funding: {
           totalRaised,
@@ -6461,12 +6643,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           equivalents,
         },
         sales: { totalUnits, investorUnits, reservedUnits, developerEquityUnits, availableUnits, velocityPerWeek: Math.round(velocity30 * 100) / 100, salesStage: property.salesStage || "off_plan" },
-        funnel: { reserved: reservedCount, kycComplete, paymentSubmitted, confirmed: confirmedCount },
+        funnel: {
+          prospective: funnelCounts.prospective,
+          dueDiligence: funnelCounts.due_diligence,
+          documentation: funnelCounts.documentation,
+          paymentIncomplete: funnelCounts.payment_incomplete,
+          confirmed: funnelCounts.confirmed,
+          // legacy keys kept for any callers still reading them
+          reserved: reservedCount,
+          kycComplete: 0,
+          paymentSubmitted: 0,
+        },
+        velocity,
+        weeklyTarget,
+        conversionEfficiency,
         leads: {
           total: leads.length,
           ...leadCounts,
           qualifiedConversionRate: Math.round(qualifiedConversionRate * 1000) / 1000,
         },
+        leadConversionRate: hasSalesPerm ? leadConversionRate : null,
+        unitMix: hasSalesPerm ? unitMix : null,
         construction: { overall: overallConstruction, milestoneCount: milestones.length, nextMilestone },
         capTable: {
           investorEquityPercent: totalUnits > 0 ? Math.round((investorUnits / totalUnits) * 100) : 0,
@@ -6490,6 +6687,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
+      const allReminders = await storage.getReservationRemindersForReservations(reservations.map(r => r.id));
+      // Batch-load the senders so the UI can show "who" sent each nudge.
+      // Falls back to the recipient email (or "Brikvest") when the sender is
+      // unknown / deleted.
+      const senderIds = Array.from(new Set(allReminders.map(r => r.sentByUserId).filter((id): id is number => !!id)));
+      const senderMap = new Map<number, { firstName: string | null; lastName: string | null; email: string }>();
+      await Promise.all(senderIds.map(async (uid) => {
+        const u = await storage.getUser(uid);
+        if (u) senderMap.set(uid, { firstName: u.firstName, lastName: u.lastName, email: u.email });
+      }));
+      const formatSenderName = (uid: number | null, recipientEmail: string): string => {
+        if (uid) {
+          const u = senderMap.get(uid);
+          if (u) {
+            const first = (u.firstName || "").trim();
+            const last = (u.lastName || "").trim();
+            if (first || last) {
+              const lastInitial = last ? ` ${last.charAt(0).toUpperCase()}.` : "";
+              return `${first}${lastInitial}`.trim();
+            }
+            return u.email;
+          }
+        }
+        return recipientEmail || "Brikvest";
+      };
+      const remindersByReservation = new Map<number, Array<{ sentAt: string; sentByName: string }>>();
+      for (const rem of allReminders) {
+        const list = remindersByReservation.get(rem.reservationId) || [];
+        const sentAtIso = rem.sentAt instanceof Date
+          ? rem.sentAt.toISOString()
+          : new Date(rem.sentAt).toISOString();
+        list.push({ sentAt: sentAtIso, sentByName: formatSenderName(rem.sentByUserId, rem.recipientEmail) });
+        remindersByReservation.set(rem.reservationId, list);
+      }
       const enriched = await Promise.all(reservations.map(async r => {
         const user = r.userId ? await storage.getUser(r.userId) : null;
         const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
@@ -6513,6 +6744,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: r.amount,
           currency: r.currency,
           status: r.status,
+          funnelStage: r.funnelStage,
           kycStatus: user?.kycStatus || "not_started",
           hasPayment: submissions.length > 0,
           paymentStatus: sortedPayments[0]?.status || null,
@@ -6529,6 +6761,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })),
           createdAt: r.createdAt,
           confirmedAt: r.status === "converted_to_investment" ? r.updatedAt : null,
+          expiresAt: r.expiresAt,
+          lastReminderSentAt: r.lastReminderSentAt,
+          reminderHistory: remindersByReservation.get(r.id) || [],
+          reminderCount: (remindersByReservation.get(r.id) || []).length,
           notes: note?.notes || "",
         };
       }));
@@ -6536,6 +6772,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to fetch investors:", err);
       res.status(500).json({ message: "Failed to fetch investors" });
+    }
+  });
+
+  // Inline funnel-stage editor for an individual reservation. Gated by `sales`
+  // permission. The reservation must belong to one of the requesting developer's
+  // own projects. Null is allowed to drop a reservation back out of the funnel
+  // (e.g. after a manual cancellation).
+  app.patch("/api/developer/reservations/:id/stage", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
+    try {
+      const reservationId = Number(req.params.id);
+      if (!Number.isFinite(reservationId)) return res.status(400).json({ message: "Invalid reservation id" });
+      const { funnelStage } = req.body ?? {};
+      if (funnelStage !== null && !RESERVATION_FUNNEL_STAGES.includes(funnelStage)) {
+        return res.status(400).json({ message: "Invalid funnel stage" });
+      }
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) return res.status(404).json({ message: "Reservation not found" });
+      const property = await ensureProjectOwnership(req, res, reservation.propertyId);
+      if (!property) return;
+      const updated = await storage.updateReservation(reservationId, { funnelStage });
+      res.json({ reservationId: updated.id, funnelStage: updated.funnelStage });
+    } catch (err) {
+      console.error("Failed to update funnel stage:", err);
+      res.status(500).json({ message: "Failed to update stage" });
+    }
+  });
+
+  // Send a templated payment-reminder email to an investor whose reservation
+  // is still pending payment. Throttled to one reminder per reservation per
+  // 24h to prevent spam. Gated by the `sales` permission.
+  app.post("/api/developer/projects/:id/reservations/:reservationId/remind", requireDeveloper, requirePermission("sales"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const reservationId = Number(req.params.reservationId);
+      if (!Number.isFinite(reservationId)) return res.status(400).json({ message: "Invalid reservation id" });
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation || reservation.propertyId !== propertyId) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+      // Only allow reminders for reservations actually pending payment.
+      const isPending = reservation.status === "reserved" || reservation.funnelStage === "payment_incomplete";
+      if (!isPending) {
+        return res.status(400).json({
+          code: "reminder_not_applicable",
+          message: "Reminders can only be sent for reservations pending payment.",
+        });
+      }
+      const now = Date.now();
+      if (reservation.lastReminderSentAt) {
+        const last = new Date(reservation.lastReminderSentAt).getTime();
+        if (now - last < 24 * 60 * 60 * 1000) {
+          const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - last)) / (60 * 60 * 1000));
+          return res.status(429).json({
+            code: "reminder_throttled",
+            message: `A reminder was already sent recently. Try again in ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"}.`,
+          });
+        }
+      }
+      const dueDate = reservation.expiresAt ? new Date(reservation.expiresAt) : null;
+      const emailData = paymentReminderEmailTemplate({
+        investorName: reservation.fullName || "Investor",
+        propertyName: property.name,
+        units: Number(reservation.units || 0),
+        amount: Number(reservation.amount || 0),
+        currency: reservation.currency || property.currency || "NGN",
+        dueDate,
+        paymentLink: "https://www.brikvest.net/dashboard",
+      });
+      try {
+        await sendEmail({ to: reservation.email, subject: emailData.subject, html: emailData.html });
+      } catch (e) {
+        console.error("Failed to send payment reminder email:", e);
+        return res.status(500).json({ message: "Failed to send reminder email" });
+      }
+      const sentAt = new Date();
+      // Stamp lastReminderSentAt FIRST so the 24h throttle applies even if the
+      // audit-log insert below fails — this prevents a duplicate email if the
+      // user retries after a transient DB failure on the log table.
+      await storage.updateReservation(reservationId, { lastReminderSentAt: sentAt });
+      try {
+        await storage.createReservationReminder({
+          reservationId,
+          sentByUserId: req.user?.id ?? null,
+          recipientEmail: reservation.email,
+        });
+      } catch (logErr) {
+        console.error("Reminder email sent, but failed to write audit log row:", logErr);
+        return res.status(500).json({
+          message: "Reminder sent, but we couldn't record it in the history. The 24h throttle is still in effect.",
+        });
+      }
+      res.json({ ok: true, sentAt: sentAt.toISOString() });
+    } catch (err) {
+      console.error("Payment reminder failed:", err);
+      res.status(500).json({ message: "Failed to send reminder" });
     }
   });
 
@@ -6597,6 +6931,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paymentDate = body.paymentDate ? String(body.paymentDate) : new Date().toISOString().slice(0, 10);
       const paymentMethod = String(body.paymentMethod || "developer_recorded");
       const note = String(body.note || "").trim();
+      const unitTypeLabelInput = body.unitTypeLabel ? String(body.unitTypeLabel).trim() : "";
 
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ message: "A valid email is required" });
@@ -6607,10 +6942,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Units must be a positive number" });
       }
 
+      // Resolve the chosen unit type (if any) so we can both snapshot its
+      // label on the reservation and price the purchase off that type.
+      const cfgTypes: Array<{ label: string; quantity: number; price: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      let chosenType = unitTypeLabelInput
+        ? cfgTypes.find(t => String(t.label) === unitTypeLabelInput)
+        : null;
+      if (unitTypeLabelInput && cfgTypes.length > 0 && !chosenType) {
+        return res.status(400).json({ message: `Unknown unit type "${unitTypeLabelInput}"` });
+      }
+      // If the project only has one configured type, auto-attribute to it.
+      if (!chosenType && cfgTypes.length === 1) {
+        chosenType = cfgTypes[0];
+      }
+      // When the project has multiple unit types configured, require an
+      // explicit selection so attribution stays exact — even if two types
+      // share a price.
+      if (!chosenType && cfgTypes.length > 1) {
+        return res.status(400).json({ message: "Please select which unit type the investor is buying" });
+      }
+      const unitTypeLabel = chosenType ? chosenType.label : null;
+
       // Compute amount from unit price snapshot if not explicitly provided.
-      const unitPriceSnapshot = (property as any).unitPrice
-        || (property as any).minInvestment
-        || 0;
+      // Prefer the chosen unit type's price so the snapshot matches what the
+      // buyer was actually offered.
+      const unitPriceSnapshot = chosenType
+        ? Number(chosenType.price)
+        : ((property as any).unitPrice || (property as any).minInvestment || 0);
       const amount = amountInput !== null && Number.isFinite(amountInput) && amountInput > 0
         ? amountInput
         : Math.round(unitsNum * Number(unitPriceSnapshot));
@@ -6668,6 +7027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount: String(amount),
         currency: (property as any).currency || "NGN",
         unitPriceSnapshot: String(unitPriceSnapshot || 0),
+        unitTypeLabel,
         status: "converted_to_investment",
         paymentMethod,
         paymentReference: `DEV-${paymentDate.replace(/-/g, "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
@@ -6969,6 +7329,424 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to convert lead:", err);
       res.status(500).json({ message: "Failed to convert lead" });
+    }
+  });
+
+  // Construction stages — list the 8 predefined stages for a project
+  app.get("/api/developer/projects/:id/stages", requireDeveloper, async (req: any, res) => {
+    const propertyId = await resolveDevProjectId(req, res);
+    if (propertyId === null) return;
+    const property = await ensureProjectOwnership(req, res, propertyId);
+    if (!property) return;
+    // Idempotently ensure the 8 default stages exist (covers legacy projects
+    // created before construction_stages was wired into createProperty).
+    await storage.seedDefaultConstructionStages(propertyId);
+    const stages = await storage.getConstructionStagesByProperty(propertyId);
+    res.json(stages);
+  });
+
+  // Construction stages — update planned/actual dates, status, notes for a single stage
+  app.patch("/api/developer/projects/:id/stages/:stageId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const stageId = Number(req.params.stageId);
+      if (!Number.isInteger(stageId) || stageId <= 0) {
+        return res.status(400).json({ message: "Invalid stage id" });
+      }
+      // Verify the stage belongs to this project (prevents cross-project edits)
+      const stages = await storage.getConstructionStagesByProperty(propertyId);
+      const target = stages.find(s => s.id === stageId);
+      if (!target) return res.status(404).json({ message: "Stage not found" });
+
+      const body = req.body || {};
+      const dateOrNull = (v: any) => (v === null || v === "" || v === undefined ? null : new Date(v));
+      const updates: any = {};
+      if (body.plannedStartDate !== undefined)      updates.plannedStartDate = dateOrNull(body.plannedStartDate);
+      if (body.plannedCompletionDate !== undefined) updates.plannedCompletionDate = dateOrNull(body.plannedCompletionDate);
+      if (body.actualStartDate !== undefined)       updates.actualStartDate = dateOrNull(body.actualStartDate);
+      if (body.actualCompletionDate !== undefined)  updates.actualCompletionDate = dateOrNull(body.actualCompletionDate);
+      if (body.status !== undefined) {
+        const allowed = ["not_started", "in_progress", "done", "delayed"];
+        if (!allowed.includes(body.status)) return res.status(400).json({ message: "Invalid status" });
+        updates.status = body.status;
+      }
+      if (body.notes !== undefined) updates.notes = body.notes || null;
+
+      // Auto-derive status from actualCompletionDate if status not explicitly set
+      if (updates.status === undefined && updates.actualCompletionDate !== undefined) {
+        updates.status = updates.actualCompletionDate ? "done" : (target.actualStartDate || updates.actualStartDate ? "in_progress" : "not_started");
+      }
+
+      const updated = await storage.updateConstructionStage(stageId, updates);
+
+      // Recompute project-level actualCompletionDate: if every stage has an
+      // actualCompletionDate, set the property's actualCompletionDate to the
+      // latest of them. Otherwise clear it.
+      const allStages = await storage.getConstructionStagesByProperty(propertyId);
+      const allDone = allStages.length > 0 && allStages.every(s => !!s.actualCompletionDate);
+      const projectActual = allDone
+        ? new Date(Math.max(...allStages.map(s => new Date(s.actualCompletionDate as any).getTime())))
+        : null;
+      const currentActual = property.actualCompletionDate ? new Date(property.actualCompletionDate as any).getTime() : null;
+      const nextActual = projectActual?.getTime() ?? null;
+      if (currentActual !== nextActual) {
+        await storage.updatePropertyFields(propertyId, { actualCompletionDate: projectActual });
+      }
+
+      res.json(updated);
+    } catch (err) {
+      console.error("Failed to update construction stage:", err);
+      res.status(500).json({ message: "Failed to update stage" });
+    }
+  });
+
+  // ============================================================================
+  // Construction Budget & Vendors
+  // ============================================================================
+
+  // Aggregated budget rollup: totals, per-stage spend, per-vendor spend, monthly burn.
+  app.get("/api/developer/projects/:id/budget", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+
+      await storage.seedDefaultConstructionStages(propertyId);
+      const [stages, allVendors, allPayments] = await Promise.all([
+        storage.getConstructionStagesByProperty(propertyId),
+        storage.getVendorsByProperty(propertyId),
+        storage.getVendorPaymentsByProperty(propertyId),
+      ]);
+
+      const num = (v: any) => (v === null || v === undefined ? 0 : Number(v) || 0);
+      const totalBudget = num((property as any).totalBudget);
+
+      // Per-vendor rollup with contract + paid + outstanding
+      const paidByVendor = new Map<number, number>();
+      for (const p of allPayments) paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) || 0) + num(p.amount));
+      const vendorRollups = allVendors.map(v => {
+        const contract = num(v.contractAmount);
+        const paid = paidByVendor.get(v.id) || 0;
+        return {
+          id: v.id,
+          name: v.name,
+          workCategory: v.workCategory || null,
+          stageId: v.stageId || null,
+          currency: v.currency,
+          contractAmount: contract,
+          paid,
+          outstanding: Math.max(contract - paid, 0),
+          status: v.status,
+        };
+      });
+
+      // Per-stage rollup
+      const vendorsByStage = new Map<number | null, typeof vendorRollups>();
+      for (const v of vendorRollups) {
+        const k = v.stageId ?? null;
+        if (!vendorsByStage.has(k)) vendorsByStage.set(k, []);
+        vendorsByStage.get(k)!.push(v);
+      }
+      const stageRollups = stages.map(s => {
+        const vs = vendorsByStage.get(s.id) || [];
+        const stageContract = vs.reduce((a, b) => a + b.contractAmount, 0);
+        const stageSpent = vs.reduce((a, b) => a + b.paid, 0);
+        return {
+          stageId: s.id,
+          stageKey: s.stageKey,
+          name: s.name,
+          sortOrder: s.sortOrder,
+          budgetAmount: num((s as any).budgetAmount),
+          vendorContract: stageContract,
+          spent: stageSpent,
+          outstanding: Math.max(stageContract - stageSpent, 0),
+          vendorCount: vs.length,
+        };
+      });
+      // "Unassigned" bucket for vendors with no stage
+      const unassigned = vendorsByStage.get(null) || [];
+      if (unassigned.length > 0) {
+        const c = unassigned.reduce((a, b) => a + b.contractAmount, 0);
+        const s = unassigned.reduce((a, b) => a + b.paid, 0);
+        stageRollups.push({
+          stageId: null as any,
+          stageKey: "unassigned",
+          name: "Unassigned",
+          sortOrder: 999,
+          budgetAmount: 0,
+          vendorContract: c,
+          spent: s,
+          outstanding: Math.max(c - s, 0),
+          vendorCount: unassigned.length,
+        });
+      }
+
+      const totalContract = vendorRollups.reduce((a, b) => a + b.contractAmount, 0);
+      const totalSpent = vendorRollups.reduce((a, b) => a + b.paid, 0);
+      const totalOutstanding = Math.max(totalContract - totalSpent, 0);
+
+      // Monthly cumulative burn (last 12 months)
+      const months: { ym: string; spent: number; cumulative: number }[] = [];
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        months.push({ ym, spent: 0, cumulative: 0 });
+      }
+      // Sum payments that happened before each month-end (cumulative)
+      let priorCumulative = 0;
+      for (const p of allPayments) {
+        if (!p.paidAt) continue;
+        const d = new Date(p.paidAt);
+        if (d < start) { priorCumulative += num(p.amount); continue; }
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const slot = months.find(m => m.ym === ym);
+        if (slot) slot.spent += num(p.amount);
+      }
+      let running = priorCumulative;
+      for (const m of months) { running += m.spent; m.cumulative = running; }
+
+      // Required burn rate to hit totalBudget by plannedCompletionDate
+      let requiredMonthlyBurn: number | null = null;
+      if (totalBudget > 0 && (property as any).plannedCompletionDate) {
+        const end = new Date((property as any).plannedCompletionDate);
+        const monthsLeft = Math.max(
+          1,
+          (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth()),
+        );
+        requiredMonthlyBurn = Math.max(0, (totalBudget - totalSpent) / monthsLeft);
+      }
+
+      res.json({
+        currency: (property as any).currency || "NGN",
+        totalBudget,
+        totalContract,
+        totalSpent,
+        totalOutstanding,
+        remaining: Math.max(totalBudget - totalSpent, 0),
+        plannedCompletionDate: (property as any).plannedCompletionDate || null,
+        stages: stageRollups,
+        vendors: vendorRollups,
+        monthlyBurn: months,
+        requiredMonthlyBurn,
+      });
+    } catch (err) {
+      console.error("Failed to compute budget rollup:", err);
+      res.status(500).json({ message: "Failed to compute budget rollup" });
+    }
+  });
+
+  // Vendors — list (with derived totals)
+  app.get("/api/developer/projects/:id/vendors", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const [vs, payments] = await Promise.all([
+        storage.getVendorsByProperty(propertyId),
+        storage.getVendorPaymentsByProperty(propertyId),
+      ]);
+      const paidByVendor = new Map<number, number>();
+      for (const p of payments) paidByVendor.set(p.vendorId, (paidByVendor.get(p.vendorId) || 0) + Number(p.amount || 0));
+      const enriched = vs.map(v => {
+        const contract = Number(v.contractAmount || 0);
+        const paid = paidByVendor.get(v.id) || 0;
+        return { ...v, paid, outstanding: Math.max(contract - paid, 0) };
+      });
+      res.json(enriched);
+    } catch (err) {
+      console.error("Failed to list vendors:", err);
+      res.status(500).json({ message: "Failed to list vendors" });
+    }
+  });
+
+  // Vendors — create
+  app.post("/api/developer/projects/:id/vendors", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const body = req.body || {};
+      const name = String(body.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Vendor name is required" });
+      const stageId = body.stageId === null || body.stageId === undefined || body.stageId === "" ? null : Number(body.stageId);
+      if (stageId !== null && !Number.isInteger(stageId)) return res.status(400).json({ message: "Invalid stageId" });
+      if (stageId !== null) {
+        const projectStages = await storage.getConstructionStagesByProperty(propertyId);
+        if (!projectStages.some(s => s.id === stageId)) return res.status(400).json({ message: "Stage does not belong to this project" });
+      }
+      const contractAmount = body.contractAmount === undefined || body.contractAmount === null || body.contractAmount === ""
+        ? "0"
+        : String(Number(body.contractAmount) || 0);
+      // Enforce single-currency: vendors must use the project's currency to keep rollups coherent.
+      const projectCurrency = String((property as any).currency || "NGN");
+      const created = await storage.createVendor({
+        propertyId,
+        stageId,
+        name,
+        workCategory: body.workCategory ? String(body.workCategory).trim() : null,
+        contractAmount,
+        currency: projectCurrency,
+        contactName: body.contactName ? String(body.contactName).trim() : null,
+        contactPhone: body.contactPhone ? String(body.contactPhone).trim() : null,
+        contactEmail: body.contactEmail ? String(body.contactEmail).trim() : null,
+        notes: body.notes ? String(body.notes) : null,
+        status: "active",
+      } as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      console.error("Failed to create vendor:", err);
+      res.status(500).json({ message: err?.message || "Failed to create vendor" });
+    }
+  });
+
+  // Vendors — update
+  app.patch("/api/developer/projects/:id/vendors/:vendorId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      if (!Number.isInteger(vendorId)) return res.status(400).json({ message: "Invalid vendorId" });
+      const existing = await storage.getVendor(vendorId);
+      if (!existing || existing.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+
+      const body = req.body || {};
+      const updates: any = {};
+      if (body.name !== undefined) updates.name = String(body.name).trim() || existing.name;
+      if (body.workCategory !== undefined) updates.workCategory = body.workCategory ? String(body.workCategory).trim() : null;
+      if (body.contractAmount !== undefined) updates.contractAmount = String(Number(body.contractAmount) || 0);
+      // Currency is locked to the project's currency; ignore any client override.
+      if (body.contactName !== undefined) updates.contactName = body.contactName ? String(body.contactName).trim() : null;
+      if (body.contactPhone !== undefined) updates.contactPhone = body.contactPhone ? String(body.contactPhone).trim() : null;
+      if (body.contactEmail !== undefined) updates.contactEmail = body.contactEmail ? String(body.contactEmail).trim() : null;
+      if (body.notes !== undefined) updates.notes = body.notes ? String(body.notes) : null;
+      if (body.status !== undefined) {
+        const allowed = ["active", "completed", "cancelled"];
+        if (!allowed.includes(body.status)) return res.status(400).json({ message: "Invalid status" });
+        updates.status = body.status;
+      }
+      if (body.stageId !== undefined) {
+        const sid = body.stageId === null || body.stageId === "" ? null : Number(body.stageId);
+        if (sid !== null && !Number.isInteger(sid)) return res.status(400).json({ message: "Invalid stageId" });
+        if (sid !== null) {
+          const projectStages = await storage.getConstructionStagesByProperty(propertyId);
+          if (!projectStages.some(s => s.id === sid)) return res.status(400).json({ message: "Stage does not belong to this project" });
+        }
+        updates.stageId = sid;
+      }
+      const updated = await storage.updateVendor(vendorId, updates);
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Failed to update vendor:", err);
+      res.status(500).json({ message: err?.message || "Failed to update vendor" });
+    }
+  });
+
+  // Vendors — delete (cascades payments)
+  app.delete("/api/developer/projects/:id/vendors/:vendorId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const existing = await storage.getVendor(vendorId);
+      if (!existing || existing.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+      await storage.deleteVendor(vendorId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to delete vendor:", err);
+      res.status(500).json({ message: "Failed to delete vendor" });
+    }
+  });
+
+  // Vendor payments — list for one vendor
+  app.get("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor || vendor.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+      const payments = await storage.getVendorPaymentsByVendor(vendorId);
+      res.json(payments);
+    } catch (err) {
+      console.error("Failed to list payments:", err);
+      res.status(500).json({ message: "Failed to list payments" });
+    }
+  });
+
+  // Vendor payments — create
+  app.post("/api/developer/projects/:id/vendors/:vendorId/payments", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const vendorId = Number(req.params.vendorId);
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor || vendor.propertyId !== propertyId) return res.status(404).json({ message: "Vendor not found" });
+
+      const body = req.body || {};
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "Amount must be a positive number" });
+      const paidAt = body.paidAt ? new Date(body.paidAt) : new Date();
+      if (Number.isNaN(paidAt.getTime())) return res.status(400).json({ message: "Invalid paidAt date" });
+
+      const method = body.method ? String(body.method) : null;
+      const allowedMethods = ["bank_transfer", "cash", "cheque", "card", "other"];
+      if (method && !allowedMethods.includes(method)) return res.status(400).json({ message: "Invalid method" });
+
+      // Payments inherit the project's currency to keep rollups coherent (single-currency policy).
+      const paymentCurrency = String((property as any).currency || vendor.currency || "NGN");
+      const created = await storage.createVendorPayment({
+        vendorId,
+        propertyId,
+        amount: String(amount),
+        currency: paymentCurrency,
+        paidAt,
+        method,
+        reference: body.reference ? String(body.reference).trim() : null,
+        proofUrl: body.proofUrl ? String(body.proofUrl) : null,
+        proofType: body.proofType ? String(body.proofType) : null,
+        notes: body.notes ? String(body.notes) : null,
+        createdByUserId: (req.user as any)?.id || null,
+      } as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      console.error("Failed to record payment:", err);
+      res.status(500).json({ message: err?.message || "Failed to record payment" });
+    }
+  });
+
+  // Vendor payments — delete one
+  app.delete("/api/developer/projects/:id/payments/:paymentId", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
+    try {
+      const propertyId = await resolveDevProjectId(req, res);
+      if (propertyId === null) return;
+      const property = await ensureProjectOwnership(req, res, propertyId);
+      if (!property) return;
+      const paymentId = Number(req.params.paymentId);
+      if (!Number.isInteger(paymentId)) return res.status(400).json({ message: "Invalid paymentId" });
+      // Verify the payment belongs to this project before deleting
+      const payments = await storage.getVendorPaymentsByProperty(propertyId);
+      if (!payments.some(p => p.id === paymentId)) return res.status(404).json({ message: "Payment not found" });
+      await storage.deleteVendorPayment(paymentId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Failed to delete payment:", err);
+      res.status(500).json({ message: "Failed to delete payment" });
     }
   });
 
