@@ -87,6 +87,29 @@ import {
 import { db } from "./db";
 import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
 
+/**
+ * Map a reservation's platform status to its funnel_stage bucket. Centralised
+ * here so both `createInvestmentReservation` and `updateReservation` keep the
+ * funnel column in sync at write time (the startup backfill is just a safety
+ * net for legacy rows).
+ *   converted_to_investment -> 'confirmed'
+ *   payment_pending         -> 'payment_incomplete'
+ *   reserved                -> 'prospective'
+ *   expired / cancelled / *  -> null  (out of funnel)
+ */
+function deriveFunnelStageFromStatus(status: string): string | null {
+  switch (status) {
+    case "converted_to_investment":
+      return "confirmed";
+    case "payment_pending":
+      return "payment_incomplete";
+    case "reserved":
+      return "prospective";
+    default:
+      return null;
+  }
+}
+
 export interface IStorage {
   // User methods (Email/Password Auth)
   getUser(id: number): Promise<User | undefined>;
@@ -543,9 +566,15 @@ export class DatabaseStorage implements IStorage {
 
   // Investment reservation methods
   async createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation> {
+    // Derive funnel_stage at write time so funnel/conversion charts are
+    // accurate in real time (no reliance on the startup backfill).
+    const withFunnel = {
+      ...reservation,
+      funnelStage: reservation.funnelStage ?? deriveFunnelStageFromStatus(reservation.status ?? "reserved"),
+    };
     const [newReservation] = await db
       .insert(investmentReservations)
-      .values(reservation)
+      .values(withFunnel)
       .returning();
 
     // Update property slots and funding progress
@@ -695,7 +724,9 @@ export class DatabaseStorage implements IStorage {
       
       const [updated] = await db
         .update(investmentReservations)
-        .set({ status: 'expired' })
+        // status='expired' means the reservation has left the funnel — null
+        // out funnel_stage so analytics don't keep counting it.
+        .set({ status: 'expired', funnelStage: null })
         .where(
           and(
             eq(investmentReservations.id, reservation.id),
@@ -757,9 +788,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    // If the caller changes status without explicitly setting funnelStage,
+    // re-derive it so funnel analytics stay correct in real time. Callers
+    // can still pass funnelStage explicitly to override this default.
+    const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.status != null && updates.funnelStage === undefined) {
+      merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+    }
     const [updated] = await db
       .update(investmentReservations)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(merged)
       .where(eq(investmentReservations.id, id))
       .returning();
     return updated;
