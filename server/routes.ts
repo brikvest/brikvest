@@ -6649,13 +6649,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
       const allReminders = await storage.getReservationRemindersForReservations(reservations.map(r => r.id));
-      const remindersByReservation = new Map<number, Array<{ sentAt: string }>>();
+      // Batch-load the senders so the UI can show "who" sent each nudge.
+      // Falls back to the recipient email (or "Brikvest") when the sender is
+      // unknown / deleted.
+      const senderIds = Array.from(new Set(allReminders.map(r => r.sentByUserId).filter((id): id is number => !!id)));
+      const senderMap = new Map<number, { firstName: string | null; lastName: string | null; email: string }>();
+      await Promise.all(senderIds.map(async (uid) => {
+        const u = await storage.getUser(uid);
+        if (u) senderMap.set(uid, { firstName: u.firstName, lastName: u.lastName, email: u.email });
+      }));
+      const formatSenderName = (uid: number | null, recipientEmail: string): string => {
+        if (uid) {
+          const u = senderMap.get(uid);
+          if (u) {
+            const first = (u.firstName || "").trim();
+            const last = (u.lastName || "").trim();
+            if (first || last) {
+              const lastInitial = last ? ` ${last.charAt(0).toUpperCase()}.` : "";
+              return `${first}${lastInitial}`.trim();
+            }
+            return u.email;
+          }
+        }
+        return recipientEmail || "Brikvest";
+      };
+      const remindersByReservation = new Map<number, Array<{ sentAt: string; sentByName: string }>>();
       for (const rem of allReminders) {
         const list = remindersByReservation.get(rem.reservationId) || [];
         const sentAtIso = rem.sentAt instanceof Date
           ? rem.sentAt.toISOString()
           : new Date(rem.sentAt).toISOString();
-        list.push({ sentAt: sentAtIso });
+        list.push({ sentAt: sentAtIso, sentByName: formatSenderName(rem.sentByUserId, rem.recipientEmail) });
         remindersByReservation.set(rem.reservationId, list);
       }
       const enriched = await Promise.all(reservations.map(async r => {

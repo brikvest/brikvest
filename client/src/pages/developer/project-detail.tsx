@@ -92,7 +92,7 @@ function ReminderHistoryCell({
 }: {
   reservationId: number;
   count: number;
-  history: { sentAt: string }[];
+  history: { sentAt: string; sentByName?: string }[];
   lastReminderSentAt: string | null;
 }) {
   const effectiveCount = count || history.length;
@@ -146,11 +146,16 @@ function ReminderHistoryCell({
           <ul className="space-y-1">
             {recent.map((r, i) => (
               <li key={i} className="text-xs text-slate-700 flex items-center gap-1.5">
-                <Mail className="w-3 h-3 text-slate-400" />
-                {new Date(r.sentAt).toLocaleString(undefined, {
-                  month: "short", day: "numeric", year: "numeric",
-                  hour: "numeric", minute: "2-digit",
-                })}
+                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                <span>
+                  {new Date(r.sentAt).toLocaleString(undefined, {
+                    month: "short", day: "numeric",
+                    hour: "numeric", minute: "2-digit",
+                  })}
+                  {r.sentByName && (
+                    <span className="text-slate-500"> · {r.sentByName}</span>
+                  )}
+                </span>
               </li>
             ))}
             {effectiveCount > recent.length && (
