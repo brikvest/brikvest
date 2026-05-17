@@ -6648,6 +6648,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await ensureProjectOwnership(req, res, propertyId);
       if (!property) return;
       const reservations = await storage.getReservationsByProperty(propertyId);
+      const allReminders = await storage.getReservationRemindersForReservations(reservations.map(r => r.id));
+      const remindersByReservation = new Map<number, Array<{ sentAt: string }>>();
+      for (const rem of allReminders) {
+        const list = remindersByReservation.get(rem.reservationId) || [];
+        const sentAtIso = rem.sentAt instanceof Date
+          ? rem.sentAt.toISOString()
+          : new Date(rem.sentAt).toISOString();
+        list.push({ sentAt: sentAtIso });
+        remindersByReservation.set(rem.reservationId, list);
+      }
       const enriched = await Promise.all(reservations.map(async r => {
         const user = r.userId ? await storage.getUser(r.userId) : null;
         const submissions = await storage.getPaymentSubmissionsByReservationId(r.id);
@@ -6690,6 +6700,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           confirmedAt: r.status === "converted_to_investment" ? r.updatedAt : null,
           expiresAt: r.expiresAt,
           lastReminderSentAt: r.lastReminderSentAt,
+          reminderHistory: remindersByReservation.get(r.id) || [],
+          reminderCount: (remindersByReservation.get(r.id) || []).length,
           notes: note?.notes || "",
         };
       }));
@@ -6774,8 +6786,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Failed to send payment reminder email:", e);
         return res.status(500).json({ message: "Failed to send reminder email" });
       }
-      await storage.updateReservation(reservationId, { lastReminderSentAt: new Date() });
-      res.json({ ok: true, sentAt: new Date().toISOString() });
+      const sentAt = new Date();
+      // Stamp lastReminderSentAt FIRST so the 24h throttle applies even if the
+      // audit-log insert below fails — this prevents a duplicate email if the
+      // user retries after a transient DB failure on the log table.
+      await storage.updateReservation(reservationId, { lastReminderSentAt: sentAt });
+      try {
+        await storage.createReservationReminder({
+          reservationId,
+          sentByUserId: req.user?.id ?? null,
+          recipientEmail: reservation.email,
+        });
+      } catch (logErr) {
+        console.error("Reminder email sent, but failed to write audit log row:", logErr);
+        return res.status(500).json({
+          message: "Reminder sent, but we couldn't record it in the history. The 24h throttle is still in effect.",
+        });
+      }
+      res.json({ ok: true, sentAt: sentAt.toISOString() });
     } catch (err) {
       console.error("Payment reminder failed:", err);
       res.status(500).json({ message: "Failed to send reminder" });

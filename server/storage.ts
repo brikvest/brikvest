@@ -70,6 +70,9 @@ import {
   developerLeads,
   type DeveloperLead,
   type InsertDeveloperLead,
+  reservationReminders,
+  type ReservationReminder,
+  type InsertReservationReminder,
   developerTeamInvites,
   type DeveloperTeamInvite,
   type InsertDeveloperTeamInvite,
@@ -180,6 +183,9 @@ export interface IStorage {
   getAllReservations(): Promise<InvestmentReservation[]>;
   getReservation(id: number): Promise<InvestmentReservation | undefined>;
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
+  createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder>;
+  getReservationReminders(reservationId: number): Promise<ReservationReminder[]>;
+  getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]>;
   updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
   linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
   extendReservationsOnKycSubmission(userId: number): Promise<number>;
@@ -822,6 +828,28 @@ export class DatabaseStorage implements IStorage {
       .where(eq(investmentReservations.id, id))
       .returning();
     return updated;
+  }
+
+  async createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder> {
+    const [row] = await db.insert(reservationReminders).values(reminder).returning();
+    return row;
+  }
+
+  async getReservationReminders(reservationId: number): Promise<ReservationReminder[]> {
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(eq(reservationReminders.reservationId, reservationId))
+      .orderBy(desc(reservationReminders.sentAt));
+  }
+
+  async getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]> {
+    if (reservationIds.length === 0) return [];
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(inArray(reservationReminders.reservationId, reservationIds))
+      .orderBy(desc(reservationReminders.sentAt));
   }
 
   async updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void> {

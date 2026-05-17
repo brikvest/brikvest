@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -81,6 +82,96 @@ function fmtUnits(v: number | string | null | undefined): string {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   if (!isFinite(n as number)) return "0";
   return (n as number).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function ReminderHistoryCell({
+  reservationId,
+  count,
+  history,
+  lastReminderSentAt,
+}: {
+  reservationId: number;
+  count: number;
+  history: { sentAt: string }[];
+  lastReminderSentAt: string | null;
+}) {
+  const effectiveCount = count || history.length;
+  if (effectiveCount === 0 && !lastReminderSentAt) {
+    return <span className="text-xs text-slate-400">Never</span>;
+  }
+  const sorted = [...history].sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+  const recent = sorted.slice(0, 3);
+  const last = sorted[0]?.sentAt
+    ? new Date(sorted[0].sentAt)
+    : lastReminderSentAt
+      ? new Date(lastReminderSentAt)
+      : null;
+  const heavy = effectiveCount >= 3;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-left hover:underline"
+          data-testid={`button-reminder-history-${reservationId}`}
+        >
+          <span
+            className={`inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold border ${
+              heavy
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : "bg-blue-50 text-blue-700 border-blue-200"
+            }`}
+          >
+            {effectiveCount}
+          </span>
+          <span className="text-xs text-slate-600">
+            {last ? last.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-64 p-3"
+        align="start"
+        data-testid={`popover-reminder-history-${reservationId}`}
+      >
+        <div className="text-xs font-semibold text-slate-900 mb-1">
+          Reminder history ({effectiveCount})
+        </div>
+        {heavy && (
+          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+            You've reminded this investor {effectiveCount} times. Consider a phone call instead.
+          </div>
+        )}
+        {recent.length > 0 ? (
+          <ul className="space-y-1">
+            {recent.map((r, i) => (
+              <li key={i} className="text-xs text-slate-700 flex items-center gap-1.5">
+                <Mail className="w-3 h-3 text-slate-400" />
+                {new Date(r.sentAt).toLocaleString(undefined, {
+                  month: "short", day: "numeric", year: "numeric",
+                  hour: "numeric", minute: "2-digit",
+                })}
+              </li>
+            ))}
+            {effectiveCount > recent.length && (
+              <li className="text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                + {effectiveCount - recent.length} earlier reminder{effectiveCount - recent.length === 1 ? "" : "s"}
+              </li>
+            )}
+          </ul>
+        ) : last ? (
+          <div className="text-xs text-slate-600">
+            Last sent {last.toLocaleString(undefined, {
+              month: "short", day: "numeric", year: "numeric",
+              hour: "numeric", minute: "2-digit",
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-slate-500">No reminders sent yet.</div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function DeveloperProjectDetail() {
@@ -2372,7 +2463,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                       <TableHead>Amount</TableHead>
                       <TableHead>Due</TableHead>
                       <TableHead>Days overdue</TableHead>
-                      <TableHead>Last reminder</TableHead>
+                      <TableHead>Reminders</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2413,9 +2504,12 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
                             )}
                           </TableCell>
                           <TableCell>
-                            {last ? (
-                              <span className="text-xs text-slate-600">{last.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
-                            ) : <span className="text-xs text-slate-400">Never</span>}
+                            <ReminderHistoryCell
+                              reservationId={inv.reservationId}
+                              count={inv.reminderCount ?? (inv.reminderHistory?.length ?? 0)}
+                              history={inv.reminderHistory || []}
+                              lastReminderSentAt={inv.lastReminderSentAt}
+                            />
                           </TableCell>
                           <TableCell className="text-right">
                             <Button

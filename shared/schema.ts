@@ -897,6 +897,18 @@ export const developerInvestorNotes = pgTable("developer_investor_notes", {
     .on(table.propertyId, table.developerUserId, table.investorUserId),
 }));
 
+// Audit log of payment-reminder emails sent from the developer Sales tab.
+// One row per send. Used to render reminder history on the owing-clients table
+// (count + last few dates) so developers can see who they've already contacted
+// and avoid pestering investors.
+export const reservationReminders = pgTable("reservation_reminders", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  sentByUserId: integer("sent_by_user_id").references(() => users.id),
+  recipientEmail: text("recipient_email").notNull(),
+});
+
 // Developer-managed CRM leads (pre-reservation funnel: lead → contacted → qualified → converted/lost)
 export const developerLeads = pgTable("developer_leads", {
   id: serial("id").primaryKey(),
@@ -1097,6 +1109,13 @@ export type DeveloperInvestorNote = typeof developerInvestorNotes.$inferSelect;
 
 export type InsertDeveloperLead = z.infer<typeof insertDeveloperLeadSchema>;
 export type DeveloperLead = typeof developerLeads.$inferSelect;
+
+export type ReservationReminder = typeof reservationReminders.$inferSelect;
+export const insertReservationReminderSchema = createInsertSchema(reservationReminders).omit({
+  id: true,
+  sentAt: true,
+});
+export type InsertReservationReminder = z.infer<typeof insertReservationReminderSchema>;
 
 export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
 
