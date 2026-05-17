@@ -6488,19 +6488,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       let running = priorRaised;
-      const velocity = weekBuckets.map(b => {
+      const cumulativeSeries = weekBuckets.map(b => {
         running += b.raised;
         return { weekStart: b.weekStart, cumulativeRaised: Math.round(running) };
       });
+      const totalRaisedConverted = running;
 
       // Weekly target needed to hit fundingTarget by plannedCompletionDate.
+      // Use the currency-converted cumulative (in project currency) so the
+      // remaining-to-target math stays consistent with the velocity series.
       let weeklyTarget: number | null = null;
       if (property.plannedCompletionDate && fundingTarget > 0) {
         const finish = new Date(property.plannedCompletionDate as any);
         const weeksLeft = Math.max(1, Math.ceil((finish.getTime() - Date.now()) / WEEK_MS));
-        const remaining = Math.max(0, fundingTarget - totalRaised);
+        const remaining = Math.max(0, fundingTarget - totalRaisedConverted);
         weeklyTarget = Math.round(remaining / weeksLeft);
       }
+
+      // Build a target *trajectory* over the same 12-week window so the chart
+      // can render a true pace reference line instead of a flat horizontal
+      // marker. Starts from `priorRaised` and grows by `weeklyTarget` each
+      // week. Null when no completion date / target is configured.
+      const velocity = cumulativeSeries.map((p, i) => ({
+        ...p,
+        targetCumulative: weeklyTarget !== null
+          ? Math.round(priorRaised + weeklyTarget * (i + 1))
+          : null,
+      }));
 
       // Investor Conversion Efficiency — monthly, last 12 months.
       const monthlyEff = await storage.getMonthlyConversionEfficiency(propertyId, 12);
@@ -6637,11 +6651,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reservationId = Number(req.params.id);
       if (!Number.isFinite(reservationId)) return res.status(400).json({ message: "Invalid reservation id" });
       const { funnelStage } = req.body ?? {};
-      const allowed = [...RESERVATION_FUNNEL_STAGES, null] as (string | null)[];
       if (funnelStage !== null && !RESERVATION_FUNNEL_STAGES.includes(funnelStage)) {
         return res.status(400).json({ message: "Invalid funnel stage" });
       }
-      void allowed;
       const reservation = await storage.getReservation(reservationId);
       if (!reservation) return res.status(404).json({ message: "Reservation not found" });
       const property = await ensureProjectOwnership(req, res, reservation.propertyId);

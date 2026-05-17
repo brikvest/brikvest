@@ -25,7 +25,7 @@ import {
   CheckCircle2, Clock, AlertTriangle, Send, Download, Calendar, Loader2, Save, Megaphone,
   GripVertical, ImagePlus, X, UserPlus,
 } from "lucide-react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ReferenceLine, CartesianGrid } from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ReferenceLine, CartesianGrid, ComposedChart } from "recharts";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
   type DragEndEvent,
@@ -419,7 +419,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
   const { toast } = useToast();
   const f = rollup?.funding || {};
   const funnel = rollup?.funnel || {};
-  const velocityData: { weekStart: string; cumulativeRaised: number }[] = rollup?.velocity || [];
+  const velocityData: { weekStart: string; cumulativeRaised: number; targetCumulative: number | null }[] = rollup?.velocity || [];
   const weeklyTarget: number | null = rollup?.weeklyTarget ?? null;
   const conversionEfficiency: { month: string; percent: number; confirmed: number; total: number }[] = rollup?.conversionEfficiency || [];
   const [search, setSearch] = useState("");
@@ -555,7 +555,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={velocityData} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+                <ComposedChart data={velocityData} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
                   <defs>
                     <linearGradient id="velocityFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%"   stopColor="#2563eb" stopOpacity={0.35} />
@@ -576,16 +576,21 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
                     formatter={(v: number) => fmt(project.currency, v)}
                     labelFormatter={(d: string) => `Week of ${new Date(d).toLocaleDateString()}`}
                   />
-                  {weeklyTarget && velocityData.length > 0 && (
-                    <ReferenceLine
-                      y={(velocityData[velocityData.length - 1]?.cumulativeRaised || 0) + weeklyTarget}
+                  <Area type="monotone" dataKey="cumulativeRaised" name="Raised" stroke="#2563eb" strokeWidth={2} fill="url(#velocityFill)" />
+                  {weeklyTarget && velocityData.some(v => v.targetCumulative !== null) && (
+                    <Line
+                      type="monotone"
+                      dataKey="targetCumulative"
+                      name="Target pace"
                       stroke="#10b981"
+                      strokeWidth={2}
                       strokeDasharray="4 4"
-                      label={{ value: "Weekly target", position: "insideTopRight", fill: "#10b981", fontSize: 11 }}
+                      dot={false}
+                      isAnimationActive={false}
                     />
                   )}
-                  <Area type="monotone" dataKey="cumulativeRaised" stroke="#2563eb" strokeWidth={2} fill="url(#velocityFill)" />
-                </AreaChart>
+                  <Legend verticalAlign="top" height={24} iconType="line" wrapperStyle={{ fontSize: 11 }} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
