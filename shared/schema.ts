@@ -545,6 +545,16 @@ export const insertInvestmentReservationSchema = createInsertSchema(investmentRe
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Restrict funnelStage to the 5 documented values (or null for out-of-funnel).
+  // Values kept in sync with RESERVATION_FUNNEL_STAGES below.
+  funnelStage: z.enum([
+    "prospective",
+    "due_diligence",
+    "documentation",
+    "payment_incomplete",
+    "confirmed",
+  ]).nullable().optional(),
 });
 
 export const insertInvestmentPaymentSchema = createInsertSchema(investmentPayments).omit({

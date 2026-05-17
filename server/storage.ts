@@ -1799,8 +1799,11 @@ export class DatabaseStorage implements IStorage {
       confirmed: 0,
     };
     for (const r of rows) {
-      const key = r.funnelStage || "prospective";
-      if (key in counts) counts[key] += Number(r.count);
+      // NULL funnel_stage means the reservation left the funnel entirely
+      // (expired / cancelled) — we deliberately exclude those rather than
+      // bucketing them as 'prospective' to keep the funnel honest.
+      if (r.funnelStage == null) continue;
+      if (r.funnelStage in counts) counts[r.funnelStage] += Number(r.count);
     }
     return counts;
   }
@@ -1865,7 +1868,7 @@ export class DatabaseStorage implements IStorage {
     //   status = 'reserved' AND has a payment_submission row         -> 'payment_incomplete'
     //   status = 'reserved'                                          -> 'prospective'
     //   status IN ('expired','cancelled') or anything else           -> NULL
-    const result = await db.execute(sql`
+    const result: { rowCount: number | null } = await db.execute(sql`
       UPDATE investment_reservations r
       SET funnel_stage = CASE
         WHEN r.status = 'converted_to_investment' THEN 'confirmed'
@@ -1877,7 +1880,7 @@ export class DatabaseStorage implements IStorage {
       END
       WHERE r.funnel_stage IS NULL
     `);
-    return (result as any).rowCount ?? 0;
+    return result.rowCount ?? 0;
   }
 }
 
