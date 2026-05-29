@@ -15,7 +15,7 @@ The application utilizes a modern full-stack architecture designed for scalabili
 
 **Database**: PostgreSQL is used as the primary data store, managed through Drizzle ORM.
 
-**Authentication**: A dual authentication system is in place for general users and administrators. Access to investment features requires approved membership, which is granted by an administrator. Property listings and P2P marketplace listings are publicly viewable.
+**Authentication**: A dual authentication system is in place for general users and administrators. Access to investment features requires approved membership, which is granted by an administrator. Property listings and P2P marketplace listings are publicly viewable. The `users.role` field is single-valued (`user` | `developer` | `admin`), but investor routes and the standard `/api/login` only require an authenticated session (no role check) — only `/api/developer/*` routes require `role === "developer"`. As a result a single account can hold developer access *and* retain its investor data/dashboard simultaneously. Any existing account holder can self-enroll into the developer portal: `/api/developer/login` auto-grants developer access (role + default plan/trial) to an authenticated non-developer, and `/api/developer/register` upgrades an existing account in place after verifying ownership via the supplied password (returns guidance if the password is wrong, or "please sign in" if the account is already a developer). Investor data is preserved on upgrade.
 
 **File Storage**: Cloudinary is used for storing images, while Replit Object Storage handles PDF documents.
 
