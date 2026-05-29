@@ -40,10 +40,16 @@ export default function DeveloperSignup() {
       setLocation("/developer");
     },
     onError: (err: any) => {
-      const msg = err?.message?.includes("already exists")
-        ? "An account with this email already exists."
-        : err?.message || "Signup failed. Please try again.";
-      setError(msg);
+      const raw = String(err?.message || "");
+      const body = raw.replace(/^\d+:\s*/, "");
+      let msg = body;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed?.message) msg = parsed.message;
+      } catch {
+        // body wasn't JSON — fall back to the raw text
+      }
+      setError(msg || "Signup failed. Please try again.");
     },
   });
 

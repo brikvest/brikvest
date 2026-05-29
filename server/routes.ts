@@ -5659,15 +5659,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { email, password, firstName, lastName, phone, companyName, companyRegistration, websiteUrl } = result.data;
 
-      const existing = await storage.getUserByEmail(email);
-      if (existing) {
-        return res.status(400).json({ message: "An account already exists with this email" });
-      }
-
-      const hashedPassword = await hashPassword(password);
       const { TRIAL_DAYS, DEFAULT_PLAN } = await import("@shared/plans");
       const trialStart = new Date();
       const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
+      // If an account already exists with this email, allow the owner to add
+      // developer access to it (rather than blocking them). We verify ownership
+      // by checking the supplied password against the existing account, then
+      // upgrade the account in place — preserving any investor data.
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        if (existing.role === "developer") {
+          return res.status(400).json({ message: "A developer account already exists with this email. Please sign in instead." });
+        }
+        // Only plain investor ("user") accounts may self-enroll as developers.
+        // Never clobber admin/system roles.
+        if (existing.role !== "user") {
+          return res.status(400).json({ message: "An account already exists with this email. Please sign in with your existing account." });
+        }
+        const ownsAccount = await comparePasswords(password, existing.password);
+        if (!ownsAccount) {
+          return res.status(400).json({
+            message: "An account already exists with this email. Enter your existing Brikvest password to add developer access, or sign in.",
+          });
+        }
+        // Blocked/disabled accounts must not be able to re-enable themselves
+        // through the developer-upgrade path.
+        if (!existing.isActive || existing.accountStatus === "rejected") {
+          return res.status(403).json({ message: "This account isn't eligible for developer access. Please contact support." });
+        }
+        // Grant developer access in place. We deliberately do NOT touch
+        // accountStatus/emailVerified here — that would bypass investor-side
+        // admin approval. Developer routes gate on role, not accountStatus.
+        const upgraded = await storage.updateUser(existing.id, {
+          role: "developer",
+          companyName,
+          companyRegistration: companyRegistration || existing.companyRegistration || null,
+          websiteUrl: websiteUrl || existing.websiteUrl || null,
+          phone: phone || existing.phone || null,
+          plan: existing.plan || DEFAULT_PLAN,
+          subscriptionStatus: existing.subscriptionStatus || "trialing",
+          trialStartedAt: existing.trialStartedAt || trialStart,
+          trialEndsAt: existing.trialEndsAt || trialEnd,
+          teamRole: existing.teamRole || "owner",
+        } as any);
+        const { password: _existingPw, ...safeUpgraded } = upgraded as any;
+        req.login(upgraded, (err) => {
+          if (err) return res.status(200).json({ ...safeUpgraded, message: "Developer access added. Please log in." });
+          res.status(200).json({ ...safeUpgraded, message: "Developer access added to your existing Brikvest account!" });
+        });
+        return;
+      }
+
+      const hashedPassword = await hashPassword(password);
       const newUser: InsertUser = {
         email,
         password: hashedPassword,
@@ -5716,11 +5760,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Developer login (uses same passport local strategy via /api/login). Provide an alias.
-  app.post("/api/developer/login", passport.authenticate("local"), (req, res) => {
-    const user = req.user as any;
+  // An existing Brikvest account holder who signs in here is granted developer
+  // access on their existing account (they keep their investor data) — so anyone
+  // with an account can get into the developer portal by signing in.
+  app.post("/api/developer/login", passport.authenticate("local"), async (req, res) => {
+    let user = req.user as any;
     if (user.role !== "developer") {
-      req.logout(() => res.status(403).json({ message: "Not a developer account. Please use the regular sign-in." }));
-      return;
+      // Only plain investor ("user") accounts may self-enroll as developers —
+      // never convert admin/system roles. The passport LocalStrategy above has
+      // already enforced isActive + rejected/pending account-status handling.
+      if (user.role !== "user") {
+        req.logout(() => res.status(403).json({ message: "This account can't access the developer portal. Please use the appropriate sign-in." }));
+        return;
+      }
+      try {
+        const { TRIAL_DAYS, DEFAULT_PLAN } = await import("@shared/plans");
+        const upgraded = await storage.updateUser(user.id, {
+          role: "developer",
+          plan: user.plan || DEFAULT_PLAN,
+          subscriptionStatus: user.subscriptionStatus || "trialing",
+          trialStartedAt: user.trialStartedAt || new Date(),
+          trialEndsAt: user.trialEndsAt || new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+          teamRole: user.teamRole || "owner",
+        } as any);
+        user = upgraded;
+      } catch (e) {
+        console.error("Failed to grant developer access on login:", e);
+        req.logout(() => res.status(500).json({ message: "Could not enable developer access. Please try again." }));
+        return;
+      }
     }
     const { password: _pw, ...safe } = user;
     res.json(safe);

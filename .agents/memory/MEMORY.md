@@ -1,0 +1,1 @@
+- [Dev server backend reload](dev-server-reload.md) — backend runs tsx (no watch); restart the workflow before testing server/* edits via curl.
