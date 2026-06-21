@@ -8252,6 +8252,461 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   processExpiredResalePayments();
   setInterval(processExpiredResalePayments, 30 * 60 * 1000); // Every 30 minutes
-  
+
+  // ============================================================================
+  // Contractor Portal Routes
+  // ============================================================================
+
+  function requireContractor(req: any, res: any, next: any) {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Contractor authentication required" });
+    }
+    next();
+  }
+
+  // --- Auth ---
+  app.post("/api/contractor/register", async (req, res) => {
+    try {
+      const { contractorRegisterSchema } = await import("@shared/schema");
+      const data = contractorRegisterSchema.parse(req.body);
+      const existing = await storage.getUserByEmail(data.email);
+      if (existing) return res.status(409).json({ message: "An account with this email already exists" });
+      const hashed = await hashPassword(data.password);
+      const user = await storage.createUser({
+        ...data,
+        password: hashed,
+        role: "contractor",
+        accountStatus: "approved",
+        emailVerified: true,
+      });
+      req.login(user, (err) => {
+        if (err) return res.status(500).json({ message: "Login after register failed" });
+        res.status(201).json({ id: user.id, email: user.email, firstName: user.firstName, role: user.role });
+      });
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: err.errors[0]?.message || "Invalid input" });
+      console.error("[contractor/register]", err);
+      res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+  app.post("/api/contractor/login", async (req, res, next) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ message: "Email and password are required" });
+    try {
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(401).json({ message: "Invalid credentials" });
+      const valid = await comparePasswords(password, user.password);
+      if (!valid) return res.status(401).json({ message: "Invalid credentials" });
+      req.login(user, (err) => {
+        if (err) return next(err);
+        res.json({ id: user.id, email: user.email, firstName: user.firstName, role: user.role });
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/contractor/logout", (req, res) => {
+    req.logout(() => res.json({ message: "Logged out" }));
+  });
+
+  app.get("/api/contractor/me", requireContractor, (req, res) => {
+    const u = req.user as any;
+    res.json({ id: u.id, email: u.email, firstName: u.firstName, lastName: u.lastName, phone: u.phone, role: u.role });
+  });
+
+  // --- Projects ---
+  app.get("/api/contractor/projects", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorExpenses } = await import("@shared/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const projects = await db.select().from(contractorProjects).where(eq(contractorProjects.contractorId, contractorId)).orderBy(contractorProjects.createdAt);
+      res.json(projects);
+    } catch (err) {
+      console.error("[contractor/projects GET]", err);
+      res.status(500).json({ message: "Failed to fetch projects" });
+    }
+  });
+
+  app.post("/api/contractor/projects", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, insertContractorProjectSchema } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const body = { ...req.body };
+      if (body.startDate) body.startDate = new Date(body.startDate);
+      if (body.endDate) body.endDate = new Date(body.endDate);
+      const data = insertContractorProjectSchema.parse(body);
+      const contractorId = (req.user as any).id;
+
+      // Generate a unique slug from the project name
+      const base = (data.name as string).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      let slug = base;
+      let attempt = 0;
+      while (true) {
+        const suffix = attempt === 0 ? "" : `-${Math.random().toString(36).slice(2, 6)}`;
+        slug = base + suffix;
+        const existing = await db.select({ id: contractorProjects.id }).from(contractorProjects).where(eq(contractorProjects.slug, slug));
+        if (existing.length === 0) break;
+        attempt++;
+      }
+
+      const [project] = await db.insert(contractorProjects).values({ ...data, contractorId, slug }).returning();
+      res.status(201).json(project);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: err.errors[0]?.message || "Invalid input" });
+      console.error("[contractor/projects POST]", err);
+      res.status(500).json({ message: "Failed to create project" });
+    }
+  });
+
+  app.get("/api/contractor/projects/:slug", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      res.json(project);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch project" });
+    }
+  });
+
+  app.patch("/api/contractor/projects/:slug", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.update(contractorProjects)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId)))
+        .returning();
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      res.json(project);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update project" });
+    }
+  });
+
+  app.delete("/api/contractor/projects/:slug", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorExpenses, contractorBudgetCategories } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const projectId = project.id;
+      await db.delete(contractorExpenses).where(eq(contractorExpenses.projectId, projectId));
+      await db.delete(contractorBudgetCategories).where(eq(contractorBudgetCategories.projectId, projectId));
+      await db.delete(contractorProjects).where(eq(contractorProjects.id, projectId));
+      res.json({ message: "Project deleted" });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete project" });
+    }
+  });
+
+  // --- Budget Categories ---
+  app.get("/api/contractor/projects/:slug/budget", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorBudgetCategories, contractorExpenses } = await import("@shared/schema");
+      const { eq, and, sql } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      const projectId = project?.id;
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const categories = await db.select().from(contractorBudgetCategories)
+        .where(eq(contractorBudgetCategories.projectId, projectId))
+        .orderBy(contractorBudgetCategories.sortOrder);
+      // Spent per category
+      const spentRows = await db.select({
+        categoryId: contractorExpenses.categoryId,
+        total: sql<string>`coalesce(sum(${contractorExpenses.amount}), 0)`,
+      }).from(contractorExpenses).where(eq(contractorExpenses.projectId, projectId)).groupBy(contractorExpenses.categoryId);
+      const spentMap = Object.fromEntries(spentRows.map(r => [r.categoryId, parseFloat(r.total)]));
+      const categoriesWithSpent = categories.map(c => ({ ...c, spent: spentMap[c.id] || 0 }));
+      const totalAllocated = categories.reduce((s, c) => s + parseFloat(c.allocatedAmount || "0"), 0);
+      const totalSpent = Object.values(spentMap).reduce((s, v) => s + v, 0);
+      res.json({ project, categories: categoriesWithSpent, totalAllocated, totalSpent, totalBudget: parseFloat(project.totalBudget || "0") });
+    } catch (err) {
+      console.error("[contractor/budget GET]", err);
+      res.status(500).json({ message: "Failed to fetch budget" });
+    }
+  });
+
+  app.post("/api/contractor/projects/:slug/budget", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorBudgetCategories, insertContractorBudgetCategorySchema } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      const projectId = project?.id;
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const data = insertContractorBudgetCategorySchema.parse({ ...req.body, projectId });
+      const [cat] = await db.insert(contractorBudgetCategories).values(data).returning();
+      res.status(201).json(cat);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: err.errors[0]?.message || "Invalid input" });
+      res.status(500).json({ message: "Failed to add category" });
+    }
+  });
+
+  app.patch("/api/contractor/projects/:slug/budget/:catId", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorBudgetCategories } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [cat] = await db.update(contractorBudgetCategories)
+        .set(req.body)
+        .where(eq(contractorBudgetCategories.id, parseInt(req.params.catId)))
+        .returning();
+      res.json(cat);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update category" });
+    }
+  });
+
+  app.delete("/api/contractor/projects/:slug/budget/:catId", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorBudgetCategories, contractorExpenses } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const catId = parseInt(req.params.catId);
+      // Unlink expenses from this category before deleting
+      await db.update(contractorExpenses).set({ categoryId: null }).where(eq(contractorExpenses.categoryId, catId));
+      await db.delete(contractorBudgetCategories).where(eq(contractorBudgetCategories.id, catId));
+      res.json({ message: "Category deleted" });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete category" });
+    }
+  });
+
+  // --- Expenses ---
+  app.get("/api/contractor/projects/:slug/expenses", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorExpenses, contractorBudgetCategories } = await import("@shared/schema");
+      const { eq, and, desc } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      const projectId = project?.id;
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const expenses = await db.select({
+        expense: contractorExpenses,
+        categoryName: contractorBudgetCategories.name,
+        categoryColor: contractorBudgetCategories.color,
+      }).from(contractorExpenses)
+        .leftJoin(contractorBudgetCategories, eq(contractorExpenses.categoryId, contractorBudgetCategories.id))
+        .where(eq(contractorExpenses.projectId, projectId))
+        .orderBy(desc(contractorExpenses.expenseDate));
+      res.json(expenses.map(r => ({ ...r.expense, categoryName: r.categoryName, categoryColor: r.categoryColor })));
+    } catch (err) {
+      console.error("[contractor/expenses GET]", err);
+      res.status(500).json({ message: "Failed to fetch expenses" });
+    }
+  });
+
+  app.post("/api/contractor/projects/:slug/expenses", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorExpenses, insertContractorExpenseSchema } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      const projectId = project?.id;
+      if (!project) return res.status(404).json({ message: "Project not found" });
+      const body = { ...req.body, projectId };
+      if (body.expenseDate) body.expenseDate = new Date(body.expenseDate);
+      const data = insertContractorExpenseSchema.parse(body);
+      const [expense] = await db.insert(contractorExpenses).values(data).returning();
+      res.status(201).json(expense);
+    } catch (err: any) {
+      if (err.name === "ZodError") return res.status(400).json({ message: err.errors[0]?.message || "Invalid input" });
+      console.error("[contractor/expenses POST]", err);
+      res.status(500).json({ message: "Failed to log expense" });
+    }
+  });
+
+  app.patch("/api/contractor/projects/:slug/expenses/:expId", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorExpenses } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [expense] = await db.update(contractorExpenses)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(contractorExpenses.id, parseInt(req.params.expId)))
+        .returning();
+      res.json(expense);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update expense" });
+    }
+  });
+
+  app.delete("/api/contractor/projects/:slug/expenses/:expId", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorExpenses } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.delete(contractorExpenses).where(eq(contractorExpenses.id, parseInt(req.params.expId)));
+      res.json({ message: "Expense deleted" });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+
+  // --- AI Receipt Extraction ---
+  app.post("/api/contractor/extract-receipt", requireContractor, upload.single("receipt"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+      let imageBase64: string;
+      let mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "application/pdf";
+      const mime = req.file.mimetype;
+
+      if (mime === "application/pdf") {
+        // For PDFs, use Claude's document support
+        imageBase64 = req.file.buffer.toString("base64");
+        mediaType = "application/pdf";
+      } else {
+        imageBase64 = req.file.buffer.toString("base64");
+        mediaType = (mime as any) || "image/jpeg";
+      }
+
+      const prompt = `You are a receipt data extractor. Analyze this receipt/invoice and extract the following in JSON format only, no explanation:
+{
+  "vendor": "name of the vendor/supplier/seller",
+  "amount": number (total amount paid, digits only),
+  "currency": "3-letter currency code e.g. NGN, USD, GBP",
+  "date": "YYYY-MM-DD format",
+  "description": "brief description of what was purchased",
+  "paymentMethod": "cash|bank_transfer|card|cheque|other",
+  "reference": "transaction reference or receipt number if visible",
+  "confidence": number between 0 and 1 indicating extraction confidence
+}
+If a field is not visible or unclear, use null. Return ONLY valid JSON.`;
+
+      const contentItem = mime === "application/pdf"
+        ? { type: "document" as const, source: { type: "base64" as const, media_type: mediaType as "application/pdf", data: imageBase64 } }
+        : { type: "image" as const, source: { type: "base64" as const, media_type: mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: imageBase64 } };
+
+      const message = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: [contentItem, { type: "text", text: prompt }] }],
+      });
+
+      const text = (message.content[0] as any).text || "";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(422).json({ message: "Could not extract data from receipt" });
+      const extracted = JSON.parse(jsonMatch[0]);
+
+      // Upload receipt to Cloudinary
+      const uploadResult = await uploadToCloudinary(req.file.buffer, req.file.originalname, "contractor-receipts");
+
+      res.json({
+        extracted,
+        receiptUrl: uploadResult.url,
+        receiptType: mime === "application/pdf" ? "pdf" : "image",
+      });
+    } catch (err: any) {
+      console.error("[contractor/extract-receipt]", err);
+      const msg = err?.error?.error?.message || err?.message || "";
+      if (msg.includes("credit balance") || msg.includes("billing")) {
+        return res.status(402).json({ message: "AI extraction unavailable — insufficient API credits. Fill in the details manually." });
+      }
+      res.status(500).json({ message: "Could not read receipt. Please fill in the details manually." });
+    }
+  });
+
+  // --- Analysis ---
+  app.get("/api/contractor/projects/:slug/analysis", requireContractor, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { contractorProjects, contractorExpenses, contractorBudgetCategories } = await import("@shared/schema");
+      const { eq, and, sql, gte } = await import("drizzle-orm");
+      const contractorId = (req.user as any).id;
+      const [project] = await db.select().from(contractorProjects).where(
+        and(eq(contractorProjects.slug, req.params.slug), eq(contractorProjects.contractorId, contractorId))
+      );
+      const projectId = project?.id;
+      if (!project) return res.status(404).json({ message: "Project not found" });
+
+      const expenses = await db.select().from(contractorExpenses).where(eq(contractorExpenses.projectId, projectId));
+      const categories = await db.select().from(contractorBudgetCategories).where(eq(contractorBudgetCategories.projectId, projectId));
+
+      // Category breakdown
+      const categoryMap = Object.fromEntries(categories.map(c => [c.id, c]));
+      const categorySpend: Record<number, number> = {};
+      expenses.forEach(e => {
+        if (e.categoryId) categorySpend[e.categoryId] = (categorySpend[e.categoryId] || 0) + parseFloat(e.amount);
+      });
+
+      // Monthly burn (last 12 months)
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+      twelveMonthsAgo.setDate(1);
+      const monthlyExpenses = expenses.filter(e => new Date(e.expenseDate) >= twelveMonthsAgo);
+      const monthlyMap: Record<string, number> = {};
+      monthlyExpenses.forEach(e => {
+        const key = new Date(e.expenseDate).toISOString().slice(0, 7); // YYYY-MM
+        monthlyMap[key] = (monthlyMap[key] || 0) + parseFloat(e.amount);
+      });
+      const burnRate = Object.entries(monthlyMap).sort().map(([month, amount]) => ({ month, amount }));
+
+      // Payment method breakdown
+      const methodMap: Record<string, number> = {};
+      expenses.forEach(e => {
+        const m = e.paymentMethod || "other";
+        methodMap[m] = (methodMap[m] || 0) + parseFloat(e.amount);
+      });
+
+      const totalSpent = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
+      const totalBudget = parseFloat(project.totalBudget || "0");
+      const totalAllocated = categories.reduce((s, c) => s + parseFloat(c.allocatedAmount || "0"), 0);
+
+      res.json({
+        totalBudget,
+        totalAllocated,
+        totalSpent,
+        remaining: totalBudget - totalSpent,
+        categoryBreakdown: categories.map(c => ({
+          id: c.id,
+          name: c.name,
+          color: c.color,
+          allocated: parseFloat(c.allocatedAmount || "0"),
+          spent: categorySpend[c.id] || 0,
+        })),
+        burnRate,
+        paymentMethods: Object.entries(methodMap).map(([method, amount]) => ({ method, amount })),
+        expenseCount: expenses.length,
+      });
+    } catch (err) {
+      console.error("[contractor/analysis GET]", err);
+      res.status(500).json({ message: "Failed to fetch analysis" });
+    }
+  });
+
   return httpServer;
 }
