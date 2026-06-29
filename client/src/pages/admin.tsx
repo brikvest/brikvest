@@ -448,6 +448,32 @@ function AdminInvestmentsTab({
     },
   });
 
+  const reinstateInvestmentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await authenticatedRequest(`/api/admin/investments/${id}/reinstate`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      toast({
+        title: "Investment reinstated",
+        description: data?.certificateNumber
+          ? `Confirmed as investment. Certificate ${data.certificateNumber} issued and the investor has been emailed.`
+          : "Reservation reinstated and confirmed as an investment.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Reinstate failed",
+        description: error.message || "Failed to reinstate reservation",
+        variant: "destructive",
+      });
+    },
+  });
+
   const cancelInvestmentMutation = useMutation({
     mutationFn: async (id: number) => {
       return await authenticatedRequest(`/api/admin/investments/${id}/cancel`, {
@@ -986,6 +1012,22 @@ function AdminInvestmentsTab({
             >
               Invested ({reservations.filter(r => r.status === "converted_to_investment").length})
             </Button>
+            <Button
+              variant={statusFilter === "expired" ? "default" : "outline"}
+              onClick={() => setStatusFilter("expired")}
+              size="sm"
+              data-testid="filter-expired"
+            >
+              Expired ({reservations.filter(r => r.status === "expired").length})
+            </Button>
+            <Button
+              variant={statusFilter === "cancelled" ? "default" : "outline"}
+              onClick={() => setStatusFilter("cancelled")}
+              size="sm"
+              data-testid="filter-cancelled"
+            >
+              Cancelled ({reservations.filter(r => r.status === "cancelled").length})
+            </Button>
           </div>
 
           <Card>
@@ -1089,6 +1131,20 @@ function AdminInvestmentsTab({
                                     >
                                       <XCircle className="h-4 w-4 mr-2" />
                                       {reservation.status === "converted_to_investment" ? "Revert & Cancel" : "Cancel Reservation"}
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {(reservation.status === "expired" || reservation.status === "cancelled") && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => reinstateInvestmentMutation.mutate(reservation.id)}
+                                      disabled={reinstateInvestmentMutation.isPending}
+                                      className="text-emerald-600 focus:text-emerald-600"
+                                      data-testid={`menu-reinstate-${reservation.id}`}
+                                    >
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Reinstate as investment
                                     </DropdownMenuItem>
                                   </>
                                 )}

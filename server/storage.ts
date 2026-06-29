@@ -183,6 +183,7 @@ export interface IStorage {
   getAllReservations(): Promise<InvestmentReservation[]>;
   getReservation(id: number): Promise<InvestmentReservation | undefined>;
   updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
+  reinstateReservationIfEligible(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation | null>;
   createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder>;
   getReservationReminders(reservationId: number): Promise<ReservationReminder[]>;
   getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]>;
@@ -828,6 +829,34 @@ export class DatabaseStorage implements IStorage {
       .where(eq(investmentReservations.id, id))
       .returning();
     return updated;
+  }
+
+  // Atomically claim an expired/cancelled reservation for reinstatement. The
+  // status guard lives in the WHERE clause so two concurrent reinstate requests
+  // (or a double-click) cannot both succeed and double-count sold units — only
+  // the first one matches a row; the rest get null and must abort.
+  async reinstateReservationIfEligible(
+    id: number,
+    updates: Partial<InvestmentReservation>,
+  ): Promise<InvestmentReservation | null> {
+    const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.status != null && updates.funnelStage === undefined) {
+      merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+    }
+    const [updated] = await db
+      .update(investmentReservations)
+      .set(merged)
+      .where(
+        and(
+          eq(investmentReservations.id, id),
+          inArray(investmentReservations.status, ['expired', 'cancelled']),
+        ),
+      )
+      .returning();
+    return updated ?? null;
   }
 
   async createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder> {
