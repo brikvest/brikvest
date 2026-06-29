@@ -1593,6 +1593,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reinstate an expired/cancelled reservation and confirm it as an investment.
+  // For off-platform payers who let the reservation window lapse: an admin who has
+  // verified the payment can restore the reservation. Unlike /confirm, the units
+  // were already released back to the pool on expiry/cancel, so we only add to
+  // soldUnits (no reserved delta) and re-check capacity before committing.
+  app.post('/api/admin/investments/:id/reinstate', requireAdminAuth, async (req, res) => {
+    try {
+      const reservationId = parseInt(req.params.id);
+
+      const reservation = await storage.getReservation(reservationId);
+      if (!reservation) {
+        return res.status(404).json({ error: "Reservation not found" });
+      }
+
+      if (reservation.status === 'converted_to_investment') {
+        return res.status(400).json({ error: "This reservation is already a confirmed investment." });
+      }
+      if (reservation.status !== 'expired' && reservation.status !== 'cancelled') {
+        return res.status(400).json({ error: "Only expired or cancelled reservations can be reinstated. Use Confirm for active reservations." });
+      }
+
+      // KYC gate (mirrors /confirm)
+      if (reservation.userId) {
+        const user = await storage.getUser(reservation.userId);
+        if (user && user.kycStatus !== 'approved') {
+          return res.status(400).json({ error: "Cannot reinstate. User KYC must be approved first." });
+        }
+      }
+
+      const property = await storage.getProperty(reservation.propertyId);
+      if (!property) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+
+      const units = typeof reservation.units === 'string'
+        ? parseFloat(reservation.units)
+        : Number(reservation.units) || 0;
+
+      // Expired/cancelled units were released, so confirm capacity is still free.
+      const available = (property.totalSlots && property.totalSlots > 0)
+        ? (property.availableSlots || 0)
+        : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
+      if (units > available) {
+        return res.status(400).json({ error: `Not enough units available to reinstate. Only ${available} unit(s) remain.` });
+      }
+
+      const adminId = (req.user as any).userId;
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const reinstateRef = reservation.paymentReference
+        || `ADM-${dateStamp.replace(/-/g, '')}-${randomBytes(3).toString('hex').toUpperCase()}`;
+      const reinstateNote = `${reservation.notes ? reservation.notes + ' | ' : ''}Reinstated from ${reservation.status} & confirmed by admin (off-platform payment verified) on ${dateStamp}`;
+
+      // Atomically claim the reservation: this only succeeds if it is still
+      // expired/cancelled, so two concurrent requests (or a double-click) cannot
+      // both flip it and double-count sold units. The loser gets null and aborts
+      // before any unit-count mutation runs.
+      const claimed = await storage.reinstateReservationIfEligible(reservationId, {
+        status: 'converted_to_investment',
+        funnelStage: null,
+        expiresAt: null,
+        paymentReference: reinstateRef,
+        paymentMethod: reservation.paymentMethod || 'bank_transfer',
+        notes: reinstateNote,
+      });
+      if (!claimed) {
+        return res.status(409).json({ error: "This reservation was just reinstated by another request." });
+      }
+
+      // Only add to sold — reserved was already decremented when it expired/cancelled.
+      await storage.updatePropertyUnitCounts(reservation.propertyId, 0, units);
+
+      // Generate an ownership certificate if one doesn't already exist.
+      let certificate = await storage.getCertificateByReservationId(reservationId);
+      if (!certificate) {
+        try {
+          const verificationToken = randomBytes(32).toString('hex');
+          const certificateNumber = await storage.getNextCertificateNumber();
+          certificate = await storage.createOwnershipCertificate({
+            reservationId,
+            certificateNumber,
+            verificationToken,
+            ownerName: reservation.fullName,
+            propertyName: property.name,
+            propertyLocation: property.location,
+            spvName: property.spvName || null,
+            units: reservation.units.toString(),
+            amount: reservation.amount.toString(),
+            currency: reservation.currency,
+            issuedByAdminId: adminId,
+          });
+          console.log(`[CERTIFICATE] Generated certificate ${certificateNumber} for reinstated reservation ${reservationId}`);
+        } catch (certError) {
+          console.error("Error generating certificate on reinstate:", certError);
+        }
+      }
+
+      // Notify the investor with the same confirmation email used by /confirm.
+      try {
+        const emailContent = investmentConfirmedEmailTemplate({
+          fullName: reservation.fullName,
+          propertyName: property.name,
+          units,
+          amount: reservation.amount,
+          currency: reservation.currency,
+          certificateNumber: certificate?.certificateNumber,
+        });
+        await sendEmail({
+          to: reservation.email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+        });
+      } catch (emailError) {
+        console.error("Error sending reinstate confirmation email:", emailError);
+      }
+
+      res.json({
+        message: "Reservation reinstated and confirmed as investment",
+        certificateNumber: certificate?.certificateNumber,
+      });
+    } catch (error) {
+      console.error("Error reinstating reservation:", error);
+      res.status(500).json({ error: "Failed to reinstate reservation" });
+    }
+  });
+
   // Update investment reservation details
   app.put('/api/admin/investments/:id', requireAdminAuth, async (req, res) => {
     try {
