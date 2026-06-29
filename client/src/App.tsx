@@ -24,6 +24,12 @@ import DeveloperCommunications from "@/pages/developer/communications";
 import DeveloperProfile from "@/pages/developer/profile";
 import DeveloperTeam from "@/pages/developer/team";
 import DeveloperAcceptInvite from "@/pages/developer/accept-invite";
+import ContractorLogin from "@/pages/contractor/login";
+import ContractorSignup from "@/pages/contractor/signup";
+import ContractorDashboard from "@/pages/contractor/index";
+import ContractorNewProject from "@/pages/contractor/new-project";
+import ContractorProjectDetail from "@/pages/contractor/project-detail";
+import ContractorProfile from "@/pages/contractor/profile";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -49,6 +55,12 @@ function Router() {
       <Route path="/developer/accept-invite/:token" component={DeveloperAcceptInvite} />
       <Route path="/developer/projects/:id" component={DeveloperProjectDetail} />
       <Route path="/developer" component={DeveloperProjects} />
+      <Route path="/contractor/login" component={ContractorLogin} />
+      <Route path="/contractor/signup" component={ContractorSignup} />
+      <Route path="/contractor/new" component={ContractorNewProject} />
+      <Route path="/contractor/profile" component={ContractorProfile} />
+      <Route path="/contractor/projects/:id" component={ContractorProjectDetail} />
+      <Route path="/contractor" component={ContractorDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

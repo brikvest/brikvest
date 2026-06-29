@@ -1122,3 +1122,118 @@ export type InsertReservationReminder = z.infer<typeof insertReservationReminder
 
 export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
 
+// ============================================================================
+// Contractor Portal — Projects, Budget, Expenses
+// ============================================================================
+
+export const contractorProjects = pgTable("contractor_projects", {
+  id: serial("id").primaryKey(),
+  contractorId: integer("contractor_id").notNull().references(() => users.id),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  location: text("location"),
+  projectType: text("project_type").notNull().default("residential"), // 'residential' | 'commercial' | 'infrastructure' | 'renovation' | 'other'
+  currency: text("currency").notNull().default("NGN"),
+  totalBudget: decimal("total_budget", { precision: 20, scale: 2 }),
+  status: text("status").notNull().default("active"), // 'active' | 'completed' | 'on_hold' | 'cancelled'
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  clientName: text("client_name"),
+  clientPhone: text("client_phone"),
+  clientEmail: text("client_email"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const contractorBudgetCategories = pgTable("contractor_budget_categories", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => contractorProjects.id),
+  name: text("name").notNull(), // e.g. 'Foundation', 'Labour', 'Materials'
+  allocatedAmount: decimal("allocated_amount", { precision: 20, scale: 2 }).notNull().default("0"),
+  color: text("color"), // hex color for charts
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const contractorExpenses = pgTable("contractor_expenses", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => contractorProjects.id),
+  categoryId: integer("category_id").references(() => contractorBudgetCategories.id),
+  vendor: text("vendor"),
+  description: text("description"),
+  amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  expenseDate: timestamp("expense_date").notNull(),
+  paymentMethod: text("payment_method"), // 'cash' | 'bank_transfer' | 'card' | 'cheque' | 'other'
+  reference: text("reference"),
+  receiptUrl: text("receipt_url"), // Cloudinary URL
+  receiptType: text("receipt_type"), // 'image' | 'pdf'
+  // AI extraction data — raw output from Claude Vision
+  aiExtracted: jsonb("ai_extracted").$type<{
+    vendor?: string;
+    amount?: number;
+    date?: string;
+    description?: string;
+    confidence?: number;
+  }>(),
+  status: text("status").notNull().default("confirmed"), // 'pending_review' | 'confirmed'
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Relations
+export const contractorProjectsRelations = relations(contractorProjects, ({ one, many }) => ({
+  contractor: one(users, { fields: [contractorProjects.contractorId], references: [users.id] }),
+  budgetCategories: many(contractorBudgetCategories),
+  expenses: many(contractorExpenses),
+}));
+
+export const contractorBudgetCategoriesRelations = relations(contractorBudgetCategories, ({ one, many }) => ({
+  project: one(contractorProjects, { fields: [contractorBudgetCategories.projectId], references: [contractorProjects.id] }),
+  expenses: many(contractorExpenses),
+}));
+
+export const contractorExpensesRelations = relations(contractorExpenses, ({ one }) => ({
+  project: one(contractorProjects, { fields: [contractorExpenses.projectId], references: [contractorProjects.id] }),
+  category: one(contractorBudgetCategories, { fields: [contractorExpenses.categoryId], references: [contractorBudgetCategories.id] }),
+}));
+
+// Insert schemas
+export const insertContractorProjectSchema = createInsertSchema(contractorProjects).omit({
+  id: true,
+  slug: true,
+  contractorId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertContractorBudgetCategorySchema = createInsertSchema(contractorBudgetCategories).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertContractorExpenseSchema = createInsertSchema(contractorExpenses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const contractorRegisterSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  phone: z.string().min(5, "Phone is required"),
+});
+
+// Types
+export type ContractorProject = typeof contractorProjects.$inferSelect;
+export type InsertContractorProject = z.infer<typeof insertContractorProjectSchema>;
+export type ContractorBudgetCategory = typeof contractorBudgetCategories.$inferSelect;
+export type InsertContractorBudgetCategory = z.infer<typeof insertContractorBudgetCategorySchema>;
+export type ContractorExpense = typeof contractorExpenses.$inferSelect;
+export type InsertContractorExpense = z.infer<typeof insertContractorExpenseSchema>;
+export type ContractorRegister = z.infer<typeof contractorRegisterSchema>;
+
