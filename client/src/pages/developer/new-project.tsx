@@ -102,23 +102,23 @@ function devTypeNouns(propertyType: string) {
   }
   // default: land / estate
   return {
-    singular: "plot",
-    plural: "plots",
-    Plural: "Plots",
-    retainedLabel: "Developer-retained plots",
+    singular: "fractional plot",
+    plural: "fractional plots",
+    Plural: "Fractional plots",
+    retainedLabel: "Developer-retained fractional plots",
     retainedHelp:
-      "Plots you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
+      "Fractional plots you keep for yourself or your team — your sweat equity. These are removed from what's available to investors.",
     resaleHelp:
-      "When ON, investors who buy plots can later list those plots for resale to other approved Brikvest members.",
+      "When ON, investors who buy fractional plots can later list those fractional plots for resale to other approved Brikvest members.",
     // Per-type rows
-    sectionTitle: "Plot sizes & pricing",
+    sectionTitle: "Fractional plot sizes & pricing",
     sectionHelp:
-      "List each plot size you're selling — for example 500 sqm, 1000 sqm. Add a row for every size with how many plots you have and the price each.",
-    typeLabel: "Plot size",
+      "List each fractional plot size you're selling — for example 500 sqm, 1000 sqm. Add a row for every size with how many fractional plots you have and the price each.",
+    typeLabel: "Fractional plot size",
     typePlaceholder: "e.g. 500 sqm",
-    qtyLabel: "How many plots",
+    qtyLabel: "How many fractional plots",
     pricePlaceholder: "5000000",
-    addRowLabel: "Add another plot size",
+    addRowLabel: "Add another fractional plot size",
   };
 }
 
@@ -553,7 +553,7 @@ export default function NewProjectWizard() {
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <Label className="text-sm">{nouns.sectionTitle} *</Label>
-                  <span className="text-xs text-slate-500">Add a row per {nouns.singular === "plot" ? "size" : "type"}</span>
+                  <span className="text-xs text-slate-500">Add a row per {nouns.singular === "fractional plot" ? "size" : "type"}</span>
                 </div>
                 <p className="text-xs text-slate-500 mb-3">{nouns.sectionHelp}</p>
 

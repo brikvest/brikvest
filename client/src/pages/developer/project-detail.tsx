@@ -2121,7 +2121,7 @@ function SortableMediaThumb({
 function unitNoun(propertyType?: string): { singular: string; plural: string; Plural: string } {
   switch ((propertyType || "").toLowerCase()) {
     case "land":
-      return { singular: "plot", plural: "plots", Plural: "Plots" };
+      return { singular: "fractional plot", plural: "fractional plots", Plural: "Fractional plots" };
     case "residential":
       return { singular: "apartment", plural: "apartments", Plural: "Apartments" };
     case "commercial":
@@ -3252,7 +3252,7 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
   const availablePct = pct(availableUnits);
   const otherUnits = Math.max(0, totalUnits - investorUnits - availableUnits);
   const data = [
-    { name: "Fraction owners", value: soldPct,      fill: "#2563eb" },
+    { name: "Fractional owners", value: soldPct,      fill: "#2563eb" },
     ...(otherUnits > 0 ? [{ name: "Reserved / other", value: pct(otherUnits), fill: "#f59e0b" }] : []),
     { name: "Available",       value: availablePct, fill: "#cbd5e1" },
   ];
@@ -3293,14 +3293,14 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
             <RowKV label="Total units" value={String(totalUnits)} />
             <RowKV label="Units owned by investors" value={String(investorUnits)} />
             <RowKV label="Available units" value={String(rollup?.sales?.availableUnits || 0)} />
-            <RowKV label="Fraction owners" value={String(cap.shareholderCount || 0)} />
+            <RowKV label="Fractional owners" value={String(cap.shareholderCount || 0)} />
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Fraction owners</CardTitle>
+          <CardTitle>Fractional owners</CardTitle>
           <CardDescription>People who have bought fractions of this land and their percentage ownership.</CardDescription>
         </CardHeader>
         <CardContent>
