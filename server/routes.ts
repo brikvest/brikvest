@@ -136,6 +136,24 @@ function calculateReferralReward(referralCount: number): number {
   return reward;
 }
 
+// Pro-rata due-diligence fee share for one reservation:
+// fee × (sqm owned ÷ total land sqm), rounded to 2dp. Returns a string
+// snapshot (property currency) or null when the fee doesn't apply.
+function computeDueDiligenceFeeShare(
+  property: any,
+  chosenType: { sqm?: number; [key: string]: any } | null | undefined,
+  units: number,
+): string | null {
+  const ddFee = Number(property?.dueDiligenceFee) || 0;
+  const landSqm = Number(property?.landSizeSqm) || 0;
+  const typeSqm = chosenType ? Number((chosenType as any).sqm) || 0 : 0;
+  if (ddFee > 0 && landSqm > 0 && typeSqm > 0 && units > 0) {
+    const ownedSqm = typeSqm * units;
+    return (Math.round(ddFee * (ownedSqm / landSqm) * 100) / 100).toFixed(2);
+  }
+  return null;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup email/password authentication
   setupAuth(app);
@@ -1346,7 +1364,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate amount - use unitPrice if available, otherwise use minInvestment
       const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
-      const amount = Math.round(units * unitPriceSnapshot);
+      // Attribute to the single configured unit type (if any) so the
+      // due-diligence fee share can be computed for admin-created reservations.
+      const adminCfgTypes: any[] = Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const adminChosenType = adminCfgTypes.length === 1 ? adminCfgTypes[0] : null;
+      const adminFeeShare = computeDueDiligenceFeeShare(property, adminChosenType, units);
+      const amount = Math.round(units * unitPriceSnapshot) + (adminFeeShare ? Number(adminFeeShare) : 0);
 
       // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
       const investmentCurrency = property.currency || 'NGN';
@@ -1360,9 +1383,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: user.email,
         phone: user.phone || '',
         units: units.toString(),
-        amount,
+        amount: String(amount),
         currency: investmentCurrency,
-        unitPriceSnapshot,
+        unitPriceSnapshot: String(unitPriceSnapshot),
+        unitTypeLabel: adminChosenType ? adminChosenType.label : null,
+        dueDiligenceFeeShare: adminFeeShare,
         status: 'reserved',
         paymentMethod: paymentMethod || null,
         paymentReference: paymentReference || null,
@@ -2319,13 +2344,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Pro-rata due-diligence fee: fee × (sqm owned ÷ total land sqm).
       // e.g. owning 125 sqm of a 250 sqm land = 50% of the fee.
-      let dueDiligenceFeeShare: string | null = null;
-      const ddFee = Number((property as any).dueDiligenceFee) || 0;
-      const landSqm = Number((property as any).landSizeSqm) || 0;
-      const typeSqm = chosenType ? Number((chosenType as any).sqm) || 0 : 0;
-      if (ddFee > 0 && landSqm > 0 && typeSqm > 0) {
-        const ownedSqm = typeSqm * units;
-        dueDiligenceFeeShare = (Math.round(ddFee * (ownedSqm / landSqm) * 100) / 100).toFixed(2);
+      const dueDiligenceFeeShare = computeDueDiligenceFeeShare(property, chosenType, units);
+
+      // reservation.amount is the single source of truth for what the buyer
+      // pays: land cost + due-diligence fee share. Recompute server-side when
+      // we know the unit price so downstream payment/email flows are correct.
+      let totalAmount = reservationData.amount;
+      if (chosenType) {
+        const landCost = Number(chosenType.price) * units;
+        totalAmount = String(
+          Math.round((landCost + (dueDiligenceFeeShare ? Number(dueDiligenceFeeShare) : 0)) * 100) / 100
+        );
       }
 
       const sanitizedReservationData = {
@@ -2333,6 +2362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currency: investmentCurrency, // Override any user-provided currency with property's currency
         unitTypeLabel: chosenType ? chosenType.label : null,
         dueDiligenceFeeShare,
+        amount: totalAmount,
         unitPriceSnapshot: chosenType
           ? String(chosenType.price)
           : reservationData.unitPriceSnapshot,
@@ -2351,7 +2381,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Send confirmation email
       try {
-        const investmentAmount = units * property.minInvestment;
+        // Use the actual reservation total (land cost + due-diligence fee share)
+        const investmentAmount = Number(reservation.amount) || units * property.minInvestment;
         const emailTemplate = investmentEmailTemplate({
           fullName: reservationData.fullName,
           propertyName: property.name,
@@ -3438,6 +3469,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
           unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
+          dueDiligenceFee: property.dueDiligenceFee
+            ? convertCurrency(property.dueDiligenceFee, storedCurrency, userCurrency, rates)
+            : property.dueDiligenceFee,
           userCurrency,
           originalMinInvestment,
           originalUnitPrice,
@@ -7262,9 +7296,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const unitPriceSnapshot = chosenType
         ? Number(chosenType.price)
         : ((property as any).unitPrice || (property as any).minInvestment || 0);
+      const devFeeShare = computeDueDiligenceFeeShare(property, chosenType, unitsNum);
       const amount = amountInput !== null && Number.isFinite(amountInput) && amountInput > 0
         ? amountInput
-        : Math.round(unitsNum * Number(unitPriceSnapshot));
+        : Math.round(unitsNum * Number(unitPriceSnapshot)) + (devFeeShare ? Number(devFeeShare) : 0);
       if (!amount || amount <= 0) {
         return res.status(400).json({ message: "Amount must be a positive number" });
       }
@@ -7320,6 +7355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         currency: (property as any).currency || "NGN",
         unitPriceSnapshot: String(unitPriceSnapshot || 0),
         unitTypeLabel,
+        dueDiligenceFeeShare: devFeeShare,
         status: "converted_to_investment",
         paymentMethod,
         paymentReference: `DEV-${paymentDate.replace(/-/g, "")}-${randomBytes(3).toString("hex").toUpperCase()}`,
@@ -7594,7 +7630,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (units > availableUnits) {
         return res.status(400).json({ message: `Only ${availableUnits} unit(s) available` });
       }
-      const amount = units * unitPrice;
+      // Attribute to the single configured unit type (if any) so the
+      // due-diligence fee share applies to lead conversions too.
+      const leadCfgTypes: any[] = Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const leadChosenType = leadCfgTypes.length === 1 ? leadCfgTypes[0] : null;
+      const leadFeeShare = computeDueDiligenceFeeShare(property, leadChosenType, units);
+      const amount = units * unitPrice + (leadFeeShare ? Number(leadFeeShare) : 0);
       const reservation = await storage.createInvestmentReservation({
         propertyId,
         userId: null,
@@ -7605,6 +7646,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         amount: String(amount),
         currency: property.currency || "NGN",
         unitPriceSnapshot: String(unitPrice),
+        unitTypeLabel: leadChosenType ? leadChosenType.label : null,
+        dueDiligenceFeeShare: leadFeeShare,
         status: "reserved",
         notes: `Converted from CRM lead #${lead.id}${lead.notes ? ` — ${lead.notes}` : ""}`,
       });
@@ -8339,10 +8382,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.body?.fee !== null && (isNaN(fee) || fee < 0)) {
         return res.status(400).json({ message: "Fee must be a non-negative number (or null to clear)" });
       }
-      const updated = await storage.updateProperty(propertyId, {
-        ...property,
+      const updated = await storage.updatePropertyFields(propertyId, {
         dueDiligenceFee: req.body?.fee === null || fee === 0 ? null : String(fee),
-      } as InsertProperty);
+      });
       res.json(updated);
     } catch (err) {
       console.error(err);
