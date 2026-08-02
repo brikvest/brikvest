@@ -2866,6 +2866,7 @@ function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [rejecting, setRejecting] = useState<any>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [deleting, setDeleting] = useState<any>(null);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const emptyOnboardForm = {
     email: "", firstName: "", lastName: "", phone: "",
@@ -2893,6 +2894,31 @@ function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest
       toast({ title: vars.stage === "rejected" ? "Developer rejected" : "Stage updated" });
     },
     onError: (e: any) => toast({ title: "Failed to update stage", description: String(e?.message || ""), variant: "destructive" }),
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-onboarding/${id}/revoke-invite`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      toast({ title: "Invite revoked", description: "The emailed password-setup link no longer works." });
+    },
+    onError: (e: any) => toast({ title: "Failed to revoke invite", description: String(e?.message || ""), variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-onboarding/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      toast({ title: "Developer deleted" });
+    },
+    onError: (e: any) => {
+      const raw = String(e?.message || "").replace(/^\d+:\s*/, "");
+      let msg = raw;
+      try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
+      toast({ title: "Can't delete developer", description: msg, variant: "destructive" });
+    },
   });
 
   const onboardMutation = useMutation({
@@ -2980,6 +3006,7 @@ function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-900">{d.companyName || "—"}</span>
                           <Badge className={meta.color}>{meta.label}</Badge>
+                          {d.invitePending && <Badge className="bg-purple-100 text-purple-700">Invite pending</Badge>}
                         </div>
                         <div className="text-sm text-slate-600 mt-0.5">
                           {d.firstName} {d.lastName} · {d.email}{d.phone ? ` · ${d.phone}` : ""}
@@ -3029,6 +3056,31 @@ function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest
                           <RefreshCw className="w-4 h-4 mr-1.5" /> Re-review
                         </Button>
                       )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-slate-500" data-testid={`button-onboarding-more-${d.id}`}>
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {d.invitePending && (
+                            <DropdownMenuItem
+                              onClick={() => revokeInviteMutation.mutate(d.id)}
+                              disabled={revokeInviteMutation.isPending}
+                              data-testid={`menu-revoke-invite-${d.id}`}
+                            >
+                              <XCircle className="w-4 h-4 mr-2" /> Revoke invite link
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="text-rose-600 focus:text-rose-600"
+                            onClick={() => setDeleting(d)}
+                            data-testid={`menu-delete-dev-${d.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete developer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </CardContent>
@@ -3059,6 +3111,28 @@ function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.companyName || deleting?.email}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the developer account{deleting?.invitePending ? " and cancels the pending invite" : ""}. It only works when they have no projects or linked records — otherwise consider rejecting them instead. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={() => { deleteMutation.mutate(deleting.id); setDeleting(null); }}
+              data-testid="button-confirm-delete-dev"
+            >
+              Delete developer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Onboard-on-behalf dialog */}
       <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>

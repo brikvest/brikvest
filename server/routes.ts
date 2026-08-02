@@ -8300,6 +8300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bankAccountNumber: d.bankAccountNumber,
           onboardingStage: d.onboardingStage || "submitted",
           onboardingRejectionReason: d.onboardingRejectionReason,
+          invitePending: !!(d.resetToken && d.resetTokenExpiry && new Date(d.resetTokenExpiry) > new Date()),
           createdAt: d.createdAt,
           projectCount: projects.length,
           firstProject: projects[0]
@@ -8348,6 +8349,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to update onboarding stage" });
+    }
+  });
+
+  // Revoke a pending password-setup invite (kills the emailed link; account stays)
+  app.post("/api/admin/developer-onboarding/:id/revoke-invite", requireAdminAuth, async (req: any, res) => {
+    try {
+      const devId = parseInt(req.params.id);
+      const dev: any = await storage.getUser(devId);
+      if (!dev || dev.role !== "developer") return res.status(404).json({ message: "Developer not found" });
+      if (!dev.resetToken) return res.status(409).json({ message: "No pending invite to revoke" });
+      await storage.updateUser(devId, { resetToken: null, resetTokenExpiry: null } as any);
+      res.json({ message: "Invite revoked" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to revoke invite" });
+    }
+  });
+
+  // Delete a developer from the onboarding pipeline.
+  // Only allowed when they have no projects — otherwise reject to protect data.
+  app.delete("/api/admin/developer-onboarding/:id", requireAdminAuth, async (req: any, res) => {
+    try {
+      const devId = parseInt(req.params.id);
+      const dev: any = await storage.getUser(devId);
+      if (!dev || dev.role !== "developer") return res.status(404).json({ message: "Developer not found" });
+      const projects = await storage.getPropertiesByDeveloper(devId);
+      if (projects.length > 0) {
+        return res.status(409).json({ message: `This developer has ${projects.length} project(s). Take over or delete their projects first.` });
+      }
+      try {
+        await storage.deleteUser(devId);
+      } catch (e: any) {
+        // FK constraint — the account has other linked records (investments, team, etc.)
+        return res.status(409).json({ message: "This account has linked records (investments, team members, etc.) and can't be deleted. You can reject them instead." });
+      }
+      res.json({ message: "Developer deleted" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to delete developer" });
     }
   });
 
