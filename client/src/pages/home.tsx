@@ -237,6 +237,12 @@ export default function Home() {
     }
   };
 
+  const getListerTypeLabel = (type: string | null) => {
+    if (type === "land_vendor") return "Land Vendor";
+    if (type === "agent") return "Agent";
+    return "Developer";
+  };
+
   const getBadgeInfo = (badge: string | null) => {
     switch (badge) {
       case 'partnered':
@@ -738,6 +744,14 @@ export default function Home() {
                           <MapPin className="w-4 h-4 mr-1" />
                           {property.location}
                         </p>
+                        {property.listedByName && (
+                          <p className="text-sm text-slate-500 mt-1.5 flex items-center flex-wrap gap-1.5" data-testid={`text-listed-by-${property.id}`}>
+                            <span>Listed by <span className="font-medium text-slate-700">{property.listedByName}</span></span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              {getListerTypeLabel(property.listedByType)}
+                            </span>
+                          </p>
+                        )}
                       </div>
                       <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                         <div>
@@ -1309,6 +1323,14 @@ export default function Home() {
                       <MapPin className="w-4 h-4 mr-1" />
                       {selectedProperty.location}
                     </DialogDescription>
+                    {(selectedProperty as any).listedByName && (
+                      <p className="text-sm text-slate-500 mt-1.5 flex items-center flex-wrap gap-1.5" data-testid="text-detail-listed-by">
+                        <span>Listed by <span className="font-medium text-slate-700">{(selectedProperty as any).listedByName}</span></span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          {getListerTypeLabel((selectedProperty as any).listedByType)}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   {selectedProperty.badge && (() => {
                     const badgeInfo = getBadgeInfo(selectedProperty.badge);

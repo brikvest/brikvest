@@ -48,6 +48,8 @@ export const users = pgTable("users", {
   teamRole: text("team_role").notNull().default("owner"), // 'owner' | 'member'
   permissions: text("permissions").array().notNull().default(sql`ARRAY[]::text[]`), // Per-feature permission keys for team members; owners ignore (implicit all)
   role: text("role").notNull().default("user"), // 'user', 'admin', 'super_admin', 'investor', 'developer'
+  // What kind of lister this account is when it lists properties: 'developer' | 'agent' | 'land_vendor'
+  listerType: text("lister_type"),
   accountStatus: text("account_status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   isActive: boolean("is_active").notNull().default(true),
   emailVerified: boolean("email_verified").notNull().default(false),

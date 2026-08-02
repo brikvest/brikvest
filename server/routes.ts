@@ -3460,8 +3460,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
       
       const rates = await getExchangeRates();
+
+      // Attach "listed by" info (lister name + type) for properties linked to a lister account
+      const listerIds = Array.from(new Set(properties.map((p: any) => p.developerId).filter(Boolean)));
+      const listerMap = new Map<number, { name: string; type: string }>();
+      await Promise.all(listerIds.map(async (id: number) => {
+        try {
+          const u = await storage.getUser(id);
+          if (u) {
+            const name = u.companyName || [u.firstName, u.lastName].filter(Boolean).join(" ");
+            if (name) listerMap.set(id, { name, type: u.listerType || "developer" });
+          }
+        } catch {}
+      }));
       
-      const convertedProperties = properties.map(property => {
+      const convertedProperties = properties.map(rawProperty => {
+        const lister = rawProperty.developerId ? listerMap.get(rawProperty.developerId) : undefined;
+        const property: any = {
+          ...rawProperty,
+          listedByName: lister?.name || null,
+          listedByType: lister?.type || null,
+        };
         // Get the property's stored currency (default to USD for old properties without currency field)
         const storedCurrency = property.currency || 'USD';
         
