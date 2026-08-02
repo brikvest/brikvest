@@ -1362,12 +1362,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Calculate amount - use unitPrice if available, otherwise use minInvestment
-      const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
-      // Attribute to the single configured unit type (if any) so the
+      // Attribute the reservation to a configured unit type so the
       // due-diligence fee share can be computed for admin-created reservations.
-      const adminCfgTypes: any[] = Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
-      const adminChosenType = adminCfgTypes.length === 1 ? adminCfgTypes[0] : null;
+      // Single-type projects auto-attribute; multi-type projects require the
+      // admin to pick one (mirrors the public reservation flow).
+      const adminCfgTypes: Array<{ label: string; quantity: number; price: number; sqm?: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const adminRawLabel = req.body.unitTypeLabel ? String(req.body.unitTypeLabel).trim() : "";
+      let adminChosenType = adminRawLabel
+        ? adminCfgTypes.find(t => String(t.label) === adminRawLabel) || null
+        : null;
+      if (adminRawLabel && adminCfgTypes.length > 0 && !adminChosenType) {
+        return res.status(400).json({ error: "Please pick a valid unit type" });
+      }
+      if (!adminChosenType && adminCfgTypes.length === 1) {
+        adminChosenType = adminCfgTypes[0];
+      }
+      if (!adminChosenType && adminCfgTypes.length > 1) {
+        return res.status(400).json({ error: "Please select which unit type this reservation is for" });
+      }
+      // Calculate amount - prefer the chosen type's price, then unitPrice, then minInvestment
+      const unitPriceSnapshot = adminChosenType
+        ? Number(adminChosenType.price)
+        : (property.unitPrice || property.minInvestment || 0);
       const adminFeeShare = computeDueDiligenceFeeShare(property, adminChosenType, units);
       const amount = Math.round(units * unitPriceSnapshot) + (adminFeeShare ? Number(adminFeeShare) : 0);
 
@@ -7630,12 +7647,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (units > availableUnits) {
         return res.status(400).json({ message: `Only ${availableUnits} unit(s) available` });
       }
-      // Attribute to the single configured unit type (if any) so the
-      // due-diligence fee share applies to lead conversions too.
-      const leadCfgTypes: any[] = Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
-      const leadChosenType = leadCfgTypes.length === 1 ? leadCfgTypes[0] : null;
+      // Attribute the reservation to a configured unit type so the
+      // due-diligence fee share applies to lead conversions too. Single-type
+      // projects auto-attribute; multi-type projects require the developer to
+      // pick one (mirrors the public reservation flow).
+      const leadCfgTypes: Array<{ label: string; quantity: number; price: number; sqm?: number }> =
+        Array.isArray((property as any).unitTypes) ? (property as any).unitTypes : [];
+      const leadRawLabel = req.body?.unitTypeLabel ? String(req.body.unitTypeLabel).trim() : "";
+      let leadChosenType = leadRawLabel
+        ? leadCfgTypes.find(t => String(t.label) === leadRawLabel) || null
+        : null;
+      if (leadRawLabel && leadCfgTypes.length > 0 && !leadChosenType) {
+        return res.status(400).json({ message: "Please pick a valid unit type" });
+      }
+      if (!leadChosenType && leadCfgTypes.length === 1) {
+        leadChosenType = leadCfgTypes[0];
+      }
+      if (!leadChosenType && leadCfgTypes.length > 1) {
+        return res.status(400).json({ message: "Please select which unit type this conversion is for" });
+      }
+      const effectiveUnitPrice = leadChosenType ? Number(leadChosenType.price) : unitPrice;
       const leadFeeShare = computeDueDiligenceFeeShare(property, leadChosenType, units);
-      const amount = units * unitPrice + (leadFeeShare ? Number(leadFeeShare) : 0);
+      const amount = units * effectiveUnitPrice + (leadFeeShare ? Number(leadFeeShare) : 0);
       const reservation = await storage.createInvestmentReservation({
         propertyId,
         userId: null,
@@ -7645,7 +7678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         units: String(units),
         amount: String(amount),
         currency: property.currency || "NGN",
-        unitPriceSnapshot: String(unitPrice),
+        unitPriceSnapshot: String(effectiveUnitPrice),
         unitTypeLabel: leadChosenType ? leadChosenType.label : null,
         dueDiligenceFeeShare: leadFeeShare,
         status: "reserved",

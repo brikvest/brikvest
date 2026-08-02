@@ -291,6 +291,7 @@ function AdminInvestmentsTab({
   const [creatingUser, setCreatingUser] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
   const [units, setUnits] = useState("");
+  const [unitTypeLabel, setUnitTypeLabel] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentEvidenceFile, setPaymentEvidenceFile] = useState<File | null>(null);
@@ -386,6 +387,7 @@ function AdminInvestmentsTab({
       setUserEmail("");
       setSelectedPropertyId(null);
       setUnits("");
+      setUnitTypeLabel("");
       setPaymentMethod("");
       setPaymentReference("");
       setPaymentEvidenceFile(null);
@@ -559,6 +561,15 @@ function AdminInvestmentsTab({
       return;
     }
 
+    if (propertyUnitTypes.length > 1 && !unitTypeLabel) {
+      toast({
+        title: "Unit type required",
+        description: "This project has multiple unit types — select which one this reservation is for",
+        variant: "destructive",
+      });
+      return;
+    }
+
     let paymentEvidenceUrl = null;
 
     // Upload payment evidence if provided
@@ -596,6 +607,7 @@ function AdminInvestmentsTab({
       userId: searchedUser.id,
       propertyId: selectedPropertyId,
       units: unitsValue,
+      unitTypeLabel: unitTypeLabel || undefined,
       paymentMethod,
       paymentReference,
       paymentEvidenceUrl,
@@ -678,6 +690,13 @@ function AdminInvestmentsTab({
   };
 
   const selectedProperty = properties.find(p => p.id === selectedPropertyId);
+  const propertyUnitTypes: Array<{ label: string; quantity: number; price: number; sqm?: number }> =
+    Array.isArray((selectedProperty as any)?.unitTypes) ? (selectedProperty as any).unitTypes : [];
+  const selectedUnitType = propertyUnitTypes.find(t => t.label === unitTypeLabel)
+    || (propertyUnitTypes.length === 1 ? propertyUnitTypes[0] : undefined);
+  const effectiveUnitPrice = selectedUnitType
+    ? Number(selectedUnitType.price)
+    : (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 0);
   const availableUnits = selectedProperty 
     ? (selectedProperty.totalSlots && selectedProperty.totalSlots > 0 
         ? (selectedProperty.availableSlots || 0)
@@ -826,7 +845,7 @@ function AdminInvestmentsTab({
                   <Label>Property</Label>
                   <Select
                     value={selectedPropertyId?.toString() || ""}
-                    onValueChange={(value) => setSelectedPropertyId(parseInt(value))}
+                    onValueChange={(value) => { setSelectedPropertyId(parseInt(value)); setUnitTypeLabel(""); }}
                   >
                     <SelectTrigger data-testid="select-property">
                       <SelectValue placeholder="Select a property" />
@@ -865,6 +884,26 @@ function AdminInvestmentsTab({
                 <CardTitle>Step 3: Investment Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {propertyUnitTypes.length > 1 && (
+                  <div>
+                    <Label>Unit Type *</Label>
+                    <Select value={unitTypeLabel} onValueChange={setUnitTypeLabel}>
+                      <SelectTrigger data-testid="select-unit-type">
+                        <SelectValue placeholder="Select the unit type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {propertyUnitTypes.map((t) => (
+                          <SelectItem key={t.label} value={t.label}>
+                            {t.label} — {getCurrencySymbol(selectedProperty.currency || 'NGN')}{Number(t.price).toLocaleString()}/unit{t.sqm ? ` (${t.sqm} sqm)` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      This project has multiple unit types — pick the one this reservation is for so fees are applied correctly.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <Label>Number of Units</Label>
                   <Input
@@ -879,11 +918,11 @@ function AdminInvestmentsTab({
                   <div className="mt-2 p-3 bg-slate-50 rounded-lg">
                     <p className="text-sm text-slate-600">
                       Unit Price: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
-                      {(selectedProperty.unitPrice || selectedProperty.minInvestment || 0).toLocaleString()}
+                      {effectiveUnitPrice.toLocaleString()}
                     </p>
                     <p className="text-base font-semibold text-slate-900 mt-1">
                       Total Amount: {getCurrencySymbol(selectedProperty.currency || 'NGN')}
-                      {(parseFloat(units || "0") * (selectedProperty.unitPrice || selectedProperty.minInvestment || 0)).toLocaleString()}
+                      {(parseFloat(units || "0") * effectiveUnitPrice).toLocaleString()}
                     </p>
                     {parseFloat(units || "0") > availableUnits && (
                       <p className="text-sm text-amber-600 mt-1">

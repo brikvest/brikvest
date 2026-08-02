@@ -2543,6 +2543,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
       {/* CRM Leads sub-section (pre-reservation funnel) */}
       <LeadsSection
         projectId={projectId}
+        project={project}
         leads={leads}
         leadCounts={leadCounts}
         qualifiedConversionRate={qualifiedConversionRate}
@@ -2885,12 +2886,14 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
 
 function LeadsSection({
   projectId,
+  project,
   leads,
   leadCounts,
   qualifiedConversionRate,
   isLoading,
 }: {
   projectId: string | number;
+  project: any;
   leads: any[];
   leadCounts: Record<LeadStage, number>;
   qualifiedConversionRate: number;
@@ -2902,6 +2905,9 @@ function LeadsSection({
   const [convertOpen, setConvertOpen] = useState(false);
   const [convertLead, setConvertLead] = useState<any | null>(null);
   const [convertUnits, setConvertUnits] = useState<string>("");
+  const [convertUnitType, setConvertUnitType] = useState<string>("");
+  const projectUnitTypes: Array<{ label: string; quantity: number; price: number; sqm?: number }> =
+    Array.isArray(project?.unitTypes) ? project.unitTypes : [];
   const [form, setForm] = useState({ fullName: "", email: "", phone: "", stage: "lead" as LeadStage, estimatedUnits: "", notes: "" });
 
   const invalidate = () => {
@@ -2941,13 +2947,14 @@ function LeadsSection({
   });
 
   const convertLeadMut = useMutation({
-    mutationFn: async ({ id, units }: { id: number; units: string }) =>
-      apiRequest("POST", `/api/developer/projects/${projectId}/leads/${id}/convert`, { units }),
+    mutationFn: async ({ id, units, unitTypeLabel }: { id: number; units: string; unitTypeLabel?: string }) =>
+      apiRequest("POST", `/api/developer/projects/${projectId}/leads/${id}/convert`, { units, unitTypeLabel: unitTypeLabel || undefined }),
     onSuccess: () => {
       invalidate();
       setConvertOpen(false);
       setConvertLead(null);
       setConvertUnits("");
+      setConvertUnitType("");
       toast({ title: "Lead converted to a prospective investor" });
     },
     onError: (err: any) => toast({ title: "Conversion failed", description: err?.message || "Please try again", variant: "destructive" }),
@@ -3058,6 +3065,7 @@ function LeadsSection({
                             onClick={() => {
                               setConvertLead(lead);
                               setConvertUnits(lead.estimatedUnits ? String(Number(lead.estimatedUnits)) : "");
+                              setConvertUnitType(projectUnitTypes.length === 1 ? projectUnitTypes[0].label : "");
                               setConvertOpen(true);
                             }}
                             data-testid={`button-convert-lead-${lead.id}`}
@@ -3179,11 +3187,31 @@ function LeadsSection({
                   data-testid="input-convert-units"
                 />
               </div>
+              {projectUnitTypes.length > 1 && (
+                <div>
+                  <Label htmlFor="convert-unit-type">Unit type</Label>
+                  <Select value={convertUnitType} onValueChange={setConvertUnitType}>
+                    <SelectTrigger id="convert-unit-type" data-testid="select-convert-unit-type">
+                      <SelectValue placeholder="Select the unit type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projectUnitTypes.map((t) => (
+                        <SelectItem key={t.label} value={t.label}>
+                          {t.label} — {Number(t.price).toLocaleString()}/unit{t.sqm ? ` (${t.sqm} sqm)` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    This project has multiple unit types — pick the one being reserved so fees apply correctly.
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
-                onClick={() => convertLead && convertLeadMut.mutate({ id: convertLead.id, units: convertUnits })}
-                disabled={convertLeadMut.isPending || !convertUnits || Number(convertUnits) <= 0}
+                onClick={() => convertLead && convertLeadMut.mutate({ id: convertLead.id, units: convertUnits, unitTypeLabel: convertUnitType })}
+                disabled={convertLeadMut.isPending || !convertUnits || Number(convertUnits) <= 0 || (projectUnitTypes.length > 1 && !convertUnitType)}
                 data-testid="button-confirm-convert-lead"
               >
                 {convertLeadMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
