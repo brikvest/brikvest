@@ -29,6 +29,16 @@ export const users = pgTable("users", {
   companyName: text("company_name"),
   companyRegistration: text("company_registration"),
   websiteUrl: text("website_url"),
+  companyLogoUrl: text("company_logo_url"), // Company logo shown on store listing
+  companyDescription: text("company_description"), // Short paragraph shown to buyers
+  // Payout details — buyers pay developers directly (Brikvest never holds funds)
+  bankName: text("bank_name"),
+  bankAccountName: text("bank_account_name"),
+  bankAccountNumber: text("bank_account_number"),
+  // Developer onboarding / due-diligence pipeline (only meaningful when role = 'developer' and teamRole = 'owner')
+  // 'submitted' -> 'due_diligence' -> 'agreement_signed' -> 'live' ; 'rejected' is terminal until re-review
+  onboardingStage: text("onboarding_stage").notNull().default("submitted"),
+  onboardingRejectionReason: text("onboarding_rejection_reason"),
   // Developer subscription / trial / team fields (only meaningful when role = 'developer')
   plan: text("plan").notNull().default("starter"), // 'starter' | 'growth'
   subscriptionStatus: text("subscription_status").notNull().default("trialing"), // 'trialing' | 'active' | 'expired' | 'cancelled'

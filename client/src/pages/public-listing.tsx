@@ -187,6 +187,37 @@ export default function PublicListing() {
               </CardContent>
             </Card>
 
+            {listing.developer && (
+              <Card data-testid="card-developer-info">
+                <CardContent className="p-5">
+                  <h3 className="font-semibold text-slate-900 mb-3">About the Developer</h3>
+                  <div className="flex items-start gap-4">
+                    {listing.developer.companyLogoUrl ? (
+                      <img
+                        src={listing.developer.companyLogoUrl}
+                        alt={listing.developer.companyName || "Developer logo"}
+                        className="h-14 w-14 rounded-lg object-contain bg-slate-50 border border-slate-200 p-1 flex-shrink-0"
+                        data-testid="img-developer-logo"
+                      />
+                    ) : (
+                      <div className="h-14 w-14 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+                        <Building2 className="h-6 w-6 text-slate-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900" data-testid="text-developer-name">{listing.developer.companyName}</p>
+                      {listing.developer.companyRegistration && (
+                        <p className="text-xs text-slate-500 mb-1" data-testid="text-developer-rc">RC Number: {listing.developer.companyRegistration}</p>
+                      )}
+                      {listing.developer.companyDescription && (
+                        <p className="text-sm text-slate-600 whitespace-pre-line" data-testid="text-developer-description">{listing.developer.companyDescription}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {valuationsLoading ? (
               <div className="bg-white rounded-xl p-8 text-center shadow-sm">
                 <Loader2 className="h-6 w-6 text-slate-400 animate-spin mx-auto mb-2" />

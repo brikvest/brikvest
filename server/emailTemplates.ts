@@ -869,3 +869,110 @@ export function paymentReminderEmailTemplate({
     `,
   };
 }
+
+// ============================================================================
+// Developer onboarding & due-diligence emails
+// ============================================================================
+
+const BRAND_WRAP = (inner: string) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #f9f9f9;">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png" alt="Brikvest Logo" style="height: 50px;" />
+    </div>
+    <div style="background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+      ${inner}
+      <p style="margin-top: 40px; font-size: 14px; color: #888;">
+        Best regards, <br /><strong>The Brikvest Team</strong>
+      </p>
+    </div>
+    <div style="text-align: center; font-size: 12px; color: #aaa; margin-top: 20px;">
+      © ${new Date().getFullYear()} Brikvest. All rights reserved.
+    </div>
+  </div>
+`;
+
+export function developerOnboardingSubmittedEmailTemplate({ firstName, companyName }: { firstName: string; companyName: string }) {
+  return {
+    subject: "We've received your submission – Brikvest Developer Onboarding",
+    html: BRAND_WRAP(`
+      <h2 style="color: #222;">Welcome to Brikvest, ${firstName}!</h2>
+      <p style="font-size: 16px; color: #444;">
+        We've received your developer submission for <strong>${companyName}</strong>. Here's what happens next:
+      </p>
+      <ol style="font-size: 15px; color: #444; line-height: 2;">
+        <li><strong>We review your submission</strong> — our team confirms receipt and reviews everything you've sent.</li>
+        <li><strong>Due diligence</strong> — we verify your company and property information. We'll contact you if anything else is needed.</li>
+        <li><strong>Partnership agreement</strong> — you sign the Brikvest Developer Partnership Agreement.</li>
+        <li><strong>Your store goes live</strong> — your listing is published and ready for buyers.</li>
+      </ol>
+      <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 15px; color: #1e3a8a;">
+          <strong>While you wait:</strong> complete your company profile (logo, description, payout details) and draft your first listing in the Developer Portal — it speeds up due diligence.
+        </p>
+      </div>
+      <p style="font-size: 14px; color: #666;">
+        Due diligence is non-negotiable — no listing goes live without passing this review. It protects both you and your buyers.
+      </p>
+    `),
+  };
+}
+
+export function developerOnboardingApprovedEmailTemplate({ firstName, companyName }: { firstName: string; companyName: string }) {
+  return {
+    subject: "You're live on Brikvest! 🎉",
+    html: BRAND_WRAP(`
+      <h2 style="color: #222;">Congratulations, ${firstName}!</h2>
+      <p style="font-size: 16px; color: #444;">
+        <strong>${companyName}</strong> has passed due diligence and your Brikvest developer account is now fully approved.
+      </p>
+      <div style="background: #f0fdf4; border-left: 4px solid #10b981; padding: 16px; margin: 24px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 15px; color: #065f46;">
+          Your listings can now go live and start reaching thousands of middle-class buyers. Share your listing with your existing buyers and agents to start selling.
+        </p>
+      </div>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="https://www.brikvest.net/developer" style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+          Go to Developer Portal
+        </a>
+      </div>
+    `),
+  };
+}
+
+export function developerOnboardingRejectedEmailTemplate({ firstName, companyName, reason }: { firstName: string; companyName: string; reason?: string }) {
+  return {
+    subject: "Update on your Brikvest developer application",
+    html: BRAND_WRAP(`
+      <h2 style="color: #222;">Hello ${firstName},</h2>
+      <p style="font-size: 16px; color: #444;">
+        Thank you for submitting <strong>${companyName}</strong> for review. Unfortunately, we were unable to approve your application at this time.
+      </p>
+      ${reason ? `
+      <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 24px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 15px; color: #7f1d1d;"><strong>Reason:</strong> ${reason}</p>
+      </div>` : ""}
+      <p style="font-size: 15px; color: #444;">
+        If you can address the issue above, reply to this email or contact us at <a href="mailto:info@brikvest.net" style="color:#2563eb;">info@brikvest.net</a> and we'll take another look.
+      </p>
+    `),
+  };
+}
+
+export function developerInviteEmailTemplate({ firstName, companyName, setupUrl }: { firstName: string; companyName: string; setupUrl: string }) {
+  return {
+    subject: "You've been invited to the Brikvest Developer Portal",
+    html: BRAND_WRAP(`
+      <h2 style="color: #222;">Hello ${firstName},</h2>
+      <p style="font-size: 16px; color: #444;">
+        The Brikvest team has set up a developer account for <strong>${companyName}</strong> on your behalf.
+        Your company details are already in place — you just need to set a password to access your Developer Portal.
+      </p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${setupUrl}" style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+          Set your password
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #888;">This link expires in 7 days. If you weren't expecting this invitation, you can ignore this email.</p>
+    `),
+  };
+}
