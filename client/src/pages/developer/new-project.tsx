@@ -147,6 +147,7 @@ export default function NewProjectWizard() {
     fundingNotes: "",
     totalBudget: "",
     // Pricing & units — per-type breakdown (estate: by plot size; vertical: by apartment type)
+    landSizeSqm: "",
     unitTypes: [{ label: "", quantity: "", price: "", sqm: "" }] as UnitTypeRow[],
     developerEquityUnits: "0",
     isTransferable: false,
@@ -176,6 +177,9 @@ export default function NewProjectWizard() {
     .map(r => (r.sqm > 0 ? r : ({ label: r.label, quantity: r.quantity, price: r.price } as any)));
   const sqmTooSmall = form.unitTypes.some(r => r.sqm !== "" && (parseFloat(r.sqm) || 0) > 0 && parseFloat(r.sqm) < 5);
   const sqmRows = validUnitTypes.filter((r: any) => r.sqm > 0);
+  const landSize = parseFloat(form.landSizeSqm) || 0;
+  const allocatedSqm = sqmRows.reduce((s: number, r: any) => s + r.sqm * r.quantity, 0);
+  const overAllocated = landSize > 0 && allocatedSqm > landSize;
   const totalUnitsCalc = validUnitTypes.reduce((s, r) => s + r.quantity, 0);
   const totalValueCalc = validUnitTypes.reduce((s, r) => s + r.quantity * r.price, 0);
   const minPriceCalc = validUnitTypes.length ? Math.min(...validUnitTypes.map(r => r.price)) : 0;
@@ -216,6 +220,7 @@ export default function NewProjectWizard() {
         plannedStartDate: form.plannedStartDate || null,
         plannedCompletionDate: form.plannedCompletionDate || null,
         totalBudget: form.totalBudget ? parseFloat(form.totalBudget) : null,
+        landSizeSqm: landSize > 0 ? landSize : null,
       };
       delete payload.fundingType;
       return await apiRequest("POST", "/api/developer/projects", payload);
@@ -238,7 +243,7 @@ export default function NewProjectWizard() {
       }
       return true;
     }
-    if (step === 3) return validUnitTypes.length > 0 && !sqmTooSmall;
+    if (step === 3) return validUnitTypes.length > 0 && !sqmTooSmall && !overAllocated;
     if (step === 4) return form.description && form.imageUrl;
     return true;
   };
@@ -539,6 +544,21 @@ export default function NewProjectWizard() {
 
           {step === 3 && (
             <div className="space-y-5">
+              <div className="max-w-xs">
+                <div className="flex items-center gap-1.5">
+                  <Label className="text-sm">Total land size (sqm)</Label>
+                  <HelpTip>Optional. If you set it, we'll track how much of the land your partitions use so you don't over-allocate. Minimum partition is 5 sqm.</HelpTip>
+                </div>
+                <Input
+                  type="number"
+                  min={5}
+                  value={form.landSizeSqm}
+                  onChange={u("landSizeSqm")}
+                  placeholder="e.g. 250"
+                  data-testid="input-land-size"
+                />
+              </div>
+
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <Label className="text-sm">{nouns.sectionTitle} *</Label>
@@ -626,6 +646,30 @@ export default function NewProjectWizard() {
                   <Plus className="w-4 h-4 mr-1.5" /> {nouns.addRowLabel}
                 </Button>
               </div>
+
+              {landSize > 0 && (
+                <div
+                  className={`rounded-lg border p-3 text-sm ${overAllocated ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}
+                  data-testid="text-land-allocation"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className={overAllocated ? "text-rose-700 font-medium" : "text-slate-700"}>
+                      {allocatedSqm.toLocaleString()} of {landSize.toLocaleString()} sqm partitioned
+                      {overAllocated
+                        ? ` — ${(allocatedSqm - landSize).toLocaleString()} sqm over. Reduce sizes or quantities.`
+                        : allocatedSqm < landSize
+                          ? ` — ${(landSize - allocatedSqm).toLocaleString()} sqm unallocated`
+                          : " — fully allocated ✓"}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${overAllocated ? "bg-rose-500" : allocatedSqm === landSize ? "bg-emerald-500" : "bg-blue-500"}`}
+                      style={{ width: `${Math.min(100, (allocatedSqm / landSize) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {sqmRows.length >= 2 && (() => {
                 const tiers = [...sqmRows].sort((a: any, b: any) => a.sqm - b.sqm);

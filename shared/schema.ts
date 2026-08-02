@@ -108,6 +108,7 @@ export const properties = pgTable("properties", {
   // Developer Portal: optional ownership of this project by a developer user
   developerId: integer("developer_id").references((): any => users.id),
   developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
+  landSizeSqm: decimal("land_size_sqm", { precision: 12, scale: 2 }), // Total land size for partitioning (developer projects)
   projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
   salesStage: text("sales_stage").notNull().default("off_plan"), // Lifecycle stage: 'off_plan' | 'completed'
   propertyType: varchar("property_type", { length: 50 }).default("land"),

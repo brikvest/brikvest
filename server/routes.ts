@@ -6511,6 +6511,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (tooSmall) {
         return res.status(400).json({ message: `Minimum partition size is 5 sqm ("${tooSmall.label}" is ${tooSmall.sqm} sqm)` });
       }
+      // Optional total land size — when provided, partitions must fit within it
+      const landSizeSqm = Number(body.landSizeSqm) > 0 ? Number(body.landSizeSqm) : null;
+      if (landSizeSqm !== null) {
+        const allocated = unitTypes.reduce((s, r) => s + (r.sqm ? r.sqm * r.quantity : 0), 0);
+        if (allocated > landSizeSqm) {
+          return res.status(400).json({ message: `Your partitions total ${allocated} sqm, which exceeds the land size of ${landSizeSqm} sqm` });
+        }
+      }
       const totalUnits = Number(body.totalUnits) || 0;
       const developerEquityUnits = Number(body.developerEquityUnits) || 0;
       if (developerEquityUnits > totalUnits) {
@@ -6536,6 +6544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         soldUnits: 0,
         unitPrice: Number(body.unitPrice),
         unitTypes,
+        landSizeSqm: landSizeSqm !== null ? String(landSizeSqm) : null,
         unitPrecision: body.unitPrecision || "1.00",
         isTransferable: !!body.isTransferable,
         spvName: body.spvName || null,
@@ -6596,7 +6605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allowed = [
         "name", "location", "description", "totalValue", "minInvestment", "imageUrl", "videoUrl", "gallery",
         "propertyType", "currency", "city", "district", "spvName", "developerNotes", "investmentDetails",
-        "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits",
+        "isTransferable", "unitPrice", "unitPrecision", "developerEquityUnits", "landSizeSqm",
         // Construction project-level fields
         "currentStage", "expectedCompletionDate", "risksDelays", "latestUpdateText",
         // Construction tab — schedule + budget (Task #14 groundwork)
@@ -6616,6 +6625,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Coerce date strings to Date objects (Drizzle requires Date for timestamp columns)
           if (dateFields.has(k) && updates[k]) {
             payload[k] = new Date(updates[k]);
+          } else if (k === "landSizeSqm") {
+            const n = Number(updates[k]);
+            payload[k] = n > 0 ? String(n) : null;
           } else if (k === "salesStage") {
             const v = String(updates[k]);
             if (v !== "off_plan" && v !== "completed") {
