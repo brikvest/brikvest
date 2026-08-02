@@ -3579,6 +3579,14 @@ export default function AdminDashboard() {
     currency: "NGN",
     totalSquareMeters: "",
     isTransferable: false,
+    developerId: "none" as string,
+  });
+
+  // Fetch developers (owners) for property-developer linking
+  const { data: developerOptions = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/developer-onboarding"],
+    queryFn: () => authenticatedRequest("/api/admin/developer-onboarding"),
+    enabled: !!user,
   });
 
   // Fetch properties (admin endpoint)
@@ -3814,6 +3822,7 @@ export default function AdminDashboard() {
       currency: "NGN",
       totalSquareMeters: "",
       isTransferable: false,
+      developerId: "none" as string,
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -4020,6 +4029,9 @@ export default function AdminDashboard() {
       currency: propertyForm.currency,
       totalSquareMeters: propertyForm.totalSquareMeters || null,
       isTransferable: propertyForm.isTransferable,
+      developerId: propertyForm.developerId && propertyForm.developerId !== "none"
+        ? parseInt(propertyForm.developerId)
+        : null,
     };
 
 
@@ -4480,6 +4492,7 @@ export default function AdminDashboard() {
                                             currency: property.currency || "NGN",
                                             totalSquareMeters: property.totalSquareMeters || "",
                                             isTransferable: property.isTransferable || false,
+                                            developerId: property.developerId ? String(property.developerId) : "none",
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -4566,6 +4579,7 @@ export default function AdminDashboard() {
                                         currency: property.currency || "USD",
                                         totalSquareMeters: property.totalSquareMeters || "",
                                         isTransferable: property.isTransferable || false,
+                                        developerId: property.developerId ? String(property.developerId) : "none",
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -5127,6 +5141,24 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
+                        <Label htmlFor="developerId">Developer (Optional)</Label>
+                        <Select value={propertyForm.developerId || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, developerId: value }))}>
+                          <SelectTrigger data-testid="select-developer">
+                            <SelectValue placeholder="Select developer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Developer (Brikvest-managed)</SelectItem>
+                            {developerOptions.map((dev: any) => (
+                              <SelectItem key={dev.id} value={String(dev.id)}>
+                                {dev.companyName || dev.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">Linking a developer shows their brand (logo, name, RC number) to buyers on listing pages</p>
+                      </div>
+
+                      <div className="space-y-2">
                         <Label>Main Property Image</Label>
                         <FileUpload
                           onUploadSuccess={(url, fileName) => {
@@ -5572,6 +5604,7 @@ export default function AdminDashboard() {
                         currency: viewingProperty.currency || "NGN",
                         totalSquareMeters: viewingProperty.totalSquareMeters || "",
                         isTransferable: viewingProperty.isTransferable || false,
+                        developerId: viewingProperty.developerId ? String(viewingProperty.developerId) : "none",
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -5927,6 +5960,25 @@ export default function AdminDashboard() {
                   <SelectItem value="land">Land</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Developer link */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-developerId">Developer (Optional)</Label>
+              <Select value={propertyForm.developerId || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, developerId: value }))}>
+                <SelectTrigger data-testid="select-edit-developer">
+                  <SelectValue placeholder="Select developer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Developer (Brikvest-managed)</SelectItem>
+                  {developerOptions.map((dev: any) => (
+                    <SelectItem key={dev.id} value={String(dev.id)}>
+                      {dev.companyName || dev.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">Linking a developer shows their brand (logo, name, RC number) to buyers on listing pages</p>
             </div>
 
             {/* Media Upload */}
