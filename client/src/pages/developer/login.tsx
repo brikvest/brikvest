@@ -15,7 +15,30 @@ export default function DeveloperLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const { toast } = useToast();
+
+  const forgotPasswordMutation = useMutation({
+    mutationFn: async (forgotEmail: string) => {
+      return await apiRequest("POST", "/api/forgot-password", { email: forgotEmail, portal: "developer" });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Reset email sent",
+        description: "If the email exists, a password reset link has been sent to your inbox.",
+      });
+      setShowForgotPassword(false);
+      setForgotPasswordEmail("");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to send reset email",
+        variant: "destructive",
+      });
+    },
+  });
 
   const loginMutation = useMutation({
     mutationFn: async (data: { email: string; password: string }) => {
@@ -53,6 +76,45 @@ export default function DeveloperLogin() {
             <CardDescription>Manage your land listings and investor communications.</CardDescription>
           </CardHeader>
           <CardContent>
+            {showForgotPassword ? (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="forgotEmail">Enter your email address</Label>
+                  <Input
+                    id="forgotEmail"
+                    type="email"
+                    placeholder="Enter your email"
+                    value={forgotPasswordEmail}
+                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                    className="mt-1"
+                    data-testid="input-forgot-email"
+                  />
+                </div>
+                <Button
+                  onClick={() => forgotPasswordMutation.mutate(forgotPasswordEmail)}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  disabled={forgotPasswordMutation.isPending || !forgotPasswordEmail}
+                  data-testid="button-send-reset"
+                >
+                  {forgotPasswordMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    "Send Reset Link"
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowForgotPassword(false)}
+                  className="w-full text-sm text-blue-600 hover:underline"
+                  data-testid="button-back-to-signin"
+                >
+                  Back to Sign In
+                </Button>
+              </div>
+            ) : (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -105,7 +167,18 @@ export default function DeveloperLogin() {
                   "Sign in"
                 )}
               </Button>
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPassword(true)}
+                  className="text-sm text-blue-600 hover:underline"
+                  data-testid="link-forgot-password"
+                >
+                  Forgot password?
+                </button>
+              </div>
             </form>
+            )}
 
             <div className="mt-6 pt-6 border-t border-slate-200 text-center text-sm">
               <span className="text-slate-600">New developer? </span>
