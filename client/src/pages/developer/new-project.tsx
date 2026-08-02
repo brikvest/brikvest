@@ -18,14 +18,18 @@ import {
 } from "lucide-react";
 import HelpTip from "@/components/developer/HelpTip";
 import { FileUpload } from "@/components/FileUpload";
+import { FUNDING_MODEL_ENABLED } from "@/lib/features";
 
-const STEPS = [
+const ALL_STEPS = [
   { id: 1, label: "Basics" },
   { id: 2, label: "Funding model" },
   { id: 3, label: "Pricing & Units" },
   { id: 4, label: "Description & Media" },
   { id: 5, label: "Review" },
 ];
+// Pure land banking MVP: the funding-model step is hidden and every project
+// defaults to equity co-ownership.
+const STEPS = FUNDING_MODEL_ENABLED ? ALL_STEPS : ALL_STEPS.filter((s) => s.id !== 2);
 
 type FundingType = "equity" | "fixed_return" | "profit_share" | "loan" | "self_funded";
 
@@ -267,7 +271,7 @@ export default function NewProjectWizard() {
                     : step === s.id ? "bg-blue-600 text-white"
                     : "bg-slate-200 text-slate-600"
                   }`}>
-                    {step > s.id ? <CheckCircle2 className="w-4 h-4" /> : s.id}
+                    {step > s.id ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
                   </div>
                   <span className={`text-sm font-medium whitespace-nowrap ${step >= s.id ? "text-slate-900" : "text-slate-500"}`}>{s.label}</span>
                 </div>
@@ -747,15 +751,15 @@ export default function NewProjectWizard() {
               <RowKV label="Location" value={form.location} />
               <RowKV label="Property type" value={form.propertyType} />
               <RowKV label="Currency" value={form.currency} />
-              <RowKV label="Funding model" value={fundingLabels.join(", ")} />
-              {showReturnFields && (
+              {FUNDING_MODEL_ENABLED && <RowKV label="Funding model" value={fundingLabels.join(", ")} />}
+              {FUNDING_MODEL_ENABLED && showReturnFields && (
                 <>
                   <RowKV label="Expected return" value={form.expectedReturnPercent ? `${form.expectedReturnPercent}% ${form.returnPeriod === "project_lifetime" ? "total" : (form.returnPeriod || "")}` : "—"} />
                   <RowKV label="Investment term" value={form.investmentTermMonths ? `${form.investmentTermMonths} months` : "—"} />
                   <RowKV label="Payout" value={prettyPayout(form.payoutFrequency)} />
                 </>
               )}
-              {showExitField && <RowKV label="Exit / earnings via" value={prettyExit(form.exitStrategy)} />}
+              {FUNDING_MODEL_ENABLED && showExitField && <RowKV label="Exit / earnings via" value={prettyExit(form.exitStrategy)} />}
               <RowKV label="Total value" value={`${form.currency} ${totalValueCalc.toLocaleString()}`} />
               <RowKV label={`Total ${nouns.plural}`} value={totalUnitsCalc.toLocaleString()} />
               <div>
@@ -781,11 +785,11 @@ export default function NewProjectWizard() {
       </Card>
 
       <div className="flex items-center justify-between mt-6">
-        <Button variant="outline" disabled={step === 1} onClick={() => setStep(step - 1)} data-testid="button-back">
+        <Button variant="outline" disabled={step === 1} onClick={() => setStep(step === 3 && !FUNDING_MODEL_ENABLED ? 1 : step - 1)} data-testid="button-back">
           <ChevronLeft className="w-4 h-4 mr-1" /> Back
         </Button>
-        {step < STEPS.length ? (
-          <Button className="bg-blue-600 hover:bg-blue-700" disabled={!canNext()} onClick={() => setStep(step + 1)} data-testid="button-next">
+        {step < 5 ? (
+          <Button className="bg-blue-600 hover:bg-blue-700" disabled={!canNext()} onClick={() => setStep(step === 1 && !FUNDING_MODEL_ENABLED ? 3 : step + 1)} data-testid="button-next">
             Next <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         ) : (

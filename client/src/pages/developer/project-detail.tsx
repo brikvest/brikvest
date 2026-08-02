@@ -38,7 +38,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CRM_ENABLED } from "@/lib/features";
+import { CRM_ENABLED, FUNDING_MODEL_ENABLED } from "@/lib/features";
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft:            { label: "Draft",            className: "bg-slate-100 text-slate-700 border-slate-200" },
@@ -343,7 +343,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
         <StatCard icon={Building2} label="Units sold" value={`${rollup?.sales?.investorUnits || 0} / ${rollup?.sales?.totalUnits || 0}`} sub={`${rollup?.sales?.availableUnits || 0} available`} />
       </div>
 
-      <FundingModelCard project={project} />
+      {FUNDING_MODEL_ENABLED && <FundingModelCard project={project} />}
 
       <Card>
         <CardHeader>
