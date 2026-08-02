@@ -909,6 +909,35 @@ export default function Marketplace() {
               </div>
             </div>
 
+            {detailListing?.developer && (
+              <div className="bg-slate-50 rounded-lg p-4" data-testid="card-developer-info">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">About the Developer</p>
+                <div className="flex items-start gap-3">
+                  {detailListing.developer.companyLogoUrl ? (
+                    <img
+                      src={detailListing.developer.companyLogoUrl}
+                      alt={detailListing.developer.companyName || "Developer logo"}
+                      className="h-12 w-12 rounded-lg object-contain bg-white border border-slate-200 p-1 flex-shrink-0"
+                      data-testid="img-developer-logo"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-lg bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="h-5 w-5 text-slate-400" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900" data-testid="text-developer-name">{detailListing.developer.companyName}</p>
+                    {detailListing.developer.companyRegistration && (
+                      <p className="text-xs text-slate-500 mb-1" data-testid="text-developer-rc">RC Number: {detailListing.developer.companyRegistration}</p>
+                    )}
+                    {detailListing.developer.companyDescription && (
+                      <p className="text-sm text-slate-600 whitespace-pre-line" data-testid="text-developer-description">{detailListing.developer.companyDescription}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {valuationsLoading ? (
               <div className="bg-slate-50 rounded-lg p-8 text-center">
                 <Loader2 className="h-6 w-6 text-slate-400 animate-spin mx-auto mb-2" />

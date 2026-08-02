@@ -4734,6 +4734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const property = await storage.getProperty(listing.propertyId);
       const seller = await storage.getUser(listing.sellerId);
+      const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
 
       let highestBidAmount: string | null = null;
       let bidCount = 0;
@@ -4762,6 +4763,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyType: property?.propertyType || "",
         propertyDescription: property?.description || "",
         sellerName: seller?.fullName || "Anonymous",
+        developer: developer ? {
+          companyName: developer.companyName || developer.fullName,
+          companyLogoUrl: developer.companyLogoUrl || null,
+          companyDescription: developer.companyDescription || null,
+          companyRegistration: developer.companyRegistration || null,
+        } : null,
         highestBidAmount,
         bidCount,
       });
@@ -4817,6 +4824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(listings.map(async (listing) => {
         const property = await storage.getProperty(listing.propertyId);
         const seller = await storage.getUser(listing.sellerId);
+        const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
         const highestBid = listing.sellingType === "bidding" 
           ? await storage.getHighestBidForListing(listing.id) 
           : undefined;
@@ -4830,6 +4838,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyImageUrl: property?.imageUrl,
           propertyType: property?.propertyType,
           sellerName: seller?.fullName || "Anonymous",
+          developer: developer ? {
+            companyName: developer.companyName || developer.fullName,
+            companyLogoUrl: developer.companyLogoUrl || null,
+            companyDescription: developer.companyDescription || null,
+            companyRegistration: developer.companyRegistration || null,
+          } : null,
           highestBidAmount: highestBid?.amount || null,
           bidCount,
         };
@@ -4851,6 +4865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const property = await storage.getProperty(listing.propertyId);
       const seller = await storage.getUser(listing.sellerId);
+      const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
       const bids = listing.sellingType === "bidding" 
         ? await storage.getBidsByListing(listing.id)
         : [];
@@ -4871,6 +4886,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyImageUrl: property?.imageUrl,
         propertyType: property?.propertyType,
         sellerName: seller?.fullName || "Anonymous",
+        developer: developer ? {
+          companyName: developer.companyName || developer.fullName,
+          companyLogoUrl: developer.companyLogoUrl || null,
+          companyDescription: developer.companyDescription || null,
+          companyRegistration: developer.companyRegistration || null,
+        } : null,
         highestBidAmount: highestBid?.amount || null,
         bidCount: bids.filter(b => b.status === "active").length,
         bids: enrichedBids,
