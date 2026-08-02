@@ -1264,13 +1264,34 @@ export default function Home() {
                 const unitPrice = chosen
                   ? Number(chosen.price)
                   : (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000);
+                const unitsNum = parseFloat(investmentForm.units || "0") || 0;
+                const landTotal = unitsNum * unitPrice;
+                // Pro-rata due-diligence fee: fee × (sqm owned ÷ total land sqm)
+                const ddFee = Number((selectedProperty as any)?.dueDiligenceFee) || 0;
+                const landSqm = Number((selectedProperty as any)?.landSizeSqm) || 0;
+                const typeSqm = chosen ? Number((chosen as any).sqm) || 0 : 0;
+                const ownedSqm = typeSqm * unitsNum;
+                const feeShare = ddFee > 0 && landSqm > 0 && ownedSqm > 0
+                  ? Math.round(ddFee * (ownedSqm / landSqm) * 100) / 100
+                  : 0;
                 return (
                   <div className="mt-2 p-3 bg-slate-50 rounded-lg">
                     <p className="text-sm text-slate-600">
                       Price per Unit: {formatCurrency(unitPrice)}
                     </p>
+                    {feeShare > 0 && (
+                      <>
+                        <p className="text-sm text-slate-600 mt-1">
+                          Land cost: {formatCurrency(landTotal)}
+                        </p>
+                        <p className="text-sm text-slate-600 mt-1" data-testid="text-dd-fee-share">
+                          Due diligence fee: {formatCurrency(feeShare)}
+                          <span className="text-xs text-slate-500"> (your share for {ownedSqm.toLocaleString()} of {landSqm.toLocaleString()} sqm)</span>
+                        </p>
+                      </>
+                    )}
                     <p className="text-base font-semibold text-slate-900 mt-1">
-                      Total: {formatCurrency(parseFloat(investmentForm.units || "0") * unitPrice)}
+                      Total: {formatCurrency(landTotal + feeShare)}
                     </p>
                   </div>
                 );

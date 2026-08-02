@@ -109,6 +109,7 @@ export const properties = pgTable("properties", {
   developerId: integer("developer_id").references((): any => users.id),
   developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
   landSizeSqm: decimal("land_size_sqm", { precision: 12, scale: 2 }), // Total land size for partitioning (developer projects)
+  dueDiligenceFee: decimal("due_diligence_fee", { precision: 15, scale: 2 }), // Admin-set total fee, spread across buyers pro-rata by sqm owned
   projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
   salesStage: text("sales_stage").notNull().default("off_plan"), // Lifecycle stage: 'off_plan' | 'completed'
   propertyType: varchar("property_type", { length: 50 }).default("land"),
@@ -137,7 +138,7 @@ export const properties = pgTable("properties", {
   unitPrice: bigint("unit_price", { mode: "number" }).notNull().default(0), // Price per unit (entry price = cheapest unitTypes row)
   // Per-type breakdown captured in the wizard (estate: by plot size; vertical: by apartment type).
   // Each row: { label, quantity, price }. totalUnits/unitPrice/totalValue are derived from this.
-  unitTypes: jsonb("unit_types").$type<Array<{ label: string; quantity: number; price: number }>>().default(sql`'[]'::jsonb`),
+  unitTypes: jsonb("unit_types").$type<Array<{ label: string; quantity: number; price: number; sqm?: number }>>().default(sql`'[]'::jsonb`),
   totalSquareMeters: decimal("total_square_meters", { precision: 12, scale: 2 }), // Total land area in square meters
   unitPrecision: decimal("unit_precision", { precision: 10, scale: 2 }).notNull().default("1.00"), // Minimum step for unit selection (e.g., 0.1, 0.5, 1)
   
@@ -206,6 +207,9 @@ export const investmentReservations = pgTable("investment_reservations", {
   // Snapshot of the unit-type label (from properties.unitTypes) the buyer chose.
   // Null for legacy rows or projects with no configured unit-type breakdown.
   unitTypeLabel: text("unit_type_label"),
+  // Buyer's pro-rata share of the project's due-diligence fee, snapshotted at
+  // reservation time: fee × (sqm owned ÷ total land sqm). Null when not applicable.
+  dueDiligenceFeeShare: decimal("due_diligence_fee_share", { precision: 15, scale: 2 }),
   referralCode: text("referral_code"),
   status: text("status").notNull().default("reserved"), // 'reserved', 'expired', 'converted_to_investment', 'cancelled'
   // Developer-portal conversion funnel stage. Independent of platform-level `status`.

@@ -2317,10 +2317,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Please select which unit type you are buying" });
       }
 
+      // Pro-rata due-diligence fee: fee × (sqm owned ÷ total land sqm).
+      // e.g. owning 125 sqm of a 250 sqm land = 50% of the fee.
+      let dueDiligenceFeeShare: string | null = null;
+      const ddFee = Number((property as any).dueDiligenceFee) || 0;
+      const landSqm = Number((property as any).landSizeSqm) || 0;
+      const typeSqm = chosenType ? Number((chosenType as any).sqm) || 0 : 0;
+      if (ddFee > 0 && landSqm > 0 && typeSqm > 0) {
+        const ownedSqm = typeSqm * units;
+        dueDiligenceFeeShare = (Math.round(ddFee * (ownedSqm / landSqm) * 100) / 100).toFixed(2);
+      }
+
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
         unitTypeLabel: chosenType ? chosenType.label : null,
+        dueDiligenceFeeShare,
         unitPriceSnapshot: chosenType
           ? String(chosenType.price)
           : reservationData.unitPriceSnapshot,
@@ -8314,6 +8326,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to list developer projects" });
+    }
+  });
+
+  // Admin: set the due-diligence fee on a project (spread across buyers pro-rata by sqm)
+  app.post("/api/admin/developer-projects/:id/due-diligence-fee", requireAdminAuth, async (req: any, res) => {
+    try {
+      const propertyId = parseInt(req.params.id);
+      const property = await storage.getProperty(propertyId);
+      if (!property) return res.status(404).json({ message: "Project not found" });
+      const fee = Number(req.body?.fee);
+      if (req.body?.fee !== null && (isNaN(fee) || fee < 0)) {
+        return res.status(400).json({ message: "Fee must be a non-negative number (or null to clear)" });
+      }
+      const updated = await storage.updateProperty(propertyId, {
+        ...property,
+        dueDiligenceFee: req.body?.fee === null || fee === 0 ? null : String(fee),
+      } as InsertProperty);
+      res.json(updated);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to set due-diligence fee" });
     }
   });
 

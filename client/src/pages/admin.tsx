@@ -3223,6 +3223,24 @@ function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: 
     onError: () => toast({ title: "Failed to take over", variant: "destructive" }),
   });
 
+  const [feeEditing, setFeeEditing] = useState<any>(null);
+  const [feeValue, setFeeValue] = useState("");
+  const feeMutation = useMutation({
+    mutationFn: async ({ id, fee }: { id: number; fee: number | null }) =>
+      authenticatedRequest(`/api/admin/developer-projects/${id}/due-diligence-fee`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fee }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-projects"] });
+      setFeeEditing(null);
+      setFeeValue("");
+      toast({ title: "Due diligence fee saved" });
+    },
+    onError: () => toast({ title: "Failed to save fee", variant: "destructive" }),
+  });
+
   const STATUS: Record<string, { label: string; color: string }> = {
     draft:            { label: "Draft",            color: "bg-slate-100 text-slate-700" },
     pending_approval: { label: "Pending Approval", color: "bg-amber-100 text-amber-700" },
@@ -3313,9 +3331,17 @@ function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: 
                             </a>
                           )}
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-slate-500 mt-2">
+                        <div className="flex items-center gap-4 text-xs text-slate-500 mt-2 flex-wrap">
                           <span>{p.totalUnits} units · {p.currency} {parseFloat(p.unitPrice || "0").toLocaleString()}/unit</span>
                           <span>Total raise: {p.currency} {parseFloat(p.totalValue || "0").toLocaleString()}</span>
+                          {Number(p.landSizeSqm) > 0 && <span>Land: {Number(p.landSizeSqm).toLocaleString()} sqm</span>}
+                          <button
+                            className="text-blue-600 hover:underline"
+                            onClick={() => { setFeeEditing(p); setFeeValue(p.dueDiligenceFee ? String(Number(p.dueDiligenceFee)) : ""); }}
+                            data-testid={`button-edit-dd-fee-${p.id}`}
+                          >
+                            DD fee: {Number(p.dueDiligenceFee) > 0 ? `${p.currency} ${Number(p.dueDiligenceFee).toLocaleString()}` : "not set"} — edit
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -3364,6 +3390,53 @@ function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: 
           })}
         </div>
       )}
+
+      {/* Due-diligence fee dialog */}
+      <Dialog open={!!feeEditing} onOpenChange={(o) => { if (!o) { setFeeEditing(null); setFeeValue(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Due diligence fee — {feeEditing?.name}</DialogTitle>
+            <DialogDescription>
+              Set the total fee for this project. Each buyer pays a share proportional to the sqm they own
+              {Number(feeEditing?.landSizeSqm) > 0
+                ? ` of the ${Number(feeEditing.landSizeSqm).toLocaleString()} sqm land (e.g. owning half the land = half the fee).`
+                : ". Note: this project has no land size set, so the fee won't be charged until the developer sets one."}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>Total fee ({feeEditing?.currency})</Label>
+            <Input
+              type="number"
+              min={0}
+              value={feeValue}
+              onChange={(e) => setFeeValue(e.target.value)}
+              placeholder="e.g. 500000"
+              data-testid="input-dd-fee"
+            />
+            {Number(feeValue) > 0 && Number(feeEditing?.landSizeSqm) > 0 && (
+              <p className="text-xs text-slate-500 mt-1">
+                Example: a buyer with {Math.round(Number(feeEditing.landSizeSqm) / 2).toLocaleString()} sqm (50%) pays {feeEditing?.currency} {(Number(feeValue) / 2).toLocaleString()}.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setFeeEditing(null); setFeeValue(""); }}>Cancel</Button>
+            {Number(feeEditing?.dueDiligenceFee) > 0 && (
+              <Button variant="outline" className="text-rose-600" disabled={feeMutation.isPending} onClick={() => feeMutation.mutate({ id: feeEditing.id, fee: null })}>
+                Clear fee
+              </Button>
+            )}
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={feeMutation.isPending || feeValue === "" || Number(feeValue) < 0}
+              onClick={() => feeMutation.mutate({ id: feeEditing.id, fee: Number(feeValue) })}
+              data-testid="button-save-dd-fee"
+            >
+              Save fee
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
