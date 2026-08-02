@@ -18,6 +18,9 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const searchString = useSearch();
   const [isRegistering, setIsRegistering] = useState(false);
+  // null = not chosen yet; investors continue here, developers/agents/land
+  // vendors are sent to the developer portal auth pages.
+  const [role, setRole] = useState<"investor" | null>(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [referralCode, setReferralCode] = useState("");
@@ -31,6 +34,7 @@ export default function Login() {
     if (ref) {
       setReferralCode(ref);
       setIsRegistering(true);
+      setRole("investor"); // referral links are investor invites — skip the chooser
       try {
         localStorage.setItem('brikvest_referral', ref);
       } catch {}
@@ -252,14 +256,42 @@ export default function Login() {
             {isRegistering ? "Join Brikvest" : "Welcome Back"}
           </CardTitle>
           <CardDescription>
-            {isRegistering 
+            {role === null && !showForgotPassword
+              ? "First, tell us who you are"
+              : isRegistering
               ? "Apply for membership to access exclusive real estate investments"
               : "Sign in to your Brikvest account"
             }
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {showForgotPassword ? (
+          {role === null && !showForgotPassword ? (
+            // Role chooser: investor vs developer/agent/land vendor
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setRole("investor")}
+                className="w-full text-left rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors p-4"
+                data-testid="button-role-investor"
+              >
+                <div className="font-semibold text-slate-900">I'm an Investor</div>
+                <div className="text-sm text-slate-500 mt-0.5">
+                  I want to {isRegistering ? "join Brikvest and invest in" : "sign in and manage my"} fractional land investments.
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLocation(isRegistering ? "/developer/signup" : "/developer/login")}
+                className="w-full text-left rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors p-4"
+                data-testid="button-role-developer"
+              >
+                <div className="font-semibold text-slate-900">I'm a Developer / Agent / Land Vendor</div>
+                <div className="text-sm text-slate-500 mt-0.5">
+                  I want to list land or projects for sale on Brikvest.
+                </div>
+              </button>
+            </div>
+          ) : showForgotPassword ? (
             // Forgot Password Form
             <div className="space-y-4">
               <div className="space-y-2">
@@ -445,6 +477,18 @@ export default function Login() {
                 : "Don't have an account? Sign up"
               }
             </Button>
+            {role === "investor" && !showForgotPassword && (
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={() => setRole(null)}
+                  className="text-xs text-slate-500 hover:underline"
+                  data-testid="button-back-to-role"
+                >
+                  Not an investor? Go back
+                </Button>
+              </div>
+            )}
           </div>
           
           <div className="text-center text-xs text-gray-500 mt-4">
