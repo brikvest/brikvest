@@ -38,6 +38,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { CRM_ENABLED } from "@/lib/features";
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft:            { label: "Draft",            className: "bg-slate-100 text-slate-700 border-slate-200" },
@@ -2137,7 +2138,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
   });
   const { data: leadsData, isLoading: leadsLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", projectId, "leads"],
-    enabled: !!projectId,
+    enabled: CRM_ENABLED && !!projectId,
     queryFn: async () => {
       const res = await fetch(`/api/developer/projects/${projectId}/leads`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
@@ -2351,7 +2352,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
               <>
                 <div className="text-2xl font-bold text-slate-900 mt-1" data-testid="text-forecast-date">{forecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
                 <div className="text-xs text-slate-500 mt-2">~{forecastDays} days at current pace</div>
-                {expectedConversions > 0 && adjustedForecastDate && (
+                {CRM_ENABLED && expectedConversions > 0 && adjustedForecastDate && (
                   <div className="text-xs text-blue-700 mt-1.5 border-t border-slate-100 pt-1.5" data-testid="text-forecast-with-pipeline">
                     With qualified pipeline: <span className="font-semibold">{adjustedForecastDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
                     <span className="text-slate-500"> (~{adjustedForecastDays}d • {Math.round(qualifiedConversionRate * 100)}% conv.)</span>
@@ -2540,15 +2541,17 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
         );
       })()}
 
-      {/* CRM Leads sub-section (pre-reservation funnel) */}
-      <LeadsSection
-        projectId={projectId}
-        project={project}
-        leads={leads}
-        leadCounts={leadCounts}
-        qualifiedConversionRate={qualifiedConversionRate}
-        isLoading={leadsLoading}
-      />
+      {/* CRM Leads sub-section (pre-reservation funnel) — hidden for MVP */}
+      {CRM_ENABLED && (
+        <LeadsSection
+          projectId={projectId}
+          project={project}
+          leads={leads}
+          leadCounts={leadCounts}
+          qualifiedConversionRate={qualifiedConversionRate}
+          isLoading={leadsLoading}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
