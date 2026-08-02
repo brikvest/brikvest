@@ -2076,7 +2076,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/properties", requireAdminAuth, async (req: any, res) => {
     try {
       const properties = await storage.getProperties();
-      res.json(properties);
+      // Enrich with the linked developer's company name for the admin table
+      const developerIds = Array.from(new Set(properties.map(p => p.developerId).filter((id): id is number => !!id)));
+      const developerNames = new Map<number, string>();
+      await Promise.all(developerIds.map(async (id) => {
+        const dev = await storage.getUser(id);
+        if (dev) {
+          developerNames.set(id, dev.companyName || [dev.firstName, dev.lastName].filter(Boolean).join(' ') || dev.email);
+        }
+      }));
+      const enriched = properties.map(p => ({
+        ...p,
+        developerCompanyName: p.developerId ? (developerNames.get(p.developerId) ?? null) : null,
+      }));
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching properties (admin):", error);
       res.status(500).json({ message: "Failed to fetch properties" });

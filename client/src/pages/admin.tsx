@@ -4368,6 +4368,7 @@ export default function AdminDashboard() {
                               <TableRow className="bg-slate-50 hover:bg-slate-50">
                                 <TableHead className="text-slate-900 font-semibold py-4 px-6">Property</TableHead>
                                 <TableHead className="text-slate-900 font-semibold py-4 px-6">Location</TableHead>
+                                <TableHead className="text-slate-900 font-semibold py-4 px-6">Developer</TableHead>
                                 <TableHead className="text-slate-900 font-semibold py-4 px-6">Investment</TableHead>
                                 <TableHead className="text-slate-900 font-semibold py-4 px-6">Progress</TableHead>
                                 <TableHead className="text-slate-900 font-semibold py-4 px-6">Status</TableHead>
@@ -4407,6 +4408,16 @@ export default function AdminDashboard() {
                                       <MapPin className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
                                       <span className="truncate">{property.location}</span>
                                     </div>
+                                  </TableCell>
+                                  <TableCell className="py-6 px-6">
+                                    {(property as any).developerCompanyName ? (
+                                      <div className="flex items-center text-slate-900">
+                                        <Briefcase className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+                                        <span className="truncate">{(property as any).developerCompanyName}</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400">—</span>
+                                    )}
                                   </TableCell>
                                   <TableCell className="py-6 px-6">
                                     <div>
