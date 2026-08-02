@@ -162,13 +162,6 @@ export default function DeveloperTeamPage() {
               </div>
             </div>
             <div className="flex-1" />
-            {atSeatLimit && (
-              <Link href="/developer/pricing">
-                <Button variant="outline" size="sm" data-testid="button-team-upgrade">
-                  Upgrade for more seats
-                </Button>
-              </Link>
-            )}
           </div>
         </CardContent>
       </Card>

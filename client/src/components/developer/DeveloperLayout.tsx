@@ -356,14 +356,9 @@ function TrialBanner({ me }: { me: any }) {
           <div className="flex items-center gap-2 text-sm text-rose-900">
             <Clock className="w-4 h-4 text-rose-600 flex-shrink-0" />
             <span>
-              Your free trial has ended. Pick a plan to keep adding projects, investors, and updates.
+              Your free trial has ended. Contact us to keep adding projects, investors, and updates.
             </span>
           </div>
-          <Link href="/developer/pricing">
-            <Button size="sm" className="bg-rose-600 hover:bg-rose-700 text-white" data-testid="button-trial-upgrade">
-              <Sparkles className="w-4 h-4 mr-1.5" /> See plans
-            </Button>
-          </Link>
         </div>
       </div>
     );
@@ -384,11 +379,6 @@ function TrialBanner({ me }: { me: any }) {
             full access included.
           </span>
         </div>
-        <Link href="/developer/pricing">
-          <Button size="sm" variant="outline" className="text-xs h-7" data-testid="button-trial-pricing">
-            View plans
-          </Button>
-        </Link>
       </div>
     </div>
   );

@@ -114,11 +114,6 @@ export default function DeveloperLogin() {
               </Link>
             </div>
             <div className="mt-2 text-center text-sm">
-              <Link href="/developer/pricing" className="text-blue-600 hover:underline font-medium" data-testid="link-pricing">
-                See pricing & free trial
-              </Link>
-            </div>
-            <div className="mt-2 text-center text-sm">
               <Link href="/login" className="text-slate-500 hover:text-blue-600">Investor sign-in →</Link>
             </div>
           </CardContent>

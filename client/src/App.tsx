@@ -16,7 +16,6 @@ import Marketplace from "@/pages/marketplace";
 import PublicListing from "@/pages/public-listing";
 import DeveloperLogin from "@/pages/developer/login";
 import DeveloperSignup from "@/pages/developer/signup";
-import DeveloperPricing from "@/pages/developer/pricing";
 import DeveloperProjects from "@/pages/developer/index";
 import DeveloperNewProject from "@/pages/developer/new-project";
 import DeveloperProjectDetail from "@/pages/developer/project-detail";
@@ -47,7 +46,6 @@ function Router() {
       <Route path="/listing/:shareToken" component={PublicListing} />
       <Route path="/developer/login" component={DeveloperLogin} />
       <Route path="/developer/signup" component={DeveloperSignup} />
-      <Route path="/developer/pricing" component={DeveloperPricing} />
       <Route path="/developer/new" component={DeveloperNewProject} />
       <Route path="/developer/communications" component={DeveloperCommunications} />
       <Route path="/developer/profile" component={DeveloperProfile} />

@@ -162,12 +162,6 @@ export default function DeveloperSignup() {
                   Sign in
                 </Link>
               </div>
-              <div className="text-slate-500">
-                Want to compare plans first?{" "}
-                <Link href="/developer/pricing" className="text-blue-600 hover:underline font-medium" data-testid="link-pricing">
-                  See pricing
-                </Link>
-              </div>
             </div>
           </CardContent>
         </Card>
