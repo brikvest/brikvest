@@ -4,9 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import DeveloperLayout from "@/components/developer/DeveloperLayout";
+import { FileUpload } from "@/components/FileUpload";
 
 export default function DeveloperProfile() {
   const { toast } = useToast();
@@ -14,6 +16,8 @@ export default function DeveloperProfile() {
   const [form, setForm] = useState({
     firstName: "", lastName: "", phone: "",
     companyName: "", companyRegistration: "", websiteUrl: "",
+    companyLogoUrl: "", companyDescription: "",
+    bankName: "", bankAccountName: "", bankAccountNumber: "",
   });
 
   useEffect(() => {
@@ -24,6 +28,11 @@ export default function DeveloperProfile() {
       companyName: me.companyName || "",
       companyRegistration: me.companyRegistration || "",
       websiteUrl: me.websiteUrl || "",
+      companyLogoUrl: me.companyLogoUrl || "",
+      companyDescription: me.companyDescription || "",
+      bankName: me.bankName || "",
+      bankAccountName: me.bankAccountName || "",
+      bankAccountNumber: me.bankAccountNumber || "",
     });
   }, [me]);
 
@@ -86,6 +95,48 @@ export default function DeveloperProfile() {
             <div>
               <Label htmlFor="websiteUrl">Website</Label>
               <Input id="websiteUrl" type="url" placeholder="https://" value={form.websiteUrl} onChange={(e) => setForm({ ...form, websiteUrl: e.target.value })} data-testid="input-website" />
+            </div>
+            <div>
+              <FileUpload
+                label="Company logo"
+                uploadType="image"
+                accept="image/*"
+                currentFile={form.companyLogoUrl}
+                onUploadSuccess={(url) => setForm((f) => ({ ...f, companyLogoUrl: url }))}
+              />
+              <p className="text-xs text-slate-500 mt-1">Shown on your store listing so buyers recognise your brand.</p>
+            </div>
+            <div>
+              <Label htmlFor="companyDescription">Company description</Label>
+              <Textarea
+                id="companyDescription"
+                rows={4}
+                placeholder="A short paragraph about your business that buyers will see on your store page."
+                value={form.companyDescription}
+                onChange={(e) => setForm({ ...form, companyDescription: e.target.value })}
+                data-testid="input-company-description"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Payout details</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500 -mt-2">
+              Buyers pay you directly — Brikvest never holds your funds. Make sure the account name matches your registered company.
+            </p>
+            <div>
+              <Label htmlFor="bankName">Bank name</Label>
+              <Input id="bankName" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} data-testid="input-bank-name" />
+            </div>
+            <div>
+              <Label htmlFor="bankAccountName">Account name</Label>
+              <Input id="bankAccountName" value={form.bankAccountName} onChange={(e) => setForm({ ...form, bankAccountName: e.target.value })} data-testid="input-bank-account-name" />
+            </div>
+            <div>
+              <Label htmlFor="bankAccountNumber">Account number</Label>
+              <Input id="bankAccountNumber" inputMode="numeric" value={form.bankAccountNumber} onChange={(e) => setForm({ ...form, bankAccountNumber: e.target.value })} data-testid="input-bank-account-number" />
             </div>
           </CardContent>
         </Card>

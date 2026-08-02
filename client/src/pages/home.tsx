@@ -1229,9 +1229,10 @@ export default function Home() {
                       <SelectValue placeholder="Pick a unit type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {cfg.map(t => (
+                      {cfg.map((t: any) => (
                         <SelectItem key={String(t.label)} value={String(t.label)} data-testid={`unit-type-option-${t.label}`}>
                           {t.label} — {originalCurrency} {Number(t.price).toLocaleString()}
+                          {Number(t.sqm) > 0 ? ` (${Number(t.sqm)} sqm · ${originalCurrency} ${Math.round(Number(t.price) / Number(t.sqm)).toLocaleString()}/sqm)` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>

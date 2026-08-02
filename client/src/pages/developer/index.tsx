@@ -17,7 +17,82 @@ import {
   CheckCircle2,
   BarChart3,
   ArrowUpRight,
+  ShieldCheck,
+  XCircle,
 } from "lucide-react";
+
+const ONBOARDING_STAGES = [
+  { key: "submitted",        label: "Submitted",         hint: "We've received your submission and confirmed receipt." },
+  { key: "due_diligence",    label: "Due diligence",     hint: "We're verifying your company and property information. We'll contact you if anything else is needed." },
+  { key: "agreement_signed", label: "Agreement signed",  hint: "You sign the Brikvest Developer Partnership Agreement." },
+  { key: "live",             label: "Live",              hint: "Your store is set up and your listing can be published." },
+  { key: "selling",          label: "Selling",           hint: "Share your listing with your buyers and agents to start selling." },
+];
+
+function OnboardingTimeline({ me }: { me: any }) {
+  const stage = me?.onboardingStage || "submitted";
+  if (me?.teamRole && me.teamRole !== "owner") return null;
+
+  if (stage === "rejected") {
+    return (
+      <Card className="border-rose-200 bg-rose-50 mb-6" data-testid="card-onboarding-rejected">
+        <CardContent className="p-4 sm:p-5 flex items-start gap-3">
+          <XCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold text-rose-900">Your application wasn't approved</div>
+            {me?.onboardingRejectionReason && (
+              <p className="text-sm text-rose-800 mt-1">Reason: {me.onboardingRejectionReason}</p>
+            )}
+            <p className="text-sm text-rose-800 mt-1">
+              If you can address this, contact us at <a className="underline" href="mailto:info@brikvest.net">info@brikvest.net</a> and we'll take another look.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (stage === "live") return null; // fully onboarded — no banner needed
+
+  const currentIdx = Math.max(0, ONBOARDING_STAGES.findIndex((s) => s.key === stage));
+  return (
+    <Card className="border-blue-200 mb-6" data-testid="card-onboarding-timeline">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <ShieldCheck className="w-5 h-5 text-blue-600" />
+          <div>
+            <div className="font-semibold text-slate-900">Onboarding in progress</div>
+            <div className="text-xs text-slate-500">
+              Complete your profile (logo, description, payout details) and draft your first listing — it speeds up due diligence.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-start overflow-x-auto pb-1">
+          {ONBOARDING_STAGES.map((s, idx) => {
+            const done = idx < currentIdx;
+            const current = idx === currentIdx;
+            return (
+              <div key={s.key} className="flex items-start flex-1 min-w-[110px]">
+                <div className="flex flex-col items-center text-center flex-1">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
+                    done ? "bg-emerald-600 text-white" : current ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                  }`}>
+                    {done ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
+                  </div>
+                  <div className={`text-xs font-medium mt-1.5 ${current ? "text-blue-700" : done ? "text-slate-800" : "text-slate-500"}`}>
+                    {s.label}
+                  </div>
+                  {current && <div className="text-[11px] text-slate-500 mt-1 px-1">{s.hint}</div>}
+                </div>
+                {idx < ONBOARDING_STAGES.length - 1 && <div className="h-0.5 bg-slate-200 flex-shrink-0 w-4 sm:w-6 mt-3.5" />}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function formatNaira(amount: number): string {
   if (amount >= 1_000_000_000) return `₦${(amount / 1_000_000_000).toFixed(1)}B`;
@@ -76,6 +151,7 @@ export default function DeveloperProjectsPage() {
   const { data: projects, isLoading } = useQuery<any[]>({
     queryKey: ["/api/developer/projects"],
   });
+  const { data: me } = useQuery<any>({ queryKey: ["/api/developer/me"] });
 
   return (
     <DeveloperLayout
@@ -92,6 +168,8 @@ export default function DeveloperProjectsPage() {
         </Link>
       }
     >
+      {me && <OnboardingTimeline me={me} />}
+
       {!isLoading && projects && projects.length > 0 && (() => {
         const totalRaised = projects.reduce((sum, p) => sum + (Number(p.totalRaised) || 0), 0);
         const totalInvestors = projects.reduce(

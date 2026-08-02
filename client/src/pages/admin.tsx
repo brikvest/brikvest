@@ -2852,6 +2852,343 @@ function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: 
   );
 }
 
+const ONBOARDING_STAGES: { key: string; label: string; color: string }[] = [
+  { key: "submitted",        label: "Submitted",        color: "bg-slate-100 text-slate-700" },
+  { key: "due_diligence",    label: "Due diligence",    color: "bg-amber-100 text-amber-700" },
+  { key: "agreement_signed", label: "Agreement signed", color: "bg-indigo-100 text-indigo-700" },
+  { key: "live",             label: "Live",             color: "bg-emerald-100 text-emerald-700" },
+  { key: "rejected",         label: "Rejected",         color: "bg-rose-100 text-rose-700" },
+];
+
+function DeveloperOnboardingTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  const [rejecting, setRejecting] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [deleting, setDeleting] = useState<any>(null);
+  const [onboardOpen, setOnboardOpen] = useState(false);
+  const emptyOnboardForm = {
+    email: "", firstName: "", lastName: "", phone: "",
+    companyName: "", companyRegistration: "", websiteUrl: "", companyDescription: "", companyLogoUrl: "",
+    bankName: "", bankAccountName: "", bankAccountNumber: "",
+  };
+  const [onboardForm, setOnboardForm] = useState({ ...emptyOnboardForm });
+
+  const { data: devs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/developer-onboarding"],
+    queryFn: () => authenticatedRequest("/api/admin/developer-onboarding"),
+  });
+
+  const stageMutation = useMutation({
+    mutationFn: async ({ id, stage, reason }: { id: number; stage: string; reason?: string }) =>
+      authenticatedRequest(`/api/admin/developer-onboarding/${id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage, reason }),
+      }),
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      setRejecting(null);
+      setRejectReason("");
+      toast({ title: vars.stage === "rejected" ? "Developer rejected" : "Stage updated" });
+    },
+    onError: (e: any) => toast({ title: "Failed to update stage", description: String(e?.message || ""), variant: "destructive" }),
+  });
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-onboarding/${id}/revoke-invite`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      toast({ title: "Invite revoked", description: "The emailed password-setup link no longer works." });
+    },
+    onError: (e: any) => toast({ title: "Failed to revoke invite", description: String(e?.message || ""), variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) =>
+      authenticatedRequest(`/api/admin/developer-onboarding/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      toast({ title: "Developer deleted" });
+    },
+    onError: (e: any) => {
+      const raw = String(e?.message || "").replace(/^\d+:\s*/, "");
+      let msg = raw;
+      try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
+      toast({ title: "Can't delete developer", description: msg, variant: "destructive" });
+    },
+  });
+
+  const onboardMutation = useMutation({
+    mutationFn: async () =>
+      authenticatedRequest(`/api/admin/developer-onboarding`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(onboardForm),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/developer-onboarding"] });
+      setOnboardOpen(false);
+      setOnboardForm({ ...emptyOnboardForm });
+      toast({ title: "Developer onboarded", description: "An invite email with a password-setup link was sent." });
+    },
+    onError: (e: any) => {
+      const raw = String(e?.message || "").replace(/^\d+:\s*/, "");
+      let msg = raw;
+      try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
+      toast({ title: "Failed to onboard developer", description: msg, variant: "destructive" });
+    },
+  });
+
+  const nextStageOf = (stage: string) => {
+    const order = ["submitted", "due_diligence", "agreement_signed", "live"];
+    const idx = order.indexOf(stage);
+    return idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
+  };
+
+  const counts: Record<string, number> = { all: devs.length };
+  for (const s of ONBOARDING_STAGES) counts[s.key] = devs.filter((d: any) => (d.onboardingStage || "submitted") === s.key).length;
+  const filtered = stageFilter === "all" ? devs : devs.filter((d: any) => (d.onboardingStage || "submitted") === stageFilter);
+  const uof = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setOnboardForm({ ...onboardForm, [k]: e.target.value });
+
+  if (isLoading) return <div className="space-y-3 mt-6">{[1, 2].map((i) => <div key={i} className="h-32 bg-slate-100 rounded animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-6 mt-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Developer Onboarding</h2>
+          <p className="text-slate-600 mt-1">Due-diligence pipeline: Submitted → Due diligence → Agreement signed → Live. No listing goes live without passing review.</p>
+        </div>
+        <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setOnboardOpen(true)} data-testid="button-onboard-developer">
+          <Plus className="w-4 h-4 mr-2" /> Onboard developer
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        {[{ key: "all", label: "All" }, ...ONBOARDING_STAGES].map((c: any) => (
+          <button
+            key={c.key}
+            onClick={() => setStageFilter(c.key)}
+            className={`text-left rounded-lg border border-slate-200 p-3 transition-all ${stageFilter === c.key ? "ring-2 ring-blue-500" : ""}`}
+            data-testid={`filter-onboarding-${c.key}`}
+          >
+            <div className="text-xl font-bold text-slate-900">{counts[c.key] ?? 0}</div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-600 mt-0.5">{c.label}</div>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-slate-500">No developers in this stage.</CardContent></Card>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((d: any) => {
+            const stage = d.onboardingStage || "submitted";
+            const meta = ONBOARDING_STAGES.find((s) => s.key === stage) || ONBOARDING_STAGES[0];
+            const next = nextStageOf(stage);
+            return (
+              <Card key={d.id} data-testid={`card-onboarding-dev-${d.id}`}>
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3 min-w-0">
+                      {d.companyLogoUrl ? (
+                        <img src={d.companyLogoUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-slate-200 flex-shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                          <Building className="w-5 h-5 text-slate-400" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-900">{d.companyName || "—"}</span>
+                          <Badge className={meta.color}>{meta.label}</Badge>
+                          {d.invitePending && <Badge className="bg-purple-100 text-purple-700">Invite pending</Badge>}
+                        </div>
+                        <div className="text-sm text-slate-600 mt-0.5">
+                          {d.firstName} {d.lastName} · {d.email}{d.phone ? ` · ${d.phone}` : ""}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1 space-x-3">
+                          {d.companyRegistration && <span>RC: {d.companyRegistration}</span>}
+                          {d.bankName ? (
+                            <span>Bank: {d.bankName} · {d.bankAccountName} · {d.bankAccountNumber}</span>
+                          ) : (
+                            <span className="text-amber-600">No payout details yet</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {d.projectCount} project(s){d.firstProject ? ` — first: ${d.firstProject.name}, ${d.firstProject.location} (${d.firstProject.projectStatus})` : ""}
+                        </div>
+                        {stage === "rejected" && d.onboardingRejectionReason && (
+                          <div className="text-xs text-rose-600 mt-1">Reason: {d.onboardingRejectionReason}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {next && (
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                          disabled={stageMutation.isPending}
+                          onClick={() => stageMutation.mutate({ id: d.id, stage: next })}
+                          data-testid={`button-advance-${d.id}`}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1.5" />
+                          {next === "live" ? "Approve & go live" : `Move to ${ONBOARDING_STAGES.find(s => s.key === next)?.label}`}
+                        </Button>
+                      )}
+                      {stage !== "rejected" && stage !== "live" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                          onClick={() => setRejecting(d)}
+                          data-testid={`button-reject-${d.id}`}
+                        >
+                          <XCircle className="w-4 h-4 mr-1.5" /> Reject
+                        </Button>
+                      )}
+                      {stage === "rejected" && (
+                        <Button size="sm" variant="outline" onClick={() => stageMutation.mutate({ id: d.id, stage: "due_diligence" })}>
+                          <RefreshCw className="w-4 h-4 mr-1.5" /> Re-review
+                        </Button>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-slate-500" data-testid={`button-onboarding-more-${d.id}`}>
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {d.invitePending && (
+                            <DropdownMenuItem
+                              onClick={() => revokeInviteMutation.mutate(d.id)}
+                              disabled={revokeInviteMutation.isPending}
+                              data-testid={`menu-revoke-invite-${d.id}`}
+                            >
+                              <XCircle className="w-4 h-4 mr-2" /> Revoke invite link
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="text-rose-600 focus:text-rose-600"
+                            onClick={() => setDeleting(d)}
+                            data-testid={`menu-delete-dev-${d.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete developer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Reject dialog */}
+      <Dialog open={!!rejecting} onOpenChange={(o) => { if (!o) { setRejecting(null); setRejectReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject {rejecting?.companyName}</DialogTitle>
+            <DialogDescription>The developer will receive an email with this reason. They can contact support to re-apply.</DialogDescription>
+          </DialogHeader>
+          <Textarea rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="e.g. Title documentation could not be verified" data-testid="input-reject-reason" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejecting(null); setRejectReason(""); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || stageMutation.isPending}
+              onClick={() => stageMutation.mutate({ id: rejecting.id, stage: "rejected", reason: rejectReason.trim() })}
+              data-testid="button-confirm-reject"
+            >
+              Reject developer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.companyName || deleting?.email}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the developer account{deleting?.invitePending ? " and cancels the pending invite" : ""}. It only works when they have no projects or linked records — otherwise consider rejecting them instead. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={() => { deleteMutation.mutate(deleting.id); setDeleting(null); }}
+              data-testid="button-confirm-delete-dev"
+            >
+              Delete developer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Onboard-on-behalf dialog */}
+      <Dialog open={onboardOpen} onOpenChange={setOnboardOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Onboard a developer</DialogTitle>
+            <DialogDescription>
+              Create the developer's account on their behalf. They'll receive an invite email with a link to set their password. The account starts in Due diligence.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2 text-sm font-semibold text-slate-700">Contact</div>
+            <div><Label>First name *</Label><Input value={onboardForm.firstName} onChange={uof("firstName")} data-testid="input-ob-first-name" /></div>
+            <div><Label>Last name</Label><Input value={onboardForm.lastName} onChange={uof("lastName")} /></div>
+            <div><Label>Email *</Label><Input type="email" value={onboardForm.email} onChange={uof("email")} data-testid="input-ob-email" /></div>
+            <div><Label>Phone</Label><Input value={onboardForm.phone} onChange={uof("phone")} /></div>
+            <div className="sm:col-span-2 text-sm font-semibold text-slate-700 mt-2">Company</div>
+            <div><Label>Company name *</Label><Input value={onboardForm.companyName} onChange={uof("companyName")} data-testid="input-ob-company" /></div>
+            <div><Label>RC number</Label><Input value={onboardForm.companyRegistration} onChange={uof("companyRegistration")} placeholder="RC1234567" /></div>
+            <div className="sm:col-span-2"><Label>Website</Label><Input type="url" value={onboardForm.websiteUrl} onChange={uof("websiteUrl")} placeholder="https://" /></div>
+            <div className="sm:col-span-2">
+              <Label>Company description</Label>
+              <Textarea rows={3} value={onboardForm.companyDescription} onChange={uof("companyDescription")} placeholder="Short paragraph buyers will see on the store page" />
+            </div>
+            <div className="sm:col-span-2">
+              <FileUpload
+                label="Company logo"
+                uploadType="image"
+                accept="image/*"
+                currentFile={onboardForm.companyLogoUrl}
+                onUploadSuccess={(url) => setOnboardForm((f) => ({ ...f, companyLogoUrl: url }))}
+              />
+            </div>
+            <div className="sm:col-span-2 text-sm font-semibold text-slate-700 mt-2">Payout details (buyers pay the developer directly)</div>
+            <div><Label>Bank name</Label><Input value={onboardForm.bankName} onChange={uof("bankName")} /></div>
+            <div><Label>Account name</Label><Input value={onboardForm.bankAccountName} onChange={uof("bankAccountName")} /></div>
+            <div><Label>Account number</Label><Input inputMode="numeric" value={onboardForm.bankAccountNumber} onChange={uof("bankAccountNumber")} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOnboardOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={!onboardForm.email || !onboardForm.firstName || !onboardForm.companyName || onboardMutation.isPending}
+              onClick={() => onboardMutation.mutate()}
+              data-testid="button-submit-onboard"
+            >
+              {onboardMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Create account & send invite
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function DeveloperProjectsTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -3833,6 +4170,15 @@ export default function AdminDashboard() {
               >
                 <Briefcase className="mr-3 h-4 w-4" />
                 Developer Projects
+              </Button>
+              <Button
+                variant={selectedTab === "developer-onboarding" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => setSelectedTab("developer-onboarding")}
+                data-testid="button-tab-developer-onboarding"
+              >
+                <UserCheck className="mr-3 h-4 w-4" />
+                Developer Onboarding
               </Button>
             </div>
           </nav>
@@ -5184,6 +5530,9 @@ export default function AdminDashboard() {
             )}
             {selectedTab === "developer-projects" && (
               <DeveloperProjectsTab authenticatedRequest={authenticatedRequest} />
+            )}
+            {selectedTab === "developer-onboarding" && (
+              <DeveloperOnboardingTab authenticatedRequest={authenticatedRequest} />
             )}
           </div>
         </div>

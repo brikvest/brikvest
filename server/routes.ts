@@ -4734,6 +4734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const property = await storage.getProperty(listing.propertyId);
       const seller = await storage.getUser(listing.sellerId);
+      const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
 
       let highestBidAmount: string | null = null;
       let bidCount = 0;
@@ -4762,6 +4763,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyType: property?.propertyType || "",
         propertyDescription: property?.description || "",
         sellerName: seller?.fullName || "Anonymous",
+        developer: developer ? {
+          companyName: developer.companyName || developer.fullName,
+          companyLogoUrl: developer.companyLogoUrl || null,
+          companyDescription: developer.companyDescription || null,
+          companyRegistration: developer.companyRegistration || null,
+        } : null,
         highestBidAmount,
         bidCount,
       });
@@ -4817,6 +4824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enriched = await Promise.all(listings.map(async (listing) => {
         const property = await storage.getProperty(listing.propertyId);
         const seller = await storage.getUser(listing.sellerId);
+        const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
         const highestBid = listing.sellingType === "bidding" 
           ? await storage.getHighestBidForListing(listing.id) 
           : undefined;
@@ -4830,6 +4838,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyImageUrl: property?.imageUrl,
           propertyType: property?.propertyType,
           sellerName: seller?.fullName || "Anonymous",
+          developer: developer ? {
+            companyName: developer.companyName || developer.fullName,
+            companyLogoUrl: developer.companyLogoUrl || null,
+            companyDescription: developer.companyDescription || null,
+            companyRegistration: developer.companyRegistration || null,
+          } : null,
           highestBidAmount: highestBid?.amount || null,
           bidCount,
         };
@@ -4851,6 +4865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const property = await storage.getProperty(listing.propertyId);
       const seller = await storage.getUser(listing.sellerId);
+      const developer = property?.developerId ? await storage.getUser(property.developerId) : undefined;
       const bids = listing.sellingType === "bidding" 
         ? await storage.getBidsByListing(listing.id)
         : [];
@@ -4871,6 +4886,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyImageUrl: property?.imageUrl,
         propertyType: property?.propertyType,
         sellerName: seller?.fullName || "Anonymous",
+        developer: developer ? {
+          companyName: developer.companyName || developer.fullName,
+          companyLogoUrl: developer.companyLogoUrl || null,
+          companyDescription: developer.companyDescription || null,
+          companyRegistration: developer.companyRegistration || null,
+        } : null,
         highestBidAmount: highestBid?.amount || null,
         bidCount: bids.filter(b => b.status === "active").length,
         bids: enrichedBids,
@@ -5827,6 +5848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           trialStartedAt: existing.trialStartedAt || trialStart,
           trialEndsAt: existing.trialEndsAt || trialEnd,
           teamRole: existing.teamRole || "owner",
+          onboardingStage: "submitted", // upgraded accounts also go through due diligence
         } as any);
         const { password: _existingPw, ...safeUpgraded } = upgraded as any;
         req.login(upgraded, (err) => {
@@ -5872,6 +5894,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `,
         });
       } catch (e) { console.error("Failed to send developer signup notification:", e); }
+
+      // Confirmation to the developer: submission received, due diligence next
+      try {
+        const { developerOnboardingSubmittedEmailTemplate } = await import("./emailTemplates");
+        const tpl = developerOnboardingSubmittedEmailTemplate({ firstName: firstName || "there", companyName });
+        await sendEmail({ to: email, subject: tpl.subject, html: tpl.html });
+      } catch (e) { console.error("Failed to send onboarding confirmation:", e); }
 
       const { password: _pw, ...safe } = user as any;
       req.login(user, (err) => {
@@ -5988,7 +6017,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update developer profile
   app.patch("/api/developer/me", requireDeveloper, async (req: any, res) => {
     try {
-      const { firstName, lastName, phone, companyName, companyRegistration, websiteUrl } = req.body || {};
+      const { firstName, lastName, phone, companyName, companyRegistration, websiteUrl,
+              companyLogoUrl, companyDescription, bankName, bankAccountName, bankAccountNumber } = req.body || {};
       const profileUpdates: Partial<User> = {};
       if (typeof firstName === "string")          profileUpdates.firstName          = firstName.slice(0, 100);
       if (typeof lastName === "string")           profileUpdates.lastName           = lastName.slice(0, 100);
@@ -5996,6 +6026,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (typeof companyName === "string")        profileUpdates.companyName        = companyName.slice(0, 200);
       if (typeof companyRegistration === "string") profileUpdates.companyRegistration = companyRegistration.slice(0, 100);
       if (typeof websiteUrl === "string")         profileUpdates.websiteUrl         = websiteUrl.slice(0, 500);
+      if (typeof companyLogoUrl === "string")     profileUpdates.companyLogoUrl     = companyLogoUrl.slice(0, 500);
+      if (typeof companyDescription === "string") profileUpdates.companyDescription = companyDescription.slice(0, 2000);
+      if (typeof bankName === "string")           profileUpdates.bankName           = bankName.slice(0, 200);
+      if (typeof bankAccountName === "string")    profileUpdates.bankAccountName    = bankAccountName.slice(0, 200);
+      if (typeof bankAccountNumber === "string")  profileUpdates.bankAccountNumber  = bankAccountNumber.slice(0, 30);
       const updated = await storage.updateUser(req.user.id, profileUpdates);
       const { password: _pw, ...safe } = updated as any;
       res.json(safe);
@@ -6426,16 +6461,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       // Per-type breakdown captured by the wizard (estate: by plot size; vertical: by apartment type).
-      const unitTypes: Array<{ label: string; quantity: number; price: number }> =
+      const unitTypes: Array<{ label: string; quantity: number; price: number; sqm?: number }> =
         Array.isArray(body.unitTypes)
           ? body.unitTypes
               .map((r: any) => ({
                 label: String(r?.label || "").trim(),
                 quantity: Number(r?.quantity) || 0,
                 price: Number(r?.price) || 0,
+                ...(Number(r?.sqm) > 0 ? { sqm: Number(r.sqm) } : {}),
               }))
               .filter((r: any) => r.label && r.quantity > 0 && r.price > 0)
           : [];
+      // Fractional land rule: minimum partition size is 5 sqm
+      const tooSmall = unitTypes.find((r) => r.sqm !== undefined && r.sqm < 5);
+      if (tooSmall) {
+        return res.status(400).json({ message: `Minimum partition size is 5 sqm ("${tooSmall.label}" is ${tooSmall.sqm} sqm)` });
+      }
       const totalUnits = Number(body.totalUnits) || 0;
       const developerEquityUnits = Number(body.developerEquityUnits) || 0;
       if (developerEquityUnits > totalUnits) {
@@ -8230,6 +8271,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===========================================================================
+  // Admin: developer onboarding & due-diligence pipeline
+  // ===========================================================================
+
+  // List developer owners with their onboarding info + first project
+  app.get("/api/admin/developer-onboarding", requireAdminAuth, async (req, res) => {
+    try {
+      const developers = await storage.getDevelopers();
+      const owners = developers.filter((d: any) => (d.teamRole || "owner") === "owner");
+      const result = [];
+      for (const dev of owners) {
+        const projects = await storage.getPropertiesByDeveloper(dev.id);
+        const d: any = dev;
+        result.push({
+          id: d.id,
+          email: d.email,
+          firstName: d.firstName,
+          lastName: d.lastName,
+          phone: d.phone,
+          companyName: d.companyName,
+          companyRegistration: d.companyRegistration,
+          companyLogoUrl: d.companyLogoUrl,
+          companyDescription: d.companyDescription,
+          websiteUrl: d.websiteUrl,
+          bankName: d.bankName,
+          bankAccountName: d.bankAccountName,
+          bankAccountNumber: d.bankAccountNumber,
+          onboardingStage: d.onboardingStage || "submitted",
+          onboardingRejectionReason: d.onboardingRejectionReason,
+          invitePending: !!(d.resetToken && d.resetTokenExpiry && new Date(d.resetTokenExpiry) > new Date()),
+          createdAt: d.createdAt,
+          projectCount: projects.length,
+          firstProject: projects[0]
+            ? { id: projects[0].id, name: projects[0].name, location: projects[0].location, projectStatus: projects[0].projectStatus }
+            : null,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to list developer onboarding" });
+    }
+  });
+
+  // Advance or reject a developer's onboarding stage
+  app.post("/api/admin/developer-onboarding/:id/stage", requireAdminAuth, async (req: any, res) => {
+    try {
+      const devId = parseInt(req.params.id);
+      const { stage, reason } = req.body || {};
+      const VALID = ["submitted", "due_diligence", "agreement_signed", "live", "rejected"];
+      if (!VALID.includes(stage)) return res.status(400).json({ message: "Invalid stage" });
+      if (stage === "rejected" && !reason) return res.status(400).json({ message: "A rejection reason is required" });
+
+      const dev: any = await storage.getUser(devId);
+      if (!dev || dev.role !== "developer") return res.status(404).json({ message: "Developer not found" });
+
+      const updated = await storage.updateUser(devId, {
+        onboardingStage: stage,
+        onboardingRejectionReason: stage === "rejected" ? String(reason).slice(0, 1000) : null,
+      } as any);
+
+      // Notify the developer on the decisions that matter
+      try {
+        const { developerOnboardingApprovedEmailTemplate, developerOnboardingRejectedEmailTemplate } = await import("./emailTemplates");
+        if (stage === "live") {
+          const tpl = developerOnboardingApprovedEmailTemplate({ firstName: dev.firstName || "there", companyName: dev.companyName || "your company" });
+          await sendEmail({ to: dev.email, subject: tpl.subject, html: tpl.html });
+        } else if (stage === "rejected") {
+          const tpl = developerOnboardingRejectedEmailTemplate({ firstName: dev.firstName || "there", companyName: dev.companyName || "your company", reason });
+          await sendEmail({ to: dev.email, subject: tpl.subject, html: tpl.html });
+        }
+      } catch (e) { console.error("Failed to send onboarding stage email:", e); }
+
+      const { password: _pw, ...safe } = updated as any;
+      res.json(safe);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to update onboarding stage" });
+    }
+  });
+
+  // Revoke a pending password-setup invite (kills the emailed link; account stays)
+  app.post("/api/admin/developer-onboarding/:id/revoke-invite", requireAdminAuth, async (req: any, res) => {
+    try {
+      const devId = parseInt(req.params.id);
+      const dev: any = await storage.getUser(devId);
+      if (!dev || dev.role !== "developer") return res.status(404).json({ message: "Developer not found" });
+      if (!dev.resetToken) return res.status(409).json({ message: "No pending invite to revoke" });
+      await storage.updateUser(devId, { resetToken: null, resetTokenExpiry: null } as any);
+      res.json({ message: "Invite revoked" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to revoke invite" });
+    }
+  });
+
+  // Delete a developer from the onboarding pipeline.
+  // Only allowed when they have no projects — otherwise reject to protect data.
+  app.delete("/api/admin/developer-onboarding/:id", requireAdminAuth, async (req: any, res) => {
+    try {
+      const devId = parseInt(req.params.id);
+      const dev: any = await storage.getUser(devId);
+      if (!dev || dev.role !== "developer") return res.status(404).json({ message: "Developer not found" });
+      const projects = await storage.getPropertiesByDeveloper(devId);
+      if (projects.length > 0) {
+        return res.status(409).json({ message: `This developer has ${projects.length} project(s). Take over or delete their projects first.` });
+      }
+      try {
+        await storage.deleteUser(devId);
+      } catch (e: any) {
+        // FK constraint — the account has other linked records (investments, team, etc.)
+        return res.status(409).json({ message: "This account has linked records (investments, team members, etc.) and can't be deleted. You can reject them instead." });
+      }
+      res.json({ message: "Developer deleted" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to delete developer" });
+    }
+  });
+
+  // Admin onboards a developer on their behalf: creates the account pre-filled
+  // with company/payout details and emails the developer a password-setup link.
+  app.post("/api/admin/developer-onboarding", requireAdminAuth, async (req: any, res) => {
+    try {
+      const {
+        email, firstName, lastName, phone,
+        companyName, companyRegistration, websiteUrl, companyDescription, companyLogoUrl,
+        bankName, bankAccountName, bankAccountNumber,
+      } = req.body || {};
+      if (!email || !firstName || !companyName) {
+        return res.status(400).json({ message: "email, firstName, and companyName are required" });
+      }
+      const existing = await storage.getUserByEmail(String(email).toLowerCase().trim());
+      if (existing) {
+        return res.status(409).json({ message: "An account already exists with this email." });
+      }
+
+      const { TRIAL_DAYS, DEFAULT_PLAN } = await import("@shared/plans");
+      const setupToken = randomBytes(32).toString("hex");
+      const tempPassword = await hashPassword(randomBytes(24).toString("hex")); // unguessable until they set one
+
+      const user = await storage.createUser({
+        email: String(email).toLowerCase().trim(),
+        password: tempPassword,
+        firstName, lastName: lastName || null, phone: phone || null,
+        role: "developer",
+        accountStatus: "approved",
+        emailVerified: true,
+        companyName,
+        companyRegistration: companyRegistration || null,
+        websiteUrl: websiteUrl || null,
+        companyDescription: companyDescription || null,
+        companyLogoUrl: companyLogoUrl || null,
+        bankName: bankName || null,
+        bankAccountName: bankAccountName || null,
+        bankAccountNumber: bankAccountNumber || null,
+        plan: DEFAULT_PLAN,
+        subscriptionStatus: "trialing",
+        trialStartedAt: new Date(),
+        trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+        teamRole: "owner",
+        onboardingStage: "due_diligence", // admin-created: submission already in hand
+        resetToken: setupToken,
+        resetTokenExpiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      } as any);
+
+      try {
+        const { developerInviteEmailTemplate } = await import("./emailTemplates");
+        const base = process.env.REPLIT_DEPLOYMENT ? "https://www.brikvest.net" : `https://${process.env.REPLIT_DEV_DOMAIN || "www.brikvest.net"}`;
+        const tpl = developerInviteEmailTemplate({
+          firstName,
+          companyName,
+          setupUrl: `${base}/reset-password?token=${setupToken}`,
+        });
+        await sendEmail({ to: user.email, subject: tpl.subject, html: tpl.html });
+      } catch (e) { console.error("Failed to send developer invite email:", e); }
+
+      const { password: _pw, resetToken: _rt, ...safe } = user as any;
+      res.status(201).json(safe);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to onboard developer" });
+    }
+  });
+
   // Admin: take over a developer's project (clears developerId so it becomes admin-managed)
   app.post("/api/admin/developer-projects/:id/take-over", requireAdminAuth, async (req: any, res) => {
     try {
@@ -8237,7 +8463,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await storage.getProperty(propertyId);
       if (!property) return res.status(404).json({ message: "Project not found" });
       const previousDeveloperId = property.developerId;
-      const updated = await storage.updateProperty(propertyId, { ...property, developerId: null, projectStatus: "live" } as InsertProperty);
+      // Preserve the project's current status — take-over transfers management only.
+      // Forcing 'live' here would bypass the pending_approval state machine and the
+      // developer due-diligence gate enforced in the review route.
+      const updated = await storage.updateProperty(propertyId, { ...property, developerId: null } as InsertProperty);
       // Notify former developer
       try {
         if (previousDeveloperId) {
@@ -8290,6 +8519,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if      (action === "approve")   newStatus = "live";
       else if (action === "reject")    newStatus = "draft";
+      // Due-diligence gate: a project cannot go live until its developer has
+      // completed onboarding (onboardingStage === 'live').
+      if (action === "approve" && property.developerId) {
+        const dev = await storage.getUser(property.developerId);
+        if (dev && (dev as any).onboardingStage && (dev as any).onboardingStage !== "live") {
+          return res.status(409).json({
+            message: "This developer hasn't completed due diligence yet. Approve them in the Developer Onboarding tab first.",
+            developerOnboardingStage: (dev as any).onboardingStage,
+          });
+        }
+      }
       else if (action === "archive")   newStatus = "archived";
       else if (action === "unarchive") newStatus = "draft";
       const updated = await storage.updateProperty(propertyId, { ...property, projectStatus: newStatus } as InsertProperty);
