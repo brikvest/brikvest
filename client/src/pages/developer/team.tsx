@@ -30,6 +30,16 @@ import { toastFromError } from "@/lib/planErrors";
 import { Loader2, UserPlus, Trash2, Mail, Crown, Shield, KeyRound } from "lucide-react";
 import { Link } from "wouter";
 import { PERMISSIONS, ALL_PERMISSION_KEYS, type PermissionKey } from "@shared/permissions";
+import { FUNDRAISING_TAB_ENABLED, CONSTRUCTION_TAB_ENABLED } from "@/lib/features";
+
+// Permissions the owner can actually grant right now. Feature-flagged areas
+// (Funding / Build) are hidden from the pickers while their tabs are disabled.
+const VISIBLE_PERMISSIONS = PERMISSIONS.filter((p) => {
+  if (p.key === "fundraising") return FUNDRAISING_TAB_ENABLED;
+  if (p.key === "construction") return CONSTRUCTION_TAB_ENABLED;
+  return true;
+});
+const VISIBLE_PERMISSION_KEYS: PermissionKey[] = VISIBLE_PERMISSIONS.map((p) => p.key);
 
 interface TeamMember {
   id: number;
@@ -353,7 +363,7 @@ function PermissionGrid({
     if (selected.includes(k)) onChange(selected.filter((x) => x !== k));
     else onChange([...selected, k]);
   };
-  const allSelected = selected.length === ALL_PERMISSION_KEYS.length;
+  const allSelected = VISIBLE_PERMISSION_KEYS.every((k) => selected.includes(k));
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -361,14 +371,14 @@ function PermissionGrid({
         <button
           type="button"
           className="text-xs text-blue-600 hover:underline"
-          onClick={() => onChange(allSelected ? [] : [...ALL_PERMISSION_KEYS])}
+          onClick={() => onChange(allSelected ? [] : [...VISIBLE_PERMISSION_KEYS])}
           data-testid="button-toggle-all-permissions"
         >
           {allSelected ? "Clear all" : "Select all"}
         </button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border rounded-lg p-3 bg-slate-50">
-        {PERMISSIONS.map((p) => {
+        {VISIBLE_PERMISSIONS.map((p) => {
           const checked = selected.includes(p.key);
           return (
             <label
