@@ -3595,6 +3595,14 @@ export default function AdminDashboard() {
     queryFn: () => authenticatedRequest("/api/admin/properties")
   });
 
+  // Developer filter for the Properties tab
+  const [developerFilter, setDeveloperFilter] = useState<string>("all");
+  const filteredProperties = (properties as Property[]).filter((p: Property) => {
+    if (developerFilter === "all") return true;
+    if (developerFilter === "brikvest") return !p.developerId;
+    return String(p.developerId) === developerFilter;
+  });
+
   // Fetch reservations
   const { data: reservations = [], isLoading: reservationsLoading } = useQuery({
     queryKey: ["/api/reservations/all"],
@@ -4244,18 +4252,34 @@ export default function AdminDashboard() {
                     <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Properties</h1>
                     <p className="text-slate-600 mt-2 text-lg">Manage your real estate investment portfolio</p>
                   </div>
-                  <Button 
-                    onClick={() => {
-                      resetPropertyForm();
-                      setEditingProperty(null);
-                      setSelectedTab('add-property');
-                    }} 
-                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg w-full lg:w-auto transition-all duration-200"
-                    size="lg"
-                  >
-                    <Plus className="h-5 w-5 mr-2" />
-                    Add New Property
-                  </Button>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <Select value={developerFilter} onValueChange={setDeveloperFilter}>
+                      <SelectTrigger className="w-full sm:w-[240px]" data-testid="select-developer-filter">
+                        <SelectValue placeholder="Filter by developer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All developers</SelectItem>
+                        <SelectItem value="brikvest">Brikvest-managed</SelectItem>
+                        {developerOptions.map((dev: any) => (
+                          <SelectItem key={dev.id} value={String(dev.id)}>
+                            {dev.companyName || dev.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button 
+                      onClick={() => {
+                        resetPropertyForm();
+                        setEditingProperty(null);
+                        setSelectedTab('add-property');
+                      }} 
+                      className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg w-full sm:w-auto transition-all duration-200"
+                      size="lg"
+                    >
+                      <Plus className="h-5 w-5 mr-2" />
+                      Add New Property
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Properties Content */}
@@ -4376,7 +4400,13 @@ export default function AdminDashboard() {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {properties.map((property: Property) => (
+                              {filteredProperties.length === 0 ? (
+                                <TableRow>
+                                  <TableCell colSpan={7} className="py-10 text-center text-slate-500">
+                                    No properties match this developer filter.
+                                  </TableCell>
+                                </TableRow>
+                              ) : filteredProperties.map((property: Property) => (
                                 <TableRow key={property.id} className="hover:bg-slate-50/50 transition-colors">
                                   <TableCell className="py-6 px-6">
                                     <div className="flex items-center space-x-4">
@@ -4531,7 +4561,11 @@ export default function AdminDashboard() {
                       {/* Mobile Grid View */}
                       <div className="lg:hidden p-6">
                         <div className="grid gap-6">
-                          {properties.map((property: Property) => (
+                          {filteredProperties.length === 0 ? (
+                            <div className="text-center text-slate-500 py-10">
+                              No properties match this developer filter.
+                            </div>
+                          ) : filteredProperties.map((property: Property) => (
                             <div key={property.id} className="border border-slate-200 rounded-xl p-6 hover:shadow-sm transition-all duration-200">
                               <div className="flex items-start space-x-4 mb-6">
                                 <div className="w-16 h-16 bg-slate-100 rounded-xl overflow-hidden flex-shrink-0">
