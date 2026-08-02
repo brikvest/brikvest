@@ -118,7 +118,7 @@ function devTypeNouns(propertyType: string) {
   };
 }
 
-type UnitTypeRow = { label: string; quantity: string; price: string };
+type UnitTypeRow = { label: string; quantity: string; price: string; sqm: string };
 
 export default function NewProjectWizard() {
   const [, setLocation] = useLocation();
@@ -147,7 +147,7 @@ export default function NewProjectWizard() {
     fundingNotes: "",
     totalBudget: "",
     // Pricing & units — per-type breakdown (estate: by plot size; vertical: by apartment type)
-    unitTypes: [{ label: "", quantity: "", price: "" }] as UnitTypeRow[],
+    unitTypes: [{ label: "", quantity: "", price: "", sqm: "" }] as UnitTypeRow[],
     developerEquityUnits: "0",
     isTransferable: false,
     // Description & media
@@ -164,15 +164,18 @@ export default function NewProjectWizard() {
     const next = form.unitTypes.map((r, i) => (i === idx ? { ...r, [field]: value } : r));
     setForm({ ...form, unitTypes: next });
   };
-  const addUnitType = () => setForm({ ...form, unitTypes: [...form.unitTypes, { label: "", quantity: "", price: "" }] });
+  const addUnitType = () => setForm({ ...form, unitTypes: [...form.unitTypes, { label: "", quantity: "", price: "", sqm: "" }] });
   const removeUnitType = (idx: number) => {
     const next = form.unitTypes.filter((_, i) => i !== idx);
-    setForm({ ...form, unitTypes: next.length ? next : [{ label: "", quantity: "", price: "" }] });
+    setForm({ ...form, unitTypes: next.length ? next : [{ label: "", quantity: "", price: "", sqm: "" }] });
   };
 
   const validUnitTypes = form.unitTypes
-    .map(r => ({ label: r.label.trim(), quantity: parseInt(r.quantity) || 0, price: parseFloat(r.price) || 0 }))
-    .filter(r => r.label && r.quantity > 0 && r.price > 0);
+    .map(r => ({ label: r.label.trim(), quantity: parseInt(r.quantity) || 0, price: parseFloat(r.price) || 0, sqm: parseFloat(r.sqm) || 0 }))
+    .filter(r => r.label && r.quantity > 0 && r.price > 0)
+    .map(r => (r.sqm > 0 ? r : ({ label: r.label, quantity: r.quantity, price: r.price } as any)));
+  const sqmTooSmall = form.unitTypes.some(r => r.sqm !== "" && (parseFloat(r.sqm) || 0) > 0 && parseFloat(r.sqm) < 5);
+  const sqmRows = validUnitTypes.filter((r: any) => r.sqm > 0);
   const totalUnitsCalc = validUnitTypes.reduce((s, r) => s + r.quantity, 0);
   const totalValueCalc = validUnitTypes.reduce((s, r) => s + r.quantity * r.price, 0);
   const minPriceCalc = validUnitTypes.length ? Math.min(...validUnitTypes.map(r => r.price)) : 0;
@@ -235,7 +238,7 @@ export default function NewProjectWizard() {
       }
       return true;
     }
-    if (step === 3) return validUnitTypes.length > 0;
+    if (step === 3) return validUnitTypes.length > 0 && !sqmTooSmall;
     if (step === 4) return form.description && form.imageUrl;
     return true;
   };
@@ -546,7 +549,7 @@ export default function NewProjectWizard() {
                 <div className="space-y-2">
                   {form.unitTypes.map((row, idx) => (
                     <div key={idx} className="grid grid-cols-12 gap-2 items-start">
-                      <div className="col-span-12 sm:col-span-5">
+                      <div className="col-span-12 sm:col-span-4">
                         {idx === 0 && <Label className="text-xs text-slate-500">{nouns.typeLabel}</Label>}
                         <Input
                           value={row.label}
@@ -555,7 +558,21 @@ export default function NewProjectWizard() {
                           data-testid={`input-unittype-label-${idx}`}
                         />
                       </div>
-                      <div className="col-span-5 sm:col-span-2">
+                      <div className="col-span-4 sm:col-span-2">
+                        {idx === 0 && <Label className="text-xs text-slate-500">Size (sqm)</Label>}
+                        <Input
+                          type="number"
+                          min={5}
+                          value={row.sqm}
+                          onChange={(e) => updateUnitType(idx, "sqm", e.target.value)}
+                          placeholder="10"
+                          data-testid={`input-unittype-sqm-${idx}`}
+                        />
+                        {row.sqm !== "" && (parseFloat(row.sqm) || 0) > 0 && parseFloat(row.sqm) < 5 && (
+                          <p className="text-[11px] text-rose-600 mt-0.5">Min 5 sqm</p>
+                        )}
+                      </div>
+                      <div className="col-span-4 sm:col-span-2">
                         {idx === 0 && <Label className="text-xs text-slate-500">{nouns.qtyLabel}</Label>}
                         <Input
                           type="number"
@@ -565,7 +582,7 @@ export default function NewProjectWizard() {
                           data-testid={`input-unittype-qty-${idx}`}
                         />
                       </div>
-                      <div className="col-span-6 sm:col-span-4">
+                      <div className="col-span-4 sm:col-span-3">
                         {idx === 0 && <Label className="text-xs text-slate-500">Price each ({form.currency})</Label>}
                         <Input
                           type="number"
@@ -574,6 +591,11 @@ export default function NewProjectWizard() {
                           placeholder={nouns.pricePlaceholder}
                           data-testid={`input-unittype-price-${idx}`}
                         />
+                        {(parseFloat(row.sqm) || 0) >= 5 && (parseFloat(row.price) || 0) > 0 && (
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            ≈ {form.currency} {Math.round(parseFloat(row.price) / parseFloat(row.sqm)).toLocaleString()}/sqm
+                          </p>
+                        )}
                       </div>
                       <div className="col-span-1 flex items-end h-full">
                         {idx === 0 && <Label className="text-xs text-slate-500 invisible">x</Label>}
@@ -604,6 +626,20 @@ export default function NewProjectWizard() {
                   <Plus className="w-4 h-4 mr-1.5" /> {nouns.addRowLabel}
                 </Button>
               </div>
+
+              {sqmRows.length >= 2 && (() => {
+                const tiers = [...sqmRows].sort((a: any, b: any) => a.sqm - b.sqm);
+                const perSqm = tiers.map((t: any) => t.price / t.sqm);
+                const discounted = perSqm[perSqm.length - 1] < perSqm[0];
+                return (
+                  <div className={`rounded-lg border p-3 text-xs ${discounted ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-blue-50 border-blue-200 text-blue-900"}`}>
+                    <strong>{discounted ? "Volume discount active:" : "Volume discount tip:"}</strong>{" "}
+                    {discounted
+                      ? `larger sizes pay less per sqm (${tiers.map((t: any) => `${t.sqm} sqm → ${form.currency} ${Math.round(t.price / t.sqm).toLocaleString()}/sqm`).join(", ")}). This encourages larger purchases.`
+                      : "consider pricing larger sizes at a lower rate per sqm — it encourages larger purchases and helps you sell out faster."}
+                  </div>
+                );
+              })()}
 
               <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
