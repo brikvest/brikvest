@@ -46,8 +46,8 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/developer",                label: "My Projects",    icon: LayoutGrid, testId: "link-projects",       match: (p) => p === "/developer" || p.startsWith("/developer/projects") },
-  { href: "/developer/new",            label: "New Project",    icon: Plus,       testId: "link-new-project",    match: (p) => p === "/developer/new",            requires: "settings" },
+  { href: "/developer",                label: "My Land Listings",    icon: LayoutGrid, testId: "link-projects",       match: (p) => p === "/developer" || p.startsWith("/developer/projects") },
+  { href: "/developer/new",            label: "New Land Listing",    icon: Plus,       testId: "link-new-project",    match: (p) => p === "/developer/new",            requires: "settings" },
   { href: "/developer/communications", label: "Communications", icon: Megaphone,  testId: "link-communications", match: (p) => p === "/developer/communications", requires: "comms" },
   { href: "/developer/team",           label: "Team",           icon: Users,      testId: "link-team",           match: (p) => p === "/developer/team" },
   { href: "/developer/profile",        label: "Profile",        icon: User,       testId: "link-profile",        match: (p) => p === "/developer/profile" },
@@ -356,7 +356,7 @@ function TrialBanner({ me }: { me: any }) {
           <div className="flex items-center gap-2 text-sm text-rose-900">
             <Clock className="w-4 h-4 text-rose-600 flex-shrink-0" />
             <span>
-              Your free trial has ended. Contact us to keep adding projects, investors, and updates.
+              Your free trial has ended. Contact us to keep adding land listings, investors, and updates.
             </span>
           </div>
         </div>

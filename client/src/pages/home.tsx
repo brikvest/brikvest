@@ -330,7 +330,7 @@ export default function Home() {
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link href="/developer/signup" className="cursor-pointer" data-testid="menu-item-list-project">
-                        <Building2 className="w-4 h-4 mr-2" /> List your project
+                        <Building2 className="w-4 h-4 mr-2" /> List your land
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -360,7 +360,7 @@ export default function Home() {
                       className="text-slate-700 hover:text-blue-700 hover:bg-slate-100 font-medium"
                       data-testid="link-developer-pricing-nav"
                     >
-                      List your project
+                      List your land
                     </Button>
                   </Link>
                   <Button
@@ -499,7 +499,7 @@ export default function Home() {
                     data-testid="link-mobile-developer-signup"
                   >
                     <Building2 className="h-4 w-4 mr-3 text-blue-600" />
-                    List your project
+                    List your land
                   </Link>
                 </div>
               </div>
@@ -1099,7 +1099,7 @@ export default function Home() {
                 />
               </div>
               <p className="text-slate-300 mb-6 max-w-md">
-                Making real estate investment accessible to everyone through fractional ownership and professional management.
+                Making real estate investment accessible to everyone through fractional ownership.
               </p>
             </div>
             <div>
@@ -1120,7 +1120,7 @@ export default function Home() {
                     className="text-slate-300 hover:text-white transition-colors"
                     data-testid="link-footer-developer-signup"
                   >
-                    List your project
+                    List your land
                   </Link>
                 </li>
                 <li>

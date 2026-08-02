@@ -20,7 +20,7 @@ export default function DeveloperCommunications() {
   return (
     <DeveloperLayout
       title="Communications History"
-      subtitle="Every update you've broadcast to your investors, across all projects."
+      subtitle="Every update you've broadcast to your investors, across all land listings."
     >
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-32 bg-slate-100 rounded animate-pulse" />)}</div>
@@ -29,7 +29,7 @@ export default function DeveloperCommunications() {
           <CardContent className="py-16 text-center text-slate-500">
             <Megaphone className="w-10 h-10 mx-auto mb-3 text-slate-300" />
             <div className="text-base font-medium mb-1">No updates yet</div>
-            <div className="text-sm">When you broadcast a project update, it will appear here.</div>
+            <div className="text-sm">When you broadcast a listing update, it will appear here.</div>
           </CardContent>
         </Card>
       ) : (

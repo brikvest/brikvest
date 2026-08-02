@@ -155,15 +155,15 @@ export default function DeveloperProjectsPage() {
 
   return (
     <DeveloperLayout
-      title="My Projects"
-      subtitle="Manage your fundraising, construction, and investor communications."
+      title="My Land Listings"
+      subtitle="Manage your land listings and investor communications."
       actions={
         <Link href="/developer/new">
           <Button
             className="bg-blue-600 hover:bg-blue-700 shadow-sm w-full sm:w-auto"
             data-testid="button-new-project"
           >
-            <Plus className="w-4 h-4 mr-2" /> New project
+            <Plus className="w-4 h-4 mr-2" /> New land listing
           </Button>
         </Link>
       }
@@ -194,7 +194,7 @@ export default function DeveloperProjectsPage() {
               icon={DollarSign}
               label="Total raised"
               value={formatNaira(totalRaised)}
-              sub={`Across ${projects.length} project${projects.length === 1 ? "" : "s"}`}
+              sub={`Across ${projects.length} land listing${projects.length === 1 ? "" : "s"}`}
               iconBg="bg-blue-50"
               iconColor="text-blue-600"
             />
@@ -202,13 +202,13 @@ export default function DeveloperProjectsPage() {
               icon={Users}
               label="Investors"
               value={String(totalInvestors)}
-              sub="Confirmed across all projects"
+              sub="Confirmed across all land listings"
               iconBg="bg-emerald-50"
               iconColor="text-emerald-600"
             />
             <KpiCard
               icon={CheckCircle2}
-              label="Projects live"
+              label="Listings live"
               value={String(liveCount)}
               sub={`${projects.length - liveCount} draft / pending`}
               iconBg="bg-purple-50"
@@ -218,7 +218,7 @@ export default function DeveloperProjectsPage() {
               icon={BarChart3}
               label="Avg funding"
               value={`${avgFundingPercent}%`}
-              sub="Across active projects"
+              sub="Across active listings"
               iconBg="bg-amber-50"
               iconColor="text-amber-600"
             />
@@ -241,17 +241,16 @@ export default function DeveloperProjectsPage() {
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center mb-4">
               <Building2 className="w-8 h-8 text-blue-600" />
             </div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">No projects yet</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">No land listings yet</h3>
             <p className="text-slate-500 max-w-md mb-6 text-sm">
-              Create your first project to start raising funds, sharing construction progress,
-              and managing your investor base.
+              Create your first land listing to start selling fractional plots and managing your investor base.
             </p>
             <Link href="/developer/new">
               <Button
                 className="bg-blue-600 hover:bg-blue-700 shadow-sm"
                 data-testid="button-empty-new"
               >
-                <Plus className="w-4 h-4 mr-2" /> Create your first project
+                <Plus className="w-4 h-4 mr-2" /> Create your first land listing
               </Button>
             </Link>
           </CardContent>

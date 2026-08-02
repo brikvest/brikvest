@@ -481,7 +481,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="project_manager">Project manager</SelectItem>
+              <SelectItem value="project_manager">Listing manager</SelectItem>
               <SelectItem value="sales">Sales</SelectItem>
               <SelectItem value="finance">Finance</SelectItem>
               <SelectItem value="operations">Operations</SelectItem>

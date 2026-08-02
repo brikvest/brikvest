@@ -23,7 +23,7 @@ export default function DeveloperLogin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/me"] });
-      toast({ title: "Welcome back!", description: "Redirecting to your projects…" });
+      toast({ title: "Welcome back!", description: "Redirecting to your land listings…" });
       setLocation("/developer");
     },
     onError: (err: any) => {
@@ -50,7 +50,7 @@ export default function DeveloperLogin() {
         <Card className="shadow-lg border-slate-200">
           <CardHeader>
             <CardTitle className="text-xl">Sign in to your developer account</CardTitle>
-            <CardDescription>Manage your projects, fundraising, and investor communications.</CardDescription>
+            <CardDescription>Manage your land listings and investor communications.</CardDescription>
           </CardHeader>
           <CardContent>
             <form

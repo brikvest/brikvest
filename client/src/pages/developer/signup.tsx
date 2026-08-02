@@ -68,7 +68,7 @@ export default function DeveloperSignup() {
 
         <Card className="shadow-lg border-slate-200">
           <CardHeader>
-            <CardTitle className="text-xl">List your project on Brikvest</CardTitle>
+            <CardTitle className="text-xl">List your land on Brikvest</CardTitle>
             <CardDescription>
               Connect with hundreds of vetted Nigerian and diaspora investors. Create your developer account to get started.
             </CardDescription>

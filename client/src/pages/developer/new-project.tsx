@@ -231,10 +231,10 @@ export default function NewProjectWizard() {
     },
     onSuccess: (project: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
-      toast({ title: "Project created", description: "It's saved as a draft. Submit it for approval when ready." });
+      toast({ title: "Land listing created", description: "It's saved as a draft. Submit it for approval when ready." });
       setLocation(`/developer/projects/${project.id}`);
     },
-    onError: (err: any) => toast(toastFromError(err, "Failed to create project")),
+    onError: (err: any) => toast(toastFromError(err, "Failed to create land listing")),
   });
 
   const canNext = () => {
@@ -259,7 +259,7 @@ export default function NewProjectWizard() {
     : form.fundingTypes.map(t => FUNDING_OPTIONS.find(o => o.value === t)?.label || t);
 
   return (
-    <DeveloperLayout backTo="/developer" title="Create new project" subtitle="Tell us about your development. You can edit anything later.">
+    <DeveloperLayout backTo="/developer" title="List new land" subtitle="Tell us about your land. You can edit anything later.">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between overflow-x-auto">
@@ -284,7 +284,7 @@ export default function NewProjectWizard() {
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <Label>Project name *</Label>
+                <Label>Listing name *</Label>
                 <Input value={form.name} onChange={u("name")} placeholder="Lily Crest Gardens — Phase 2" data-testid="input-name" />
               </div>
               <div>
@@ -348,7 +348,7 @@ export default function NewProjectWizard() {
               <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <Label className="text-sm">Will this project have external investors?</Label>
+                    <Label className="text-sm">Will this land have external investors?</Label>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Turn off if you're funding it yourself and just want it tracked here.
                     </p>
@@ -379,7 +379,7 @@ export default function NewProjectWizard() {
               {form.acceptsExternalInvestors && (
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <Label className="text-sm">How are investors funding this project? *</Label>
+                    <Label className="text-sm">How are investors funding this land? *</Label>
                     <span className="text-xs text-slate-500">Select one or more</span>
                   </div>
                   <p className="text-xs text-slate-500 mb-3">
@@ -682,7 +682,7 @@ export default function NewProjectWizard() {
                   <div className="font-semibold text-slate-900" data-testid="text-total-units-calc">{totalUnitsCalc.toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500">Total project value</div>
+                  <div className="text-xs text-slate-500">Total listing value</div>
                   <div className="font-semibold text-slate-900" data-testid="text-total-value-calc">
                     {form.currency} {totalValueCalc.toLocaleString()}
                   </div>
@@ -705,7 +705,7 @@ export default function NewProjectWizard() {
             <div className="space-y-4">
               <div>
                 <Label>Description *</Label>
-                <Textarea value={form.description} onChange={u("description")} rows={5} placeholder="What is this project? Where? Why is it a great opportunity?" data-testid="input-description" />
+                <Textarea value={form.description} onChange={u("description")} rows={5} placeholder="What is this land? Where? Why is it a great opportunity?" data-testid="input-description" />
               </div>
               <FileUpload
                 label="Cover image *"
@@ -730,7 +730,7 @@ export default function NewProjectWizard() {
 
           {step === 5 && (
             <div className="space-y-3 text-sm">
-              <RowKV label="Project name" value={form.name} />
+              <RowKV label="Listing name" value={form.name} />
               <RowKV label="Location" value={form.location} />
               <RowKV label="Property type" value={form.propertyType} />
               <RowKV label="Currency" value={form.currency} />
@@ -759,7 +759,7 @@ export default function NewProjectWizard() {
               <RowKV label={nouns.retainedLabel} value={form.developerEquityUnits} />
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
                 <p className="text-sm text-blue-900">
-                  Once created, your project is saved as a <strong>Draft</strong> and is not visible to investors. You can edit details and submit it for Brikvest approval from the project page.
+                  Once created, your land listing is saved as a <strong>Draft</strong> and is not visible to investors. You can edit details and submit it for Brikvest approval from the listing page.
                 </p>
               </div>
             </div>
@@ -778,7 +778,7 @@ export default function NewProjectWizard() {
         ) : (
           <Button className="bg-blue-600 hover:bg-blue-700" disabled={create.isPending} onClick={() => create.mutate()} data-testid="button-create">
             {create.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-            Create project
+            Create land listing
           </Button>
         )}
       </div>

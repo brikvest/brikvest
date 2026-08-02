@@ -235,8 +235,8 @@ export default function DeveloperProjectDetail() {
 
   if (!project) {
     return (
-      <DeveloperLayout backTo="/developer" title="Project not found">
-        <p className="text-slate-500">This project does not exist or you do not have access.</p>
+      <DeveloperLayout backTo="/developer" title="Listing not found">
+        <p className="text-slate-500">This land listing does not exist or you do not have access.</p>
       </DeveloperLayout>
     );
   }
@@ -312,7 +312,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", project.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
-      toast({ title: "Submitted for approval", description: "Brikvest admin will review your project." });
+      toast({ title: "Submitted for approval", description: "Brikvest admin will review your land listing." });
     },
     onError: () => toast({ title: "Submission failed", variant: "destructive" }),
   });
@@ -321,10 +321,10 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
     mutationFn: async () => apiRequest("DELETE", `/api/developer/projects/${project.id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects"] });
-      toast({ title: "Project deleted", description: `"${project.name}" has been removed.` });
+      toast({ title: "Listing deleted", description: `"${project.name}" has been removed.` });
       setLocation("/developer");
     },
-    onError: (err: any) => toast(toastFromError(err, "Couldn't delete project")),
+    onError: (err: any) => toast(toastFromError(err, "Couldn't delete listing")),
   });
 
   return (
@@ -333,7 +333,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
         <Card className="bg-amber-50 border-amber-200">
           <CardContent className="flex items-center justify-between py-4 px-6">
             <div>
-              <div className="font-semibold text-amber-900">This project is in draft mode</div>
+              <div className="font-semibold text-amber-900">This land listing is in draft mode</div>
               <div className="text-sm text-amber-800 mt-0.5">It is not visible to investors. Submit it to Brikvest for approval to go live.</div>
             </div>
             <Button onClick={() => submitMutation.mutate()} disabled={submitMutation.isPending} className="bg-amber-600 hover:bg-amber-700" data-testid="button-submit-approval">
@@ -358,7 +358,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
 
       <Card>
         <CardHeader>
-          <CardTitle>Project description</CardTitle>
+          <CardTitle>Listing description</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-slate-700 whitespace-pre-wrap" data-testid="text-description">{project.description}</p>
@@ -370,7 +370,7 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
           <CardHeader>
             <CardTitle className="text-rose-900 text-base">Danger zone</CardTitle>
             <CardDescription>
-              Deleting this project removes its milestones, updates, leads, notes and any pending prospective investors. Confirmed investors block deletion — contact Brikvest support to unwind those.
+              Deleting this land listing removes its milestones, updates, leads, notes and any pending prospective investors. Confirmed investors block deletion — contact Brikvest support to unwind those.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -378,14 +378,14 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" data-testid="button-delete-project" disabled={deleteProjectMutation.isPending}>
                   {deleteProjectMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
-                  Delete project
+                  Delete listing
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently removes the project and all its data — milestones, updates, leads, investor notes, valuations and any pending prospective investors. This can't be undone.
+                    This permanently removes the land listing and all its data — milestones, updates, leads, investor notes, valuations and any pending prospective investors. This can't be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -413,7 +413,7 @@ function FundingModelCard({ project }: { project: any }) {
     fixed_return: { label: "Fixed return",          tone: "bg-emerald-100 text-emerald-700", blurb: "You've committed a fixed % return to investors." },
     profit_share: { label: "Profit share",          tone: "bg-purple-100 text-purple-700",   blurb: "Investors share a % of net profit at exit." },
     loan:         { label: "Loan / Debt",           tone: "bg-amber-100 text-amber-700",     blurb: "Capital is repaid with interest at the end of the term." },
-    self_funded:  { label: "Self-funded",           tone: "bg-slate-100 text-slate-600",     blurb: "No external investors on this project." },
+    self_funded:  { label: "Self-funded",           tone: "bg-slate-100 text-slate-600",     blurb: "No external investors on this land listing." },
   };
   const PAYOUT: Record<string, string> = {
     on_exit: "On exit", lump_sum: "Lump sum", monthly: "Monthly", quarterly: "Quarterly", annually: "Annually",
@@ -464,7 +464,7 @@ function FundingModelCard({ project }: { project: any }) {
       <CardContent>
         {isSelfFunded ? (
           <p className="text-sm text-slate-600">
-            This project isn't accepting external investors. You can still track milestones, photos, and updates here.
+            This land isn't accepting external investors. You can still track milestones, photos, and updates here.
           </p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -482,7 +482,7 @@ function FundingModelCard({ project }: { project: any }) {
             )}
             {!returnText && !project.investmentTermMonths && !project.payoutFrequency && !project.exitStrategy && (
               <div className="col-span-full text-sm text-slate-500">
-                No detailed return terms set. Edit the project to add them.
+                No detailed return terms set. Edit the listing to add them.
               </div>
             )}
           </div>
@@ -660,7 +660,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
         <CardContent>
           {velocityData.every(v => v.cumulativeRaised === 0) ? (
             <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-velocity">
-              No prospective investors yet — share your project link to start tracking conversion.
+              No prospective investors yet — share your listing link to start tracking conversion.
             </div>
           ) : (
             <div className="h-64">
@@ -715,7 +715,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
         <CardContent>
           {funnelTotal === 0 ? (
             <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-funnel">
-              No prospective investors yet — share your project link to start tracking conversion.
+              No prospective investors yet — share your listing link to start tracking conversion.
             </div>
           ) : (
             <div className="space-y-2">
@@ -755,7 +755,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
         <CardContent>
           {conversionEfficiency.every(c => c.total === 0) ? (
             <div className="text-center py-10 text-slate-500 text-sm" data-testid="empty-efficiency">
-              No prospective investors yet — share your project link to start tracking conversion.
+              No prospective investors yet — share your listing link to start tracking conversion.
             </div>
           ) : (
             <div className="h-64">
@@ -851,7 +851,7 @@ function FundraisingTab({ project, rollup, projectKey }: { project: any; rollup:
 
           {investors.length === 0 ? (
             <div className="text-center py-10 text-slate-500" data-testid="empty-investors">
-              No prospective investors yet — share your project link to start tracking conversion.
+              No prospective investors yet — share your listing link to start tracking conversion.
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No investors match the current filters.</div>
@@ -1337,7 +1337,7 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
       <Card data-testid="card-schedule-overview">
         <CardHeader>
           <CardTitle>Schedule</CardTitle>
-          <CardDescription>Project-level dates that frame the construction timeline. Stage dates live below.</CardDescription>
+          <CardDescription>Listing-level dates that frame the construction timeline. Stage dates live below.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1365,7 +1365,7 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
           </div>
           {!project?.plannedStartDate && !project?.plannedCompletionDate && (
             <p className="text-xs text-slate-500 mt-3">
-              Set planned start and completion dates in project settings to populate the timeline.
+              Set planned start and completion dates in listing settings to populate the timeline.
             </p>
           )}
         </CardContent>
@@ -1376,7 +1376,7 @@ function ConstructionTab({ projectId, project }: { projectId: string | number; p
         <CardContent className="py-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <div className="text-sm text-slate-500">Project completion</div>
+              <div className="text-sm text-slate-500">Listing completion</div>
               <div className="text-3xl font-bold text-slate-900 mt-1">{completionPct}%</div>
               <div className="text-xs text-slate-500 mt-0.5">{completedCount} of {totalStages} stages complete</div>
             </div>
@@ -1533,7 +1533,7 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/developer/projects", projectId] });
       setFieldsDirty(false);
-      toast({ title: "Project details saved" });
+      toast({ title: "Listing details saved" });
     },
     onError: () => toast({ title: "Failed to save", variant: "destructive" }),
   });
@@ -1616,7 +1616,7 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
     <div className="space-y-6">
       <Card data-testid="card-project-fields">
         <CardHeader>
-          <CardTitle>Project status</CardTitle>
+          <CardTitle>Listing status</CardTitle>
           <CardDescription>High-level status visible to your investors. Updated independently of milestones.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1627,7 +1627,7 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
                 <HelpTip>
                   The high-level construction phase shown to investors on their dashboard.
                   This is independent of the detailed milestone list below — pick whichever
-                  phase best describes where the project is right now.
+                  phase best describes where the land is right now.
                 </HelpTip>
               </div>
               <Select value={projectFields.currentStage} onValueChange={(v) => updateField("currentStage", v)}>
@@ -1656,7 +1656,7 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
             <div>
               <div className="flex items-center gap-1.5">
                 <Label>Planned start date</Label>
-                <HelpTip>Used by the Construction schedule (top of this tab) as the start of the project timeline.</HelpTip>
+                <HelpTip>Used by the Construction schedule (top of this tab) as the start of the listing timeline.</HelpTip>
               </div>
               <Input
                 type="date"
@@ -1707,7 +1707,7 @@ function LegacyMilestonesSection({ projectId, project }: { projectId: string | n
               data-testid="button-save-project-fields"
             >
               {saveProjectFields.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-              Save project status
+              Save listing status
             </Button>
           </div>
         </CardContent>
@@ -1979,7 +1979,7 @@ function MilestoneDialog({ editing, onSave, saving }: { editing: any; onSave: (d
             <div className="flex items-center gap-1.5">
               <Label>% Complete</Label>
               <HelpTip>
-                Roughly how far along this milestone is, from 0 to 100. Used by the project
+                Roughly how far along this milestone is, from 0 to 100. Used by the listing
                 progress bar shown to investors.
               </HelpTip>
             </div>
@@ -2305,7 +2305,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           <div>
             <div className="text-sm font-semibold text-slate-900">Sales lifecycle stage</div>
             <div className="text-xs text-slate-500 mt-0.5">
-              Controls how this project is presented to investors. Off-plan = pre-handover; Completed = handed over / available now.
+              Controls how this land listing is presented to investors. Off-plan = pre-handover; Completed = handed over / available now.
             </div>
           </div>
           <div className="flex gap-2">
@@ -2434,7 +2434,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
           <CardDescription>
             {Array.isArray(rollup?.unitMix) && rollup.unitMix.length > 0
               ? `Inventory breakdown across the ${rollup.unitMix.length} configured unit type${rollup.unitMix.length === 1 ? "" : "s"}.`
-              : "Configure unit types in project settings to see this breakdown."}
+              : "Configure unit types in listing settings to see this breakdown."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -2454,7 +2454,7 @@ function SalesTab({ projectId, project }: { projectId: string | number; project:
             </div>
           ) : (
             <div className="text-center py-12 text-sm text-slate-500" data-testid="empty-unit-mix">
-              Add unit types in project settings to see this breakdown.
+              Add unit types in listing settings to see this breakdown.
             </div>
           )}
         </CardContent>
@@ -2829,7 +2829,7 @@ function AddInvestorDialog({ projectId, project, noun }: { projectId: string | n
                 <Label htmlFor="ai-units">{noun.Plural} *</Label>
                 <HelpTip>
                   How many {noun.plural} this client is buying. Each {noun.singular}
-                  represents one allocation in the project. We'll automatically reduce the
+                  represents one allocation in the land listing. We'll automatically reduce the
                   {" "}{noun.plural} still available for sale.
                 </HelpTip>
               </div>
@@ -3217,7 +3217,7 @@ function LeadsSection({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-slate-500 mt-1">
-                    This project has multiple unit types — pick the one being reserved so fees apply correctly.
+                    This land listing has multiple unit types — pick the one being reserved so fees apply correctly.
                   </p>
                 </div>
               )}
@@ -3450,8 +3450,8 @@ function CommunicationsTab({ projectId, project }: { projectId: string | number;
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Project updates</CardTitle>
-            <CardDescription>Email broadcasts sent to all confirmed investors in this project.</CardDescription>
+            <CardTitle>Listing updates</CardTitle>
+            <CardDescription>Email broadcasts sent to all confirmed investors in this land listing.</CardDescription>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -3461,7 +3461,7 @@ function CommunicationsTab({ projectId, project }: { projectId: string | number;
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Post a project update</DialogTitle>
+                <DialogTitle>Post a listing update</DialogTitle>
                 <DialogDescription>Confirmed investors receive an email. The update is also posted to their dashboard.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
