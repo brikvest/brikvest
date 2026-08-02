@@ -38,7 +38,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CRM_ENABLED, FUNDING_MODEL_ENABLED } from "@/lib/features";
+import { CRM_ENABLED, FUNDING_MODEL_ENABLED, FUNDRAISING_TAB_ENABLED, CONSTRUCTION_TAB_ENABLED } from "@/lib/features";
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft:            { label: "Draft",            className: "bg-slate-100 text-slate-700 border-slate-200" },
@@ -191,7 +191,14 @@ export default function DeveloperProjectDetail() {
   const { data: me } = useQuery<any>({ queryKey: ["/api/developer/me"] });
   const isOwner = !!me?.isOwner;
   const myPermissions: string[] = Array.isArray(me?.permissions) ? me.permissions : [];
-  const visibleTabs = TAB_ITEMS.filter((t) => !t.requires || isOwner || myPermissions.includes(t.requires));
+  const visibleTabs = TAB_ITEMS
+    .filter((t) => (t.value !== "fundraising" || FUNDRAISING_TAB_ENABLED) && (t.value !== "construction" || CONSTRUCTION_TAB_ENABLED))
+    .filter((t) => !t.requires || isOwner || myPermissions.includes(t.requires));
+
+  // If the active tab is no longer visible (flags/permissions changed), fall back to overview.
+  useEffect(() => {
+    if (!visibleTabs.some((t) => t.value === tab)) setTab("overview");
+  }, [tab, visibleTabs]);
 
   const { data: project, isLoading } = useQuery<any>({
     queryKey: ["/api/developer/projects", projectKey],
@@ -336,10 +343,14 @@ function OverviewTab({ project, rollup, canDelete }: { project: any; rollup: any
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard icon={TrendingUp} label="Funding raised" value={fmt(project.currency, rollup?.funding?.totalRaised || 0)} sub={`${rollup?.funding?.percent || 0}% of target`} />
+      <div className={`grid grid-cols-1 gap-4 ${
+        2 + (FUNDRAISING_TAB_ENABLED ? 1 : 0) + (CONSTRUCTION_TAB_ENABLED ? 1 : 0) === 4 ? "md:grid-cols-4"
+        : 2 + (FUNDRAISING_TAB_ENABLED ? 1 : 0) + (CONSTRUCTION_TAB_ENABLED ? 1 : 0) === 3 ? "md:grid-cols-3"
+        : "md:grid-cols-2"
+      }`}>
+        {FUNDRAISING_TAB_ENABLED && <StatCard icon={TrendingUp} label="Funding raised" value={fmt(project.currency, rollup?.funding?.totalRaised || 0)} sub={`${rollup?.funding?.percent || 0}% of target`} />}
         <StatCard icon={Users} label="Investors" value={String(rollup?.funnel?.confirmed || 0)} sub={`${(rollup?.funnel?.prospective || 0) + (rollup?.funnel?.dueDiligence || 0) + (rollup?.funnel?.documentation || 0) + (rollup?.funnel?.paymentIncomplete || 0)} prospective investors`} />
-        <StatCard icon={Hammer} label="Construction" value={`${rollup?.construction?.overall || 0}%`} sub={rollup?.construction?.nextMilestone?.name || "No milestones"} />
+        {CONSTRUCTION_TAB_ENABLED && <StatCard icon={Hammer} label="Construction" value={`${rollup?.construction?.overall || 0}%`} sub={rollup?.construction?.nextMilestone?.name || "No milestones"} />}
         <StatCard icon={Building2} label="Units sold" value={`${rollup?.sales?.investorUnits || 0} / ${rollup?.sales?.totalUnits || 0}`} sub={`${rollup?.sales?.availableUnits || 0} available`} />
       </div>
 
@@ -3231,10 +3242,19 @@ function LeadsSection({
 // ======================= CAP TABLE =======================
 function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
   const cap = rollup?.capTable || {};
+  // Pure land banking: the cap table only shows people who bought fractions
+  // of the land. Ownership % is computed over the total land units.
+  const totalUnits = rollup?.sales?.totalUnits || 0;
+  const investorUnits = rollup?.sales?.investorUnits || 0;
+  const availableUnits = rollup?.sales?.availableUnits || 0;
+  const pct = (units: number) => (totalUnits > 0 ? Number(((units / totalUnits) * 100).toFixed(2)) : 0);
+  const soldPct = pct(investorUnits);
+  const availablePct = pct(availableUnits);
+  const otherUnits = Math.max(0, totalUnits - investorUnits - availableUnits);
   const data = [
-    { name: "Investors",         value: cap.investorEquityPercent || 0,  fill: "#2563eb" },
-    { name: "Developer (kept)",  value: cap.developerEquityPercent || 0, fill: "#15803d" },
-    { name: "Available",         value: cap.availableEquityPercent || 0, fill: "#cbd5e1" },
+    { name: "Fraction owners", value: soldPct,      fill: "#2563eb" },
+    ...(otherUnits > 0 ? [{ name: "Reserved / other", value: pct(otherUnits), fill: "#f59e0b" }] : []),
+    { name: "Available",       value: availablePct, fill: "#cbd5e1" },
   ];
   const { data: investors } = useQuery<any[]>({
     queryKey: ["/api/developer/projects", project.id, "investors"],
@@ -3270,19 +3290,18 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
         <Card>
           <CardHeader><CardTitle>Summary</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <RowKV label="Total units" value={String(rollup?.sales?.totalUnits || 0)} />
-            <RowKV label="Investor units" value={String(rollup?.sales?.investorUnits || 0)} />
-            <RowKV label="Developer-retained units" value={String(rollup?.sales?.developerEquityUnits || 0)} />
+            <RowKV label="Total units" value={String(totalUnits)} />
+            <RowKV label="Units owned by investors" value={String(investorUnits)} />
             <RowKV label="Available units" value={String(rollup?.sales?.availableUnits || 0)} />
-            <RowKV label="Shareholders" value={String(cap.shareholderCount || 0)} />
+            <RowKV label="Fraction owners" value={String(cap.shareholderCount || 0)} />
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Confirmed shareholders</CardTitle>
-          <CardDescription>Investors with confirmed equity in this project.</CardDescription>
+          <CardTitle>Fraction owners</CardTitle>
+          <CardDescription>People who have bought fractions of this land and their percentage ownership.</CardDescription>
         </CardHeader>
         <CardContent>
           {confirmed.length === 0 ? (
@@ -3294,7 +3313,7 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
                   <TableRow>
                     <TableHead>Investor</TableHead>
                     <TableHead className="text-right">Units</TableHead>
-                    <TableHead className="text-right">Equity %</TableHead>
+                    <TableHead className="text-right">Ownership %</TableHead>
                     <TableHead className="text-right">Invested</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -3320,21 +3339,6 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
                       </TableRow>
                     );
                   })}
-                  {/* Developer (retained) row */}
-                  <TableRow className="bg-emerald-50/50" data-testid="row-shareholder-developer">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-8 h-8"><AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">D</AvatarFallback></Avatar>
-                        <div>
-                          <div className="font-medium text-slate-900">Developer (retained)</div>
-                          <div className="text-xs text-slate-500">Sponsor equity kept off-market</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{rollup?.sales?.developerEquityUnits || 0}</TableCell>
-                    <TableCell className="text-right font-medium">{(cap.developerEquityPercent || 0).toFixed ? cap.developerEquityPercent.toFixed(2) : cap.developerEquityPercent || 0}%</TableCell>
-                    <TableCell className="text-right text-slate-500">—</TableCell>
-                  </TableRow>
                   {/* Available (unsold) row */}
                   <TableRow className="bg-slate-50/50" data-testid="row-shareholder-available">
                     <TableCell>
@@ -3347,7 +3351,7 @@ function CapTableTab({ project, rollup }: { project: any; rollup: any }) {
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-medium">{rollup?.sales?.availableUnits || 0}</TableCell>
-                    <TableCell className="text-right font-medium">{(cap.availableEquityPercent || 0).toFixed ? cap.availableEquityPercent.toFixed(2) : cap.availableEquityPercent || 0}%</TableCell>
+                    <TableCell className="text-right font-medium">{totalUnits > 0 ? ((Number(rollup?.sales?.availableUnits || 0) / totalUnits) * 100).toFixed(2) : "0"}%</TableCell>
                     <TableCell className="text-right text-slate-500">—</TableCell>
                   </TableRow>
                 </TableBody>

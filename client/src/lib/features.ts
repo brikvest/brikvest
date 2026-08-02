@@ -9,3 +9,11 @@ export const CRM_ENABLED = false;
 // the project page. Hidden for the MVP: it's pure land banking, so every
 // project defaults to equity co-ownership.
 export const FUNDING_MODEL_ENABLED = false;
+
+// Fundraising ("Funding") tab + funding-raised stat on the developer project
+// page. Hidden for the pure land-banking MVP.
+export const FUNDRAISING_TAB_ENABLED = false;
+
+// Construction ("Build") tab + construction stat on the developer project
+// page. Hidden for the pure land-banking MVP.
+export const CONSTRUCTION_TAB_ENABLED = false;

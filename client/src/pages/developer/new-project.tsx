@@ -324,19 +324,6 @@ export default function NewProjectWizard() {
                   </Select>
                 </div>
               </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <Label>SPV / Holding entity</Label>
-                  <span className="text-xs text-slate-400 font-normal">(optional)</span>
-                  <HelpTip>
-                    The Special Purpose Vehicle (SPV) is the legal entity that holds title to the property on
-                    behalf of investors. Investors own units in this SPV, not the underlying land directly.
-                    Leave blank if you haven't incorporated one yet — you can add it later.
-                  </HelpTip>
-                </div>
-                <Input value={form.spvName} onChange={u("spvName")} placeholder="Lily Crest SPV Ltd (optional)" data-testid="input-spv" />
-                <p className="text-xs text-slate-500 mt-1">Optional — you can add this later once your SPV is incorporated.</p>
-              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
                 <div>
                   <div className="flex items-center gap-1.5">
@@ -719,10 +706,6 @@ export default function NewProjectWizard() {
               <div>
                 <Label>Description *</Label>
                 <Textarea value={form.description} onChange={u("description")} rows={5} placeholder="What is this project? Where? Why is it a great opportunity?" data-testid="input-description" />
-              </div>
-              <div>
-                <Label>Investment thesis</Label>
-                <Textarea value={form.investmentDetails} onChange={u("investmentDetails")} rows={4} placeholder="Expected returns, exit strategy, comparables…" data-testid="input-investment-details" />
               </div>
               <FileUpload
                 label="Cover image *"
