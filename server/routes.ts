@@ -2076,7 +2076,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/properties", requireAdminAuth, async (req: any, res) => {
     try {
       const properties = await storage.getProperties();
-      res.json(properties);
+      // Enrich with the linked developer's company name for the admin table
+      const developerIds = Array.from(new Set(properties.map(p => p.developerId).filter((id): id is number => !!id)));
+      const developerNames = new Map<number, string>();
+      await Promise.all(developerIds.map(async (id) => {
+        const dev = await storage.getUser(id);
+        if (dev) {
+          developerNames.set(id, dev.companyName || [dev.firstName, dev.lastName].filter(Boolean).join(' ') || dev.email);
+        }
+      }));
+      const enriched = properties.map(p => ({
+        ...p,
+        developerCompanyName: p.developerId ? (developerNames.get(p.developerId) ?? null) : null,
+      }));
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching properties (admin):", error);
       res.status(500).json({ message: "Failed to fetch properties" });
@@ -2245,6 +2258,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await storage.getProperty(reservationData.propertyId);
       if (!property) {
         return res.status(400).json({ message: "The selected property is no longer available" });
+      }
+
+      // Only live projects can accept reservations — blocks direct-API reservations
+      // against draft/pending_approval/archived projects (due-diligence loophole).
+      if (property.projectStatus !== "live") {
+        return res.status(400).json({ message: "This property is not open for investment yet" });
       }
 
       // Check if there are available slots
@@ -2568,6 +2587,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Invalid property data", 
           details: result.error.errors 
         });
+      }
+
+      // Lifecycle fields must go through their dedicated routes:
+      // - projectStatus: /api/admin/developer-projects/:id/review (state machine + due-diligence gate)
+      // - developerId:   /api/admin/developer-projects/:id/take-over
+      // Allowing them here would let a generic edit flip a project live and bypass onboarding checks.
+      delete (result.data as any).projectStatus;
+      delete (result.data as any).developerId;
+
+      // Fractional land rule: minimum partition size is 5 sqm (same check as project creation)
+      if (Array.isArray((result.data as any).unitTypes)) {
+        const tooSmall = (result.data as any).unitTypes.find((r: any) => Number(r?.sqm) > 0 && Number(r.sqm) < 5);
+        if (tooSmall) {
+          return res.status(400).json({ error: `Minimum partition size is 5 sqm ("${tooSmall.label}" is ${tooSmall.sqm} sqm)` });
+        }
       }
 
       const property = await storage.updateProperty(propertyId, result.data);
