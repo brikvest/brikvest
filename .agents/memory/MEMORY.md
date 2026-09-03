@@ -1,2 +1,3 @@
 - [Dev server backend reload](dev-server-reload.md) — backend runs tsx (no watch); restart the workflow before testing server/* edits via curl.
 - [Dev DB is live](dev-db-is-live.md) — dev DATABASE_URL is the real users' DB (no prod replica); treat any data-mutating script as production.
+- [Post-merge database safety](post-merge-database-safety.md) — never run generic drizzle push automatically; use explicit idempotent schema scripts against the live DB.
