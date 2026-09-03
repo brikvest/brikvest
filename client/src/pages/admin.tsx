@@ -4043,7 +4043,6 @@ export default function AdminDashboard() {
     };
 
 
-
     if (editingProperty) {
       updatePropertyMutation.mutate({ id: editingProperty.id, data: propertyData });
     } else {

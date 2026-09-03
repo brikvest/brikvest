@@ -864,9 +864,9 @@ export type ResalePayment = typeof resalePayments.$inferSelect;
 export type InsertResaleAuditLog = z.infer<typeof insertResaleAuditLogSchema>;
 export type ResaleAuditLog = typeof resaleAuditLogs.$inferSelect;
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // Developer Portal — Project Milestones, Updates, and Investor Notes
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 export const projectMilestones = pgTable("project_milestones", {
   id: serial("id").primaryKey(),
@@ -966,9 +966,9 @@ export const insertDeveloperLeadSchema = createInsertSchema(developerLeads).omit
   updatedAt: true,
 });
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // Developer Portal — Construction stages, vendors, vendor payments
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 // Predefined 8-stage construction template per project. One row per stage per project,
 // auto-seeded by createProperty(). UI lets developers fill in planned/actual dates and
@@ -1132,9 +1132,9 @@ export type InsertReservationReminder = z.infer<typeof insertReservationReminder
 
 export type DeveloperRegister = z.infer<typeof developerRegisterSchema>;
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // Contractor Portal — Projects, Budget, Expenses
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 export const contractorProjects = pgTable("contractor_projects", {
   id: serial("id").primaryKey(),
@@ -1246,4 +1246,3 @@ export type InsertContractorBudgetCategory = z.infer<typeof insertContractorBudg
 export type ContractorExpense = typeof contractorExpenses.$inferSelect;
 export type InsertContractorExpense = z.infer<typeof insertContractorExpenseSchema>;
 export type ContractorRegister = z.infer<typeof contractorRegisterSchema>;
-

@@ -123,6 +123,7 @@ export interface IStorage {
   updateUserPassword(id: number, password: string): Promise<void>;
   setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
   getUserByResetToken(token: string): Promise<User | undefined>;
+  consumeResetTokenAndSetPassword(token: string, hashedPassword: string): Promise<User | undefined>;
   updateUserLastLogin(id: number): Promise<void>;
   updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
   getAllKycSubmissions(): Promise<User[]>;
@@ -384,6 +385,22 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async consumeResetTokenAndSetPassword(token: string, hashedPassword: string): Promise<User | undefined> {
+    const [user] = await db.update(users)
+      .set({
+        password: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(users.resetToken, token),
+        gte(users.resetTokenExpiry, new Date()),
+      ))
+      .returning();
+    return user;
+  }
+
   async updateUserLastLogin(id: number): Promise<void> {
     await db.update(users)
       .set({ lastLogin: new Date(), updatedAt: new Date() })
@@ -426,6 +443,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Admin user methods
+
   async getAdminUser(id: number): Promise<AdminUser | undefined> {
     const [user] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
     return user;
@@ -448,6 +466,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Property methods - All properties (admin use)
+
   async getProperties(): Promise<Property[]> {
     return await db.select().from(properties).orderBy(desc(properties.createdAt));
   }
@@ -455,6 +474,7 @@ export class DatabaseStorage implements IStorage {
   // Public properties only (buyer use) - excludes archived properties.
   // Also hides developer-owned projects that are still draft or pending approval —
   // those must only be visible to the owning developer and admins, not to investors.
+
   async getPublicProperties(): Promise<Property[]> {
     const all = await db.select().from(properties)
       .where(ne(properties.status, 'archived'))
@@ -506,6 +526,7 @@ export class DatabaseStorage implements IStorage {
   // Typed minimal-patch update — only the supplied columns are written. Use this
   // instead of updateProperty() when you only want to change a few fields and
   // don't want to risk clobbering other columns by round-tripping the full row.
+
   async updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property> {
     const [property] = await db
       .update(properties)
@@ -522,6 +543,7 @@ export class DatabaseStorage implements IStorage {
   // Cascade-delete a developer project and every child row that references it.
   // Caller must verify ownership/permission and confirm there are no active
   // confirmed investors before invoking.
+
   async deleteDeveloperProject(id: number): Promise<void> {
     // Resale audit chain
     await db.delete(resaleAuditLogs).where(eq(resaleAuditLogs.propertyId, id));
@@ -595,6 +617,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Investment reservation methods
+
   async createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation> {
     // Derive funnel_stage at write time so funnel/conversion charts are
     // accurate in real time (no reliance on the startup backfill).
@@ -840,9 +863,11 @@ export class DatabaseStorage implements IStorage {
   // status guard lives in the WHERE clause so two concurrent reinstate requests
   // (or a double-click) cannot both succeed and double-count sold units — only
   // the first one matches a row; the rest get null and must abort.
+
   async reinstateReservationIfEligible(
     id: number,
     updates: Partial<InvestmentReservation>,
+
   ): Promise<InvestmentReservation | null> {
     const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
       ...updates,
@@ -909,6 +934,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Investment group methods
+
   async createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup> {
     const [newGroup] = await db
       .insert(investmentGroups)
@@ -944,6 +970,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Group membership methods
+
   async createGroupMembership(membership: InsertGroupMembership): Promise<GroupMembership> {
     const [newMembership] = await db
       .insert(groupMemberships)
@@ -978,6 +1005,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Verification methods
+
   async getVerificationSteps(): Promise<VerificationStep[]> {
     return await db
       .select()
@@ -1068,6 +1096,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Market insights methods
+
   async createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]> {
     if (insights.length === 0) return [];
     
@@ -1104,6 +1133,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Guzape listings methods
+
   async saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]> {
     if (listings.length === 0) return [];
     
@@ -1145,6 +1175,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Investment payments methods
+
   async createInvestmentPayment(payment: any): Promise<any> {
     const [newPayment] = await db
       .insert(investmentPayments)
@@ -1162,6 +1193,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Ownership certificates methods
+
   async createOwnershipCertificate(certificate: InsertOwnershipCertificate): Promise<OwnershipCertificate> {
     const [newCertificate] = await db
       .insert(ownershipCertificates)
@@ -1237,6 +1269,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payment submissions methods (user-initiated payment proof uploads)
+
   async createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission> {
     const [result] = await db.insert(paymentSubmissions).values(submission).returning();
     return result;
@@ -1549,9 +1582,9 @@ export class DatabaseStorage implements IStorage {
     return await query;
   }
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Developer Portal methods
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   async getPropertiesByDeveloper(developerId: number): Promise<Property[]> {
     return await db.select().from(properties)
@@ -1661,6 +1694,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Developer CRM leads
+
   async createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead> {
     const [result] = await db.insert(developerLeads).values(lead).returning();
     return result;
@@ -1689,9 +1723,9 @@ export class DatabaseStorage implements IStorage {
     await db.delete(developerLeads).where(eq(developerLeads.id, id));
   }
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Developer subscription / team
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   async getDeveloperOwnerId(userId: number): Promise<number> {
     const u = await this.getUser(userId);
@@ -1741,9 +1775,9 @@ export class DatabaseStorage implements IStorage {
     return rows.length;
   }
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Developer team invites
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   async createDeveloperTeamInvite(invite: InsertDeveloperTeamInvite): Promise<DeveloperTeamInvite> {
     const [result] = await db.insert(developerTeamInvites).values(invite).returning();
@@ -1770,9 +1804,10 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  // ==========================================================================
+  // --------------------------------------------------------------------------
   // Construction stages (predefined 8-stage template per project)
-  // ==========================================================================
+  // --------------------------------------------------------------------------
+
   async getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]> {
     return await db.select().from(constructionStages)
       .where(eq(constructionStages.propertyId, propertyId))
@@ -1802,6 +1837,7 @@ export class DatabaseStorage implements IStorage {
     propertyId: number,
     stageKey: string,
     updates: Partial<InsertConstructionStage>,
+
   ): Promise<ConstructionStage> {
     // Look up the stage template (sortOrder + default name) so a fresh row
     // can be created if it doesn't exist yet.
@@ -1825,9 +1861,10 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  // ==========================================================================
+  // --------------------------------------------------------------------------
   // Vendors
-  // ==========================================================================
+  // --------------------------------------------------------------------------
+
   async getVendorsByProperty(propertyId: number): Promise<Vendor[]> {
     return await db.select().from(vendors)
       .where(eq(vendors.propertyId, propertyId))
@@ -1884,9 +1921,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(vendors).where(eq(vendors.id, id));
   }
 
-  // ==========================================================================
+  // --------------------------------------------------------------------------
   // Vendor payments
-  // ==========================================================================
+  // --------------------------------------------------------------------------
+
   async getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]> {
     return await db.select().from(vendorPayments)
       .where(eq(vendorPayments.vendorId, vendorId))
@@ -1918,9 +1956,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(vendorPayments).where(eq(vendorPayments.id, id));
   }
 
-  // ==========================================================================
+  // --------------------------------------------------------------------------
   // Reservation funnel / monthly conversion efficiency
-  // ==========================================================================
+  // --------------------------------------------------------------------------
+
   async getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>> {
     const rows = await db
       .select({ funnelStage: investmentReservations.funnelStage, count: sql<number>`count(*)::int` })
@@ -1948,6 +1987,7 @@ export class DatabaseStorage implements IStorage {
   async getMonthlyConversionEfficiency(
     propertyId: number,
     months: number = 12,
+
   ): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]> {
     // Funnel-stage-driven rollup over the last `months` calendar months.
     // - confirmedCount    = reservations with funnel_stage = 'confirmed'
@@ -1995,10 +2035,11 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  // ==========================================================================
+  // --------------------------------------------------------------------------
   // Funnel-stage backfill — called once on boot. Idempotent (no-op on rows
   // that already have funnel_stage set).
-  // ==========================================================================
+  // --------------------------------------------------------------------------
+
   async backfillReservationFunnelStages(): Promise<number> {
     // Mapping rules (kept in SQL so backfill is a single round-trip):
     //   status = 'converted_to_investment'                          -> 'confirmed'
@@ -2020,6 +2061,32 @@ export class DatabaseStorage implements IStorage {
       WHERE r.funnel_stage IS NULL
     `);
     return result.rowCount ?? 0;
+  }
+
+  async addGroupContribution(contribution: InsertGroupContribution): Promise<GroupContribution> {
+    const [newContribution] = await db
+      .insert(groupContributions)
+      .values(contribution)
+      .returning();
+
+    // Update member's contributed amount
+    const [member] = await db.select().from(groupMembers).where(eq(groupMembers.id, contribution.memberId));
+    if (member) {
+      await db
+        .update(groupMembers)
+        .set({ 
+          contributedAmount: member.contributedAmount + contribution.amount
+        })
+        .where(eq(groupMembers.id, contribution.memberId));
+    }
+
+    // Update group's current amount
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, contribution.groupId));
+    if (group) {
+      await this.updateGroupAmount(contribution.groupId, group.currentAmount + contribution.amount);
+    }
+
+    return newContribution;
   }
 }
 

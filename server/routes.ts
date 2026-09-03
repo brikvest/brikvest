@@ -1968,16 +1968,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { token, password } = result.data;
-      const user = await storage.getUserByResetToken(token);
-      
-      if (!user || !user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+      const hashedPassword = await hashPassword(password);
+      const user = await storage.consumeResetTokenAndSetPassword(token, hashedPassword);
+
+      if (!user) {
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
-
-      // Update password and clear reset token
-      const hashedPassword = await hashPassword(password);
-      await storage.updateUserPassword(user.id, hashedPassword);
-      await storage.updateUser(user.id, { resetToken: null, resetTokenExpiry: null });
 
       res.json({ message: "Password reset successfully" });
     } catch (error) {
@@ -4112,9 +4108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // CERTIFICATE VERIFICATION ROUTES
-  // ============================================
+  // --------------------------------------------
   
   // Public: Verify certificate by token (for QR code scanning)
   app.get('/api/verify/certificate/:token', async (req, res) => {
@@ -4247,7 +4243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
 
-  // ==================== RESALE HELPER FUNCTIONS ====================
+  // -------------------- RESALE HELPER FUNCTIONS --------------------
 
   async function logResaleAudit(params: {
     listingId?: number;
@@ -4390,7 +4386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return `${reason}. Slot offered to next highest bidder: ${nextBidder?.fullName || nextBidder?.email || `User #${nextBid.bidderId}`} (${listing.currency} ${parseFloat(nextBid.amount).toLocaleString()}).`;
   }
 
-  // ==================== RESALE LISTING ROUTES ====================
+  // -------------------- RESALE LISTING ROUTES --------------------
 
   // Create a resale listing (seller side)
   app.post("/api/resale-listings", requireApprovedUser, async (req: any, res) => {
@@ -4751,7 +4747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== PUBLIC LISTING ROUTE ====================
+  // -------------------- PUBLIC LISTING ROUTE --------------------
 
   app.get("/api/public/listing/:shareToken", async (req, res) => {
     try {
@@ -4812,7 +4808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== MARKETPLACE ROUTES ====================
+  // -------------------- MARKETPLACE ROUTES --------------------
 
   // Get all approved resale listings (marketplace) - enriched with property & bid info
   app.get("/api/marketplace/listings-public", async (req: any, res) => {
@@ -5679,7 +5675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== RESALE AUDIT LOG ADMIN ROUTES ====================
+  // -------------------- RESALE AUDIT LOG ADMIN ROUTES --------------------
 
   app.get("/api/admin/resale-audit-logs", requireAdminAuth, async (req: any, res) => {
     try {
@@ -5737,9 +5733,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // DEVELOPER PORTAL ROUTES
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   function requireDeveloper(req: any, res: any, next: any) {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Authentication required" });
@@ -6074,9 +6070,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Developer team / seats — invite, list, revoke, remove
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   // List team members (active accounts) + pending/revoked invites for the
   // authenticated developer's account. Both owner and members can read.
@@ -7428,9 +7424,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Developer CRM leads (pre-reservation funnel: lead/contacted/qualified)
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   const LEAD_STAGES = ["lead", "contacted", "qualified", "converted", "lost"] as const;
   type LeadStage = typeof LEAD_STAGES[number];
 
@@ -7671,9 +7667,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ============================================================================
+  // ----------------------------------------------------------------------------
   // Construction Budget & Vendors
-  // ============================================================================
+  // ----------------------------------------------------------------------------
 
   // Aggregated budget rollup: totals, per-stage spend, per-vendor spend, monthly burn.
   app.get("/api/developer/projects/:id/budget", requireDeveloper, requirePermission("construction"), async (req: any, res) => {
@@ -8305,9 +8301,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
   // Admin: developer onboarding & due-diligence pipeline
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
 
   // List developer owners with their onboarding info + first project
   app.get("/api/admin/developer-onboarding", requireAdminAuth, async (req, res) => {
@@ -8652,9 +8648,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   processExpiredResalePayments();
   setInterval(processExpiredResalePayments, 30 * 60 * 1000); // Every 30 minutes
 
-  // ============================================================================
+  // ----------------------------------------------------------------------------
   // Contractor Portal Routes
-  // ============================================================================
+  // ----------------------------------------------------------------------------
 
   function requireContractor(req: any, res: any, next: any) {
     if (!req.isAuthenticated()) {
