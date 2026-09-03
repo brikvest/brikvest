@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -9,6 +9,10 @@ channel = "stable-24_05"
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
 
 [[ports]]
 localPort = 5000
@@ -34,3 +38,13 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[agent]
+integrations = ["javascript_sendgrid:1.0.0"]
+
+[objectStorage]
+defaultBucketID = "replit-objstore-35269575-475c-4d86-88b0-e0fedb234478"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 90000

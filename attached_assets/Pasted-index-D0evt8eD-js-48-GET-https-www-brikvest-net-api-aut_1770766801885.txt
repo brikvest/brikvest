@@ -1,0 +1,202 @@
+index-D0evt8eD.js:48  GET https://www.brikvest.net/api/auth/user 401 (Unauthorized)
+(anonymous) @ index-D0evt8eD.js:48
+s @ index-D0evt8eD.js:48
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+onSubscribe @ index-D0evt8eD.js:48
+subscribe @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+n3 @ index-D0evt8eD.js:38
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+I3 @ index-D0evt8eD.js:40
+S @ index-D0evt8eD.js:25
+M @ index-D0evt8eD.js:25Understand this error
+index-D0evt8eD.js:48  GET https://www.brikvest.net/api/user/payment-submissions 500 (Internal Server Error)
+(anonymous) @ index-D0evt8eD.js:48
+s @ index-D0evt8eD.js:48
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+setOptions @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40
+setTimeout
+i @ index-D0evt8eD.js:48
+a @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+la @ index-D0evt8eD.js:48
+setData @ index-D0evt8eD.js:48
+onSuccess @ index-D0evt8eD.js:48
+f @ index-D0evt8eD.js:48
+Promise.then
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+refetchQueries @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+invalidateQueries @ index-D0evt8eD.js:48
+onSuccess @ index-D0evt8eD.js:427
+execute @ index-D0evt8eD.js:48
+await in execute
+mutate @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+b @ index-D0evt8eD.js:427
+(anonymous) @ index-D0evt8eD.js:427
+await in (anonymous)
+iG @ index-D0evt8eD.js:37
+aG @ index-D0evt8eD.js:37
+oG @ index-D0evt8eD.js:37
+CE @ index-D0evt8eD.js:37
+BF @ index-D0evt8eD.js:37
+(anonymous) @ index-D0evt8eD.js:37
+nk @ index-D0evt8eD.js:40
+uF @ index-D0evt8eD.js:37
+ew @ index-D0evt8eD.js:37
+TC @ index-D0evt8eD.js:37
+NG @ index-D0evt8eD.js:37Understand this error
+index-D0evt8eD.js:48  GET https://www.brikvest.net/api/user/reservations 500 (Internal Server Error)
+(anonymous) @ index-D0evt8eD.js:48
+s @ index-D0evt8eD.js:48
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+setOptions @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40
+setTimeout
+i @ index-D0evt8eD.js:48
+a @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+la @ index-D0evt8eD.js:48
+setData @ index-D0evt8eD.js:48
+onSuccess @ index-D0evt8eD.js:48
+f @ index-D0evt8eD.js:48
+Promise.then
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+refetchQueries @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+invalidateQueries @ index-D0evt8eD.js:48
+onSuccess @ index-D0evt8eD.js:427
+execute @ index-D0evt8eD.js:48
+await in execute
+mutate @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+b @ index-D0evt8eD.js:427
+(anonymous) @ index-D0evt8eD.js:427
+await in (anonymous)
+iG @ index-D0evt8eD.js:37
+aG @ index-D0evt8eD.js:37
+oG @ index-D0evt8eD.js:37
+CE @ index-D0evt8eD.js:37
+BF @ index-D0evt8eD.js:37
+(anonymous) @ index-D0evt8eD.js:37
+nk @ index-D0evt8eD.js:40
+uF @ index-D0evt8eD.js:37
+ew @ index-D0evt8eD.js:37
+TC @ index-D0evt8eD.js:37
+NG @ index-D0evt8eD.js:37Understand this error
+index-D0evt8eD.js:48  GET https://www.brikvest.net/api/properties-converted?currency=NGN 500 (Internal Server Error)
+Zl @ index-D0evt8eD.js:48
+queryFn @ index-D0evt8eD.js:383
+s @ index-D0evt8eD.js:48
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+onSubscribe @ index-D0evt8eD.js:48
+subscribe @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+n3 @ index-D0evt8eD.js:38
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40Understand this error
+index-D0evt8eD.js:48  GET https://www.brikvest.net/api/statistics 500 (Internal Server Error)
+(anonymous) @ index-D0evt8eD.js:48
+s @ index-D0evt8eD.js:48
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+onSubscribe @ index-D0evt8eD.js:48
+subscribe @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+n3 @ index-D0evt8eD.js:38
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40Understand this error
+index-D0evt8eD.js:48  POST https://www.brikvest.net/api/seed-properties 401 (Unauthorized)
+Zl @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:427
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40
+setTimeout
+i @ index-D0evt8eD.js:48
+a @ index-D0evt8eD.js:48
+batch @ index-D0evt8eD.js:48
+la @ index-D0evt8eD.js:48
+o @ index-D0evt8eD.js:48
+h @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+Promise.catch
+m @ index-D0evt8eD.js:48
+start @ index-D0evt8eD.js:48
+fetch @ index-D0evt8eD.js:48
+mh @ index-D0evt8eD.js:48
+onSubscribe @ index-D0evt8eD.js:48
+subscribe @ index-D0evt8eD.js:48
+(anonymous) @ index-D0evt8eD.js:48
+n3 @ index-D0evt8eD.js:38
+s0 @ index-D0evt8eD.js:40
+_u @ index-D0evt8eD.js:40
+FY @ index-D0evt8eD.js:40
+wl @ index-D0evt8eD.js:40
+tT @ index-D0evt8eD.js:40
+ol @ index-D0evt8eD.js:38
+(anonymous) @ index-D0evt8eD.js:40Understand this error
+Error: 401: {"message":"Authentication required"}
+    at v6 (index-D0evt8eD.js:48:42927)
+    at async Zl (index-D0evt8eD.js:48:43143)

@@ -11,11 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Users, Building, FileText, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp } from "lucide-react";
+import { ArrowLeft, Users, Building, Calendar, Mail, Phone, MapPin, Plus, Upload, BarChart3, Home, ExternalLink, Download, Eye, Edit, Trash2, Menu, Target, TrendingUp, ShieldCheck, CheckCircle, XCircle } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { FileUpload } from "@/components/FileUpload";
-import type { Property, InvestmentReservation, DeveloperBid, InsertProperty } from "@shared/schema";
+import type { Property, InvestmentReservation, InsertProperty, User } from "@shared/schema";
 
 export default function AdminDashboard() {
   const [selectedTab, setSelectedTab] = useState("overview");
@@ -61,11 +61,14 @@ export default function AdminDashboard() {
     }
   });
 
-  // Fetch developer bids
-  const { data: developerBids = [], isLoading: bidsLoading } = useQuery({
-    queryKey: ["/api/developer-bids"],
+  // Fetch KYC submissions
+  const { data: kycSubmissions = [], isLoading: kycLoading } = useQuery<User[]>({
+    queryKey: ["/api/admin/kyc/submissions"],
     queryFn: async () => {
-      const response = await fetch("/api/developer-bids");
+      const sessionId = localStorage.getItem("adminSessionId");
+      const response = await fetch("/api/admin/kyc/submissions", {
+        headers: { "Authorization": `Bearer ${sessionId}` }
+      });
       if (!response.ok) return [];
       return response.json();
     }
@@ -121,6 +124,33 @@ export default function AdminDashboard() {
     },
     onError: (error) => {
       toast({ title: "Error updating property", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const updateKycStatusMutation = useMutation({
+    mutationFn: async ({ userId, status }: { userId: number; status: string }) => {
+      const sessionId = localStorage.getItem("adminSessionId");
+      const response = await fetch(`/api/admin/kyc/${userId}/status`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionId}`
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error("Failed to update KYC status");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc/submissions"] });
+      toast({ title: "KYC status updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Error updating KYC status", 
+        description: error.message, 
+        variant: "destructive" 
+      });
     }
   });
 
@@ -226,12 +256,12 @@ export default function AdminDashboard() {
                 Reservations
               </Button>
               <Button
-                variant={selectedTab === "developer-bids" ? "secondary" : "ghost"}
+                variant={selectedTab === "kyc-verifications" ? "secondary" : "ghost"}
                 className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("developer-bids")}
+                onClick={() => setSelectedTab("kyc-verifications")}
               >
-                <FileText className="mr-3 h-4 w-4" />
-                Developer Bids
+                <ShieldCheck className="mr-3 h-4 w-4" />
+                KYC Verifications
               </Button>
             </div>
           </nav>
@@ -642,10 +672,139 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {selectedTab === "developer-bids" && (
-              <div className="space-y-6 mt-6">
-                <h1 className="text-3xl font-bold text-slate-900">Developer Bids</h1>
-                <p className="text-slate-600">Review developer proposals</p>
+            {selectedTab === "kyc-verifications" && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-3xl font-bold text-slate-900">KYC Verifications</h1>
+                  <p className="text-slate-600 mt-2">Review and manage user identity verifications</p>
+                </div>
+
+                {kycLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="mt-4 text-slate-600">Loading KYC submissions...</p>
+                  </div>
+                ) : kycSubmissions.length === 0 ? (
+                  <Card>
+                    <CardContent className="p-12 text-center">
+                      <ShieldCheck className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-600">No KYC submissions yet</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>KYC Submissions ({kycSubmissions.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>User</TableHead>
+                            <TableHead>Full Name</TableHead>
+                            <TableHead>Date of Birth</TableHead>
+                            <TableHead>ID Type</TableHead>
+                            <TableHead>Submitted</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Documents</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {kycSubmissions.map((user) => (
+                            <TableRow key={user.id}>
+                              <TableCell>
+                                <div>
+                                  <div className="font-medium">{user.firstName} {user.lastName}</div>
+                                  <div className="text-sm text-slate-500">{user.email}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>{user.kycFullName || '-'}</TableCell>
+                              <TableCell>
+                                {user.kycDateOfBirth 
+                                  ? new Date(user.kycDateOfBirth).toLocaleDateString() 
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{user.kycIdType || '-'}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                {user.kycSubmittedAt 
+                                  ? formatDate(user.kycSubmittedAt.toString()) 
+                                  : '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Badge 
+                                  variant={
+                                    user.kycStatus === 'verified' ? 'default' : 
+                                    user.kycStatus === 'rejected' ? 'destructive' : 
+                                    'secondary'
+                                  }
+                                >
+                                  {user.kycStatus}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {user.kycIdDocumentUrl && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => window.open(user.kycIdDocumentUrl!, '_blank')}
+                                    >
+                                      <ExternalLink className="h-3 w-3 mr-1" />
+                                      ID Doc
+                                    </Button>
+                                  )}
+                                  {user.kycSelfieUrl && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => window.open(user.kycSelfieUrl!, '_blank')}
+                                    >
+                                      <Eye className="h-3 w-3 mr-1" />
+                                      Selfie
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {user.kycStatus === 'submitted' && (
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      onClick={() => updateKycStatusMutation.mutate({ 
+                                        userId: user.id, 
+                                        status: 'verified' 
+                                      })}
+                                      disabled={updateKycStatusMutation.isPending}
+                                    >
+                                      <CheckCircle className="h-3 w-3 mr-1" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => updateKycStatusMutation.mutate({ 
+                                        userId: user.id, 
+                                        status: 'rejected' 
+                                      })}
+                                      disabled={updateKycStatusMutation.isPending}
+                                    >
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
           </div>

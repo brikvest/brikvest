@@ -1,0 +1,218 @@
+We need to implement a referral program for Brikvest.
+
+The goal is to allow users to refer new users and earn cash rewards when people sign up or invest through their referral link.
+
+IMPORTANT
+This must be a proper trackable referral system, not just a simple link counter.
+
+--------------------------------------------------
+
+REFERRAL PROGRAM RULES
+
+Users earn cash rewards for referring people:
+
+• Refer 1 person → $20 reward  
+• Refer 2 people → $50 reward total  
+
+This means:
+- First referral = $20
+- Second referral = additional $30 (total becomes $50)
+
+We only count successful referrals.
+
+A successful referral means:
+- A new user signs up using the referral link
+OR
+- A user invests after signing up through the referral link
+
+The system should be flexible so we can change reward rules later.
+
+--------------------------------------------------
+
+FEATURE 1: REFERRAL CODE GENERATION
+
+Each user should automatically get a unique referral code.
+
+Example:
+REF-JOHN123
+BRIK-8F7K2A
+
+Database fields to add to the users table:
+
+referralCode
+referredByUserId (nullable)
+
+--------------------------------------------------
+
+FEATURE 2: REFERRAL LINK
+
+Each user should have a shareable referral link.
+
+Example:
+
+https://brikvest.com/signup?ref=REF12345
+
+When a new user opens the link:
+- we store the referral code in local storage / cookie
+- when the user signs up, we attach the referredByUserId
+
+--------------------------------------------------
+
+FEATURE 3: REFERRAL TRACKING
+
+Create a referral tracking system.
+
+Suggested table:
+
+referrals
+
+id
+referrerUserId
+referredUserId
+status
+createdAt
+
+status values:
+pending
+completed
+invalid
+
+A referral becomes "completed" when:
+- the referred user signs up successfully
+OR
+- the referred user completes an investment (depending on business rule)
+
+--------------------------------------------------
+
+FEATURE 4: REWARD CALCULATION
+
+Create a reward tracking system.
+
+Suggested table:
+
+referral_rewards
+
+id
+userId
+referralCount
+rewardAmount
+status
+createdAt
+
+Logic:
+
+If referralCount == 1
+rewardAmount = $20
+
+If referralCount >= 2
+rewardAmount = $50
+
+The system should calculate rewards automatically whenever a referral becomes completed.
+
+--------------------------------------------------
+
+FEATURE 5: REFERRAL DASHBOARD (USER)
+
+Add a referral section in the user dashboard showing:
+
+Your referral link
+Copy link button
+Number of successful referrals
+Total reward earned
+Referral progress
+
+Example display:
+
+Refer 1 person → $20  
+Refer 2 people → $50  
+
+You have referred: 1 person  
+Current reward: $20
+
+Also show list of referrals:
+
+Name / Email (masked)
+Status
+Date
+
+--------------------------------------------------
+
+FEATURE 6: EMAIL INTEGRATION
+
+Add referral messaging in emails.
+
+1. When a user signs up:
+
+Send email encouraging them to refer friends.
+
+Example message:
+
+"Invite friends to Brikvest and earn cash rewards.
+
+Refer 1 friend and earn $20.
+Refer 2 friends and earn $50.
+
+Share your referral link:
+[referral link]"
+
+2. When someone signs up through a referral link:
+
+Send email to the referrer:
+
+"Great news! Someone joined Brikvest using your referral link."
+
+--------------------------------------------------
+
+FEATURE 7: SHARING OPTIONS
+
+Allow users to easily share their referral link.
+
+Add buttons for:
+
+Copy link
+Email
+WhatsApp
+Twitter
+Facebook
+
+--------------------------------------------------
+
+FEATURE 8: PAYOUT TRACKING
+
+Rewards should be tracked as cash rewards.
+
+Add payout status:
+
+pending
+approved
+paid
+
+Admins should later be able to export or manage payouts.
+
+--------------------------------------------------
+
+FEATURE 9: SECURITY
+
+Prevent abuse:
+
+• Only count referrals from new accounts  
+• Do not allow self-referrals  
+• Validate referral code before linking users  
+
+--------------------------------------------------
+
+DELIVERABLES
+
+Implement:
+
+1. database schema
+2. backend logic
+3. referral tracking
+4. reward calculation
+5. referral dashboard UI
+6. email integration
+7. shareable referral link system
+
+The solution must integrate with the existing Brikvest user authentication and signup system.
+
+Avoid hardcoding values so reward amounts can be changed later.
