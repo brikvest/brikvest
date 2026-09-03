@@ -2589,6 +2589,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // - projectStatus: /api/admin/developer-projects/:id/review (state machine + due-diligence gate)
       // - developerId:   /api/admin/developer-projects/:id/take-over
       // Allowing them here would let a generic edit flip a project live and bypass onboarding checks.
+      // Note: listerId (display-only "Listed by" attribution) IS allowed here — changing it
+      // never grants or removes developer-portal control, which is exactly why it's a separate field.
       delete (result.data as any).projectStatus;
       delete (result.data as any).developerId;
 
@@ -3396,8 +3398,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
       
       const rates = await getExchangeRates();
+      // Attach "listed by" info (lister name + type). Attribution comes solely from the
+      // dedicated listerId field (backfilled from developerId by scripts/backfill-lister-id.ts);
+      // developerId governs portal control and is never used for display attribution.
+      const listerIds = Array.from(new Set(properties.map((p: any) => p.listerId).filter(Boolean)));
+      const listerMap = new Map<number, { name: string; type: string }>();
+      await Promise.all(listerIds.map(async (id: number) => {
+        try {
+          const u = await storage.getUser(id);
+          if (u) {
+            const name = u.companyName || [u.firstName, u.lastName].filter(Boolean).join(" ");
+            if (name) listerMap.set(id, { name, type: u.listerType || "developer" });
+          }
+        } catch {}
+      }));
       
-      const convertedProperties = properties.map(property => {
+      const convertedProperties = properties.map(rawProperty => {
+        const listerId = (rawProperty as any).listerId;
+        const lister = listerId ? listerMap.get(listerId) : undefined;
+        const property: any = {
+          ...rawProperty,
+          listedByName: lister?.name || null,
+          listedByType: lister?.type || null,
+        };
         // Get the property's stored currency (default to USD for old properties without currency field)
         const storedCurrency = property.currency || 'USD';
         

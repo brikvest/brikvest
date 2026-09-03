@@ -107,6 +107,9 @@ export const properties = pgTable("properties", {
   status: text("status").notNull().default("active"),
   // Developer Portal: optional ownership of this project by a developer user
   developerId: integer("developer_id").references((): any => users.id),
+  // Display-only attribution: whose name/type shows as "Listed by" to buyers.
+  // Decoupled from developerId so changing the label never changes portal ownership/permissions.
+  listerId: integer("lister_id").references((): any => users.id),
   developerEquityUnits: decimal("developer_equity_units", { precision: 15, scale: 2 }).notNull().default("0"),
   projectStatus: text("project_status").notNull().default("live"), // 'draft' | 'pending_approval' | 'live' | 'sold_out' | 'archived'
   salesStage: text("sales_stage").notNull().default("off_plan"), // Lifecycle stage: 'off_plan' | 'completed'

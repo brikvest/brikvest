@@ -3580,6 +3580,7 @@ export default function AdminDashboard() {
     totalSquareMeters: "",
     isTransferable: false,
     developerId: "none" as string,
+    listerId: "none" as string,
   });
 
   // Fetch developers (owners) for property-developer linking
@@ -3831,6 +3832,7 @@ export default function AdminDashboard() {
       totalSquareMeters: "",
       isTransferable: false,
       developerId: "none" as string,
+      listerId: "none" as string,
     });
     clearDraft(); // Clear draft when form is reset
     setIsDraftSaved(false);
@@ -4039,6 +4041,10 @@ export default function AdminDashboard() {
       isTransferable: propertyForm.isTransferable,
       developerId: propertyForm.developerId && propertyForm.developerId !== "none"
         ? parseInt(propertyForm.developerId)
+        : null,
+      // Display-only "Listed by" attribution — separate from developerId (ownership).
+      listerId: propertyForm.listerId && propertyForm.listerId !== "none"
+        ? parseInt(propertyForm.listerId)
         : null,
     };
 
@@ -4533,6 +4539,7 @@ export default function AdminDashboard() {
                                             totalSquareMeters: property.totalSquareMeters || "",
                                             isTransferable: property.isTransferable || false,
                                             developerId: property.developerId ? String(property.developerId) : "none",
+                                            listerId: (property as any).listerId ? String((property as any).listerId) : "none",
                                           });
                                           setIsEditDialogOpen(true);
                                         }}
@@ -4624,6 +4631,7 @@ export default function AdminDashboard() {
                                         totalSquareMeters: property.totalSquareMeters || "",
                                         isTransferable: property.isTransferable || false,
                                         developerId: property.developerId ? String(property.developerId) : "none",
+                                        listerId: (property as any).listerId ? String((property as any).listerId) : "none",
                                       });
                                       setIsEditDialogOpen(true);
                                     }}
@@ -5203,6 +5211,24 @@ export default function AdminDashboard() {
                       </div>
 
                       <div className="space-y-2">
+                        <Label htmlFor="listerId">Listed by (Optional)</Label>
+                        <Select value={propertyForm.listerId || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, listerId: value }))}>
+                          <SelectTrigger data-testid="select-lister">
+                            <SelectValue placeholder="Select lister" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No attribution</SelectItem>
+                            {developerOptions.map((dev: any) => (
+                              <SelectItem key={dev.id} value={String(dev.id)}>
+                                {dev.companyName || dev.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">Display-only "Listed by" name shown to buyers — changing it never affects who controls the project</p>
+                      </div>
+
+                      <div className="space-y-2">
                         <Label>Main Property Image</Label>
                         <FileUpload
                           onUploadSuccess={(url, fileName) => {
@@ -5649,6 +5675,7 @@ export default function AdminDashboard() {
                         totalSquareMeters: viewingProperty.totalSquareMeters || "",
                         isTransferable: viewingProperty.isTransferable || false,
                         developerId: viewingProperty.developerId ? String(viewingProperty.developerId) : "none",
+                        listerId: (viewingProperty as any).listerId ? String((viewingProperty as any).listerId) : "none",
                       });
                       setIsViewDialogOpen(false);
                       setIsEditDialogOpen(true);
@@ -6023,6 +6050,25 @@ export default function AdminDashboard() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">Linking a developer shows their brand (logo, name, RC number) to buyers on listing pages</p>
+            </div>
+
+            {/* Listed-by attribution (display only, decoupled from ownership) */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-listerId">Listed by (Optional)</Label>
+              <Select value={propertyForm.listerId || "none"} onValueChange={(value) => setPropertyForm(prev => ({ ...prev, listerId: value }))}>
+                <SelectTrigger data-testid="select-edit-lister">
+                  <SelectValue placeholder="Select lister" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No attribution</SelectItem>
+                  {developerOptions.map((dev: any) => (
+                    <SelectItem key={dev.id} value={String(dev.id)}>
+                      {dev.companyName || dev.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">Display-only "Listed by" name shown to buyers — changing it never affects who controls the project</p>
             </div>
 
             {/* Media Upload */}

@@ -166,6 +166,17 @@ export async function cleanupAllTestData() {
     await db
       .delete(developerInvestorNotes)
       .where(inArray(developerInvestorNotes.propertyId, propIds));
+    // Construction-tab children (vendorPayments -> vendors -> constructionStages)
+    const { constructionStages, vendors, vendorPayments } = await import(
+      "@shared/schema"
+    );
+    await db
+      .delete(vendorPayments)
+      .where(inArray(vendorPayments.propertyId, propIds));
+    await db.delete(vendors).where(inArray(vendors.propertyId, propIds));
+    await db
+      .delete(constructionStages)
+      .where(inArray(constructionStages.propertyId, propIds));
     await db.delete(properties).where(inArray(properties.id, propIds));
   }
 
