@@ -1995,7 +1995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { username, password } = result.data;
       const user = await storage.getAdminUserByUsername(username);
 
-      if (!user) {
+      if (!user || !user.isActive) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
