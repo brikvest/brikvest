@@ -1899,6 +1899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { email } = result.data;
+      const isDeveloperPortal = req.body?.portal === 'developer';
       const user = await storage.getUserByEmail(email);
       
       if (!user) {
@@ -1913,7 +1914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.setPasswordResetToken(email, resetToken, expiry);
 
       // Send reset email
-      const resetLink = `https://www.brikvest.net/reset-password?token=${resetToken}`;
+      const resetLink = `https://www.brikvest.net/reset-password?token=${resetToken}${isDeveloperPortal ? '&portal=developer' : ''}`;
       await sendEmail({
         to: email,
         subject: "Password Reset - Brikvest",

@@ -12,20 +12,25 @@ import { Eye, EyeOff } from "lucide-react";
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
   const [token, setToken] = useState("");
+  const [isDeveloperPortal, setIsDeveloperPortal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
+
+  const loginPath = isDeveloperPortal ? "/developer/login" : "/login";
 
   useEffect(() => {
     // Get token from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
     const resetToken = urlParams.get('token');
+    const developerPortal = urlParams.get('portal') === 'developer';
+    setIsDeveloperPortal(developerPortal);
     if (!resetToken) {
       toast({
         title: "Invalid reset link",
         description: "The password reset link is invalid or expired.",
         variant: "destructive",
       });
-      setLocation("/login");
+      setLocation(developerPortal ? "/developer/login" : "/login");
       return;
     }
     setToken(resetToken);
@@ -72,7 +77,7 @@ export default function ResetPassword() {
         title: "Password reset successful",
         description: "Your password has been updated. You can now sign in with your new password.",
       });
-      setLocation("/login");
+      setLocation(loginPath);
     },
     onError: (error: any) => {
       toast({
@@ -162,7 +167,7 @@ export default function ResetPassword() {
           <div className="text-center">
             <Button
               variant="ghost"
-              onClick={() => setLocation("/login")}
+              onClick={() => setLocation(loginPath)}
               className="text-sm text-blue-600 hover:text-blue-700"
             >
               Back to Sign In
