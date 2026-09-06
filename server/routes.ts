@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import fs from "fs";
 import path from "path";
-import { storage } from "./storage";
+import { ProjectHasConfirmedInvestorsError, storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
@@ -2955,29 +2955,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Property not found" });
       }
       
-      // Get all reservations for this property
-      const allReservations = await storage.getAllReservations();
-      const propertyReservations = allReservations.filter(r => r.propertyId === propertyId);
-      
-      // Check if any reservations are converted to investments
-      const paidReservations = propertyReservations.filter(r => 
-        r.status === 'converted_to_investment'
-      );
-      
-      if (paidReservations.length > 0) {
-        return res.status(400).json({ 
-          error: `Cannot delete property. There are ${paidReservations.length} active investment(s). Cancel those investments first.` 
-        });
-      }
-      
-      // Cancel all reserved reservations and notify users
-      const pendingReservations = propertyReservations.filter(r => r.status === 'reserved');
-      
+      // Use the shared project cleanup operation so all dependent records are
+      // removed in foreign-key-safe order. It returns the pending reservations
+      // captured inside that transaction for accurate post-commit notifications.
+      const pendingReservations = await storage.deleteDeveloperProject(propertyId);
+
       for (const reservation of pendingReservations) {
-        // Cancel the reservation
-        await storage.updateReservation(reservation.id, { status: 'cancelled' });
-        
-        // Send notification email
         try {
           await sendEmail({
             to: reservation.email,
@@ -3016,9 +2999,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Now delete the property
-      await storage.deleteProperty(propertyId);
-      
       res.json({ 
         message: "Property deleted successfully",
         cancelledReservations: pendingReservations.length,
@@ -3026,7 +3006,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error deleting property:", error);
-      res.status(500).json({ error: "Failed to delete property" });
+      if (error instanceof ProjectHasConfirmedInvestorsError) {
+        const message = `This property has ${error.count} confirmed investment(s) and can't be deleted. Contact Brikvest support to unwind them.`;
+        return res.status(409).json({
+          code: "has_confirmed_investors",
+          message,
+          error: message,
+        });
+      }
+      res.status(500).json({
+        message: "The property could not be deleted because its related records could not be cleaned up. Please try again or contact support.",
+        error: "The property could not be deleted because its related records could not be cleaned up. Please try again or contact support.",
+      });
     }
   });
 
@@ -6692,6 +6683,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (err) {
       console.error("Failed to delete project:", err);
+      if (err instanceof ProjectHasConfirmedInvestorsError) {
+        return res.status(409).json({
+          code: "has_confirmed_investors",
+          message: "This project has confirmed investors and can't be deleted. Contact Brikvest support to unwind it.",
+        });
+      }
       res.status(500).json({ message: "Failed to delete project" });
     }
   });
