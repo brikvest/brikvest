@@ -24,6 +24,7 @@ import { FileUploader } from "@/components/FileUploader";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useCurrency } from "@/hooks/useCurrency";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-cost-breakdown";
 
 // Helper function to get currency symbol
@@ -1997,7 +1998,7 @@ function ResaleListingsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Resale Listings</h1>
+        <h2 className="text-2xl font-bold text-slate-900">Listings</h2>
         <p className="text-slate-500">Review and manage P2P unit resale requests</p>
       </div>
 
@@ -2310,7 +2311,7 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Resale Payments</h1>
+        <h2 className="text-2xl font-bold text-slate-900">Payments</h2>
         <p className="text-slate-600 mt-1">Review and verify buyer payments for resale transactions</p>
       </div>
 
@@ -2562,7 +2563,7 @@ function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-3xl font-bold text-slate-900">Resale Audit Trail</h1>
+        <h2 className="text-2xl font-bold text-slate-900">Audit Trail</h2>
         <div className="flex items-center gap-2">
           <Input
             placeholder="Filter by Listing ID..."
@@ -2625,7 +2626,7 @@ function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: 
 
       {/* Main audit log table */}
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -2688,6 +2689,49 @@ function ResaleAuditTab({ authenticatedRequest }: { authenticatedRequest: (url: 
           </Table>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900">Resale</h1>
+        <p className="mt-1 text-slate-600">Manage resale listings, payments, and transaction history</p>
+      </div>
+
+      <Tabs defaultValue="listings" className="w-full">
+        <div className="overflow-x-auto pb-1">
+          <TabsList
+            className="grid h-auto min-w-[420px] w-full grid-cols-3 sm:min-w-0 sm:w-fit"
+            aria-label="Resale management sections"
+          >
+            <TabsTrigger value="listings" className="gap-2">
+              <Repeat className="h-4 w-4" />
+              Listings
+            </TabsTrigger>
+            <TabsTrigger value="payments" className="gap-2">
+              <Banknote className="h-4 w-4" />
+              Payments
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="gap-2">
+              <FileText className="h-4 w-4" />
+              Audit Trail
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="listings" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <ResaleListingsTab authenticatedRequest={authenticatedRequest} />
+        </TabsContent>
+        <TabsContent value="payments" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
+        </TabsContent>
+        <TabsContent value="audit" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <ResaleAuditTab authenticatedRequest={authenticatedRequest} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -4026,28 +4070,15 @@ export default function AdminDashboard() {
                 Referral Rewards
               </Button>
               <Button
-                variant={selectedTab === "resale-listings" ? "secondary" : "ghost"}
+                variant={selectedTab === "resale" ? "secondary" : "ghost"}
                 className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("resale-listings")}
+                onClick={() => {
+                  setSelectedTab("resale");
+                  setIsMenuOpen(false);
+                }}
               >
                 <Repeat className="mr-3 h-4 w-4" />
-                Resale Listings
-              </Button>
-              <Button
-                variant={selectedTab === "resale-payments" ? "secondary" : "ghost"}
-                className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("resale-payments")}
-              >
-                <Banknote className="mr-3 h-4 w-4" />
-                Resale Payments
-              </Button>
-              <Button
-                variant={selectedTab === "resale-audit" ? "secondary" : "ghost"}
-                className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("resale-audit")}
-              >
-                <FileText className="mr-3 h-4 w-4" />
-                Resale Audit Trail
+                Resale
               </Button>
               <Button
                 variant={selectedTab === "developer-projects" ? "secondary" : "ghost"}
@@ -4094,7 +4125,7 @@ export default function AdminDashboard() {
                   <Menu className="h-4 w-4" />
                 </Button>
                 <h2 className="text-lg font-semibold text-slate-900 capitalize">
-                  {selectedTab.replace('-', ' ')}
+                  {selectedTab === "resale" ? "Resale" : selectedTab.replaceAll('-', ' ')}
                 </h2>
               </div>
               <div className="flex items-center space-x-4">
@@ -5488,14 +5519,8 @@ export default function AdminDashboard() {
             {selectedTab === "referral-rewards" && (
               <ReferralRewardsTab authenticatedRequest={authenticatedRequest} />
             )}
-            {selectedTab === "resale-listings" && (
-              <ResaleListingsTab authenticatedRequest={authenticatedRequest} />
-            )}
-            {selectedTab === "resale-payments" && (
-              <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
-            )}
-            {selectedTab === "resale-audit" && (
-              <ResaleAuditTab authenticatedRequest={authenticatedRequest} />
+            {selectedTab === "resale" && (
+              <ResaleTab authenticatedRequest={authenticatedRequest} />
             )}
             {selectedTab === "developer-projects" && (
               <DeveloperProjectsTab authenticatedRequest={authenticatedRequest} />
