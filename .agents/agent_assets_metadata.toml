@@ -14,3 +14,17 @@ mtime_ms = 1788911813461
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/28efcf87-85c4-4098-8e0e-7b3b429aff6c/7d079c3e-29f3-4a5c-9fb1-17acb99933db"
 storage_version_token = "1788911814335549"
 content_type = "text/html"
+
+[[outputs]]
+id = "SY9VYeJ0dKfTi3SmWre_3"
+uri = "file://screenshots/brikvest-p2p-email-preview.jpg"
+type = "image"
+title = "Corrected Brikvest P2P email — visual preview"
+description = "Rendered email preview showing the official Brikvest logo, no tagline, and the corrected Asking Price label."
+logical_id = "a7806663-58ce-4c61-a057-22b932eca0f3"
+content_hash = "sha256:0c9461097500c0fd85570f0e3a0607a37ac5b10b52a32e46f3b7f3bf15ed3dfe"
+size = 52276
+mtime_ms = 1788911930213
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/a7806663-58ce-4c61-a057-22b932eca0f3/c7a12df9-4b8e-4b57-baa0-3af7874bb115"
+storage_version_token = "1788911936573505"
+content_type = "image/jpeg"
