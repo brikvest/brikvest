@@ -131,6 +131,12 @@ export const properties = pgTable("properties", {
   risksDelays: text("risks_delays"), // Free-form risks/delays notes
   latestUpdateText: text("latest_update_text"), // Short headline for the most recent project status
   currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
+  // Optional informational per-unit cost transparency. These values never drive pricing or payments.
+  unitLandCost: bigint("unit_land_cost", { mode: "number" }).notNull().default(0),
+  unitDueDiligenceCost: bigint("unit_due_diligence_cost", { mode: "number" }).notNull().default(0),
+  unitAgentFees: bigint("unit_agent_fees", { mode: "number" }).notNull().default(0),
+  unitServiceCharge: bigint("unit_service_charge", { mode: "number" }).notNull().default(0),
+  showUnitCostBreakdown: boolean("show_unit_cost_breakdown").notNull().default(false),
   
   // Unit-based investment tracking
   totalUnits: integer("total_units").notNull().default(0), // Total units available for the property
@@ -552,7 +558,14 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-export const insertPropertySchema = createInsertSchema(properties).omit({
+const nonNegativeMoney = z.number().finite().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
+
+export const insertPropertySchema = createInsertSchema(properties, {
+  unitLandCost: nonNegativeMoney,
+  unitDueDiligenceCost: nonNegativeMoney,
+  unitAgentFees: nonNegativeMoney,
+  unitServiceCharge: nonNegativeMoney,
+}).omit({
   id: true,
   createdAt: true,
 });

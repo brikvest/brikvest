@@ -338,9 +338,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reservationsWithProperties = await Promise.all(
         reservations.map(async (reservation: any) => {
           const property = await storage.getProperty(reservation.propertyId);
+          const { redactHiddenUnitCostBreakdown } = await import("@shared/property-cost-breakdown");
           return {
             ...reservation,
-            property
+            property: property ? redactHiddenUnitCostBreakdown(property) : property,
           };
         })
       );
@@ -2099,7 +2100,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Investors only see admin-created properties or developer-owned projects
       // that are live/sold_out. Draft/pending developer projects are hidden.
       const properties = await storage.getPublicProperties();
-      res.json(properties);
+      const { redactHiddenUnitCostBreakdown } = await import("@shared/property-cost-breakdown");
+      res.json(properties.map(redactHiddenUnitCostBreakdown));
     } catch (error) {
       console.error("Error fetching properties:", error);
       res.status(500).json({ message: "Failed to fetch properties" });
@@ -2162,6 +2164,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Property not found" });
       }
 
+      if (!isAdmin) {
+        const { redactHiddenUnitCostBreakdown } = await import("@shared/property-cost-breakdown");
+        return res.json(redactHiddenUnitCostBreakdown(property));
+      }
       res.json(property);
     } catch (error) {
       console.error("Error fetching property:", error);
@@ -3386,7 +3392,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced properties endpoint with currency conversion (public access)
   app.get("/api/properties-converted", async (req: any, res) => {
     try {
-      const properties = await storage.getPublicProperties(); // Only show public properties to buyers
+      const { redactHiddenUnitCostBreakdown } = await import("@shared/property-cost-breakdown");
+      const properties = (await storage.getPublicProperties()).map(redactHiddenUnitCostBreakdown); // Only show public properties to buyers
       const userCurrency = req.query.currency as string || detectUserCurrency(req);
       
       const rates = await getExchangeRates();
@@ -3437,6 +3444,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
           unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
+          ...(property.showUnitCostBreakdown ? {
+            unitLandCost: convertCurrency(property.unitLandCost, storedCurrency, userCurrency, rates),
+            unitDueDiligenceCost: convertCurrency(property.unitDueDiligenceCost, storedCurrency, userCurrency, rates),
+            unitAgentFees: convertCurrency(property.unitAgentFees, storedCurrency, userCurrency, rates),
+            unitServiceCharge: convertCurrency(property.unitServiceCharge, storedCurrency, userCurrency, rates),
+          } : {}),
           userCurrency,
           originalMinInvestment,
           originalUnitPrice,

@@ -27,6 +27,7 @@ import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
+import { UnitCostBreakdownPanel } from "@/components/UnitCostBreakdownPanel";
 
 export default function Home() {
   const { toast } = useToast();
@@ -1386,6 +1387,8 @@ export default function Home() {
                   </div>
 
                 </div>
+
+                <UnitCostBreakdownPanel property={selectedProperty} formatAmount={formatCurrency} />
 
                 {/* Partnership Verification */}
                 {selectedProperty.badge === 'partnered' && selectedProperty.partnershipDocumentUrl && (
