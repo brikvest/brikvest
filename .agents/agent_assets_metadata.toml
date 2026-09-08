@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "7cnNMs83j6_ltlzTWCr6D"
+uri = "file://email-preview.html"
+type = "text"
+title = "Corrected Brikvest P2P email preview"
+description = "Self-contained preview using the current Brikvest logo, no tagline, and the corrected Asking Price label."
+logical_id = "28efcf87-85c4-4098-8e0e-7b3b429aff6c"
+content_hash = "sha256:5d9a49c9bf784c07447da05923be15552767e29a05479cdce64b08456dd8e8c6"
+size = 84958
+mtime_ms = 1788911813461
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/28efcf87-85c4-4098-8e0e-7b3b429aff6c/7d079c3e-29f3-4a5c-9fb1-17acb99933db"
+storage_version_token = "1788911814335549"
+content_type = "text/html"
