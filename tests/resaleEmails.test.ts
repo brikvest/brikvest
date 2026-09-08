@@ -35,6 +35,8 @@ describe("co-investor resale listing notification", () => {
     expect(message.html).toContain("Fixed Price");
     expect(message.html).toContain("/listing/listing-token");
     expect(message.html).not.toContain("${sellingType");
+    expect(message.html).toContain('alt="Brikvest"');
+    expect(message.html).not.toContain("Real Estate Investment Club");
   });
 
   it("labels an auction listing with Starting Price", async () => {
@@ -56,5 +58,7 @@ describe("co-investor resale listing notification", () => {
     expect(message.html).toContain("Auction");
     expect(message.html).toContain("/marketplace");
     expect(message.html).not.toContain("${sellingType");
+    expect(message.html).toContain('alt="Brikvest"');
+    expect(message.html).not.toContain("Real Estate Investment Club");
   });
 });

@@ -3,6 +3,7 @@ import { sendEmail } from './emailService';
 const PLATFORM_URL = process.env.REPLIT_DOMAINS
   ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
   : 'https://brikvest.replit.app';
+const EMAIL_LOGO_URL = 'https://res.cloudinary.com/drddoxnsi/image/upload/v1746646662/brikvest-logo_uw0zi0.png';
 
 const BANK_DETAILS = `
   <table style="width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px;">
@@ -24,9 +25,10 @@ const BANK_DETAILS = `
 function emailWrapper(content: string): string {
   return `
     <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
-      <div style="background: linear-gradient(135deg, #1a365d 0%, #2563eb 100%); padding: 24px 32px; text-align: center;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 1px;">BRIKVEST</h1>
-        <p style="color: #93c5fd; margin: 4px 0 0; font-size: 13px;">Real Estate Investment Club</p>
+      <div style="background: #ffffff; padding: 22px 32px 18px; text-align: center; border-bottom: 1px solid #e2e8f0;">
+        <a href="${PLATFORM_URL}" style="display: inline-block; text-decoration: none;">
+          <img src="${EMAIL_LOGO_URL}" alt="Brikvest" width="180" style="display: block; width: 180px; height: auto; margin: 0 auto;" />
+        </a>
       </div>
       <div style="padding: 32px;">
         ${content}
@@ -317,8 +319,9 @@ export async function sendNewListingNotificationToCoInvestors(
   currency: string,
   shareToken: string | null,
 ) {
-  const typeLabel = sellingType === 'fixed_price' ? 'Fixed Price' : 'Auction';
-  const priceLabel = sellingType === 'fixed_price' ? 'Asking Price' : 'Starting Price';
+  const isFixedPrice = sellingType === 'fixed_price';
+  const typeLabel = isFixedPrice ? 'Fixed Price' : 'Auction';
+  const priceLabel = isFixedPrice ? 'Asking Price' : 'Starting Price';
   const priceInfo = askingPrice ? formatAmount(currency, askingPrice) : 'See listing';
   const listingUrl = shareToken
     ? `${PLATFORM_URL}/listing/${shareToken}`
