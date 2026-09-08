@@ -120,22 +120,6 @@ async function generateSpvName(city: string, district: string, propertyId: numbe
   const propertyCode = propertyId.toString().padStart(5, '0');
   return `BRK${cityCode}${districtCode}${propertyCode}`;
 }
-
-const REFERRAL_REWARD_TIERS = [
-  { count: 1, reward: 20 },
-  { count: 2, reward: 50 },
-];
-
-function calculateReferralReward(referralCount: number): number {
-  let reward = 0;
-  for (const tier of REFERRAL_REWARD_TIERS) {
-    if (referralCount >= tier.count) {
-      reward = tier.reward;
-    }
-  }
-  return reward;
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup email/password authentication
   setupAuth(app);
@@ -152,35 +136,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { email, password, firstName, lastName, phone } = result.data;
-      const refCode = req.body.referralCode as string | undefined;
       
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
         return res.status(400).json({ message: "User already exists with this email" });
-      }
-
-      // Validate referral code and find referrer
-      let referrerUser: any = null;
-      if (refCode) {
-        referrerUser = await storage.getUserByReferralCode(refCode);
-        if (!referrerUser) {
-          console.log(`[REFERRAL] Invalid referral code used during registration: ${refCode}`);
-        }
-      }
-
-      // Generate unique referral code for new user (retry on collision)
-      let uniqueReferralCode = '';
-      for (let i = 0; i < 5; i++) {
-        const candidate = 'BRIK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-        const existing = await storage.getUserByReferralCode(candidate);
-        if (!existing) {
-          uniqueReferralCode = candidate;
-          break;
-        }
-      }
-      if (!uniqueReferralCode) {
-        uniqueReferralCode = 'BRIK-' + Date.now().toString(36).toUpperCase();
       }
 
       // Hash password and create user
@@ -193,8 +153,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone,
         emailVerified: true,
         accountStatus: 'approved',
-        referralCode: uniqueReferralCode,
-        referredByUserId: referrerUser?.id || null,
       });
 
       // Link any orphaned reservations to this user
@@ -205,42 +163,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch (linkError) {
         console.error(`[AUTO-LINK] Failed to link reservations for user ${user.id}:`, linkError);
-      }
-
-      // Process referral if valid referrer found
-      if (referrerUser && referrerUser.id !== user.id) {
-        try {
-          await storage.createReferral({
-            referrerUserId: referrerUser.id,
-            referredUserId: user.id,
-            status: 'completed',
-          });
-          
-          const referralCount = await storage.getReferralCountByReferrerId(referrerUser.id);
-          const rewardAmount = calculateReferralReward(referralCount);
-          await storage.upsertReferralReward(referrerUser.id, referralCount, rewardAmount);
-          
-          console.log(`[AUDIT:REFERRAL] User ${user.email} referred by ${referrerUser.email} (code: ${refCode}). Referrer now has ${referralCount} referral(s), reward: $${rewardAmount}`);
-          
-          try {
-            const { referralSuccessEmailTemplate } = await import('./emailTemplates');
-            const emailData = referralSuccessEmailTemplate({
-              referrerName: referrerUser.firstName || 'Investor',
-              referredName: firstName || 'A new user',
-              referralCount,
-              rewardAmount,
-            });
-            await sendEmail({
-              to: referrerUser.email,
-              subject: emailData.subject,
-              html: emailData.html,
-            });
-          } catch (emailErr) {
-            console.error(`[AUDIT:EMAIL] Failed to send referral success email to ${referrerUser.email}:`, emailErr);
-          }
-        } catch (refErr) {
-          console.error(`[REFERRAL] Error processing referral:`, refErr);
-        }
       }
 
       // Send notification email to admin about new registration
@@ -667,93 +589,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching payment submissions:", error);
       res.status(500).json({ error: "Failed to fetch payment submissions" });
-    }
-  });
-
-  // Referral API routes
-  app.get('/api/user/referral', requireAuth, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user) return res.status(404).json({ error: 'User not found' });
-
-      const referralCount = await storage.getReferralCountByReferrerId(userId);
-      const reward = await storage.getReferralRewardByUserId(userId);
-      const referralsList = await storage.getReferralsByReferrerId(userId);
-
-      const referralsWithDetails = await Promise.all(
-        referralsList.map(async (ref) => {
-          const referred = await storage.getUser(ref.referredUserId);
-          return {
-            id: ref.id,
-            status: ref.status,
-            createdAt: ref.createdAt,
-            referredEmail: referred ? referred.email.replace(/(.{2}).*(@.*)/, '$1***$2') : 'Unknown',
-            referredName: referred ? `${referred.firstName || ''} ${(referred.lastName || '').charAt(0)}.`.trim() : 'Unknown',
-          };
-        })
-      );
-
-      res.json({
-        referralCode: user.referralCode,
-        referralCount,
-        rewardAmount: reward ? Number(reward.rewardAmount) : 0,
-        payoutStatus: reward?.payoutStatus || 'pending',
-        tiers: REFERRAL_REWARD_TIERS,
-        referrals: referralsWithDetails,
-      });
-    } catch (error) {
-      console.error("Error fetching referral data:", error);
-      res.status(500).json({ error: "Failed to fetch referral data" });
-    }
-  });
-
-  app.get('/api/validate-referral/:code', async (req, res) => {
-    try {
-      const { code } = req.params;
-      const referrer = await storage.getUserByReferralCode(code);
-      if (referrer) {
-        res.json({ valid: true, referrerName: referrer.firstName || 'A Brikvest member' });
-      } else {
-        res.json({ valid: false });
-      }
-    } catch (error) {
-      res.status(500).json({ valid: false });
-    }
-  });
-
-  app.get('/api/admin/referral-rewards', requireAdminAuth, async (req, res) => {
-    try {
-      const rewards = await storage.getAllReferralRewards();
-      const rewardsWithDetails = await Promise.all(
-        rewards.map(async (r) => {
-          const user = await storage.getUser(r.userId);
-          return {
-            ...r,
-            userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
-            userEmail: user?.email || 'Unknown',
-          };
-        })
-      );
-      res.json(rewardsWithDetails);
-    } catch (error) {
-      console.error("Error fetching referral rewards:", error);
-      res.status(500).json({ error: "Failed to fetch referral rewards" });
-    }
-  });
-
-  app.patch('/api/admin/referral-rewards/:id/payout', requireAdminAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-      if (!['pending', 'approved', 'paid'].includes(status)) {
-        return res.status(400).json({ error: 'Invalid payout status' });
-      }
-      const reward = await storage.updateReferralRewardPayoutStatus(Number(id), status);
-      res.json(reward);
-    } catch (error) {
-      console.error("Error updating payout status:", error);
-      res.status(500).json({ error: "Failed to update payout status" });
     }
   });
 
@@ -2337,17 +2172,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update property available slots
       await storage.updatePropertySlots(reservationData.propertyId, units);
 
-      // Generate referral code for the user
-      const referralCode = `REF${Date.now().toString().slice(-6)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
-      
       // Send confirmation email
       try {
         const investmentAmount = units * property.minInvestment;
         const emailTemplate = investmentEmailTemplate({
           fullName: reservationData.fullName,
           propertyName: property.name,
-          amount: investmentAmount,
-          referralCode: referralCode
+          amount: investmentAmount
         });
         
         await sendEmail({
@@ -2453,7 +2284,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <p style="color: #6b7280; margin: 5px 0;"><strong>Property:</strong> ${property.name}</p>
                 <p style="color: #6b7280; margin: 5px 0;"><strong>Units:</strong> ${reservation.units}</p>
                 <p style="color: #6b7280; margin: 5px 0;"><strong>Amount:</strong> ₦${investmentAmount.toLocaleString()}</p>
-                <p style="color: #6b7280; margin: 5px 0;"><strong>Referral Code:</strong> ${reservation.referralCode || 'None'}</p>
               </div>
               <p style="color: #6b7280; margin-bottom: 20px;">
                 Your investment is now active and you'll receive updates on the property development progress.

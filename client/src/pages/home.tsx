@@ -48,27 +48,8 @@ export default function Home() {
     email: "",
     phone: "",
     units: "",
-    referralCode: "",
     unitTypeLabel: "",
   });
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ref = params.get("ref");
-    if (ref) {
-      try {
-        localStorage.setItem('brikvest_referral', ref);
-      } catch {}
-      setInvestmentForm(prev => ({ ...prev, referralCode: ref }));
-    } else {
-      try {
-        const stored = localStorage.getItem('brikvest_referral');
-        if (stored) {
-          setInvestmentForm(prev => ({ ...prev, referralCode: stored }));
-        }
-      } catch {}
-    }
-  }, []);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -137,7 +118,6 @@ export default function Home() {
         email: "",
         phone: "",
         units: "",
-        referralCode: "",
         unitTypeLabel: "",
       });
     },
@@ -191,7 +171,6 @@ export default function Home() {
       unitPriceSnapshot: originalUnitPrice.toString(),
       currency: originalCurrency,
       status: 'reserved',
-      referralCode: investmentForm.referralCode || undefined,
       unitTypeLabel: chosenType ? chosenType.label : undefined,
     };
 
@@ -208,7 +187,6 @@ export default function Home() {
         email: user.email,
         phone: (user as any).phone || "",
         units: "",
-        referralCode: "",
         unitTypeLabel: "",
       });
     }
@@ -925,8 +903,6 @@ export default function Home() {
       </section>
 
 
-
-
       {/* Trust & Security Section */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1279,16 +1255,6 @@ export default function Home() {
                   </div>
                 );
               })()}
-            </div>
-            <div>
-              <Label htmlFor="referralCode">Referral Code (Optional)</Label>
-              <Input
-                id="referralCode"
-                type="text"
-                value={investmentForm.referralCode}
-                onChange={(e) => setInvestmentForm(prev => ({ ...prev, referralCode: e.target.value }))}
-                placeholder="Enter referral code if you have one"
-              />
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex items-start">

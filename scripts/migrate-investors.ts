@@ -9,8 +9,6 @@ interface CSVInvestor {
   email: string;
   full_name: string;
   phone_number: string;
-  referral_code: string;
-  referred_by: string;
   created_at: string;
   updated_at: string;
 }
@@ -66,12 +64,10 @@ async function migrateInvestors() {
       const lastName = nameParts.slice(1).join(' ') || '';
       
       const userData = {
-        username: investor.referral_code || investor.email.split('@')[0],
         email: investor.email,
         firstName: firstName,
         lastName: lastName,
         phone: investor.phone_number,
-        referralCode: investor.referral_code,
         role: 'investor',
         createdAt: new Date(investor.created_at),
         lastLogin: new Date(investor.created_at),
@@ -118,7 +114,6 @@ async function migrateInvestors() {
         email: investor.email,
         phone: investor.phone_number,
         units: Math.floor(parseInt(investment.amount) / 11000000), // Convert amount to whole units
-        referralCode: investor.referral_code,
         status: investment.status === 'pending' ? 'reserved' : 'confirmed',
         createdAt: new Date(investment.created_at),
       };

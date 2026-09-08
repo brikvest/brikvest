@@ -21,8 +21,6 @@ interface CSVInvestor {
   email: string;
   full_name: string;
   phone_number: string;
-  referral_code: string;
-  referred_by: string;
   created_at: string;
   updated_at: string;
 }
@@ -83,7 +81,6 @@ async function migrateRealInvestments() {
             email: investor.email,
             phone: investor.phone_number,
             units: units,
-            referralCode: investor.referral_code || undefined,
             status: data.status,
             createdAt: new Date(data.created_at)
           });
