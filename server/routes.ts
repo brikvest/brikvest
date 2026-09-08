@@ -111,6 +111,16 @@ function requireApprovedUser(req: any, res: any, next: any) {
   next();
 }
 
+// Valuation reports are owned by valuation-history entries. The property-level
+// report fields are legacy data and must not be used as a fallback: an old
+// document there can otherwise be shown as a report for the wrong property.
+async function getLatestValuationReport(propertyId: number) {
+  const valuations = await storage.getPropertyValuations(propertyId);
+  return valuations
+    .filter((valuation) => !!valuation.reportUrl)
+    .sort((a, b) => new Date(b.valuationDate).getTime() - new Date(a.valuationDate).getTime())[0];
+}
+
 // Generate unique SPV name
 // Pattern: BRK + CITY(3) + DISTRICT(3) + PROPERTYID(padded)
 // Example: BRKABJGUZ00033 for Abuja, Guzape, property ID 33
@@ -2519,7 +2529,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Property not found" });
       }
       
-      if (!property.valuationReportUrl) {
+      const reportValuation = await getLatestValuationReport(propertyId);
+      if (!reportValuation?.reportUrl) {
         return res.status(404).json({ error: "No valuation report available for this property" });
       }
       
@@ -2533,8 +2544,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.json({
-        url: property.valuationReportUrl,
-        name: property.valuationReportName || 'Valuation Report.pdf',
+        url: reportValuation.reportUrl,
+        name: reportValuation.reportName || 'Valuation Report.pdf',
       });
     } catch (error) {
       console.error("Error fetching valuation report:", error);
@@ -2600,14 +2611,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notes: notes || null,
         createdByAdminId: adminId,
       });
-
-      if (reportUrl) {
-        await storage.updateProperty(propertyId, {
-          ...property,
-          valuationReportUrl: reportUrl,
-          valuationReportName: reportName,
-        });
-      }
 
       res.json(valuation);
 
@@ -2745,12 +2748,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!property) {
         return res.status(404).json({ error: "Property not found" });
       }
-      if (!property.valuationReportUrl) {
+      const reportValuation = await getLatestValuationReport(propertyId);
+      if (!reportValuation?.reportUrl) {
         return res.status(404).json({ error: "No valuation report available for this property" });
       }
       res.json({
-        url: property.valuationReportUrl,
-        name: property.valuationReportName || 'Valuation Report.pdf',
+        url: reportValuation.reportUrl,
+        name: reportValuation.reportName || 'Valuation Report.pdf',
       });
     } catch (error) {
       console.error("Error fetching public valuation report:", error);
