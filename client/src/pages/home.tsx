@@ -1177,6 +1177,9 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleInvestmentSubmit} className="space-y-6">
+            {selectedProperty && (
+              <UnitCostBreakdownPanel property={selectedProperty} formatAmount={formatCurrency} />
+            )}
             {!isAuthenticated && (
               <>
                 <div>

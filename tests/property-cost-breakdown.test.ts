@@ -66,6 +66,68 @@ describe("property unit cost breakdown", () => {
   });
 
   it("suppresses customer rendering while the visibility setting is disabled", () => {
-    expect(shouldShowUnitCostBreakdown({ showUnitCostBreakdown: false })).toBe(false);
+    expect(shouldShowUnitCostBreakdown({
+      ...baseProperty,
+      showUnitCostBreakdown: false,
+      unitLandCost: 700_000,
+      unitDueDiligenceCost: 50_000,
+      unitAgentFees: 100_000,
+      unitServiceCharge: 150_000,
+    })).toBe(false);
+  });
+
+  it("suppresses and redacts an enabled breakdown that does not match minimum investment", () => {
+    const inconsistent = {
+      ...baseProperty,
+      id: 1,
+      unitLandCost: 600_000,
+      unitDueDiligenceCost: 50_000,
+      unitAgentFees: 100_000,
+      unitServiceCharge: 150_000,
+      showUnitCostBreakdown: true,
+    } as any;
+    expect(shouldShowUnitCostBreakdown(inconsistent)).toBe(false);
+    expect(redactHiddenUnitCostBreakdown(inconsistent)).not.toHaveProperty("unitLandCost");
+  });
+
+  it("rejects customer visibility when the breakdown does not match minimum investment", () => {
+    const result = insertPropertySchema.safeParse({
+      ...baseProperty,
+      unitLandCost: 600_000,
+      unitDueDiligenceCost: 50_000,
+      unitAgentFees: 100_000,
+      unitServiceCharge: 150_000,
+      showUnitCostBreakdown: true,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].message).toContain("keep customer visibility off");
+  });
+
+  it("uses source eligibility for a converted public breakdown", () => {
+    expect(shouldShowUnitCostBreakdown({
+      ...baseProperty,
+      minInvestment: 621.3710000000001,
+      unitLandCost: 434.9597,
+      unitDueDiligenceCost: 31.06855,
+      unitAgentFees: 62.1371,
+      unitServiceCharge: 93.20565,
+      showUnitCostBreakdown: true,
+      unitCostBreakdownEligible: true,
+    })).toBe(true);
+  });
+
+  it("strictly redacts a one-unit mismatch even at large safe integer values", () => {
+    const minimumInvestment = 1_000_000_000_000_000;
+    const inconsistent = {
+      ...baseProperty,
+      minInvestment: minimumInvestment,
+      unitLandCost: minimumInvestment - 1,
+      unitDueDiligenceCost: 0,
+      unitAgentFees: 0,
+      unitServiceCharge: 0,
+      showUnitCostBreakdown: true,
+    } as any;
+    expect(shouldShowUnitCostBreakdown(inconsistent)).toBe(false);
+    expect(redactHiddenUnitCostBreakdown(inconsistent)).not.toHaveProperty("unitLandCost");
   });
 });

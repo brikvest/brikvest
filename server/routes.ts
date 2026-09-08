@@ -3419,6 +3419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...rawProperty,
           listedByName: lister?.name || null,
           listedByType: lister?.type || null,
+          unitCostBreakdownEligible: "unitLandCost" in rawProperty,
         };
         // Get the property's stored currency (default to USD for old properties without currency field)
         const storedCurrency = property.currency || 'USD';
@@ -3444,7 +3445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
           unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
-          ...(property.showUnitCostBreakdown ? {
+          ...("unitLandCost" in property ? {
             unitLandCost: convertCurrency(property.unitLandCost, storedCurrency, userCurrency, rates),
             unitDueDiligenceCost: convertCurrency(property.unitDueDiligenceCost, storedCurrency, userCurrency, rates),
             unitAgentFees: convertCurrency(property.unitAgentFees, storedCurrency, userCurrency, rates),
@@ -6668,7 +6669,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           payload.totalSlots = Number(updates.totalUnits);
         }
       }
-      const updated = await storage.updateProperty(propertyId, { ...property, ...payload } as InsertProperty);
+      const mergedProperty = insertPropertySchema.safeParse({ ...property, ...payload });
+      if (!mergedProperty.success) {
+        return res.status(400).json({
+          error: "Invalid property data",
+          details: mergedProperty.error.errors,
+        });
+      }
+      const updated = await storage.updateProperty(propertyId, mergedProperty.data);
       res.json(updated);
     } catch (err) {
       console.error("Failed to update project:", err);

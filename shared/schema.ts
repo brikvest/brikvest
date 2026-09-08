@@ -568,6 +568,20 @@ export const insertPropertySchema = createInsertSchema(properties, {
 }).omit({
   id: true,
   createdAt: true,
+}).superRefine((property, ctx) => {
+  if (!property.showUnitCostBreakdown) return;
+  const componentTotal =
+    Number(property.unitLandCost ?? 0) +
+    Number(property.unitDueDiligenceCost ?? 0) +
+    Number(property.unitAgentFees ?? 0) +
+    Number(property.unitServiceCharge ?? 0);
+  if (componentTotal !== Number(property.minInvestment)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["showUnitCostBreakdown"],
+      message: `The per-unit cost breakdown totals ${componentTotal}, but minimum investment is ${property.minInvestment}. Make the four costs total the minimum investment or keep customer visibility off.`,
+    });
+  }
 });
 
 export const insertInvestmentReservationSchema = createInsertSchema(investmentReservations).omit({

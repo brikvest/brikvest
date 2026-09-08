@@ -17,9 +17,23 @@ export function calculateUnitCostTotal(costs: UnitCostBreakdown): number {
 }
 
 export function shouldShowUnitCostBreakdown(
-  property: Pick<Property, "showUnitCostBreakdown">,
+  property: Pick<
+    Property,
+    | "showUnitCostBreakdown"
+    | "minInvestment"
+    | "unitLandCost"
+    | "unitDueDiligenceCost"
+    | "unitAgentFees"
+    | "unitServiceCharge"
+  > & { unitCostBreakdownEligible?: boolean },
 ): boolean {
-  return property.showUnitCostBreakdown === true;
+  if (property.unitCostBreakdownEligible !== undefined) {
+    return property.showUnitCostBreakdown === true && property.unitCostBreakdownEligible;
+  }
+  return (
+    property.showUnitCostBreakdown === true &&
+    calculateUnitCostTotal(property) === Number(property.minInvestment)
+  );
 }
 
 export function redactHiddenUnitCostBreakdown(property: Property): Property {

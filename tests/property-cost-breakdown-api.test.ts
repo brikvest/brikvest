@@ -7,7 +7,12 @@ import { db } from "../server/db";
 import { hashPassword } from "../server/auth";
 import { storage } from "../server/storage";
 import { closeTestApp, getTestApp } from "./setup-app";
-import { cleanupAllTestData, uniqueProjectName } from "./test-helpers";
+import {
+  cleanupAllTestData,
+  createTestDeveloper,
+  loginAsDeveloper,
+  uniqueProjectName,
+} from "./test-helpers";
 
 let app: Express;
 let adminToken: string;
@@ -81,6 +86,45 @@ describe("admin property cost breakdown updates", () => {
       .send({ ...editableProperty, unitLandCost: -1 });
     expect(invalid.status).toBe(400);
 
+    const mismatchedVisible = await request(app)
+      .put(`/api/properties/${property.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        ...editableProperty,
+        unitLandCost: 600_000,
+        unitDueDiligenceCost: 50_000,
+        unitAgentFees: 100_000,
+        unitServiceCharge: 150_000,
+        showUnitCostBreakdown: true,
+      });
+    expect(mismatchedVisible.status).toBe(400);
+    expect(mismatchedVisible.body.details[0].message).toContain("minimum investment");
+
+    const mismatchedHidden = await request(app)
+      .put(`/api/properties/${property.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        ...editableProperty,
+        unitLandCost: 600_000,
+        unitDueDiligenceCost: 50_000,
+        unitAgentFees: 100_000,
+        unitServiceCharge: 150_000,
+        showUnitCostBreakdown: false,
+      });
+    expect(mismatchedHidden.status).toBe(200);
+
+    // Simulate previously saved inconsistent data that bypassed request validation.
+    await storage.updateProperty(property.id, { showUnitCostBreakdown: true } as any);
+    const publicProperties = await request(app)
+      .get("/api/properties-converted")
+      .query({ currency: "NGN" });
+    expect(publicProperties.status).toBe(200);
+    const publicProperty = publicProperties.body.find((candidate: any) => candidate.id === property.id);
+    expect(publicProperty).toBeDefined();
+    expect(publicProperty.showUnitCostBreakdown).toBe(true);
+    expect(publicProperty.unitCostBreakdownEligible).toBe(false);
+    expect(publicProperty).not.toHaveProperty("unitLandCost");
+
     const valid = await request(app)
       .put(`/api/properties/${property.id}`)
       .set("Authorization", `Bearer ${adminToken}`)
@@ -104,5 +148,37 @@ describe("admin property cost breakdown updates", () => {
       minInvestment: 1_000_000,
       totalValue: 10_000_000,
     });
+  });
+
+  it("rejects a developer update that would invalidate a visible breakdown", async () => {
+    const developer = await createTestDeveloper();
+    const { agent } = await loginAsDeveloper(app, developer);
+    const property = await storage.createProperty({
+      name: uniqueProjectName("developer-cost-breakdown"),
+      location: "Test City",
+      description: "A developer property with a valid public cost breakdown.",
+      totalValue: 10_000_000,
+      minInvestment: 1_000_000,
+      availableSlots: 10,
+      totalSlots: 10,
+      totalUnits: 10,
+      unitPrice: 1_000_000,
+      imageUrl: "https://example.test/property.jpg",
+      status: "active",
+      developerId: developer.id,
+      unitLandCost: 700_000,
+      unitDueDiligenceCost: 50_000,
+      unitAgentFees: 100_000,
+      unitServiceCharge: 150_000,
+      showUnitCostBreakdown: true,
+    } as any);
+
+    const response = await agent
+      .patch(`/api/developer/projects/${property.id}`)
+      .send({ minInvestment: 900_000 });
+
+    expect(response.status).toBe(400);
+    expect(response.body.details[0].message).toContain("minimum investment");
+    expect((await storage.getProperty(property.id))?.minInvestment).toBe(1_000_000);
   });
 });

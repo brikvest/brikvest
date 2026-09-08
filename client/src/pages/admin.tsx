@@ -3926,6 +3926,20 @@ export default function AdminDashboard() {
     const totalValue = parseInt(propertyForm.totalValue);
     const totalSlots = parseInt(propertyForm.totalSlots);
     const calculatedMinInvestment = Math.floor(totalValue / totalSlots);
+    const unitCostTotal = calculateUnitCostTotal({
+      unitLandCost: Number(propertyForm.unitLandCost),
+      unitDueDiligenceCost: Number(propertyForm.unitDueDiligenceCost),
+      unitAgentFees: Number(propertyForm.unitAgentFees),
+      unitServiceCharge: Number(propertyForm.unitServiceCharge),
+    });
+    if (propertyForm.showUnitCostBreakdown && unitCostTotal !== calculatedMinInvestment) {
+      toast({
+        title: "Cost breakdown does not match",
+        description: `The four costs total ${getCurrencySymbol(propertyForm.currency)}${unitCostTotal.toLocaleString()}, but minimum investment is ${getCurrencySymbol(propertyForm.currency)}${calculatedMinInvestment.toLocaleString()}. Correct the costs or keep customer visibility off.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
     const propertyData: InsertProperty = {
       name: propertyForm.name,
@@ -5777,59 +5791,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Informational unit-cost transparency; independent from reservation pricing. */}
-            <section className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
-              <div>
-                <h3 className="text-lg font-semibold">Per-Unit Cost Transparency</h3>
-                <p className="text-sm text-slate-600">
-                  Explain the customer-facing composition of one unit. This does not change property pricing or payments.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {UNIT_COST_COMPONENTS.map(({ key, label }) => (
-                  <div className="space-y-2" key={key}>
-                    <Label htmlFor={`edit-${key}`}>{label} ({getCurrencySymbol(propertyForm.currency)}) *</Label>
-                    <Input
-                      id={`edit-${key}`}
-                      type="number"
-                      min="0"
-                      max={Number.MAX_SAFE_INTEGER}
-                      step="1"
-                      required
-                      value={propertyForm[key]}
-                      onChange={(e) => setPropertyForm((prev) => ({ ...prev, [key]: e.target.value }))}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="rounded-md border bg-white p-3">
-                <span className="text-sm text-slate-600">Total cost of one unit</span>
-                <div className="text-xl font-semibold" data-testid="admin-unit-cost-total">
-                  {new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency: propertyForm.currency,
-                    maximumFractionDigits: 0,
-                  }).format(calculateUnitCostTotal({
-                    unitLandCost: Number(propertyForm.unitLandCost) || 0,
-                    unitDueDiligenceCost: Number(propertyForm.unitDueDiligenceCost) || 0,
-                    unitAgentFees: Number(propertyForm.unitAgentFees) || 0,
-                    unitServiceCharge: Number(propertyForm.unitServiceCharge) || 0,
-                  }))}
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-4 rounded-md border bg-white p-3">
-                <div>
-                  <Label htmlFor="edit-showUnitCostBreakdown">Show this breakdown to customers</Label>
-                  <p className="text-xs text-slate-500">Hidden by default for existing and new properties.</p>
-                </div>
-                <Switch
-                  id="edit-showUnitCostBreakdown"
-                  checked={propertyForm.showUnitCostBreakdown}
-                  onCheckedChange={(checked) => setPropertyForm((prev) => ({ ...prev, showUnitCostBreakdown: checked }))}
-                />
-              </div>
-            </section>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="edit-propertyType">Property Type *</Label>
@@ -5886,6 +5847,87 @@ export default function AdminDashboard() {
                 className="min-h-[200px]"
               />
             </div>
+
+            {/* Informational unit-cost transparency; independent from reservation pricing. */}
+            {(() => {
+              const componentTotal = calculateUnitCostTotal({
+                unitLandCost: Number(propertyForm.unitLandCost) || 0,
+                unitDueDiligenceCost: Number(propertyForm.unitDueDiligenceCost) || 0,
+                unitAgentFees: Number(propertyForm.unitAgentFees) || 0,
+                unitServiceCharge: Number(propertyForm.unitServiceCharge) || 0,
+              });
+              const totalValue = Number(propertyForm.totalValue);
+              const totalSlots = Number(propertyForm.totalSlots);
+              const minimumInvestment = totalValue > 0 && totalSlots > 0
+                ? Math.floor(totalValue / totalSlots)
+                : 0;
+              const matches = componentTotal === minimumInvestment;
+              const formatEditorAmount = (amount: number) => new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: propertyForm.currency,
+                maximumFractionDigits: 0,
+              }).format(amount);
+              return (
+                <section className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+                  <div>
+                    <h3 className="text-lg font-semibold">Per-Unit Cost Transparency</h3>
+                    <p className="text-sm text-slate-600">
+                      Explain the customer-facing composition of one unit. This does not change property pricing or payments.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {UNIT_COST_COMPONENTS.map(({ key, label }) => (
+                      <div className="space-y-2" key={key}>
+                        <Label htmlFor={`edit-${key}`}>{label} ({getCurrencySymbol(propertyForm.currency)}) *</Label>
+                        <Input
+                          id={`edit-${key}`}
+                          type="number"
+                          min="0"
+                          max={Number.MAX_SAFE_INTEGER}
+                          step="1"
+                          required
+                          value={propertyForm[key]}
+                          onChange={(e) => setPropertyForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-md border bg-white p-3">
+                      <span className="text-sm text-slate-600">Four-part cost total</span>
+                      <div className="text-xl font-semibold" data-testid="admin-unit-cost-total">
+                        {formatEditorAmount(componentTotal)}
+                      </div>
+                    </div>
+                    <div className="rounded-md border bg-white p-3">
+                      <span className="text-sm text-slate-600">Automatically calculated minimum investment</span>
+                      <div className="text-xl font-semibold" data-testid="admin-minimum-investment-comparison">
+                        {formatEditorAmount(minimumInvestment)}
+                      </div>
+                    </div>
+                  </div>
+                  {!matches && (
+                    <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800" data-testid="admin-unit-cost-mismatch">
+                      These amounts must match before customers can see the breakdown. Correct the four costs so they total {formatEditorAmount(minimumInvestment)}, or keep customer visibility off.
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-4 rounded-md border bg-white p-3">
+                    <div>
+                      <Label htmlFor="edit-showUnitCostBreakdown">Show this breakdown to customers</Label>
+                      <p className="text-xs text-slate-500">
+                        {matches ? "The amounts match and can be shown." : "Unavailable until the four-part total matches minimum investment."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="edit-showUnitCostBreakdown"
+                      checked={propertyForm.showUnitCostBreakdown && matches}
+                      disabled={!matches}
+                      onCheckedChange={(checked) => setPropertyForm((prev) => ({ ...prev, showUnitCostBreakdown: checked }))}
+                    />
+                  </div>
+                </section>
+              );
+            })()}
 
             {/* Currency Selector */}
             <div className="space-y-2">
