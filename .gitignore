@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 .env
 .env.*
+.agents/outputs/referral-removal-prechange-snapshot.txt
