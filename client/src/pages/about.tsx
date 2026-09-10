@@ -1,36 +1,13 @@
-import { useEffect } from "react";
+import { Target, Shield, TrendingUp, Users, Building, CheckCircle } from "lucide-react";
+import { InvestorHeader } from "@/components/InvestorHeader";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Target, Shield, TrendingUp, Users, Building, CheckCircle } from "lucide-react";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
 export default function About() {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/">
-              <img 
-                src={brikvest_logo} 
-                alt="Brikvest Logo" 
-                className="h-10 w-auto cursor-pointer"
-              />
-            </Link>
-            <Link href="/">
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Home
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <InvestorHeader />
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 to-slate-100 py-20">

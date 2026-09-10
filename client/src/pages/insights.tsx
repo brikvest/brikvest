@@ -4,11 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { TrendingUp, MapPin, RefreshCw, BarChart3, ArrowLeft, ExternalLink } from "lucide-react";
+import { TrendingUp, MapPin, RefreshCw, BarChart3, ExternalLink } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
-import { Link } from "wouter";
-import brikvest_logo from "@/assets/brikvest-logo.png";
 import { useToast } from "@/hooks/use-toast";
+import { InvestorHeader } from "@/components/InvestorHeader";
+import { Link } from "wouter";
 
 interface ChartData {
   labels: number[];
@@ -83,22 +83,7 @@ export default function Insights() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b border-slate-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/">
-                <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
-              </Link>
-              <Link href="/">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Home
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </header>
+        <InvestorHeader />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <Card className="border-slate-200">
@@ -118,22 +103,7 @@ export default function Insights() {
   if (!graphData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b border-slate-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <Link href="/">
-                <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
-              </Link>
-              <Link href="/">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Home
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </header>
+        <InvestorHeader />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <Card className="border-slate-200">
@@ -181,22 +151,7 @@ export default function Insights() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/">
-              <img src={brikvest_logo} alt="Brikvest Logo" className="h-8 w-auto cursor-pointer" />
-            </Link>
-            <Link href="/">
-              <Button variant="ghost" size="sm" data-testid="button-back-home">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Home
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <InvestorHeader />
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">

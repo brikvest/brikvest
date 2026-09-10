@@ -11,36 +11,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User, Gavel, Tag, Building2, DollarSign, ArrowRight, LayoutDashboard } from "lucide-react";
+import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, User, Gavel, Tag, Building2, DollarSign, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation, VerificationStep } from "@shared/schema";
 import { getCustomerPropertyStatusLabel, isPropertySoldOut } from "@shared/propertyAvailability";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
-import { CurrencySelector } from "@/components/CurrencySelector";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 import { UnitCostBreakdownPanel } from "@/components/UnitCostBreakdownPanel";
+import { InvestorHeader } from "@/components/InvestorHeader";
 
 export default function Home() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [propertyDetailModalOpen, setPropertyDetailModalOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [propertiesTab, setPropertiesTab] = useState<"properties" | "resale">("properties");
 
   // Form states
@@ -243,266 +233,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white/85 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Brand */}
-            <Link href="/" className="flex items-center" data-testid="link-home">
-              <img
-                src={brikvest_logo}
-                alt="Brikvest"
-                className="h-8 w-auto cursor-pointer"
-              />
-            </Link>
-
-            {/* Primary nav (desktop only) — keep to essentials */}
-            <nav className="hidden md:flex items-center gap-1">
-              <a
-                href="#properties"
-                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                Properties
-              </a>
-              <Link
-                href="/insights"
-                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                Insights
-              </Link>
-              <Link
-                href="/about"
-                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                About
-              </Link>
-            </nav>
-
-            {/* Right cluster (desktop) */}
-            <div className="hidden md:flex items-center gap-2">
-              <CurrencySelector compact />
-              {isAuthenticated ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="flex items-center gap-2 rounded-full hover:bg-slate-100 transition-colors p-1 pr-3"
-                      data-testid="button-user-menu"
-                      aria-label="Account menu"
-                    >
-                      <Avatar className="w-8 h-8">
-                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-xs font-semibold">
-                          {(((user as any)?.firstName || (user as any)?.email || "U")[0] || "U").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm font-medium text-slate-700 max-w-[120px] truncate">
-                        {(user as any)?.firstName || (user as any)?.email?.split("@")[0] || "Account"}
-                      </span>
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-60">
-                    <DropdownMenuLabel className="font-normal">
-                      <div className="text-sm font-medium text-slate-900 truncate">
-                        {(user as any)?.firstName} {(user as any)?.lastName}
-                      </div>
-                      <div className="text-xs text-slate-500 truncate">{(user as any)?.email}</div>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/dashboard" className="cursor-pointer" data-testid="menu-item-portfolio">
-                        <LayoutDashboard className="w-4 h-4 mr-2" /> My Portfolio
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={async () => {
-                        try {
-                          await fetch("/api/logout", { method: "POST", credentials: "include" });
-                          queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-                          window.location.reload();
-                        } catch (e) {
-                          console.error(e);
-                        }
-                      }}
-                      className="cursor-pointer text-red-600 focus:text-red-600"
-                      data-testid="menu-item-signout"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" /> Sign out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <>
-                  <Button
-                    onClick={() => (window.location.href = "/login")}
-                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                    size="sm"
-                    data-testid="button-sign-in"
-                  >
-                    Sign in
-                  </Button>
-                </>
-              )}
-            </div>
-
-            {/* Mobile menu button */}
-            <div className="md:hidden flex items-center gap-1">
-              <CurrencySelector compact />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="text-slate-700"
-                data-testid="button-mobile-menu"
-                aria-label="Open menu"
-              >
-                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile menu overlay (rendered outside <header> so backdrop-blur ancestor doesn't trap fixed positioning) */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-[60] md:hidden transition-opacity duration-300"
-          onClick={() => setMobileMenuOpen(false)}
-          data-testid="overlay-mobile-menu"
-        />
-      )}
-
-      {/* Mobile menu sidebar (rendered outside <header> for the same reason) */}
-      <aside
-        className={`fixed inset-y-0 right-0 z-[70] w-[85vw] max-w-sm bg-white shadow-2xl transform transition-transform duration-300 ease-in-out md:hidden ${mobileMenuOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
-        aria-hidden={!mobileMenuOpen}
-        data-testid="drawer-mobile-menu"
-      >
-        <div className="flex flex-col h-full">
-          {/* Sidebar header */}
-          <div className="flex items-center justify-between p-4 border-b border-slate-200">
-            <Link href="/" onClick={() => setMobileMenuOpen(false)}>
-              <img src={brikvest_logo} alt="Brikvest" className="h-8 cursor-pointer" />
-            </Link>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-slate-600 hover:text-blue-600"
-              data-testid="button-close-mobile-menu"
-            >
-              <X className="h-6 w-6" />
-            </Button>
-          </div>
-
-          {/* Sidebar content */}
-          <div className="flex-1 overflow-y-auto py-4">
-                {/* Authenticated user card */}
-                {isAuthenticated && user ? (
-                  <div className="px-4 mb-2">
-                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                      <Avatar className="w-10 h-10">
-                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white text-sm font-semibold">
-                          {(((user as any)?.firstName || (user as any)?.email || "U")[0] || "U").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          {(user as any).firstName} {(user as any).lastName}
-                        </p>
-                        <p className="text-xs text-slate-500 truncate">{(user as any).email}</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="space-y-1 px-3 mt-2">
-                  {isAuthenticated && (
-                    <Link
-                      href="/dashboard"
-                      className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                      onClick={() => setMobileMenuOpen(false)}
-                      data-testid="link-mobile-dashboard"
-                    >
-                      <LayoutDashboard className="h-4 w-4 mr-3 text-slate-500" />
-                      My Portfolio
-                    </Link>
-                  )}
-
-                  <a
-                    href="#properties"
-                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-properties"
-                  >
-                    <Building2 className="h-4 w-4 mr-3 text-slate-500" />
-                    Properties
-                  </a>
-
-                  <Link
-                    href="/insights"
-                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-insights"
-                  >
-                    <TrendingUp className="h-4 w-4 mr-3 text-slate-500" />
-                    Insights
-                  </Link>
-
-                  <Link
-                    href="/about"
-                    className="flex items-center text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-about"
-                  >
-                    <Award className="h-4 w-4 mr-3 text-slate-500" />
-                    About
-                  </Link>
-                </div>
-
-              </div>
-
-              {/* Sidebar footer */}
-              <div className="border-t border-slate-200 p-4 space-y-3">
-                <div>
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Currency</p>
-                  <CurrencySelector />
-                </div>
-                {isAuthenticated ? (
-                  <Button
-                    onClick={async () => {
-                      try {
-                        await fetch('/api/logout', {
-                          method: 'POST',
-                          credentials: 'include'
-                        });
-                        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-                        window.location.reload();
-                      } catch (error) {
-                        console.error('Logout error:', error);
-                      }
-                    }}
-                    variant="outline"
-                    className="w-full border-slate-300 text-slate-700 hover:bg-slate-50"
-                    data-testid="button-mobile-logout"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Sign out
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => {
-                      window.location.href = '/login';
-                      setMobileMenuOpen(false);
-                    }}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                    data-testid="button-mobile-signin"
-                  >
-                    Sign in
-                  </Button>
-                )}
-              </div>
-            </div>
-      </aside>
+      <InvestorHeader />
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 to-slate-100 text-slate-800 py-20">
@@ -599,7 +330,7 @@ export default function Home() {
       </section>
 
       {/* Properties Section */}
-      <section id="properties" className="py-20 bg-white">
+      <section id="properties" className="py-20 bg-white scroll-mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-8">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">

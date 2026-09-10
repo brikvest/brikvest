@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, useLocation, useSearch } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -31,38 +32,63 @@ import ContractorNewProject from "@/pages/contractor/new-project";
 import ContractorProjectDetail from "@/pages/contractor/project-detail";
 import ContractorProfile from "@/pages/contractor/profile";
 import NotFound from "@/pages/not-found";
+import { getInvestorScrollDestination } from "@/lib/investorNavigation";
+
+function InvestorScrollManager() {
+  const [location] = useLocation();
+  const search = useSearch();
+
+  useEffect(() => {
+    const destination = getInvestorScrollDestination(location, search);
+    if (!destination) return;
+
+    if (destination === "properties") {
+      const scrollTimer = window.setTimeout(() => {
+        document.getElementById("properties")?.scrollIntoView({ block: "start" });
+      }, 0);
+      return () => window.clearTimeout(scrollTimer);
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location, search]);
+
+  return null;
+}
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/login" component={Login} />
-      <Route path="/reset-password" component={ResetPassword} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/admin" component={AdminProtected} />
-      <Route path="/insights" component={Insights} />
-      <Route path="/verify/:token" component={CertificateVerification} />
-      <Route path="/about" component={About} />
-      <Route path="/marketplace" component={Marketplace} />
-      <Route path="/listing/:shareToken" component={PublicListing} />
-      <Route path="/developer/login" component={DeveloperLogin} />
-      <Route path="/developer/signup" component={DeveloperSignup} />
-      <Route path="/developer/pricing" component={DeveloperPricing} />
-      <Route path="/developer/new" component={DeveloperNewProject} />
-      <Route path="/developer/communications" component={DeveloperCommunications} />
-      <Route path="/developer/profile" component={DeveloperProfile} />
-      <Route path="/developer/team" component={DeveloperTeam} />
-      <Route path="/developer/accept-invite/:token" component={DeveloperAcceptInvite} />
-      <Route path="/developer/projects/:id" component={DeveloperProjectDetail} />
-      <Route path="/developer" component={DeveloperProjects} />
-      <Route path="/contractor/login" component={ContractorLogin} />
-      <Route path="/contractor/signup" component={ContractorSignup} />
-      <Route path="/contractor/new" component={ContractorNewProject} />
-      <Route path="/contractor/profile" component={ContractorProfile} />
-      <Route path="/contractor/projects/:id" component={ContractorProjectDetail} />
-      <Route path="/contractor" component={ContractorDashboard} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <InvestorScrollManager />
+      <Switch>
+        <Route path="/" component={Home} />
+        <Route path="/login" component={Login} />
+        <Route path="/reset-password" component={ResetPassword} />
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/admin" component={AdminProtected} />
+        <Route path="/insights" component={Insights} />
+        <Route path="/verify/:token" component={CertificateVerification} />
+        <Route path="/about" component={About} />
+        <Route path="/marketplace" component={Marketplace} />
+        <Route path="/listing/:shareToken" component={PublicListing} />
+        <Route path="/developer/login" component={DeveloperLogin} />
+        <Route path="/developer/signup" component={DeveloperSignup} />
+        <Route path="/developer/pricing" component={DeveloperPricing} />
+        <Route path="/developer/new" component={DeveloperNewProject} />
+        <Route path="/developer/communications" component={DeveloperCommunications} />
+        <Route path="/developer/profile" component={DeveloperProfile} />
+        <Route path="/developer/team" component={DeveloperTeam} />
+        <Route path="/developer/accept-invite/:token" component={DeveloperAcceptInvite} />
+        <Route path="/developer/projects/:id" component={DeveloperProjectDetail} />
+        <Route path="/developer" component={DeveloperProjects} />
+        <Route path="/contractor/login" component={ContractorLogin} />
+        <Route path="/contractor/signup" component={ContractorSignup} />
+        <Route path="/contractor/new" component={ContractorNewProject} />
+        <Route path="/contractor/profile" component={ContractorProfile} />
+        <Route path="/contractor/projects/:id" component={ContractorProjectDetail} />
+        <Route path="/contractor" component={ContractorDashboard} />
+        <Route component={NotFound} />
+      </Switch>
+    </>
   );
 }
 
