@@ -276,13 +276,6 @@ export default function Home() {
               >
                 About
               </Link>
-              <Link
-                href="/developer/pricing"
-                className="text-slate-700 hover:text-blue-600 hover:bg-slate-50 px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                data-testid="link-nav-pricing"
-              >
-                Pricing
-              </Link>
             </nav>
 
             {/* Right cluster (desktop) */}
@@ -319,16 +312,6 @@ export default function Home() {
                         <LayoutDashboard className="w-4 h-4 mr-2" /> My Portfolio
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/developer/signup" className="cursor-pointer" data-testid="menu-item-list-project">
-                        <Building2 className="w-4 h-4 mr-2" /> List your project
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/developer/pricing" className="cursor-pointer" data-testid="menu-item-pricing">
-                        <TrendingUp className="w-4 h-4 mr-2" /> Developer pricing
-                      </Link>
-                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={async () => {
@@ -349,16 +332,6 @@ export default function Home() {
                 </DropdownMenu>
               ) : (
                 <>
-                  <Link href="/developer/pricing">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-slate-700 hover:text-blue-700 hover:bg-slate-100 font-medium"
-                      data-testid="link-developer-pricing-nav"
-                    >
-                      List your project
-                    </Button>
-                  </Link>
                   <Button
                     onClick={() => (window.location.href = "/login")}
                     className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
@@ -486,27 +459,6 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="px-3 mt-6 pt-4 border-t border-slate-100">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">For developers</p>
-                  <Link
-                    href="/developer/signup"
-                    className="flex items-center text-slate-700 hover:text-blue-700 hover:bg-blue-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-developer-signup"
-                  >
-                    <Building2 className="h-4 w-4 mr-3 text-blue-600" />
-                    List your project
-                  </Link>
-                  <Link
-                    href="/developer/pricing"
-                    className="flex items-center text-slate-700 hover:text-blue-700 hover:bg-blue-50 px-3 py-3 rounded-lg text-base font-medium transition-colors"
-                    onClick={() => setMobileMenuOpen(false)}
-                    data-testid="link-mobile-developer-pricing"
-                  >
-                    <TrendingUp className="h-4 w-4 mr-3 text-blue-600" />
-                    Pricing & free trial
-                  </Link>
-                </div>
               </div>
 
               {/* Sidebar footer */}
@@ -1120,24 +1072,6 @@ export default function Home() {
             <div>
               <h4 className="font-semibold mb-4">For Developers</h4>
               <ul className="space-y-2">
-                <li>
-                  <Link
-                    href="/developer/signup"
-                    className="text-slate-300 hover:text-white transition-colors"
-                    data-testid="link-footer-developer-signup"
-                  >
-                    List your project
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    href="/developer/pricing"
-                    className="text-slate-300 hover:text-white transition-colors"
-                    data-testid="link-footer-developer-pricing"
-                  >
-                    Pricing & free trial
-                  </Link>
-                </li>
                 <li>
                   <Link
                     href="/developer/login"
