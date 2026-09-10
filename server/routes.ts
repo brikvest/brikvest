@@ -64,6 +64,7 @@ import {
   type DeveloperLead,
   RESERVATION_FUNNEL_STAGES,
 } from "@shared/schema";
+import { isPropertySoldOut } from "@shared/propertyAvailability";
 import { ObjectStorageService } from "./objectStorage";
 
 // Simple session store for admin authentication
@@ -2106,6 +2107,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const property = await storage.getProperty(reservationData.propertyId);
       if (!property) {
         return res.status(400).json({ message: "The selected property is no longer available" });
+      }
+
+      if (isPropertySoldOut(property)) {
+        return res.status(400).json({ message: "This property is sold out and no longer available for reservation" });
       }
 
       // Only live projects can accept reservations — blocks direct-API reservations

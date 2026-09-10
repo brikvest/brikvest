@@ -23,6 +23,7 @@ import {
 import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, FileText, Download, ExternalLink, Menu, X, LogOut, User, Gavel, Tag, Building2, DollarSign, ArrowRight, LayoutDashboard } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation, VerificationStep } from "@shared/schema";
+import { getCustomerPropertyStatusLabel, isPropertySoldOut } from "@shared/propertyAvailability";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { CurrencySelector } from "@/components/CurrencySelector";
@@ -133,6 +134,15 @@ export default function Home() {
   const handleInvestmentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProperty) return;
+    if (isPropertySoldOut(selectedProperty)) {
+      toast({
+        title: "Sold Out",
+        description: "This property is no longer available for reservation.",
+        variant: "destructive",
+      });
+      setInvestmentModalOpen(false);
+      return;
+    }
 
     const units = parseFloat(investmentForm.units);
     
@@ -178,6 +188,7 @@ export default function Home() {
   };
 
   const openInvestmentModal = (property: Property) => {
+    if (isPropertySoldOut(property)) return;
     setSelectedProperty(property);
     
     // Pre-fill form with user data if authenticated
@@ -733,7 +744,14 @@ export default function Home() {
                     </div>
                     <CardContent className="p-6">
                       <div className="mb-4">
-                        <h3 className="text-xl font-semibold mb-2">{property.name}</h3>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-xl font-semibold">{property.name}</h3>
+                          {isPropertySoldOut(property) && (
+                            <Badge data-testid={`sold-out-card-badge-${property.id}`} variant="destructive">
+                              Sold Out
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-slate-600 text-sm flex items-center">
                           <MapPin className="w-4 h-4 mr-1" />
                           {property.location}
@@ -754,7 +772,11 @@ export default function Home() {
                     </CardContent>
                   </div>
                   <CardContent className="px-6 pb-6">
-                    {isAuthenticated ? (
+                    {isPropertySoldOut(property) ? (
+                      <div className="w-full rounded-md bg-red-50 px-4 py-2 text-center font-medium text-red-700">
+                        Sold Out
+                      </div>
+                    ) : isAuthenticated ? (
                       <Button 
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1283,7 +1305,12 @@ export default function Home() {
               <DialogHeader>
                 <div className="flex items-start justify-between flex-wrap gap-2">
                   <div>
-                    <DialogTitle className="text-lg sm:text-2xl font-bold">{selectedProperty.name}</DialogTitle>
+                    <div className="flex items-center gap-2">
+                      <DialogTitle className="text-lg sm:text-2xl font-bold">{selectedProperty.name}</DialogTitle>
+                      {isPropertySoldOut(selectedProperty) && (
+                        <Badge data-testid="sold-out-detail-badge" variant="destructive">Sold Out</Badge>
+                      )}
+                    </div>
                     <DialogDescription className="flex items-center text-base">
                       <MapPin className="w-4 h-4 mr-1" />
                       {selectedProperty.location}
@@ -1350,7 +1377,7 @@ export default function Home() {
 
                       <div>
                         <span className="text-slate-600">Status:</span>
-                        <div className="font-semibold capitalize">{selectedProperty.status}</div>
+                        <div className="font-semibold">{getCustomerPropertyStatusLabel(selectedProperty)}</div>
                       </div>
                     </div>
                   </div>
@@ -1549,17 +1576,19 @@ export default function Home() {
                 )}
 
                 {/* Action Buttons */}
-                <div className="pt-6 border-t border-slate-200">
-                  <Button 
-                    onClick={() => {
-                      setPropertyDetailModalOpen(false);
-                      openInvestmentModal(selectedProperty);
-                    }}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Reserve Ownership Slot
-                  </Button>
-                </div>
+                {!isPropertySoldOut(selectedProperty) && (
+                  <div className="pt-6 border-t border-slate-200">
+                    <Button
+                      onClick={() => {
+                        setPropertyDetailModalOpen(false);
+                        openInvestmentModal(selectedProperty);
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Reserve Ownership Slot
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           )}
