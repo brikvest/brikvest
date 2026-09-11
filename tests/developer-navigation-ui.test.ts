@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getInvestorScrollDestination } from "../client/src/lib/investorNavigation";
+import {
+  getDashboardLoginUrl,
+  getDashboardSection,
+  getDashboardSectionUrl,
+  getInvestorScrollDestination,
+} from "../client/src/lib/investorNavigation";
 
 const readSource = (relativePath: string) =>
   fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
@@ -14,6 +19,7 @@ const appSource = readSource("client/src/App.tsx");
 const developerLoginSource = readSource("client/src/pages/developer/login.tsx");
 const developerSignupSource = readSource("client/src/pages/developer/signup.tsx");
 const developerPricingSource = readSource("client/src/pages/developer/pricing.tsx");
+const dashboardSource = readSource("client/src/pages/dashboard.tsx");
 
 describe("investor and developer navigation boundaries", () => {
   it("keeps developer signup and pricing entry points out of the investor home", () => {
@@ -70,5 +76,49 @@ describe("investor and developer navigation boundaries", () => {
     expect(developerSignupSource).toContain('href="/developer/pricing"');
     expect(developerPricingSource).toContain('href="/developer/login"');
     expect(developerPricingSource).toContain('href="/developer/signup"');
+  });
+
+  it("defines stable dashboard section URL parsing and building", () => {
+    expect(getDashboardSection("")).toBe("portfolio");
+    expect(getDashboardSection("?section=portfolio")).toBe("portfolio");
+    expect(getDashboardSection("?section=properties")).toBe("properties");
+    expect(getDashboardSection("?section=insights")).toBe("insights");
+    expect(getDashboardSection("?section=developer")).toBe("portfolio");
+    expect(getDashboardSectionUrl("portfolio")).toBe("/dashboard");
+    expect(getDashboardSectionUrl("properties")).toBe("/dashboard?section=properties");
+    expect(getDashboardSectionUrl("insights")).toBe("/dashboard?section=insights");
+    expect(getDashboardLoginUrl("")).toBe("/login?redirect=%2Fdashboard");
+    expect(getDashboardLoginUrl("section=properties")).toBe(
+      "/login?redirect=%2Fdashboard%3Fsection%3Dproperties",
+    );
+    expect(getDashboardLoginUrl("section=insights")).toBe(
+      "/login?redirect=%2Fdashboard%3Fsection%3Dinsights",
+    );
+  });
+
+  it("keeps dashboard navigation active and internal", () => {
+    expect(dashboardSource).toContain("getDashboardSection(searchString)");
+    expect(dashboardSource).toContain("dashboardSection === \"properties\"");
+    expect(dashboardSource).toContain("dashboardSection === \"insights\"");
+    expect(dashboardSource).toContain("data-testid=\"nav-properties\"");
+    expect(dashboardSource).toContain("data-testid=\"nav-insights\"");
+    expect(dashboardSource).toContain("navigateToSection(\"properties\")");
+    expect(dashboardSource).not.toContain("setLocation('/')");
+    expect(dashboardSource).not.toContain("href=\"/insights\"");
+    expect(dashboardSource).toContain("setMobileMenuOpen(false)");
+    expect(dashboardSource).toContain("window.scrollTo({ top: 0");
+    expect(dashboardSource).toContain("getDashboardLoginUrl(searchString)");
+    expect(dashboardSource).not.toContain('setLocation("/login")');
+  });
+
+  it("uses shared content while retaining public wrappers and developer separation", () => {
+    expect(homeSource).toContain("export function PropertyBrowsingContent");
+    expect(homeSource).toContain("export default function Home");
+    expect(insightsSource).toContain("export function MarketInsightsContent");
+    expect(insightsSource).toContain("export default function Insights");
+    expect(dashboardSource).toContain("PropertyBrowsingContent");
+    expect(dashboardSource).toContain("MarketInsightsContent");
+    expect(developerLoginSource).toContain('href="/developer/signup"');
+    expect(dashboardSource).not.toContain('setLocation("/insights")');
   });
 });

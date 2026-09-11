@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Copy, Share2, Users, Tag, Gavel, XCircle, Megaphone, Hammer } from "lucide-react";
+import { TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Copy, Share2, Users, Tag, Gavel, XCircle, Megaphone, Hammer } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate, PropertyValuation } from "@shared/schema";
@@ -19,6 +19,9 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { OwnershipCertificate as CertificateComponent, CertificateDownloadButton } from "@/components/OwnershipCertificate";
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { Badge } from "@/components/ui/badge";
+import { PropertyBrowsingContent } from "@/pages/home";
+import { MarketInsightsContent } from "@/pages/insights";
+import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type DashboardSection } from "@/lib/investorNavigation";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -463,8 +466,7 @@ export default function Portfolio() {
   
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      const currentUrl = `/dashboard${searchString ? `?${searchString}` : ''}`;
-      setLocation(`/login?redirect=${encodeURIComponent(currentUrl)}`);
+      setLocation(getDashboardLoginUrl(searchString));
     }
   }, [isLoading, isAuthenticated, setLocation, searchString]);
 
@@ -624,12 +626,6 @@ export default function Portfolio() {
       ]
     }
   };
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      setLocation("/login");
-    }
-  }, [isAuthenticated, isLoading, setLocation]);
 
   // Prefill KYC form with existing data when modal opens (for updates)
   useEffect(() => {
@@ -1003,6 +999,13 @@ export default function Portfolio() {
   }
 
   const userData = user as any;
+  const dashboardSection = getDashboardSection(searchString);
+
+  const navigateToSection = (section: DashboardSection) => {
+    setMobileMenuOpen(false);
+    setLocation(getDashboardSectionUrl(section));
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  };
   
   // Only count converted investments in total portfolio value
   const totalInvested = reservations
@@ -1059,41 +1062,30 @@ export default function Portfolio() {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2">
-            <Link 
-              href="/dashboard"
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-50 text-blue-600 font-medium" 
+            <button
+              onClick={() => navigateToSection("portfolio")}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg font-medium w-full text-left transition-colors ${dashboardSection === "portfolio" ? "bg-blue-50 text-blue-600" : "text-slate-600 hover:bg-slate-50"}`}
               data-testid="nav-portfolio"
-              onClick={() => setMobileMenuOpen(false)}
             >
               <PieChart className="h-5 w-5" />
               <span>Portfolio</span>
-            </Link>
+            </button>
             <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                setLocation('/');
-                setTimeout(() => {
-                  const element = document.getElementById('properties');
-                  if (element) {
-                    element.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }, 100);
-              }}
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors w-full text-left" 
+              onClick={() => navigateToSection("properties")}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors w-full text-left ${dashboardSection === "properties" ? "bg-blue-50 text-blue-600 font-medium" : "text-slate-600 hover:bg-slate-50"}`}
               data-testid="nav-properties"
             >
               <Building2 className="h-5 w-5" />
               <span>Browse Properties</span>
             </button>
-            <Link 
-              href="/insights"
-              className="flex items-center space-x-3 px-4 py-3 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" 
+            <button
+              onClick={() => navigateToSection("insights")}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors w-full text-left ${dashboardSection === "insights" ? "bg-blue-50 text-blue-600 font-medium" : "text-slate-600 hover:bg-slate-50"}`}
               data-testid="nav-insights"
-              onClick={() => setMobileMenuOpen(false)}
             >
               <TrendingUp className="h-5 w-5" />
               <span>Market Insights</span>
-            </Link>
+            </button>
             
             {/* Currency Selector - Mobile */}
             <div className="px-4 py-3">
@@ -1160,15 +1152,7 @@ export default function Portfolio() {
 
               {/* New Investment Button */}
               <Button
-                onClick={() => {
-                  setLocation('/');
-                  setTimeout(() => {
-                    const element = document.getElementById('properties');
-                    if (element) {
-                      element.scrollIntoView({ behavior: 'smooth' });
-                    }
-                  }, 100);
-                }}
+                onClick={() => navigateToSection("properties")}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm px-3 sm:px-4 whitespace-nowrap"
                 data-testid="button-new-investment"
               >
@@ -1240,7 +1224,16 @@ export default function Portfolio() {
           </div>
         )}
 
-        {/* Portfolio Content */}
+        {/* Dashboard section content */}
+        {dashboardSection === "properties" ? (
+          <main className="max-w-7xl mx-auto">
+            <PropertyBrowsingContent embedded dashboardReturnPath="/dashboard" />
+          </main>
+        ) : dashboardSection === "insights" ? (
+          <main className="max-w-7xl mx-auto">
+            <MarketInsightsContent embedded dashboardReturnPath="/dashboard?section=properties" />
+          </main>
+        ) : (
         <main className="p-4 sm:p-6 max-w-7xl mx-auto">
           {/* Portfolio Header */}
           <div className="mb-6">
@@ -1560,15 +1553,7 @@ export default function Portfolio() {
                       {reservations.length > 0 && (
                         <Button
                           variant="ghost"
-                          onClick={() => {
-                            setLocation('/');
-                            setTimeout(() => {
-                              const element = document.getElementById('properties');
-                              if (element) {
-                                element.scrollIntoView({ behavior: 'smooth' });
-                              }
-                            }, 100);
-                          }}
+                          onClick={() => navigateToSection("properties")}
                           className="text-blue-600 hover:text-blue-700 text-sm"
                         >
                           View All Properties
@@ -1585,15 +1570,7 @@ export default function Portfolio() {
                       <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">No confirmed investments yet</h3>
                       <p className="text-sm sm:text-base text-slate-600 mb-6">Start building your real estate portfolio today</p>
                       <Button
-                        onClick={() => {
-                          setLocation('/');
-                          setTimeout(() => {
-                            const element = document.getElementById('properties');
-                            if (element) {
-                              element.scrollIntoView({ behavior: 'smooth' });
-                            }
-                          }, 100);
-                        }}
+                        onClick={() => navigateToSection("properties")}
                         className="bg-blue-600 hover:bg-blue-700 text-white"
                         data-testid="button-browse-properties"
                       >
@@ -1865,6 +1842,7 @@ export default function Portfolio() {
             </Card>
           )}
         </main>
+        )}
       </div>
 
       {/* Resale Listing Modal */}

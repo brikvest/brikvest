@@ -40,7 +40,14 @@ interface GuzapeGraphData {
   scrapedAt: string;
 }
 
-export default function Insights() {
+export interface InsightsProps {
+  /** Render without the public header when hosted by the dashboard shell. */
+  embedded?: boolean;
+  dashboardReturnPath?: string;
+  params?: Record<string, string | undefined>;
+}
+
+export function MarketInsightsContent({ embedded = false, dashboardReturnPath = "/dashboard?section=properties" }: InsightsProps = {}) {
   const [selectedCity, setSelectedCity] = useState("guzape");
   const { toast } = useToast();
 
@@ -83,7 +90,7 @@ export default function Insights() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <InvestorHeader />
+        {!embedded && <InvestorHeader />}
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <Card className="border-slate-200">
@@ -103,7 +110,7 @@ export default function Insights() {
   if (!graphData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <InvestorHeader />
+        {!embedded && <InvestorHeader />}
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <Card className="border-slate-200">
@@ -151,7 +158,7 @@ export default function Insights() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <InvestorHeader />
+      {!embedded && <InvestorHeader />}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -435,7 +442,7 @@ export default function Insights() {
           <p className="text-lg mb-8 text-blue-100 max-w-2xl mx-auto">
             Start building your real estate portfolio with fractional ownership in verified properties
           </p>
-          <Link href="/">
+          <Link href={embedded ? dashboardReturnPath : "/"}>
             <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50" data-testid="button-browse-properties">
               Browse Properties
             </Button>
@@ -444,4 +451,9 @@ export default function Insights() {
       </div>
     </div>
   );
+}
+
+/** Public page wrapper around the reusable market insights experience. */
+export default function Insights(props: InsightsProps = {}) {
+  return <MarketInsightsContent {...props} />;
 }

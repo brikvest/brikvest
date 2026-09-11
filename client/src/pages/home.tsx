@@ -21,7 +21,14 @@ import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 import { UnitCostBreakdownPanel } from "@/components/UnitCostBreakdownPanel";
 import { InvestorHeader } from "@/components/InvestorHeader";
 
-export default function Home() {
+export interface HomeProps {
+  /** Render the investor property experience inside the authenticated dashboard shell. */
+  embedded?: boolean;
+  dashboardReturnPath?: string;
+  params?: Record<string, string | undefined>;
+}
+
+export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath = "/dashboard" }: HomeProps = {}) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { user, isAuthenticated } = useAuth();
@@ -183,9 +190,10 @@ export default function Home() {
     
     // Pre-fill form with user data if authenticated
     if (isAuthenticated && user) {
+      const userData = user as any;
       setInvestmentForm({
-        fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
-        email: user.email,
+        fullName: `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.email,
+        email: userData.email,
         phone: (user as any).phone || "",
         units: "",
         unitTypeLabel: "",
@@ -233,8 +241,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <InvestorHeader />
+      {!embedded && <InvestorHeader />}
 
+      {!embedded && (
+      <>
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-50 to-slate-100 text-slate-800 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -328,6 +338,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      </>
+      )}
 
       {/* Properties Section */}
       <section id="properties" className="py-20 bg-white scroll-mt-16">
@@ -608,6 +621,8 @@ export default function Home() {
       </section>
 
 
+      {!embedded && (
+      <>
       {/* Trust & Security Section */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -829,6 +844,8 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      </>
+      )}
 
       {/* Investment Modal */}
       <Dialog open={investmentModalOpen} onOpenChange={setInvestmentModalOpen}>
@@ -1273,7 +1290,7 @@ export default function Home() {
           <Button 
             onClick={() => {
               setSuccessModalOpen(false);
-              setLocation("/dashboard");
+               setLocation(dashboardReturnPath);
             }}
             className="bg-blue-600 hover:bg-blue-700"
           >
@@ -1283,4 +1300,9 @@ export default function Home() {
       </Dialog>
     </div>
   );
+}
+
+/** Public marketing page wrapper around the reusable property experience. */
+export default function Home(props: HomeProps = {}) {
+  return <PropertyBrowsingContent {...props} />;
 }
