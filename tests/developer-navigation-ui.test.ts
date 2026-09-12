@@ -127,7 +127,10 @@ describe("investor and developer navigation boundaries", () => {
     expect(currencySelectorSource).toContain('className="group"');
     expect(currencySelectorSource).toContain("text-slate-500");
     expect(currencySelectorSource).toContain("group-data-[highlighted]:text-accent-foreground");
-    expect(currencySelectorSource).toContain("group-data-[state=checked]:text-accent-foreground");
+    expect(currencySelectorSource).toContain(
+      'className="text-xs text-slate-500 group-data-[highlighted]:text-accent-foreground"',
+    );
+    expect(currencySelectorSource).not.toContain("group-data-[state=checked]:text-accent-foreground");
 
     for (const currencyName of [
       "Nigerian Naira",
