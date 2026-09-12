@@ -109,7 +109,9 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
       queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user/payment-submissions"] });
       setInvestmentModalOpen(false);
-      setSuccessMessage("Your ownership slot has been reserved successfully! We'll contact you soon with next steps.");
+      setSuccessMessage(
+        "Your ownership slot was reserved successfully. It will be held for 24 hours only and then released if you do not complete the next steps. We’ll contact you by email with instructions.",
+      );
       setSuccessModalOpen(true);
       setInvestmentForm({
         fullName: "",
@@ -1279,20 +1281,28 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
 
       {/* Success Modal */}
       <Dialog open={successModalOpen} onOpenChange={setSuccessModalOpen}>
-        <DialogContent className="max-w-md text-center">
+        <DialogContent
+          className="max-w-md text-center"
+          data-testid="reservation-success-dialog"
+        >
           <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle className="text-white w-8 h-8" />
           </div>
-          <DialogHeader>
+          <DialogHeader className="text-center sm:text-center">
             <DialogTitle>Success!</DialogTitle>
           </DialogHeader>
-          <p className="text-slate-600 mb-6">{successMessage}</p>
+          <p
+            className="text-slate-600 text-center mb-6"
+            data-testid="reservation-success-message"
+          >
+            {successMessage}
+          </p>
           <Button 
             onClick={() => {
               setSuccessModalOpen(false);
-               setLocation(dashboardReturnPath);
+              setLocation(dashboardReturnPath);
             }}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 mx-auto"
           >
             View My Portfolio
           </Button>

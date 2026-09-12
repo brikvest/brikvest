@@ -47,3 +47,34 @@ describe("unit cost transparency UI wiring", () => {
     expect(propertyDetailPanelIndex).toBeGreaterThan(reservationPanelIndex);
   });
 });
+
+describe("reservation success dialog", () => {
+  it("keeps the complete success state centered", () => {
+    expect(homeSource).toContain(
+      'className="max-w-md text-center"\n          data-testid="reservation-success-dialog"',
+    );
+    expect(homeSource).toContain(
+      '<DialogHeader className="text-center sm:text-center">',
+    );
+    expect(homeSource).toContain(
+      'className="text-slate-600 text-center mb-6"',
+    );
+    expect(homeSource).toContain(
+      'className="bg-blue-600 hover:bg-blue-700 mx-auto"',
+    );
+  });
+
+  it("explains the successful reservation, 24-hour release, and email follow-up", () => {
+    expect(homeSource).toContain(
+      "Your ownership slot was reserved successfully.",
+    );
+    expect(homeSource).toContain(
+      "It will be held for 24 hours only and then released",
+    );
+    expect(homeSource).toContain(
+      "We’ll contact you by email with instructions.",
+    );
+    expect(homeSource).toContain("View My Portfolio");
+    expect(homeSource).toContain("setLocation(dashboardReturnPath)");
+  });
+});
