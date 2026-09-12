@@ -10,6 +10,10 @@ const homeSource = fs.readFileSync(
   path.resolve(process.cwd(), "client/src/pages/home.tsx"),
   "utf8",
 );
+const dashboardSource = fs.readFileSync(
+  path.resolve(process.cwd(), "client/src/pages/dashboard.tsx"),
+  "utf8",
+);
 
 describe("unit cost transparency UI wiring", () => {
   it("places the editor immediately after property description with comparison and mismatch controls", () => {
@@ -76,5 +80,19 @@ describe("reservation success dialog", () => {
     );
     expect(homeSource).toContain("View My Portfolio");
     expect(homeSource).toContain("setLocation(dashboardReturnPath)");
+  });
+});
+
+describe("investor payment modal", () => {
+  it("uses the 24-hour reservation window without a separate payment timer", () => {
+    expect(dashboardSource).toContain(
+      "Your reservation remains valid for 24 hours from creation.",
+    );
+    expect(dashboardSource).toContain("Step 2: Upload Payment Proof");
+    expect(dashboardSource).toContain("Submit Payment Proof");
+    expect(dashboardSource).not.toContain("PAYMENT_TIMER_DURATION");
+    expect(dashboardSource).not.toContain("brikvest_payment_timer_");
+    expect(dashboardSource).not.toContain("Session timer ended");
+    expect(dashboardSource).not.toContain("Time remaining to complete payment");
   });
 });
