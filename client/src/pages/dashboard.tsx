@@ -588,45 +588,6 @@ export default function Portfolio() {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const paymentMethods = {
-    NGN: {
-      title: "Naira Transfer (Nigeria)",
-      icon: "₦",
-      details: [
-        { label: "Bank Name", value: "Zenith Bank" },
-        { label: "Account Name", value: "Brikvest Limited" },
-        { label: "Account Number", value: "1310320691" },
-      ]
-    },
-    USD: {
-      title: "USD Transfer (U.S. Bank / Wire)",
-      icon: "$",
-      details: [
-        { label: "Beneficiary Name", value: "Charles Giadom" },
-        { label: "Address", value: "2100 North Central Road" },
-        { label: "Account Number", value: "483106622433" },
-        { label: "Routing Number", value: "026009593" },
-      ],
-      alternative: {
-        title: "Or via Zelle",
-        details: [
-          { label: "Name", value: "Charles Giadom" },
-          { label: "Phone", value: "+1 (646) 204-4536" },
-        ]
-      }
-    },
-    GBP: {
-      title: "GBP Transfer (United Kingdom)",
-      icon: "£",
-      details: [
-        { label: "Beneficiary Name", value: "Charles Giadom" },
-        { label: "Sort Code", value: "04-00-75" },
-        { label: "Account Number", value: "67385923" },
-        { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
-      ]
-    }
-  };
-
   // Prefill KYC form with existing data when modal opens (for updates)
   useEffect(() => {
     if (kycModalOpen && user) {
@@ -657,6 +618,20 @@ export default function Portfolio() {
     enabled: isAuthenticated,
   });
 
+  const { data: paymentInstructions, isLoading: paymentInstructionsLoading } = useQuery<any>({
+    queryKey: ["/api/user/reservations", selectedPaymentReservation?.id, "payment-instructions"],
+    queryFn: async () => {
+      const response = await fetch(`/api/user/reservations/${selectedPaymentReservation!.id}/payment-instructions`, {
+        credentials: "include",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Payment instructions are unavailable");
+      return data;
+    },
+    enabled: paymentModalOpen && !!selectedPaymentReservation && (user as any)?.kycStatus === "approved",
+    retry: false,
+  });
+
   // Helper to get the latest payment submission for a reservation
   const getPaymentSubmission = (reservationId: number) => {
     return paymentSubmissions.find(ps => ps.reservationId === reservationId);
@@ -680,7 +655,7 @@ export default function Portfolio() {
   useEffect(() => {
     if (pendingPaymentReservationId && reservations.length > 0) {
       const reservation = reservations.find(r => r.id === pendingPaymentReservationId);
-      if (reservation && reservation.status === 'reserved') {
+      if (reservation && reservation.status === 'reserved' && (user as any)?.kycStatus === 'approved') {
         setSelectedPaymentReservation(reservation);
         setPaymentModalOpen(true);
         setPendingPaymentReservationId(null);
@@ -694,9 +669,15 @@ export default function Portfolio() {
           description: "This reservation is no longer awaiting payment.",
         });
         setPendingPaymentReservationId(null);
+      } else if (reservation) {
+        toast({
+          title: "KYC Approval Required",
+          description: "Payment details will be available after your KYC is approved.",
+        });
+        setPendingPaymentReservationId(null);
       }
     }
-  }, [pendingPaymentReservationId, reservations, setLocation, searchString, toast]);
+  }, [pendingPaymentReservationId, reservations, setLocation, searchString, toast, user]);
 
   const handleOpenPaymentModal = useCallback(async (reservation: InvestmentReservation & { property?: Property }) => {
     try {
@@ -708,6 +689,19 @@ export default function Portfolio() {
         });
         const redirectUrl = `/dashboard?paymentFor=${reservation.id}`;
         setLocation(`/login?redirect=${encodeURIComponent(redirectUrl)}`);
+        return;
+      }
+      const freshUser = await response.json();
+      if (freshUser.kycStatus !== "approved") {
+        toast({
+          title: "KYC Approval Required",
+          description: freshUser.kycStatus === "submitted"
+            ? "Your KYC is under review. Payment details will be available after approval."
+            : freshUser.kycStatus === "rejected"
+              ? "Please resubmit your KYC and wait for approval before paying."
+              : "Complete KYC and wait for approval before paying.",
+          variant: "destructive",
+        });
         return;
       }
       setSelectedPaymentReservation(reservation);
@@ -1028,7 +1022,7 @@ export default function Portfolio() {
   const isKycVerified = userData.kycStatus === 'approved';
   
   // Check if KYC needs update (missing new required fields)
-  const needsKycUpdate = (userData.kycStatus === 'approved' || userData.kycStatus === 'submitted') && 
+  const needsKycUpdate = userData.kycStatus !== 'approved' && userData.kycStatus !== 'submitted' &&
     (!userData.kycOccupation || !userData.kycSignatureUrl);
 
   return (
@@ -2432,14 +2426,17 @@ export default function Portfolio() {
                 <h4 className="font-semibold text-slate-900">Step 1: Make Payment</h4>
                 <p className="text-xs text-slate-500 -mt-2">Transfer the exact amount to one of the accounts below.</p>
                 
-                {Object.entries(paymentMethods).map(([currency, method]) => (
-                  <div key={currency} className="p-4 border border-slate-200 rounded-lg">
+                {paymentInstructionsLoading && <p className="text-sm text-slate-500">Loading secure payment details...</p>}
+                {paymentInstructions?.method && (() => {
+                  const method = paymentInstructions.method;
+                  return (
+                  <div className="p-4 border border-slate-200 rounded-lg">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-lg font-bold text-slate-700">{method.icon}</span>
                       <h5 className="font-medium text-slate-900">{method.title}</h5>
                     </div>
                     <div className="space-y-2 text-sm">
-                      {method.details.map((detail, idx) => (
+                      {method.details.map((detail: { label: string; value: string }, idx: number) => (
                         <div key={idx} className="flex justify-between">
                           <span className="text-slate-600">{detail.label}:</span>
                           <span className="font-medium text-slate-900 text-right">{detail.value}</span>
@@ -2450,7 +2447,7 @@ export default function Portfolio() {
                       <div className="mt-3 pt-3 border-t border-slate-200">
                         <p className="text-sm font-medium text-slate-700 mb-2">{method.alternative.title}</p>
                         <div className="space-y-1 text-sm">
-                          {method.alternative.details.map((detail, idx) => (
+                          {method.alternative.details.map((detail: { label: string; value: string }, idx: number) => (
                             <div key={idx} className="flex justify-between">
                               <span className="text-slate-600">{detail.label}:</span>
                               <span className="font-medium text-slate-900">{detail.value}</span>
@@ -2460,7 +2457,8 @@ export default function Portfolio() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })()}
               </div>
 
               {/* Step 2: Upload Proof */}

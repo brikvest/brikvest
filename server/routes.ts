@@ -66,6 +66,7 @@ import {
 } from "@shared/schema";
 import { isPropertySoldOut } from "@shared/propertyAvailability";
 import { ObjectStorageService } from "./objectStorage";
+import { getPaymentInstructions } from "./paymentInstructions";
 
 // Simple session store for admin authentication
 const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
@@ -329,6 +330,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get existing KYC data to check if user is updating
       const existingUser = await storage.getUser(userId);
+      if (existingUser?.kycStatus === 'approved') {
+        return res.status(409).json({
+          error: "KYC is already approved and cannot be resubmitted",
+          status: "approved",
+        });
+      }
+      if (existingUser?.kycStatus === 'submitted') {
+        return res.status(409).json({
+          error: "KYC is already under review",
+          status: "submitted",
+        });
+      }
       const hasExistingIdDocument = !!existingUser?.kycIdDocumentUrl;
       const hasExistingSignature = !!existingUser?.kycSignatureUrl;
 
@@ -438,7 +451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update user's KYC information
-      await storage.updateUserKyc(userId, {
+      const submitted = await storage.submitUserKyc(userId, {
         kycFullName: fullName,
         kycDateOfBirth: new Date(dateOfBirth),
         kycAddress: address,
@@ -448,9 +461,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         kycIdDocumentUrl: idDocumentUrl,
         kycSelfieUrl: selfieUrl,
         kycSignatureUrl: signatureUrl,
-        kycStatus: 'submitted',
         kycSubmittedAt: new Date(),
       });
+      if (!submitted) {
+        return res.status(409).json({
+          error: "KYC status changed while this submission was being processed",
+        });
+      }
 
       // Auto-extend active reservations by 24 hours (one-time extension)
       const extendedCount = await storage.extendReservationsOnKycSubmission(userId);
@@ -571,6 +588,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/user/reservations/:reservationId/payment-instructions', requireAuth, async (req: any, res) => {
+    const userId = req.user.id;
+    const user = await storage.getUser(userId);
+    if (!user || user.kycStatus !== 'approved') {
+      return res.status(403).json({ error: "KYC verification must be approved before viewing payment instructions" });
+    }
+
+    const reservation = await storage.getReservation(parseInt(req.params.reservationId));
+    if (!reservation) return res.status(404).json({ error: "Reservation not found" });
+    if (reservation.userId !== userId) return res.status(403).json({ error: "Access denied" });
+    if (reservation.status !== 'reserved') return res.status(400).json({ error: "This reservation is not awaiting payment" });
+    if (reservation.expiresAt && new Date(reservation.expiresAt) < new Date()) {
+      return res.status(400).json({ error: "This reservation has expired" });
+    }
+
+    res.json({ currency: reservation.currency || 'NGN', method: getPaymentInstructions(reservation.currency || 'NGN') });
+  });
+
   // Get user's payment submissions
   app.get('/api/user/payment-submissions', requireAuth, async (req: any, res) => {
     try {
@@ -634,9 +669,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const previousStatus = user.kycStatus;
-      
-      // Update KYC status with rejection reason if rejected
-      await storage.updateUserKycStatus(userId, status, rejectionReason);
+
+      if (previousStatus === 'approved') {
+        if (status === 'approved') {
+          return res.json({ message: "KYC is already approved", status: "approved", unchanged: true });
+        }
+        return res.status(409).json({ error: "Approved KYC cannot be changed" });
+      }
+      if (previousStatus !== 'submitted') {
+        return res.status(409).json({ error: "Only submitted KYC can be reviewed" });
+      }
+
+      const changed = await storage.updateUserKycStatus(userId, status, rejectionReason);
+      if (!changed) {
+        return res.status(409).json({ error: "KYC status changed before this review was completed" });
+      }
       
       if (status === 'approved') {
         console.log(`[AUDIT:KYC] APPROVED: userId=${userId}, email=${user.email}, fullName="${user.kycFullName}", previousStatus=${previousStatus}, approvedBy=${adminUser.username}`);
@@ -5152,11 +5199,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Buyer: Submit resale payment confirmation
-  app.post("/api/resale-payments", requireApprovedUser, upload.single('paymentProof'), async (req: any, res) => {
+  app.post("/api/resale-payments", requireAuth, upload.single('paymentProof'), async (req: any, res) => {
     try {
       const user = req.user as any;
       const { listingId, bankReference } = req.body;
       const file = req.file;
+
+      const freshUser = await storage.getUser(user.id);
+      if (!freshUser || freshUser.kycStatus !== "approved") {
+        return res.status(403).json({ message: "KYC verification must be approved before submitting payment proof" });
+      }
 
       if (!listingId) {
         return res.status(400).json({ message: "Listing ID is required" });
@@ -5261,6 +5313,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/resale-listings/:listingId/payment-instructions", requireAuth, async (req: any, res) => {
+    const userId = req.user.id;
+    const user = await storage.getUser(userId);
+    if (!user || user.kycStatus !== "approved") {
+      return res.status(403).json({ message: "KYC verification must be approved before viewing payment instructions" });
+    }
+
+    const listing = await storage.getResaleListing(parseInt(req.params.listingId));
+    if (!listing) return res.status(404).json({ message: "Listing not found" });
+    if (listing.winnerId !== userId) return res.status(403).json({ message: "You are not the designated buyer for this listing" });
+    if (listing.status !== "awaiting_payment") return res.status(400).json({ message: "This listing is not awaiting payment" });
+    if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
+      return res.status(400).json({ message: "Payment deadline has passed" });
+    }
+
+    res.json({ currency: listing.currency || "NGN", method: getPaymentInstructions(listing.currency || "NGN") });
+  });
+
   // Buyer: Get their resale payments
   app.get("/api/resale-payments/mine", requireApprovedUser, async (req: any, res) => {
     try {
@@ -5274,9 +5344,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get resale payment for a specific listing (buyer check)
-  app.get("/api/resale-payments/listing/:listingId", requireApprovedUser, async (req: any, res) => {
+  app.get("/api/resale-payments/listing/:listingId", requireAuth, async (req: any, res) => {
     try {
-      const payments = await storage.getResalePaymentsByListing(parseInt(req.params.listingId));
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      if (!user || user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "KYC verification must be approved before viewing payment information" });
+      }
+      const listingId = parseInt(req.params.listingId);
+      const listing = await storage.getResaleListing(listingId);
+      if (!listing) return res.status(404).json({ message: "Listing not found" });
+      if (listing.winnerId !== userId) {
+        return res.status(403).json({ message: "You are not the designated buyer for this listing" });
+      }
+      const payments = await storage.getResalePaymentsByListing(listingId);
       res.json(payments);
     } catch (error: any) {
       console.error("Error fetching listing payments:", error);

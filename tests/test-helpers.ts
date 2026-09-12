@@ -56,7 +56,10 @@ export async function createTestDeveloper(): Promise<TestDeveloper> {
   return { id: dev.id, email, password };
 }
 
-export async function createTestInvestor(label = "investor") {
+export async function createTestInvestor(
+  label = "investor",
+  overrides: Partial<InsertUser> = {},
+) {
   const password = "TestInvestorPass!9";
   const email = uniqueTestEmail(label);
   const hashed = await hashPassword(password);
@@ -71,6 +74,7 @@ export async function createTestInvestor(label = "investor") {
     emailVerified: true,
     kycStatus: "approved",
     country: "NG",
+    ...overrides,
   };
   const user = await storage.createUser(insert);
   return { id: user.id, email, password };

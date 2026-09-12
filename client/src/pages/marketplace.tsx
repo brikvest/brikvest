@@ -15,45 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 
-const paymentMethods: Record<string, any> = {
-  NGN: {
-    title: "Naira Transfer (Nigeria)",
-    icon: "₦",
-    details: [
-      { label: "Bank Name", value: "Zenith Bank" },
-      { label: "Account Name", value: "Brikvest Limited" },
-      { label: "Account Number", value: "1310320691" },
-    ]
-  },
-  USD: {
-    title: "USD Transfer (U.S. Bank / Wire)",
-    icon: "$",
-    details: [
-      { label: "Beneficiary Name", value: "Charles Giadom" },
-      { label: "Address", value: "2100 North Central Road" },
-      { label: "Account Number", value: "483106622433" },
-      { label: "Routing Number", value: "026009593" },
-    ],
-    alternative: {
-      title: "Or via Zelle",
-      details: [
-        { label: "Name", value: "Charles Giadom" },
-        { label: "Phone", value: "+1 (646) 204-4536" },
-      ]
-    }
-  },
-  GBP: {
-    title: "GBP Transfer (United Kingdom)",
-    icon: "£",
-    details: [
-      { label: "Beneficiary Name", value: "Charles Giadom" },
-      { label: "Sort Code", value: "04-00-75" },
-      { label: "Account Number", value: "67385923" },
-      { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
-    ]
-  }
-};
-
 export default function Marketplace() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
@@ -96,6 +57,18 @@ export default function Marketplace() {
   const { data: myResalePayments = [] } = useQuery<any[]>({
     queryKey: ["/api/resale-payments/mine"],
     enabled: isAuthenticated,
+  });
+
+  const { data: paymentInstructions, isLoading: paymentInstructionsLoading } = useQuery<any>({
+    queryKey: ["/api/resale-listings", paymentListing?.id, "payment-instructions"],
+    queryFn: async () => {
+      const res = await fetch(`/api/resale-listings/${paymentListing.id}/payment-instructions`, { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Payment instructions are unavailable");
+      return data;
+    },
+    enabled: paymentDialogOpen && !!paymentListing && (user as any)?.kycStatus === "approved",
+    retry: false,
   });
 
   const { data: propertyValuations = [], isLoading: valuationsLoading } = useQuery<any[]>({
@@ -715,10 +688,21 @@ export default function Marketplace() {
                 </p>
               </div>
 
-              {/* Bank Details */}
-              {(() => {
-                const currency = paymentListing.currency || "NGN";
-                const method = paymentMethods[currency] || paymentMethods.NGN;
+              {(user as any)?.kycStatus !== "approved" ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-amber-900">KYC approval required</h4>
+                  <p className="text-sm text-amber-800 mt-1">
+                    {(user as any)?.kycStatus === "submitted"
+                      ? "Your KYC is under review. Payment details and proof upload will be available after approval."
+                      : (user as any)?.kycStatus === "rejected"
+                        ? "Your KYC was rejected. Resubmit it from your dashboard and wait for approval before paying."
+                        : "Complete KYC from your dashboard and wait for approval before paying."}
+                  </p>
+                </div>
+              ) : paymentInstructionsLoading ? (
+                <p className="text-sm text-slate-500">Loading secure payment details...</p>
+              ) : paymentInstructions?.method ? (() => {
+                const method = paymentInstructions.method;
 
                 return (
                   <div className="space-y-3">
@@ -770,7 +754,7 @@ export default function Marketplace() {
                     )}
                   </div>
                 );
-              })()}
+              })() : null}
 
               {/* Payment Deadline */}
               {paymentListing.paymentDeadline && (
@@ -782,7 +766,7 @@ export default function Marketplace() {
                 </div>
               )}
 
-              <div className="border-t border-slate-200 pt-4">
+              {(user as any)?.kycStatus === "approved" && paymentInstructions?.method && <div className="border-t border-slate-200 pt-4">
                 <h4 className="font-semibold text-slate-900 mb-3">After making your transfer:</h4>
                 <div className="space-y-3">
                   <div>
@@ -815,16 +799,16 @@ export default function Marketplace() {
                     </Button>
                   </div>
                 </div>
-              </div>
+              </div>}
 
               <div className="flex gap-3 pt-2">
-                <Button
+                {(user as any)?.kycStatus === "approved" && paymentInstructions?.method && <Button
                   variant="outline"
                   className="flex-1"
                   onClick={() => setPaymentDialogOpen(false)}
                 >
                   I'll Pay Later
-                </Button>
+                </Button>}
                 <Button
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                   disabled={paymentMutation.isPending}

@@ -127,8 +127,9 @@ export interface IStorage {
   consumeResetTokenAndSetPassword(token: string, hashedPassword: string): Promise<User | undefined>;
   updateUserLastLogin(id: number): Promise<void>;
   updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
+  submitUserKyc(id: number, kycData: Partial<User>): Promise<boolean>;
   getAllKycSubmissions(): Promise<User[]>;
-  updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<void>;
+  updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<boolean>;
   getPendingUsers(): Promise<User[]>;
   updateUserAccountStatus(userId: number, status: string): Promise<User>;
   
@@ -404,21 +405,34 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id));
   }
 
+  async submitUserKyc(id: number, kycData: Partial<User>): Promise<boolean> {
+    const updated = await db.update(users)
+      .set({ ...kycData, kycStatus: 'submitted', updatedAt: new Date() })
+      .where(and(
+        eq(users.id, id),
+        inArray(users.kycStatus, ['not_started', 'rejected']),
+      ))
+      .returning({ id: users.id });
+    return updated.length === 1;
+  }
+
   async getAllKycSubmissions(): Promise<User[]> {
     return await db.select().from(users)
       .where(ne(users.kycStatus, 'not_started'))
       .orderBy(desc(users.kycSubmittedAt));
   }
 
-  async updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<void> {
-    await db.update(users)
+  async updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<boolean> {
+    const updated = await db.update(users)
       .set({ 
         kycStatus: status as 'not_started' | 'submitted' | 'approved' | 'rejected',
         kycVerifiedAt: status === 'approved' ? new Date() : undefined,
         kycRejectionReason: status === 'rejected' ? (rejectionReason || null) : null,
         updatedAt: new Date() 
       })
-      .where(eq(users.id, userId));
+      .where(and(eq(users.id, userId), eq(users.kycStatus, 'submitted')))
+      .returning({ id: users.id });
+    return updated.length === 1;
   }
 
   async getPendingUsers(): Promise<User[]> {
