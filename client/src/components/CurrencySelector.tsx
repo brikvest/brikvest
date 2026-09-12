@@ -56,7 +56,7 @@ export function CurrencySelector({ className = "", compact = false }: CurrencySe
         
         <SelectContent>
           {POPULAR_CURRENCIES.map((currency) => (
-            <SelectItem key={currency.code} value={currency.code}>
+            <SelectItem key={currency.code} value={currency.code} className="group">
               <div className="flex items-center gap-3">
                 <span className="text-lg">{currency.flag}</span>
                 <div className="flex flex-col">
@@ -64,7 +64,9 @@ export function CurrencySelector({ className = "", compact = false }: CurrencySe
                     <span className="font-medium">{currency.symbol}</span>
                     <span className="font-medium">{currency.code}</span>
                   </div>
-                  <span className="text-xs text-slate-500">{currency.name}</span>
+                  <span className="text-xs text-slate-500 group-data-[highlighted]:text-accent-foreground group-data-[state=checked]:text-accent-foreground">
+                    {currency.name}
+                  </span>
                 </div>
               </div>
             </SelectItem>

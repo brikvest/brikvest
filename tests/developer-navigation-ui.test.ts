@@ -20,6 +20,7 @@ const developerLoginSource = readSource("client/src/pages/developer/login.tsx");
 const developerSignupSource = readSource("client/src/pages/developer/signup.tsx");
 const developerPricingSource = readSource("client/src/pages/developer/pricing.tsx");
 const dashboardSource = readSource("client/src/pages/dashboard.tsx");
+const currencySelectorSource = readSource("client/src/components/CurrencySelector.tsx");
 
 describe("investor and developer navigation boundaries", () => {
   it("keeps developer signup and pricing entry points out of the investor home", () => {
@@ -120,5 +121,31 @@ describe("investor and developer navigation boundaries", () => {
     expect(dashboardSource).toContain("MarketInsightsContent");
     expect(developerLoginSource).toContain('href="/developer/signup"');
     expect(dashboardSource).not.toContain('setLocation("/insights")');
+  });
+
+  it("keeps currency names readable in highlighted and selected options", () => {
+    expect(currencySelectorSource).toContain('className="group"');
+    expect(currencySelectorSource).toContain("text-slate-500");
+    expect(currencySelectorSource).toContain("group-data-[highlighted]:text-accent-foreground");
+    expect(currencySelectorSource).toContain("group-data-[state=checked]:text-accent-foreground");
+
+    for (const currencyName of [
+      "Nigerian Naira",
+      "US Dollar",
+      "British Pound",
+      "Euro",
+      "UAE Dirham",
+      "Kenyan Shilling",
+      "South African Rand",
+      "Ghanaian Cedi",
+      "Canadian Dollar",
+      "Australian Dollar",
+      "Indian Rupee",
+    ]) {
+      expect(currencySelectorSource).toContain(currencyName);
+    }
+
+    expect(currencySelectorSource).toContain("compact?: boolean");
+    expect(currencySelectorSource).toContain('className={compact ? "w-auto h-8 text-sm" : "w-auto min-w-[140px]"}');
   });
 });
