@@ -114,4 +114,32 @@ describe("sold-out reservation guard", () => {
       .send(reservationPayload(property.id, uniqueTestEmail("active")));
     expect(activeResponse.status).toBe(201);
   });
+
+  it("guides investors to choose fewer units when availability is exceeded", async () => {
+    const developer = await createTestDeveloper();
+    const { agent } = await loginAsDeveloper(app, developer);
+    const property = await createDraftProject(agent);
+
+    await storage.updatePropertyFields(property.id, {
+      status: "active",
+      projectStatus: "live",
+      availableSlots: 1,
+    });
+
+    const response = await request(app)
+      .post("/api/reservations")
+      .send({
+        ...reservationPayload(property.id, uniqueTestEmail("excess-units")),
+        units: "2",
+        amount: "2000000",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      message: "Only 1 unit available. Please select a smaller quantity.",
+    });
+    expect(homeSource).toContain('title: "Unable to reserve that quantity"');
+    expect(homeSource).toContain("getApiErrorMessage(");
+    expect(homeSource).not.toContain("description: error.message");
+  });
 });

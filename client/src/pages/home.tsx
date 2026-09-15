@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, getApiErrorMessage, queryClient } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -111,8 +111,11 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
     },
     onError: (error) => {
       toast({
-        title: "Error",
-        description: error.message || "Failed to reserve ownership slot",
+        title: "Unable to reserve that quantity",
+        description: getApiErrorMessage(
+          error,
+          "We couldn't reserve your ownership units. Please choose a smaller quantity or try again.",
+        ),
         variant: "destructive",
       });
     },

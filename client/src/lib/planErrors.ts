@@ -1,9 +1,4 @@
-// Helpers for surfacing developer plan-limit / trial errors returned by the
-// API. The server uses HTTP 402 with a JSON body of the form:
-//   { code: "plan_limit_projects" | "plan_limit_investors" | ... | "trial_expired",
-//     limit: number, plan: string, message: string }
-// Our shared `apiRequest` throws `Error("402: <bodyText>")`, so we parse the
-// message string back into structured info.
+import { ApiError, getApiErrorMessage } from "./queryClient";
 
 export interface PlanError {
   status: number;
@@ -14,23 +9,18 @@ export interface PlanError {
 }
 
 export function parsePlanError(err: unknown): PlanError {
-  const raw = err instanceof Error ? err.message : String(err);
-  const match = /^(\d{3}):\s*([\s\S]*)$/.exec(raw);
-  if (!match) return { status: 0, message: raw };
-  const status = parseInt(match[1], 10);
-  const body = match[2];
-  try {
-    const parsed = JSON.parse(body);
+  if (err instanceof ApiError) {
+    const data = err.data;
     return {
-      status,
-      code: parsed.code,
-      limit: parsed.limit,
-      plan: parsed.plan,
-      message: parsed.message || body,
+      status: err.status,
+      code: err.code,
+      limit: typeof data?.limit === "number" ? data.limit : undefined,
+      plan: typeof data?.plan === "string" ? data.plan : undefined,
+      message: getApiErrorMessage(err, "Please try again."),
     };
-  } catch {
-    return { status, message: body };
   }
+
+  return { status: 0, message: "Please try again." };
 }
 
 export function isPlanLimitError(err: unknown): boolean {
