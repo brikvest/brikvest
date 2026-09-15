@@ -115,6 +115,8 @@ export const properties = pgTable("properties", {
   badge: text("badge"), // e.g., 'partnered', 'verified', etc.
   partnershipDocumentUrl: text("partnership_document_url"), // URL to signed partnership document
   partnershipDocumentName: text("partnership_document_name"), // Display name for document
+  dueDiligenceDocumentUrl: text("due_diligence_document_url"), // Customer-facing property due diligence document
+  dueDiligenceDocumentName: text("due_diligence_document_name"), // Display name for due diligence document
   developerNotes: text("developer_notes"), // Notes from developer about the project
   investmentDetails: text("investment_details"), // Detailed investment information
   // Developer Portal: project-level construction/risk fields (managed in Construction tab)
@@ -556,16 +558,40 @@ export const loginSchema = z.object({
 });
 
 const nonNegativeMoney = z.number().finite().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
+const optionalDocumentName = z.string().trim().max(255).nullable().optional();
+const optionalDocumentUrl = z.string().trim().max(2048).refine(
+  (value) => {
+    if (value.startsWith("/api/documents/")) return true;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" || url.protocol === "http:";
+    } catch {
+      return false;
+    }
+  },
+  "Document URL must be an HTTP(S) URL or an application document path.",
+).nullable().optional();
 
 export const insertPropertySchema = createInsertSchema(properties, {
   unitLandCost: nonNegativeMoney,
   unitDueDiligenceCost: nonNegativeMoney,
   unitAgentFees: nonNegativeMoney,
   unitServiceCharge: nonNegativeMoney,
+  dueDiligenceDocumentName: optionalDocumentName,
+  dueDiligenceDocumentUrl: optionalDocumentUrl,
 }).omit({
   id: true,
   createdAt: true,
 }).superRefine((property, ctx) => {
+  const hasDocumentName = Boolean(property.dueDiligenceDocumentName);
+  const hasDocumentUrl = Boolean(property.dueDiligenceDocumentUrl);
+  if (hasDocumentName !== hasDocumentUrl) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dueDiligenceDocumentUrl"],
+      message: "Due diligence document name and URL must be provided or removed together.",
+    });
+  }
   if (!property.showUnitCostBreakdown) return;
   const componentTotal =
     Number(property.unitLandCost ?? 0) +

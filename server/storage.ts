@@ -6,7 +6,6 @@ import {
   investmentPayments,
   investmentGroups,
   groupMemberships,
-  verificationSteps,
   propertyVerificationChecklists,
   verificationStepCompletions,
   marketInsights,
@@ -28,10 +27,6 @@ import {
   type InsertInvestmentGroup,
   type GroupMembership,
   type InsertGroupMembership,
-  type VerificationStep,
-  type PropertyVerificationChecklist,
-  type VerificationStepCompletion,
-  type InsertVerificationStepCompletion,
   type MarketInsight,
   type InsertMarketInsight,
   type GuzapeListing,
@@ -208,12 +203,6 @@ export interface IStorage {
   getGroupMemberships(groupId: number): Promise<GroupMembership[]>;
   getMembershipsByEmail(email: string): Promise<GroupMembership[]>;
   updateGroupMembership(id: number, updates: Partial<GroupMembership>): Promise<GroupMembership>;
-  
-  // Verification methods
-  getVerificationSteps(): Promise<VerificationStep[]>;
-  getPropertyVerificationChecklist(propertyId: number): Promise<any[]>;
-  updatePropertyVerificationChecklist(propertyId: number, enabledSteps: number[]): Promise<void>;
-  updateVerificationStepCompletion(data: InsertVerificationStepCompletion): Promise<void>;
   
   // Market insights methods
   createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]>;
@@ -1023,97 +1012,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(groupMemberships.id, id))
       .returning();
     return updatedMembership;
-  }
-
-  // Verification methods
-
-  async getVerificationSteps(): Promise<VerificationStep[]> {
-    return await db
-      .select()
-      .from(verificationSteps)
-      .orderBy(verificationSteps.order);
-  }
-
-  async getPropertyVerificationChecklist(propertyId: number): Promise<any[]> {
-    // Get all verification steps
-    const steps = await this.getVerificationSteps();
-    
-    // Get enabled steps for this property
-    const enabledSteps = await db
-      .select()
-      .from(propertyVerificationChecklists)
-      .where(eq(propertyVerificationChecklists.propertyId, propertyId));
-    
-    // Get completion status for each step
-    const completions = await db
-      .select()
-      .from(verificationStepCompletions)
-      .where(eq(verificationStepCompletions.propertyId, propertyId));
-    
-    // Combine the data
-    return steps.map(step => {
-      const enabled = enabledSteps.find(e => e.verificationStepId === step.id);
-      const completion = completions.find(c => c.verificationStepId === step.id);
-      
-      return {
-        ...step,
-        isEnabled: !!enabled?.isEnabled,
-        isCompleted: !!completion?.isCompleted,
-        completedAt: completion?.completedAt,
-        completedBy: completion?.completedBy,
-        proofPhotos: completion?.proofPhotos || [],
-        notes: completion?.notes
-      };
-    });
-  }
-
-  async updatePropertyVerificationChecklist(propertyId: number, enabledSteps: number[]): Promise<void> {
-    // First, remove all existing checklist items for this property
-    await db
-      .delete(propertyVerificationChecklists)
-      .where(eq(propertyVerificationChecklists.propertyId, propertyId));
-    
-    // Then, insert the new enabled steps
-    if (enabledSteps.length > 0) {
-      const checklistItems = enabledSteps.map(stepId => ({
-        propertyId,
-        verificationStepId: stepId,
-        isEnabled: true
-      }));
-      
-      await db
-        .insert(propertyVerificationChecklists)
-        .values(checklistItems);
-    }
-  }
-
-  async updateVerificationStepCompletion(data: InsertVerificationStepCompletion): Promise<void> {
-    // Check if completion record exists
-    const [existing] = await db
-      .select()
-      .from(verificationStepCompletions)
-      .where(
-        and(
-          eq(verificationStepCompletions.propertyId, data.propertyId),
-          eq(verificationStepCompletions.verificationStepId, data.verificationStepId)
-        )
-      );
-    
-    if (existing) {
-      // Update existing record
-      await db
-        .update(verificationStepCompletions)
-        .set({
-          ...data,
-          updatedAt: new Date()
-        })
-        .where(eq(verificationStepCompletions.id, existing.id));
-    } else {
-      // Insert new record
-      await db
-        .insert(verificationStepCompletions)
-        .values(data);
-    }
   }
 
   // Market insights methods

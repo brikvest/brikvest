@@ -43,6 +43,25 @@ export const upload = multer({
   }
 });
 
+export const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, DOC, and DOCX documents are allowed'));
+    }
+  },
+});
+
 // Upload to Cloudinary (for images only)
 export const uploadToCloudinary = async (
   buffer: Buffer,

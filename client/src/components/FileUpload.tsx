@@ -38,6 +38,9 @@ export function FileUpload({
 
       const response = await fetch(`/api/upload/${uploadType}`, {
         method: 'POST',
+        headers: uploadType === 'document'
+          ? { Authorization: `Bearer ${localStorage.getItem("admin_session_id") || ""}` }
+          : undefined,
         body: formData,
       });
 

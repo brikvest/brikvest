@@ -6,7 +6,7 @@ import { ProjectHasConfirmedInvestorsError, storage } from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { randomBytes } from "crypto";
-import { upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
+import { documentUpload, upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import {
   sendListingApprovedEmail,
@@ -40,8 +40,6 @@ import {
   insertPropertySchema,
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
-  insertPropertyVerificationChecklistSchema,
-  insertVerificationStepCompletionSchema,
   loginSchema,
   loginUserSchema,
   registerUserSchema,
@@ -52,9 +50,6 @@ import {
   type InvestmentReservation,
   type InvestmentGroup,
   type GroupMembership,
-  type VerificationStep,
-  type PropertyVerificationChecklist,
-  type VerificationStepCompletion,
   type InsertUser,
   type InsertProperty,
   type InsertProjectMilestone,
@@ -65,7 +60,6 @@ import {
   RESERVATION_FUNNEL_STAGES,
 } from "@shared/schema";
 import { isPropertySoldOut } from "@shared/propertyAvailability";
-import { ObjectStorageService } from "./objectStorage";
 import { getPaymentInstructions } from "./paymentInstructions";
 
 // Simple session store for admin authentication
@@ -99,6 +93,26 @@ function requireAuth(req: any, res: any, next: any) {
     return next();
   }
   res.status(401).json({ message: "Authentication required" });
+}
+
+function requireDocumentUploadAuth(req: any, res: any, next: any) {
+  const sessionId = req.headers.authorization?.replace('Bearer ', '');
+  if (sessionId) {
+    const adminSession = adminSessions.get(sessionId);
+    if (
+      adminSession &&
+      adminSession.expiresAt >= Date.now() &&
+      (adminSession.role === 'admin' || adminSession.role === 'super_admin')
+    ) {
+      req.user = adminSession;
+      return next();
+    }
+  }
+  if (req.isAuthenticated?.()) {
+    if ((req.user as any)?.role === "developer") return next();
+    return res.status(403).json({ message: "Developer access required" });
+  }
+  return res.status(401).json({ message: "Authentication required" });
 }
 
 // Middleware: requires authenticated user with approved account
@@ -2914,44 +2928,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // File upload endpoint for documents (PDFs go to Object Storage, images to Cloudinary)
-  app.post("/api/upload/document", upload.single('document'), async (req, res) => {
+  // Shared document upload used by admin property forms and developer attachments.
+  app.post("/api/upload/document", requireDocumentUploadAuth, documentUpload.single('document'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      // Route PDFs to Object Storage, images to Cloudinary
-      const isPdf = req.file.mimetype === 'application/pdf';
-      
-      if (isPdf) {
-        const result = await uploadToObjectStorage(
-          req.file.buffer,
-          req.file.originalname,
-          req.file.mimetype,
-          'documents'
-        );
-
-        res.json({
-          url: result.url,
-          path: result.path,
-          originalName: req.file.originalname,
-          storageType: 'object_storage'
-        });
-      } else {
-        const result = await uploadToCloudinary(
-          req.file.buffer,
-          req.file.originalname,
-          'brikvest/documents'
-        );
-
-        res.json({
-          url: result.url,
-          publicId: result.publicId,
-          originalName: req.file.originalname,
-          storageType: 'cloudinary'
-        });
+      const allowedDocumentTypes = new Set([
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ]);
+      if (!allowedDocumentTypes.has(req.file.mimetype)) {
+        return res.status(400).json({ error: "Only PDF, DOC, and DOCX documents are allowed" });
       }
+
+      const result = await uploadToObjectStorage(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        'documents'
+      );
+
+      res.json({
+        url: result.url,
+        path: result.path,
+        originalName: req.file.originalname,
+        storageType: 'object_storage'
+      });
     } catch (error) {
       console.error("Error uploading document:", error);
       res.status(500).json({ error: "Failed to upload document" });
@@ -3351,126 +3356,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Verification routes
-  // Get all verification steps
-  app.get("/api/verification-steps", async (req, res) => {
-    try {
-      const steps = await storage.getVerificationSteps();
-      res.json(steps);
-    } catch (error) {
-      console.error("Error fetching verification steps:", error);
-      res.status(500).json({ message: "Failed to fetch verification steps" });
-    }
-  });
-
-  // Get verification checklist for a property
-  app.get("/api/properties/:id/verification", requireApprovedUser, async (req: any, res) => {
-    try {
-      const propertyId = parseInt(req.params.id);
-      const checklist = await storage.getPropertyVerificationChecklist(propertyId);
-      res.json(checklist);
-    } catch (error) {
-      console.error("Error fetching property verification checklist:", error);
-      res.status(500).json({ message: "Failed to fetch verification checklist" });
-    }
-  });
-
-  // Update verification checklist for a property (Admin only)
-  app.post("/api/properties/:id/verification", requireAdminAuth, async (req, res) => {
-    try {
-      const propertyId = parseInt(req.params.id);
-      const { enabledSteps } = req.body; // Array of verification step IDs
-
-      if (!Array.isArray(enabledSteps)) {
-        return res.status(400).json({ message: "enabledSteps must be an array" });
-      }
-
-      await storage.updatePropertyVerificationChecklist(propertyId, enabledSteps);
-      res.json({ message: "Verification checklist updated successfully" });
-    } catch (error) {
-      console.error("Error updating property verification checklist:", error);
-      res.status(500).json({ message: "Failed to update verification checklist" });
-    }
-  });
-
-  // Update verification step completion (Admin only)
-  app.put("/api/properties/:propertyId/verification/:stepId", requireAdminAuth, async (req: any, res) => {
-    try {
-      const propertyId = parseInt(req.params.propertyId);
-      const stepId = parseInt(req.params.stepId);
-      const { isCompleted, notes, proofPhotos } = req.body;
-
-      const adminId = req.user.userId;
-      const completionData = {
-        propertyId,
-        verificationStepId: stepId,
-        isCompleted: isCompleted || false,
-        completedAt: isCompleted ? new Date() : null,
-        completedBy: isCompleted ? adminId : null,
-        proofPhotos: proofPhotos || [],
-        notes: notes || null
-      };
-
-      await storage.updateVerificationStepCompletion(completionData);
-      res.json({ message: "Verification step updated successfully" });
-    } catch (error) {
-      console.error("Error updating verification step completion:", error);
-      res.status(500).json({ message: "Failed to update verification step" });
-    }
-  });
-
-  // Get upload URL for verification photos (Admin only)
-  app.post("/api/verification/upload-url", requireAdminAuth, async (req, res) => {
-    try {
-      const objectStorageService = new ObjectStorageService();
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      res.json({ uploadURL });
-    } catch (error) {
-      console.error("Error getting upload URL:", error);
-      res.status(500).json({ message: "Failed to get upload URL" });
-    }
-  });
-
-  // Set verification photo ACL after upload (Admin only)
-  app.post("/api/verification/set-photo-acl", requireAdminAuth, async (req: any, res) => {
-    try {
-      const { photoURL } = req.body;
-      const adminId = req.user.userId.toString();
-
-      if (!photoURL) {
-        return res.status(400).json({ error: "photoURL is required" });
-      }
-
-      const objectStorageService = new ObjectStorageService();
-      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-        photoURL,
-        {
-          owner: adminId,
-          visibility: "public", // Make verification photos public for transparency
-        }
-      );
-
-      res.json({ objectPath });
-    } catch (error) {
-      console.error("Error setting photo ACL:", error);
-      res.status(500).json({ error: "Failed to set photo ACL" });
-    }
-  });
-
-  // Serve verification photos (public access)
-  app.get("/verification-photos/:objectPath(*)", async (req, res) => {
-    try {
-      const objectStorageService = new ObjectStorageService();
-      const objectFile = await objectStorageService.getObjectEntityFile(`/objects/${req.params.objectPath}`);
-      objectStorageService.downloadObject(objectFile, res);
-    } catch (error: any) {
-      console.error("Error serving verification photo:", error);
-      if (error?.name === 'ObjectNotFoundError') {
-        return res.status(404).json({ error: "Photo not found" });
-      }
-      return res.status(500).json({ error: "Failed to serve photo" });
-    }
-  });
 
   // Market Insights - Debug what scraper sees (Admin only)
   app.get("/api/market-insights/debug", requireAdminAuth, async (req, res) => {
