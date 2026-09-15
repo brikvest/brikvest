@@ -1112,7 +1112,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 {selectedProperty.dueDiligenceDocumentUrl && (
                 <div data-testid="due-diligence-document-section">
                   <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Due Diligence Verification</h3>
-                  <div className="border border-slate-200 bg-slate-50 rounded-lg p-6">
+                  <div className="border border-slate-200 bg-slate-50 rounded-lg p-4 sm:p-6">
                     <div className="flex items-start gap-3">
                       <FileText className="w-6 h-6 text-blue-600 mt-1" />
                       <div className="flex-1">
@@ -1122,15 +1122,25 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                         <p className="text-slate-600 text-sm mt-1 mb-4">
                           Review the due diligence document provided for this property.
                         </p>
-                        <div className="flex flex-wrap gap-3">
+                        <div
+                          className="h-[24rem] sm:h-[32rem] overflow-auto rounded-md border border-slate-300 bg-white"
+                          data-testid="due-diligence-document-preview"
+                        >
+                          <iframe
+                            src={selectedProperty.dueDiligenceDocumentUrl}
+                            title={`${selectedProperty.dueDiligenceDocumentName || "Due diligence document"} preview`}
+                            className="h-full w-full"
+                          />
+                        </div>
+                        <div className="mt-4">
                           <Button variant="outline" asChild>
-                            <a href={selectedProperty.dueDiligenceDocumentUrl} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="w-4 h-4 mr-2" /> Preview
-                            </a>
-                          </Button>
-                          <Button asChild>
-                            <a href={selectedProperty.dueDiligenceDocumentUrl} download={selectedProperty.dueDiligenceDocumentName || undefined}>
-                              <Download className="w-4 h-4 mr-2" /> Download
+                            <a
+                              href={selectedProperty.dueDiligenceDocumentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-testid="due-diligence-document-open"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" /> Open in new window
                             </a>
                           </Button>
                         </div>

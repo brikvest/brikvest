@@ -28,10 +28,29 @@ describe("property due diligence document UI", () => {
     expect(adminSource).not.toContain("Proof Photos (Optional)");
   });
 
-  it("shows only the document customer state and hides the section when absent", () => {
+  it("embeds the customer document with a separate new-window action", () => {
     expect(homeSource).toContain("selectedProperty.dueDiligenceDocumentUrl &&");
     expect(homeSource).toContain('data-testid="due-diligence-document-section"');
     expect(homeSource).toContain("Review the due diligence document provided for this property.");
+    expect(homeSource).toContain('data-testid="due-diligence-document-preview"');
+    expect(homeSource).toContain("<iframe");
+    expect(homeSource).toContain("h-[24rem] sm:h-[32rem] overflow-auto");
+    expect(homeSource).toContain("src={selectedProperty.dueDiligenceDocumentUrl}");
+    expect(homeSource).toContain('data-testid="due-diligence-document-open"');
+    expect(homeSource).toContain('target="_blank"');
+    expect(homeSource).toContain('rel="noopener noreferrer"');
+    expect(homeSource).toContain("Open in new window");
+  });
+
+  it("removes the customer download action and hides the section without a document", () => {
+    const customerSection = homeSource.slice(
+      homeSource.indexOf("{/* Due Diligence Verification */}"),
+      homeSource.indexOf("{/* Description */}"),
+    );
+
+    expect(customerSection).toContain("selectedProperty.dueDiligenceDocumentUrl &&");
+    expect(customerSection).not.toContain(" download=");
+    expect(customerSection).not.toContain("> Download");
     expect(homeSource).not.toContain("Property Verification Checklist");
     expect(homeSource).not.toContain("Verification Progress");
     expect(homeSource).not.toContain("Verification checklist is being configured");
