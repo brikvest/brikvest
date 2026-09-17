@@ -65,16 +65,6 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
   const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
   const { formatCurrency: currencyFormatter } = useCurrency();
 
-  // Fetch live statistics
-  const { data: stats } = useQuery<{
-    totalInvested: number;
-    activeInvestors: number;
-    avgReturn: number;
-  }>({
-    queryKey: ["/api/statistics"],
-    refetchInterval: 30000, // Refresh every 30 seconds
-  });
-
   const { data: resaleListings = [], isLoading: resaleLoading } = useQuery<any[]>({
     queryKey: ["/api/marketplace/listings-public"],
     enabled: propertiesTab === "resale",
@@ -203,21 +193,6 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
 
   const formatCurrency = (amount: number) => currencyFormatter(amount);
 
-  const formatCompactCurrency = (amount: number) => {
-    if (amount >= 1000000000) {
-      const billions = amount / 1000000000;
-      return billions % 1 === 0 ? `₦${billions}B` : `₦${billions.toFixed(1)}B`;
-    } else if (amount >= 1000000) {
-      const millions = amount / 1000000;
-      return millions % 1 === 0 ? `₦${millions}M` : `₦${millions.toFixed(1)}M`;
-    } else if (amount >= 1000) {
-      const thousands = amount / 1000;
-      return thousands % 1 === 0 ? `₦${thousands}K` : `₦${thousands.toFixed(1)}K`;
-    } else {
-      return `₦${amount}`;
-    }
-  };
-
   const getBadgeInfo = (badge: string | null) => {
     switch (badge) {
       case 'partnered':
@@ -244,8 +219,8 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
-                Co-own land with{" "}
-                <span className="text-blue-600">fractional ownership.</span>
+                Buy land{" "}
+                <span className="text-blue-600">in fractions.</span>
               </h1>
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
                 Co-own verified land, grow your real estate portfolio, and trade seamlessly in our peer-to-peer marketplace
@@ -264,20 +239,6 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 >
                   Learn More
                 </Button>
-              </div>
-              <div className="flex items-center mt-8 space-x-8">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">
-                    {stats ? formatCompactCurrency(stats.totalInvested) + "+" : "₦90.8M+"}
-                  </div>
-                  <div className="text-slate-500 text-sm">Total Invested</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">
-                    {stats ? `${stats.activeInvestors}+` : "22+"}
-                  </div>
-                  <div className="text-slate-500 text-sm">Active Investors</div>
-                </div>
               </div>
             </div>
             <div className="lg:text-right">
@@ -796,7 +757,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 />
               </div>
               <p className="text-slate-300 mb-6 max-w-md">
-                Making real estate investment accessible to everyone through fractional ownership and professional management.
+                Making real estate investment accessible to everyone through fractional ownership and professional administration.
               </p>
             </div>
             <div>
