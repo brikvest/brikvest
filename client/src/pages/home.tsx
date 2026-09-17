@@ -621,9 +621,9 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
       <section className="py-20 bg-gradient-to-br from-blue-50 to-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-slate-900 mb-4">What Our Investors Say</h2>
+            <h2 className="text-3xl font-bold text-slate-900 mb-4">What Our Customers Say</h2>
             <p className="text-slate-600 max-w-2xl mx-auto">
-              Join thousands of investors who are building wealth through fractional real estate ownership
+              Join a growing community of landowners already building lasting value through fractional land ownership.
             </p>
           </div>
           <div className="flex gap-6 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide md:grid md:grid-cols-2 lg:grid-cols-3 md:overflow-x-visible md:pb-0">
