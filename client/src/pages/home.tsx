@@ -223,7 +223,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 <span className="text-blue-600">in fractions.</span>
               </h1>
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
-                Co-own verified land, grow your real estate portfolio, and trade seamlessly in our peer-to-peer marketplace
+                Buy fractions of verified land, grow your real estate portfolio, and trade seamlessly.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
@@ -258,7 +258,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">How It Works</h2>
             <p className="text-xl text-slate-600 max-w-3xl mx-auto">
-              Simple, transparent, and secure real estate investing in three easy steps
+              Simple, transparent, and secure land ownership in three easy steps
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -266,27 +266,27 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
               <div className="bg-blue-600 text-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl font-bold">
                 1
               </div>
-              <h3 className="text-xl font-semibold mb-4">Browse Properties</h3>
+              <h3 className="text-xl font-semibold mb-4">Browse Available Land</h3>
               <p className="text-slate-600">
-                Explore our curated selection of premium real estate investments with detailed analytics and projections.
+                Explore our curated selection of premium land parcels with detailed information.
               </p>
             </div>
             <div className="text-center">
               <div className="bg-green-600 text-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl font-bold">
                 2
               </div>
-              <h3 className="text-xl font-semibold mb-4">Acquire a Fraction</h3>
+              <h3 className="text-xl font-semibold mb-4">Acquire Your Interest</h3>
               <p className="text-slate-600">
-                Purchase fractional ownership of premium real estate properties starting from ₦30,000. Own a piece of high-value real estate.
+                Assign yourself a square metre interest in premium land parcels starting from ₦30,000. Own a piece of high-value real estate.
               </p>
             </div>
             <div className="text-center">
               <div className="bg-yellow-500 text-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-2xl font-bold">
                 3
               </div>
-              <h3 className="text-xl font-semibold mb-4">Start Trading (coming soon)</h3>
+              <h3 className="text-xl font-semibold mb-4">Start Trading (Coming soon)</h3>
               <p className="text-slate-600">
-                Trade your property fractions on our secondary marketplace. Buy and sell ownership stakes with other investors for liquidity.
+                Trade your property fractions on our secondary marketplace. Buy and sell fractions with others for liquidity.
               </p>
             </div>
           </div>
@@ -301,7 +301,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-8">
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-              Investment Opportunities
+              Land Listings
             </h2>
             <p className="text-xl text-slate-600 max-w-3xl mx-auto">
               Explore primary property listings and secondary market resale opportunities
@@ -794,7 +794,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
             </div>
           </div>
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
-            <p className="text-slate-400">&copy; {new Date().getFullYear()} Brikvest. All rights reserved. Investment opportunities subject to terms and conditions.</p>
+            <p className="text-slate-400">&copy; {new Date().getFullYear()} Brikvest. All rights reserved. Land listings are subject to terms and conditions.</p>
           </div>
         </div>
       </footer>
