@@ -8,7 +8,10 @@ vi.mock("../server/emailService", () => ({
   sendEmail,
 }));
 
-import { sendNewListingNotificationToCoInvestors } from "../server/resaleEmails";
+import {
+  sendFixedPricePurchaseEmail,
+  sendNewListingNotificationToCoInvestors,
+} from "../server/resaleEmails";
 
 describe("co-investor resale listing notification", () => {
   beforeEach(() => {
@@ -60,5 +63,23 @@ describe("co-investor resale listing notification", () => {
     expect(message.html).not.toContain("${sellingType");
     expect(message.html).toContain('alt="Brikvest"');
     expect(message.html).not.toContain("Real Estate Investment Club");
+  });
+
+  it("uses the current Barclays details for GBP payment instructions", async () => {
+    await sendFixedPricePurchaseEmail(
+      "buyer@example.com",
+      "Ada Buyer",
+      "Guzape Residences",
+      "2",
+      "180000",
+      "GBP",
+      new Date("2026-09-22T12:00:00Z"),
+    );
+
+    const message = sendEmail.mock.calls[0][0];
+    expect(message.html).toContain("Barclays Bank — Samuel Asasa — Sort: 20-26-22 — Acct: 90424102");
+    expect(message.html).not.toContain("Revolut");
+    expect(message.html).not.toContain("04-00-75");
+    expect(message.html).not.toContain("67385923");
   });
 });

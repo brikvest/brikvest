@@ -17,7 +17,7 @@ const BANK_DETAILS = `
     </tr>
     <tr style="background: #f8fafc;">
       <td style="padding: 10px; font-weight: bold; border: 1px solid #e2e8f0;">GBP Account</td>
-      <td style="padding: 10px; border: 1px solid #e2e8f0;">Revolut — Sort: 04-00-75 — Acct: 67385923</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0;">Barclays Bank — Samuel Asasa — Sort: 20-26-22 — Acct: 90424102</td>
     </tr>
   </table>
 `;

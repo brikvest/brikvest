@@ -3,3 +3,4 @@
 - [Post-merge database safety](post-merge-database-safety.md) — never run generic drizzle push automatically; use explicit idempotent schema scripts against the live DB.
 - [Valuation report source of truth](valuation-report-source.md) — user-facing reports must come from valuation-history entries, never legacy property-level fields.
 - [Resale email branding](resale-email-branding.md) — P2P emails use the home-page Brikvest logo, no tagline, and computed price labels.
+- [Vitest module mocking](vitest-module-mocking.md) — with shared forks and isolation disabled, import order can bypass later file-level mocks; run mocked email tests independently.

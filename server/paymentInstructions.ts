@@ -39,10 +39,10 @@ const paymentInstructions: Record<string, PaymentInstructionMethod> = {
     title: "GBP Transfer (United Kingdom)",
     icon: "£",
     details: [
-      { label: "Beneficiary Name", value: "Charles Giadom" },
-      { label: "Sort Code", value: "04-00-75" },
-      { label: "Account Number", value: "67385923" },
-      { label: "Bank / Address", value: "Revolut Ltd, 30 South Colonnade, E14 5HX, London, United Kingdom" },
+      { label: "Beneficiary Name", value: "Samuel Asasa" },
+      { label: "Sort Code", value: "20-26-22" },
+      { label: "Account Number", value: "90424102" },
+      { label: "Bank Name", value: "Barclays Bank" },
     ],
   },
 };

@@ -23,7 +23,7 @@ async function loginInvestor(email: string, password: string) {
   return agent;
 }
 
-async function createReservation(propertyId: number, user: { id: number; email: string }) {
+async function createReservation(propertyId: number, user: { id: number; email: string }, currency = "NGN") {
   const [reservation] = await db.insert(investmentReservations).values({
     propertyId,
     userId: user.id,
@@ -33,7 +33,7 @@ async function createReservation(propertyId: number, user: { id: number; email: 
     units: "1",
     amount: "1000000",
     unitPriceSnapshot: "1000000",
-    currency: "NGN",
+    currency,
     status: "reserved",
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
   }).returning();
@@ -70,6 +70,26 @@ describe("one-time KYC payment gate", () => {
       });
     expect(upload.status).toBe(403);
     expect(upload.body.error).toMatch(/KYC verification must be approved/i);
+  });
+
+  it("returns the current GBP payment instructions for approved users", async () => {
+    const developer = await createTestDeveloper();
+    const { agent: developerAgent } = await loginAsDeveloper(app, developer);
+    const property = await createDraftProject(developerAgent);
+    const investor = await createTestInvestor("gbp-payment");
+    const reservation = await createReservation(property.id, investor, "GBP");
+    const agent = await loginInvestor(investor.email, investor.password);
+
+    const response = await agent.get(`/api/user/reservations/${reservation.id}/payment-instructions`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.currency).toBe("GBP");
+    expect(response.body.method.details).toEqual([
+      { label: "Beneficiary Name", value: "Samuel Asasa" },
+      { label: "Sort Code", value: "20-26-22" },
+      { label: "Account Number", value: "90424102" },
+      { label: "Bank Name", value: "Barclays Bank" },
+    ]);
   });
 
   it("keeps approval for current and later purchases and rejects attempts to alter it", async () => {
