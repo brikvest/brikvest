@@ -25,6 +25,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-cost-breakdown";
+import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
 
 // Helper function to get currency symbol
 const getCurrencySymbol = (currency: string) => {
@@ -2262,6 +2263,7 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   const queryClient = useQueryClient();
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [amountReceived, setAmountReceived] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: payments = [], isLoading } = useQuery<any[]>({
@@ -2270,11 +2272,11 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
   });
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ id, action, reason }: { id: number; action: string; reason?: string }) => {
+    mutationFn: async ({ id, action, reason, received }: { id: number; action: string; reason?: string; received?: string }) => {
       return authenticatedRequest(`/api/admin/resale-payments/${id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, rejectionReason: reason }),
+        body: JSON.stringify({ action, rejectionReason: reason, amountReceived: received }),
       });
     },
     onSuccess: (data: any) => {
@@ -2283,6 +2285,7 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
       toast({ title: "Payment reviewed", description: data?.message || "Payment has been processed" });
       setReviewingId(null);
       setRejectionReason("");
+      setAmountReceived("");
     },
     onError: () => {
       toast({ title: "Review failed", variant: "destructive" });
@@ -2384,10 +2387,18 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                         <p className="font-semibold text-slate-900">{payment.sellerName}</p>
                         {payment.sellerEmail && <p className="text-xs text-slate-400">{payment.sellerEmail}</p>}
                       </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Land Price</p>
+                        <p className="font-semibold text-slate-900">{payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Brikvest Fee (2%)</p>
+                        <p className="font-semibold text-slate-900">{payment.currency} {parseFloat(payment.transactionFee || "0").toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                      </div>
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                        <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">Expected Amount</p>
+                        <p className="text-xs text-blue-500 uppercase tracking-wide mb-1">Expected Total Received</p>
                         <p className="font-bold text-blue-800 text-lg">
-                          {payment.currency} {parseFloat(payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          {payment.currency} {parseFloat(payment.totalPayment || payment.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </p>
                       </div>
                       <div className="bg-white border border-slate-200 rounded-lg p-3">
@@ -2409,15 +2420,30 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                     {/* Proof + review info */}
                     <div className="flex flex-wrap gap-4 items-center">
                       {payment.proofUrl && (
-                        <a
-                          href={payment.proofUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (/^https?:\/\//i.test(payment.proofUrl)) {
+                              window.open(payment.proofUrl, "_blank", "noopener,noreferrer");
+                              return;
+                            }
+                            const sessionId = localStorage.getItem("admin_session_id");
+                            const response = await fetch(`/api/admin/resale-payments/${payment.id}/receipt`, {
+                              headers: { Authorization: `Bearer ${sessionId || ""}` },
+                            });
+                            if (!response.ok) {
+                              toast({ title: "Receipt unavailable", description: "The private receipt could not be opened.", variant: "destructive" });
+                              return;
+                            }
+                            const objectUrl = URL.createObjectURL(await response.blob());
+                            window.open(objectUrl, "_blank", "noopener,noreferrer");
+                            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+                          }}
                           className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200"
                         >
                           <Eye className="h-4 w-4" />
                           View Payment Proof ({payment.proofType || 'file'})
-                        </a>
+                        </button>
                       )}
                       {!payment.proofUrl && payment.status === "pending_verification" && (
                         <p className="text-sm text-amber-600 flex items-center gap-1">
@@ -2449,17 +2475,34 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                     {payment.status === "pending_verification" && (
                       <div className="border-t border-slate-200 pt-3">
                         {reviewingId === payment.id ? (
-                          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-                            <Button
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                              disabled={reviewMutation.isPending}
-                              onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve" })}
-                            >
-                              <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                              {reviewMutation.isPending ? "Processing..." : "Approve & Transfer Units"}
-                            </Button>
-                            <div className="flex gap-2 items-end flex-1">
+                          <div className="space-y-3">
+                            {payment.buyerKycStatus !== "approved" && (
+                              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                Buyer KYC is {payment.buyerKycStatus || "not approved"}. Payment can be verified, but ownership transfer remains blocked until KYC is approved.
+                              </p>
+                            )}
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                              <div className="flex-1 space-y-1">
+                                <Label htmlFor={`actual-received-${payment.id}`}>Actual amount received in bank ({payment.currency})</Label>
+                                <Input
+                                  id={`actual-received-${payment.id}`}
+                                  inputMode="decimal"
+                                  placeholder={`Expected ${payment.totalPayment || payment.amount}`}
+                                  value={amountReceived}
+                                  onChange={(e) => setAmountReceived(e.target.value)}
+                                />
+                              </div>
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                disabled={reviewMutation.isPending || !amountReceived.trim()}
+                                onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve", received: amountReceived })}
+                              >
+                                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                                {reviewMutation.isPending ? "Processing..." : "Verify & Transfer Units"}
+                              </Button>
+                            </div>
+                            <div className="flex gap-2 items-end">
                               <Input
                                 placeholder="Rejection reason..."
                                 value={rejectionReason}
@@ -2469,14 +2512,14 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                disabled={reviewMutation.isPending}
+                                disabled={reviewMutation.isPending || !rejectionReason.trim()}
                                 onClick={() => reviewMutation.mutate({ id: payment.id, action: "reject", reason: rejectionReason })}
                               >
                                 <XCircle className="h-3.5 w-3.5 mr-1" />
                                 Reject
                               </Button>
                             </div>
-                            <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setRejectionReason(""); }}>
+                            <Button size="sm" variant="ghost" onClick={() => { setReviewingId(null); setRejectionReason(""); setAmountReceived(""); }}>
                               Back
                             </Button>
                           </div>
@@ -2484,7 +2527,7 @@ function ResalePaymentsTab({ authenticatedRequest }: { authenticatedRequest: (ur
                           <Button
                             size="sm"
                             className="bg-blue-600 hover:bg-blue-700 text-white"
-                            onClick={() => setReviewingId(payment.id)}
+                            onClick={() => { setReviewingId(payment.id); setAmountReceived(""); setRejectionReason(""); }}
                           >
                             <Shield className="h-3.5 w-3.5 mr-1" />
                             Review Payment
@@ -2703,7 +2746,7 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
       <Tabs defaultValue="listings" className="w-full">
         <div className="overflow-x-auto pb-1">
           <TabsList
-            className="grid h-auto min-w-[420px] w-full grid-cols-3 sm:min-w-0 sm:w-fit"
+            className="grid h-auto min-w-[520px] w-full grid-cols-4 sm:min-w-0 sm:w-fit"
             aria-label="Resale management sections"
           >
             <TabsTrigger value="listings" className="gap-2">
@@ -2713,6 +2756,10 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
             <TabsTrigger value="payments" className="gap-2">
               <Banknote className="h-4 w-4" />
               Payments
+            </TabsTrigger>
+            <TabsTrigger value="offers" className="gap-2">
+              <DollarSign className="h-4 w-4" />
+              Direct Offers
             </TabsTrigger>
             <TabsTrigger value="audit" className="gap-2">
               <FileText className="h-4 w-4" />
@@ -2726,6 +2773,9 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
         </TabsContent>
         <TabsContent value="payments" forceMount className="mt-6 data-[state=inactive]:hidden">
           <ResalePaymentsTab authenticatedRequest={authenticatedRequest} />
+        </TabsContent>
+        <TabsContent value="offers" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <MarketplaceOffersAdminTab authenticatedRequest={authenticatedRequest} />
         </TabsContent>
         <TabsContent value="audit" forceMount className="mt-6 data-[state=inactive]:hidden">
           <ResaleAuditTab authenticatedRequest={authenticatedRequest} />

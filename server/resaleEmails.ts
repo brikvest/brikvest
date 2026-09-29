@@ -72,6 +72,51 @@ function formatAmount(currency: string, amount: string | number): string {
   return `${currency} ${parseFloat(String(amount)).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 }
 
+function resaleFeeTerms(amount: string | number) {
+  const price = Number(amount);
+  const fee = Number.isFinite(price) && price > 0 ? Math.round(price * 0.02 * 100) / 100 : 0;
+  return { fee, total: price + fee };
+}
+
+function escapeEmailHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] as string);
+}
+
+export async function sendMarketplaceOfferEmail(params: {
+  to: string;
+  recipientName: string;
+  subject: string;
+  heading: string;
+  message: string;
+  propertyName: string;
+  reference: string;
+  offerId: number;
+  rows?: Array<[string, string]>;
+}) {
+  await sendEmail({
+    to: params.to,
+    subject: params.subject,
+    html: emailWrapper(`
+      <h2 style="color: #1a365d; margin: 0 0 16px;">${escapeEmailHtml(params.heading)}</h2>
+      <p style="color: #475569;">Dear ${escapeEmailHtml(params.recipientName)},</p>
+      <p style="color: #475569;">${escapeEmailHtml(params.message)}</p>
+      ${detailsTable([
+        ["Land", escapeEmailHtml(params.propertyName)],
+        ["Offer Reference", escapeEmailHtml(params.reference)],
+        ...(params.rows || []).map(([label, value]) => [escapeEmailHtml(label), escapeEmailHtml(value)] as [string, string]),
+      ])}
+      ${actionButton("Review Offer", `${PLATFORM_URL}/marketplace?offer=${params.offerId}`)}
+      <p style="color: #64748b; font-size: 13px;">Sign in to Brikvest to review and respond. Your personal contact details are not shared with the other party.</p>
+    `),
+  });
+}
+
 // 1. Listing approved (to seller)
 export async function sendListingApprovedEmail(sellerEmail: string, sellerName: string, propertyName: string, units: string, sellingType: string) {
   const typeLabel = sellingType === 'fixed_price' ? 'fixed-price listing' : 'auction listing';
@@ -172,6 +217,7 @@ export async function sendHighestBidderEmail(bidderEmail: string, bidderName: st
 // 6. User wins the auction (to winning bidder)
 export async function sendAuctionWonEmail(winnerEmail: string, winnerName: string, propertyName: string, units: string, winningAmount: string, currency: string, paymentDeadline: Date) {
   const deadlineStr = paymentDeadline.toLocaleString('en-NG', { dateStyle: 'full', timeStyle: 'short' });
+  const feeTerms = resaleFeeTerms(winningAmount);
   await sendEmail({
     to: winnerEmail,
     subject: `Congratulations! You Won the Auction — ${propertyName}`,
@@ -182,13 +228,15 @@ export async function sendAuctionWonEmail(winnerEmail: string, winnerName: strin
       ${detailsTable([
         ['Property', propertyName],
         ['Units Won', units],
-        ['Winning Bid', formatAmount(currency, winningAmount)],
+        ['Land Purchase Price', formatAmount(currency, winningAmount)],
+        ['Brikvest Fee (2%)', formatAmount(currency, feeTerms.fee)],
+        ['Total Buyer Payment', formatAmount(currency, feeTerms.total)],
         ['Payment Deadline', deadlineStr],
       ])}
       <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
         <p style="color: #92400e; margin: 0;"><strong>Action Required:</strong> Complete your payment by <strong>${deadlineStr}</strong> to secure your units.</p>
       </div>
-      <p style="color: #475569; font-weight: 600;">Transfer the exact amount to one of the following Brikvest accounts:</p>
+        <p style="color: #475569; font-weight: 600;">Transfer the total buyer payment, including the 2% Brikvest fee, to one of the following Brikvest accounts:</p>
       ${BANK_DETAILS}
       <p style="color: #475569;">After making the transfer, click the button below to confirm your payment on the platform.</p>
       ${actionButton('Confirm Payment', `${PLATFORM_URL}/marketplace`)}
@@ -199,6 +247,7 @@ export async function sendAuctionWonEmail(winnerEmail: string, winnerName: strin
 // 7. Fixed-price purchase — payment needed (to buyer)
 export async function sendFixedPricePurchaseEmail(buyerEmail: string, buyerName: string, propertyName: string, units: string, amount: string, currency: string, paymentDeadline: Date) {
   const deadlineStr = paymentDeadline.toLocaleString('en-NG', { dateStyle: 'full', timeStyle: 'short' });
+  const feeTerms = resaleFeeTerms(amount);
   await sendEmail({
     to: buyerEmail,
     subject: `Complete Your Purchase — ${propertyName}`,
@@ -209,13 +258,15 @@ export async function sendFixedPricePurchaseEmail(buyerEmail: string, buyerName:
       ${detailsTable([
         ['Property', propertyName],
         ['Units', units],
-        ['Amount Due', formatAmount(currency, amount)],
+        ['Land Purchase Price', formatAmount(currency, amount)],
+        ['Brikvest Fee (2%)', formatAmount(currency, feeTerms.fee)],
+        ['Total Buyer Payment', formatAmount(currency, feeTerms.total)],
         ['Payment Deadline', deadlineStr],
       ])}
       <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
         <p style="color: #92400e; margin: 0;"><strong>Action Required:</strong> Transfer the exact amount below by <strong>${deadlineStr}</strong>.</p>
       </div>
-      <p style="color: #475569; font-weight: 600;">Transfer to one of the following Brikvest accounts:</p>
+        <p style="color: #475569; font-weight: 600;">Transfer the total buyer payment, including the 2% Brikvest fee, to one of the following Brikvest accounts:</p>
       ${BANK_DETAILS}
       <p style="color: #475569;">After making the transfer, confirm your payment on the platform.</p>
       ${actionButton('Confirm Payment', `${PLATFORM_URL}/marketplace`)}
@@ -352,6 +403,7 @@ export async function sendNewListingNotificationToCoInvestors(
 // 13. Next bidder offered the slot (to next bidder)
 export async function sendNextBidderOfferedEmail(bidderEmail: string, bidderName: string, propertyName: string, units: string, bidAmount: string, currency: string, paymentDeadline: Date) {
   const deadlineStr = paymentDeadline.toLocaleString('en-NG', { dateStyle: 'full', timeStyle: 'short' });
+  const feeTerms = resaleFeeTerms(bidAmount);
   await sendEmail({
     to: bidderEmail,
     subject: `You've Been Offered Units — ${propertyName}`,
@@ -362,13 +414,15 @@ export async function sendNextBidderOfferedEmail(bidderEmail: string, bidderName
       ${detailsTable([
         ['Property', propertyName],
         ['Units', units],
-        ['Your Bid Amount', formatAmount(currency, bidAmount)],
+        ['Land Purchase Price', formatAmount(currency, bidAmount)],
+        ['Brikvest Fee (2%)', formatAmount(currency, feeTerms.fee)],
+        ['Total Buyer Payment', formatAmount(currency, feeTerms.total)],
         ['Payment Deadline', deadlineStr],
       ])}
       <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
         <p style="color: #92400e; margin: 0;"><strong>Action Required:</strong> Complete your payment by <strong>${deadlineStr}</strong> to secure your units.</p>
       </div>
-      <p style="color: #475569; font-weight: 600;">Transfer the exact amount to one of the following Brikvest accounts:</p>
+      <p style="color: #475569; font-weight: 600;">Transfer the total buyer payment, including the 2% Brikvest fee, to one of the following Brikvest accounts:</p>
       ${BANK_DETAILS}
       ${actionButton('Confirm Payment', `${PLATFORM_URL}/marketplace`)}
     `),

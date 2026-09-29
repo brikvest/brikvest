@@ -14,12 +14,17 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { UnlistedLandMarketplace } from "@/components/marketplace/UnlistedLandMarketplace";
 
 export default function Marketplace() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const { formatCurrency, convertAmount } = useCurrency();
   const { toast } = useToast();
+  const [marketplaceSection, setMarketplaceSection] = useState<"listed" | "unlisted">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("offer") ? "unlisted" : "listed"
+  );
+  const [clockNow, setClockNow] = useState(Date.now());
   const [selectedListing, setSelectedListing] = useState<any>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [bidDialogOpen, setBidDialogOpen] = useState(false);
@@ -38,6 +43,11 @@ export default function Marketplace() {
       setLocation(`/login?redirect=${encodeURIComponent('/marketplace')}`);
     }
   }, [isLoading, isAuthenticated, setLocation]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const { data: listings = [], isLoading: listingsLoading } = useQuery<any[]>({
     queryKey: ["/api/marketplace/listings"],
@@ -67,7 +77,7 @@ export default function Marketplace() {
       if (!res.ok) throw new Error(data.message || "Payment instructions are unavailable");
       return data;
     },
-    enabled: paymentDialogOpen && !!paymentListing && (user as any)?.kycStatus === "approved",
+    enabled: paymentDialogOpen && !!paymentListing,
     retry: false,
   });
 
@@ -132,14 +142,15 @@ export default function Marketplace() {
     mutationFn: async (listingId: number) => {
       return apiRequest("POST", `/api/marketplace/listings/${listingId}/buy`);
     },
-    onSuccess: (_, listingId) => {
+    onSuccess: (updatedListing, listingId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/listings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/resale-listings/won"] });
-      toast({ title: "Purchase initiated!", description: "Please complete payment within 48 hours." });
+      queryClient.invalidateQueries({ queryKey: ["/api/resale-listings", listingId, "payment-instructions"] });
+      toast({ title: "Purchase initiated!", description: "Submit your payment proof within one hour." });
       setBuyDialogOpen(false);
       const listing = listings.find((l: any) => l.id === listingId);
       if (listing) {
-        setPaymentListing({ ...listing, status: "awaiting_payment", winnerId: user?.id });
+        setPaymentListing({ ...listing, ...updatedListing, status: "awaiting_payment", winnerId: (user as any)?.id });
         setPaymentDialogOpen(true);
       }
     },
@@ -235,9 +246,31 @@ export default function Marketplace() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-6">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">Resale Marketplace</h2>
-          <p className="text-slate-600 mt-1">Browse and purchase units from existing investors</p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">P2P Marketplace</h2>
+          <p className="text-slate-600 mt-1">Buy listed land or make an offer on existing unlisted holdings.</p>
         </div>
+        <div className="mb-6 flex w-full max-w-md rounded-lg border border-slate-200 bg-white p-1" role="tablist" aria-label="Marketplace land categories">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={marketplaceSection === "listed"}
+            onClick={() => setMarketplaceSection("listed")}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition ${marketplaceSection === "listed" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            Listed Land
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={marketplaceSection === "unlisted"}
+            onClick={() => setMarketplaceSection("unlisted")}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition ${marketplaceSection === "unlisted" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            Unlisted Land
+          </button>
+        </div>
+        {marketplaceSection === "unlisted" ? <UnlistedLandMarketplace /> : (
+          <>
 
         {/* Awaiting Payment Section */}
         {(() => {
@@ -258,7 +291,8 @@ export default function Marketplace() {
                     const hasPendingPayment = pendingPaymentListingIds.has(listing.id);
                     const paymentAmount = getPaymentAmount(listing);
                     const deadline = listing.paymentDeadline ? new Date(listing.paymentDeadline) : null;
-                    const isExpired = deadline && deadline < new Date();
+                    const isExpired = deadline && deadline.getTime() <= clockNow;
+                    const remainingSeconds = deadline && !isExpired ? Math.floor((deadline.getTime() - clockNow) / 1000) : 0;
                     const rejectedPayment = myResalePayments.find(
                       (p: any) => p.listingId === listing.id && p.status === "rejected"
                     );
@@ -274,7 +308,7 @@ export default function Marketplace() {
                             {deadline && !isExpired && (
                               <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                Payment due by {deadline.toLocaleDateString()} at {deadline.toLocaleTimeString()}
+                                Payment due by {deadline.toLocaleDateString()} at {deadline.toLocaleTimeString()} · {String(Math.floor(remainingSeconds / 3600)).padStart(2, "0")}:{String(Math.floor((remainingSeconds % 3600) / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")} remaining
                               </p>
                             )}
                             {isExpired && (
@@ -368,7 +402,7 @@ export default function Marketplace() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {listings.map((listing: any) => {
               const myBid = activeBidsMap.get(listing.id);
-              const isSeller = listing.sellerId === user?.id;
+              const isSeller = listing.sellerId === (user as any)?.id;
 
               return (
                 <Card key={listing.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-200">
@@ -527,6 +561,8 @@ export default function Marketplace() {
             </CardContent>
           </Card>
         )}
+          </>
+        )}
       </main>
 
       {/* Bid Dialog */}
@@ -636,6 +672,18 @@ export default function Marketplace() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-600">Brikvest transaction fee (2%)</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedListing && formatCurrency(convertAmount(parseFloat(selectedListing.askingPrice || 0) * 0.02, selectedListing.currency || 'NGN'))}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-green-200 pt-2">
+                <span className="font-semibold text-slate-800">Total buyer payment</span>
+                <span className="font-bold text-green-800">
+                  {selectedListing && formatCurrency(convertAmount(parseFloat(selectedListing.askingPrice || 0) * 1.02, selectedListing.currency || 'NGN'))}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-600">Seller</span>
                 <span>{selectedListing?.sellerName}</span>
               </div>
@@ -643,7 +691,7 @@ export default function Marketplace() {
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
               <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <span>After confirming, you will need to transfer the payment to our bank account and confirm it within <strong>48 hours</strong>.</span>
+              <span>After confirming, transfer the land price plus the 2% Brikvest fee to our bank and submit your receipt within <strong>one hour</strong>.</span>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
@@ -681,25 +729,30 @@ export default function Marketplace() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
                 <p className="text-sm text-blue-600 mb-1">Amount to Pay</p>
                 <p className="text-3xl font-bold text-blue-800">
-                  {paymentListing.currency || "NGN"} {getPaymentAmount(paymentListing).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {paymentListing.currency || "NGN"} {Number(paymentInstructions?.totalPayment ?? getPaymentAmount(paymentListing) * 1.02).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
                 <p className="text-xs text-blue-500 mt-1">
                   {paymentListing.units} units in {paymentListing.propertyName || `Property #${paymentListing.propertyId}`}
                 </p>
-              </div>
-
-              {(user as any)?.kycStatus !== "approved" ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-amber-900">KYC approval required</h4>
-                  <p className="text-sm text-amber-800 mt-1">
-                    {(user as any)?.kycStatus === "submitted"
-                      ? "Your KYC is under review. Payment details and proof upload will be available after approval."
-                      : (user as any)?.kycStatus === "rejected"
-                        ? "Your KYC was rejected. Resubmit it from your dashboard and wait for approval before paying."
-                        : "Complete KYC from your dashboard and wait for approval before paying."}
-                  </p>
+                <div className="mt-3 space-y-1 border-t border-blue-200 pt-2 text-left text-sm text-blue-900">
+                  <div className="flex justify-between"><span>Land purchase price</span><strong>{paymentListing.currency || "NGN"} {Number(paymentInstructions?.purchasePrice ?? getPaymentAmount(paymentListing)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                  <div className="flex justify-between"><span>Brikvest fee (2%)</span><strong>{paymentListing.currency || "NGN"} {Number(paymentInstructions?.transactionFee ?? getPaymentAmount(paymentListing) * 0.02).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
                 </div>
-              ) : paymentInstructionsLoading ? (
+              </div>
+              {paymentInstructions?.paymentReference && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <span className="text-slate-600">Transfer reference</span>
+                  <span className="font-mono font-semibold text-slate-900">{paymentInstructions.paymentReference}</span>
+                </div>
+              )}
+
+              {(user as any)?.kycStatus !== "approved" && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
+                  <strong>KYC Verification Required – Ownership Transfer Pending.</strong> You may submit payment proof before KYC is approved. KYC will not extend the one-hour deadline.
+                </div>
+              )}
+
+              {paymentInstructionsLoading ? (
                 <p className="text-sm text-slate-500">Loading secure payment details...</p>
               ) : paymentInstructions?.method ? (() => {
                 const method = paymentInstructions.method;
@@ -754,19 +807,25 @@ export default function Marketplace() {
                     )}
                   </div>
                 );
-              })() : null}
+              })() : <p className="text-sm text-red-700">Payment instructions are unavailable. The deadline may have passed.</p>}
 
               {/* Payment Deadline */}
               {paymentListing.paymentDeadline && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
                   <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <span>
-                    Complete payment by <strong>{new Date(paymentListing.paymentDeadline).toLocaleDateString()}</strong> at <strong>{new Date(paymentListing.paymentDeadline).toLocaleTimeString()}</strong>
+                    {(() => {
+                      const deadlineAt = new Date(paymentListing.paymentDeadline).getTime();
+                      const secondsRemaining = Math.max(0, Math.floor((deadlineAt - clockNow) / 1000));
+                      if (secondsRemaining <= 0) return <strong>Payment deadline has passed. Submit a new offer or contact support for this listing.</strong>;
+                      const countdown = `${String(Math.floor(secondsRemaining / 3600)).padStart(2, "0")}:${String(Math.floor((secondsRemaining % 3600) / 60)).padStart(2, "0")}:${String(secondsRemaining % 60).padStart(2, "0")}`;
+                      return <span>Complete payment by <strong>{new Date(deadlineAt).toLocaleDateString()}</strong> at <strong>{new Date(deadlineAt).toLocaleTimeString()}</strong> · <strong>{countdown} remaining</strong></span>;
+                    })()}
                   </span>
                 </div>
               )}
 
-              {(user as any)?.kycStatus === "approved" && paymentInstructions?.method && <div className="border-t border-slate-200 pt-4">
+              {paymentInstructions?.method && <div className="border-t border-slate-200 pt-4">
                 <h4 className="font-semibold text-slate-900 mb-3">After making your transfer:</h4>
                 <div className="space-y-3">
                   <div>
@@ -780,12 +839,12 @@ export default function Marketplace() {
                   </div>
 
                   <div>
-                    <Label>Payment Proof (optional)</Label>
-                    <p className="text-xs text-slate-500 mb-2">Upload a screenshot or receipt of your bank transfer</p>
+                    <Label>Payment Proof (required)</Label>
+                    <p className="text-xs text-slate-500 mb-2">Upload a screenshot or receipt of your bank transfer (JPEG, PNG, WEBP, or PDF; max 10MB).</p>
                     <input
                       type="file"
                       ref={fileInputRef}
-                      accept="image/*,.pdf"
+                      accept="image/jpeg,image/png,image/webp,.pdf"
                       className="hidden"
                       onChange={(e) => setPaymentProofFile(e.target.files?.[0] || null)}
                     />
@@ -795,14 +854,14 @@ export default function Marketplace() {
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Upload className="h-4 w-4 mr-2" />
-                      {paymentProofFile ? paymentProofFile.name : "Choose file (JPEG, PNG, PDF)"}
+                      {paymentProofFile ? paymentProofFile.name : "Choose receipt"}
                     </Button>
                   </div>
                 </div>
               </div>}
 
               <div className="flex gap-3 pt-2">
-                {(user as any)?.kycStatus === "approved" && paymentInstructions?.method && <Button
+                {paymentInstructions?.method && <Button
                   variant="outline"
                   className="flex-1"
                   onClick={() => setPaymentDialogOpen(false)}
@@ -811,10 +870,14 @@ export default function Marketplace() {
                 </Button>}
                 <Button
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                  disabled={paymentMutation.isPending}
+                  disabled={paymentMutation.isPending || !paymentInstructions?.method}
                   onClick={() => {
                     if (!bankReference.trim()) {
                       toast({ title: "Reference required", description: "Please enter your bank transfer reference number", variant: "destructive" });
+                      return;
+                    }
+                    if (!paymentProofFile) {
+                      toast({ title: "Receipt required", description: "Upload your payment proof before submitting.", variant: "destructive" });
                       return;
                     }
                     paymentMutation.mutate({

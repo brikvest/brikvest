@@ -725,6 +725,7 @@ export const resaleListings = pgTable("resale_listings", {
   highestBidId: integer("highest_bid_id"), // Current winning bid
   winnerId: integer("winner_id").references(() => users.id), // The buyer (fixed price) or winning bidder
   paymentDeadline: timestamp("payment_deadline"), // Winner must pay by this time
+  paymentReference: text("payment_reference"),
   shareToken: text("share_token").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -746,6 +747,8 @@ export const resalePayments = pgTable("resale_payments", {
   listingId: integer("listing_id").notNull().references(() => resaleListings.id),
   buyerId: integer("buyer_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 20, scale: 2 }).notNull(),
+  transactionFee: decimal("transaction_fee", { precision: 20, scale: 2 }).notNull().default("0"),
+  totalPayment: decimal("total_payment", { precision: 20, scale: 2 }).notNull().default("0"),
   currency: text("currency").notNull().default("NGN"),
   paymentMethod: text("payment_method").notNull().default("bank_transfer"),
   bankReference: text("bank_reference"),
@@ -779,6 +782,66 @@ export const resaleAuditLogs = pgTable("resale_audit_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const resaleMarketplaceOffers = pgTable("resale_marketplace_offers", {
+  id: serial("id").primaryKey(),
+  reference: text("reference").notNull().unique(),
+  sellerReservationId: integer("seller_reservation_id").notNull().references(() => investmentReservations.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  sellerId: integer("seller_id").notNull().references(() => users.id),
+  buyerId: integer("buyer_id").notNull().references(() => users.id),
+  units: decimal("units", { precision: 15, scale: 2 }).notNull(),
+  purchasePrice: decimal("purchase_price", { precision: 20, scale: 2 }).notNull(),
+  transactionFee: decimal("transaction_fee", { precision: 20, scale: 2 }).notNull(),
+  totalPayment: decimal("total_payment", { precision: 20, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  status: text("status").notNull().default("awaiting_seller_response"),
+  paymentDeadline: timestamp("payment_deadline"),
+  bankReference: text("bank_reference"),
+  proofUrl: text("proof_url"),
+  proofType: text("proof_type"),
+  paymentSubmittedAt: timestamp("payment_submitted_at"),
+  rejectionReason: text("rejection_reason"),
+  paymentReviewedByAdminId: integer("payment_reviewed_by_admin_id").references(() => adminUsers.id),
+  paymentReviewedAt: timestamp("payment_reviewed_at"),
+  transferCompletedByAdminId: integer("transfer_completed_by_admin_id").references(() => adminUsers.id),
+  transferCompletedAt: timestamp("transfer_completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("IDX_resale_offer_seller").on(table.sellerId, table.status),
+  index("IDX_resale_offer_buyer").on(table.buyerId, table.status),
+  index("IDX_resale_offer_reservation").on(table.sellerReservationId, table.status),
+  index("IDX_resale_offer_deadline").on(table.status, table.paymentDeadline),
+]);
+
+export const resaleMarketplaceOfferEvents = pgTable("resale_marketplace_offer_events", {
+  id: serial("id").primaryKey(),
+  offerId: integer("offer_id").notNull().references(() => resaleMarketplaceOffers.id, { onDelete: "cascade" }),
+  actorType: text("actor_type").notNull(), // 'buyer', 'seller', 'admin', 'system'
+  actorId: integer("actor_id"),
+  action: text("action").notNull(),
+  units: decimal("units", { precision: 15, scale: 2 }),
+  purchasePrice: decimal("purchase_price", { precision: 20, scale: 2 }),
+  transactionFee: decimal("transaction_fee", { precision: 20, scale: 2 }),
+  totalPayment: decimal("total_payment", { precision: 20, scale: 2 }),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("IDX_resale_offer_event_offer").on(table.offerId, table.createdAt),
+]);
+
+export const resaleMarketplaceNotifications = pgTable("resale_marketplace_notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  offerId: integer("offer_id").notNull().references(() => resaleMarketplaceOffers.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("IDX_resale_marketplace_notification_user").on(table.userId, table.readAt, table.createdAt),
+]);
+
 export const insertResaleAuditLogSchema = createInsertSchema(resaleAuditLogs).omit({
   id: true,
   createdAt: true,
@@ -807,6 +870,20 @@ export const insertResaleListingSchema = createInsertSchema(resaleListings).omit
   reviewedAt: true,
   createdAt: true,
   updatedAt: true,
+});
+export const insertResaleMarketplaceOfferSchema = createInsertSchema(resaleMarketplaceOffers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const insertResaleMarketplaceOfferEventSchema = createInsertSchema(resaleMarketplaceOfferEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertResaleMarketplaceNotificationSchema = createInsertSchema(resaleMarketplaceNotifications).omit({
+  id: true,
+  readAt: true,
+  createdAt: true,
 });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
@@ -869,6 +946,10 @@ export type ResalePayment = typeof resalePayments.$inferSelect;
 
 export type InsertResaleAuditLog = z.infer<typeof insertResaleAuditLogSchema>;
 export type ResaleAuditLog = typeof resaleAuditLogs.$inferSelect;
+export type InsertResaleMarketplaceOffer = z.infer<typeof insertResaleMarketplaceOfferSchema>;
+export type ResaleMarketplaceOffer = typeof resaleMarketplaceOffers.$inferSelect;
+export type ResaleMarketplaceOfferEvent = typeof resaleMarketplaceOfferEvents.$inferSelect;
+export type ResaleMarketplaceNotification = typeof resaleMarketplaceNotifications.$inferSelect;
 
 // ----------------------------------------------------------------------------
 // Developer Portal — Project Milestones, Updates, and Investor Notes

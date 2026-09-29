@@ -61,6 +61,12 @@ import {
 } from "@shared/schema";
 import { isPropertySoldOut } from "@shared/propertyAvailability";
 import { getPaymentInstructions } from "./paymentInstructions";
+import {
+  calculateResalePaymentTerms,
+  completeListedResaleTransfer,
+  createResaleListingSafely,
+  registerMarketplaceOfferRoutes,
+} from "./marketplaceOffers";
 
 // Simple session store for admin authentication
 const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
@@ -93,6 +99,10 @@ function requireAuth(req: any, res: any, next: any) {
     return next();
   }
   res.status(401).json({ message: "Authentication required" });
+}
+
+function getUserDisplayName(user: any): string {
+  return [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || user?.email || "Brikvest user";
 }
 
 function requireDocumentUploadAuth(req: any, res: any, next: any) {
@@ -149,6 +159,7 @@ async function generateSpvName(city: string, district: string, propertyId: numbe
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup email/password authentication
   setupAuth(app);
+  registerMarketplaceOfferRoutes(app, { requireApprovedUser, requireAdminAuth });
 
   // User authentication routes
   app.post('/api/register', async (req, res) => {
@@ -3022,6 +3033,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Extract the full path after /api/documents/
       const fullPath = (req.params as any)[0] as string; // e.g., "kyc/documents/filename.pdf" or "documents/filename.pdf"
+      // Marketplace receipts are private and are served only by routes that
+      // first verify the requesting participant or administrator.
+      if (fullPath.startsWith("resale-payment-proofs/")) {
+        return res.status(404).json({ error: "Document not found" });
+      }
       
       const privateDir = process.env.PRIVATE_OBJECT_DIR || '';
       
@@ -4139,14 +4155,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Mark next bidder as the winner
     await storage.updateResaleBid(nextBid.id, { status: "won" });
 
-    const paymentDeadline = new Date();
-    paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+    const paymentDeadline = new Date(Date.now() + 60 * 60 * 1000);
 
     await storage.updateResaleListing(listing.id, {
       status: "awaiting_payment",
       winnerId: nextBid.bidderId,
       highestBidId: nextBid.id,
       paymentDeadline,
+      paymentReference: `BRV-RS-${randomBytes(6).toString("hex").toUpperCase()}`,
       updatedAt: new Date(),
     });
 
@@ -4231,19 +4247,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: `You can sell between 0 and ${ownedUnits} units` });
       }
 
-      const existingListings = await storage.getActiveResaleListingsForReservation(reservationId);
-      const lockedUnits = existingListings.reduce((sum, l) => sum + parseFloat(l.units), 0);
-      const availableUnits = ownedUnits - lockedUnits;
-
-      if (requestedUnits > availableUnits) {
-        return res.status(400).json({ 
-          message: `Only ${availableUnits} units available for listing (${lockedUnits} already listed)` 
-        });
-      }
-
       const shareToken = randomBytes(12).toString("hex");
 
-      const listing = await storage.createResaleListing({
+      const listing = await createResaleListingSafely({
         sellerId: user.id,
         propertyId: reservation.propertyId,
         reservationId,
@@ -4272,6 +4278,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json(listing);
     } catch (error: any) {
+      if (/only the current owner|does not allow unit transfers|valid quantity|available after existing/i.test(error?.message || "")) {
+        return res.status(400).json({ message: error.message });
+      }
       console.error("Error creating resale listing:", error);
       res.status(500).json({ message: "Failed to create resale listing" });
     }
@@ -4870,11 +4879,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       const listingId = parseInt(req.params.id);
 
-      // KYC verification required to buy
-      if (user.kycStatus !== "approved") {
-        return res.status(403).json({ message: "You must complete KYC verification before purchasing units" });
-      }
-
       const listing = await storage.getResaleListing(listingId);
       if (!listing) {
         return res.status(404).json({ message: "Listing not found" });
@@ -4890,13 +4894,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "You cannot buy your own listing" });
       }
 
-      const paymentDeadline = new Date();
-      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+      const paymentDeadline = new Date(Date.now() + 60 * 60 * 1000);
 
       const updated = await storage.updateResaleListing(listingId, {
         status: "awaiting_payment",
         winnerId: user.id,
         paymentDeadline,
+        paymentReference: `BRV-RS-${randomBytes(6).toString("hex").toUpperCase()}`,
       });
 
       await logResaleAudit({
@@ -4980,14 +4984,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const paymentDeadline = new Date();
-      paymentDeadline.setHours(paymentDeadline.getHours() + 48);
+      const paymentDeadline = new Date(Date.now() + 60 * 60 * 1000);
 
       const updated = await storage.updateResaleListing(listingId, {
         status: "awaiting_payment",
         winnerId: highestBid.bidderId,
         highestBidId: highestBid.id,
         paymentDeadline,
+        paymentReference: `BRV-RS-${randomBytes(6).toString("hex").toUpperCase()}`,
       });
 
       await logResaleAudit({
@@ -5090,11 +5094,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { listingId, bankReference } = req.body;
       const file = req.file;
 
-      const freshUser = await storage.getUser(user.id);
-      if (!freshUser || freshUser.kycStatus !== "approved") {
-        return res.status(403).json({ message: "KYC verification must be approved before submitting payment proof" });
-      }
-
       if (!listingId) {
         return res.status(400).json({ message: "Listing ID is required" });
       }
@@ -5112,8 +5111,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You are not the designated buyer for this listing" });
       }
 
-      if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
+      if (!listing.paymentDeadline || new Date(listing.paymentDeadline).getTime() <= Date.now()) {
         return res.status(400).json({ message: "Payment deadline has passed. The listing may be offered to the next bidder." });
+      }
+      if (!String(bankReference || "").trim()) {
+        return res.status(400).json({ message: "Bank transfer reference is required" });
+      }
+      if (!file) {
+        return res.status(400).json({ message: "Upload your bank transfer receipt before submitting payment proof" });
       }
 
       const existingPayments = await storage.getResalePaymentsByListing(parseInt(listingId));
@@ -5142,12 +5147,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (file.size > 10 * 1024 * 1024) {
           return res.status(400).json({ message: "File size exceeds 10MB limit." });
         }
-        if (file.mimetype === 'application/pdf') {
-          proofUrl = await uploadToObjectStorage(file.buffer, file.originalname, file.mimetype, 'resale-payment-proofs');
-        } else {
-          const result = await uploadToCloudinary(file.buffer, file.originalname, 'brikvest/resale-payment-proofs');
-          proofUrl = result.url;
-        }
+        const result = await uploadToObjectStorage(file.buffer, file.originalname, file.mimetype, 'resale-payment-proofs');
+        proofUrl = result.url;
         proofType = file.mimetype === 'application/pdf' ? 'pdf' : 'image';
       }
 
@@ -5156,13 +5157,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const winningBid = await storage.getResaleBid(listing.highestBidId);
         if (winningBid) finalAmount = winningBid.amount;
       }
+      const paymentTerms = calculateResalePaymentTerms(finalAmount);
+      if (!paymentTerms) {
+        return res.status(400).json({ message: "The agreed purchase amount is invalid" });
+      }
 
       const attemptNumber = rejectedAttempts.length + 1;
 
       const payment = await storage.createResalePayment({
         listingId: parseInt(listingId),
         buyerId: user.id,
-        amount: finalAmount,
+        amount: paymentTerms.purchasePrice,
+        transactionFee: paymentTerms.transactionFee,
+        totalPayment: paymentTerms.totalPayment,
         currency: listing.currency || "NGN",
         paymentMethod: "bank_transfer",
         bankReference: bankReference || null,
@@ -5188,7 +5195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.json({
-        message: "Payment confirmation submitted. Please wait for admin verification.",
+        message: "Payment proof submitted. Brikvest will verify the full amount, including the 2% fee.",
         payment,
         attemptsRemaining: MAX_PAYMENT_ATTEMPTS - attemptNumber,
       });
@@ -5200,20 +5207,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/resale-listings/:listingId/payment-instructions", requireAuth, async (req: any, res) => {
     const userId = req.user.id;
-    const user = await storage.getUser(userId);
-    if (!user || user.kycStatus !== "approved") {
-      return res.status(403).json({ message: "KYC verification must be approved before viewing payment instructions" });
-    }
 
     const listing = await storage.getResaleListing(parseInt(req.params.listingId));
     if (!listing) return res.status(404).json({ message: "Listing not found" });
     if (listing.winnerId !== userId) return res.status(403).json({ message: "You are not the designated buyer for this listing" });
     if (listing.status !== "awaiting_payment") return res.status(400).json({ message: "This listing is not awaiting payment" });
-    if (listing.paymentDeadline && new Date(listing.paymentDeadline) < new Date()) {
+    if (!listing.paymentDeadline || new Date(listing.paymentDeadline).getTime() <= Date.now()) {
       return res.status(400).json({ message: "Payment deadline has passed" });
     }
 
-    res.json({ currency: listing.currency || "NGN", method: getPaymentInstructions(listing.currency || "NGN") });
+    let finalAmount = listing.askingPrice || "0";
+    if (listing.sellingType === "bidding" && listing.highestBidId) {
+      const winningBid = await storage.getResaleBid(listing.highestBidId);
+      if (winningBid) finalAmount = winningBid.amount;
+    }
+    const terms = calculateResalePaymentTerms(finalAmount);
+    if (!terms) return res.status(400).json({ message: "The agreed purchase amount is invalid" });
+    let paymentReference = listing.paymentReference;
+    if (!paymentReference) {
+      paymentReference = `BRV-RS-${randomBytes(6).toString("hex").toUpperCase()}`;
+      await storage.updateResaleListing(listing.id, { paymentReference });
+    }
+    res.json({
+      currency: listing.currency || "NGN",
+      method: getPaymentInstructions(listing.currency || "NGN"),
+      ...terms,
+      paymentReference,
+      paymentDeadline: listing.paymentDeadline,
+    });
   });
 
   // Buyer: Get their resale payments
@@ -5232,10 +5253,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/resale-payments/listing/:listingId", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      if (!user || user.kycStatus !== "approved") {
-        return res.status(403).json({ message: "KYC verification must be approved before viewing payment information" });
-      }
       const listingId = parseInt(req.params.listingId);
       const listing = await storage.getResaleListing(listingId);
       if (!listing) return res.status(404).json({ message: "Listing not found" });
@@ -5261,9 +5278,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const seller = listing ? await storage.getUser(listing.sellerId) : null;
         return {
           ...payment,
-          buyerName: buyer?.fullName || buyer?.email || `User #${payment.buyerId}`,
+          buyerName: buyer ? getUserDisplayName(buyer) : `User #${payment.buyerId}`,
           buyerEmail: buyer?.email,
-          sellerName: seller?.fullName || seller?.email || "Unknown",
+          buyerKycStatus: buyer?.kycStatus || "not_submitted",
+          sellerName: seller ? getUserDisplayName(seller) : "Unknown",
           sellerEmail: seller?.email,
           propertyName: property?.name || "Unknown",
           listingUnits: listing?.units,
@@ -5282,7 +5300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/resale-payments/:id/review", requireAdminAuth, async (req: any, res) => {
     try {
       const paymentId = parseInt(req.params.id);
-      const { action, rejectionReason } = req.body;
+      const { action, rejectionReason, amountReceived } = req.body;
 
       if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({ message: "action must be 'approve' or 'reject'" });
@@ -5303,49 +5321,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (action === "approve") {
-        await storage.updateResalePayment(paymentId, {
-          status: "approved",
-          reviewedByAdminId: (req.session as any).adminUserId,
-          reviewedAt: new Date(),
-        });
-
-        await storage.updateResaleListing(payment.listingId, {
-          status: "sold",
-          updatedAt: new Date(),
-        });
-
-        const sellerReservation = await storage.getReservation(listing.reservationId);
-        if (sellerReservation) {
-          const currentUnits = parseFloat(String(sellerReservation.units || 0));
-          const soldUnits = parseFloat(String(listing.units));
-          const remainingUnits = currentUnits - soldUnits;
-
-          if (remainingUnits <= 0) {
-            await storage.updateReservation(listing.reservationId, {
-              status: "sold_via_resale",
-              units: "0",
-            });
-          } else {
-            await storage.updateReservation(listing.reservationId, {
-              units: String(remainingUnits),
-            });
-          }
+        let transfer: Awaited<ReturnType<typeof completeListedResaleTransfer>>;
+        try {
+          transfer = await completeListedResaleTransfer(
+            paymentId,
+            Number(req.user.userId),
+            amountReceived,
+          );
+        } catch (error: any) {
+          return res.status(400).json({ message: error.message || "Payment or ownership could not be verified" });
         }
-
-        const property = await storage.getProperty(listing.propertyId);
-        const buyer = await storage.getUser(payment.buyerId);
-
-        if (property && buyer) {
-          await storage.createInvestmentReservation({
-            propertyId: listing.propertyId,
-            userId: payment.buyerId,
-            units: String(listing.units),
-            amount: payment.amount,
-            currency: payment.currency || "NGN",
-            status: "converted_to_investment",
-            expiresAt: new Date(),
-          });
+        if (transfer.alreadyCompleted) {
+          return res.json({ message: "This payment and ownership transfer were already completed." });
         }
+        const { payment: updatedPayment, property, buyer } = transfer;
 
         await logResaleAudit({
           listingId: payment.listingId,
@@ -5353,8 +5342,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyId: listing.propertyId,
           action: "payment_approved_transfer_complete",
           actorType: "admin",
-          actorId: (req.session as any).adminUserId,
-          actorName: `Admin #${(req.session as any).adminUserId}`,
+          actorId: Number(req.user.userId),
+          actorName: `Admin #${req.user.userId}`,
           sellerId: listing.sellerId,
           buyerId: payment.buyerId,
           units: listing.units,
@@ -5370,29 +5359,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const buyer2 = buyer || await storage.getUser(payment.buyerId);
           if (buyer2 && property2) {
             await sendPaymentApprovedEmail(
-              buyer2.email, buyer2.fullName || buyer2.email, property2.name,
-              listing.units, payment.amount, payment.currency || "NGN"
+              buyer2.email, getUserDisplayName(buyer2), property2.name,
+              listing.units,
+              Number(payment.totalPayment || 0) > 0 ? payment.totalPayment : payment.amount,
+              payment.currency || "NGN"
             );
           }
           if (seller && property2 && buyer2) {
             await sendTransferCompleteToSellerEmail(
-              seller.email, seller.fullName || seller.email, property2.name,
+              seller.email, getUserDisplayName(seller), property2.name,
               listing.units, payment.amount, payment.currency || "NGN",
-              buyer2.fullName || buyer2.email
+              getUserDisplayName(buyer2)
             );
           }
         } catch (emailErr) {
           console.error("[RESALE-EMAIL] Failed to send transfer complete emails:", emailErr);
         }
 
-        res.json({
-          message: "Payment approved. Units transferred to buyer, listing marked as sold.",
+        return res.json({
+          message: `Payment ${updatedPayment.id} verified and ${listing.units} units transferred to the buyer.`,
         });
       } else {
         await storage.updateResalePayment(paymentId, {
           status: "rejected",
           rejectionReason: rejectionReason || "Payment could not be verified",
-          reviewedByAdminId: (req.session as any).adminUserId,
+          reviewedByAdminId: Number(req.user.userId),
           reviewedAt: new Date(),
         });
 
@@ -5407,8 +5398,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyId: listing.propertyId,
           action: "payment_rejected",
           actorType: "admin",
-          actorId: (req.session as any).adminUserId,
-          actorName: `Admin #${(req.session as any).adminUserId}`,
+          actorId: Number(req.user.userId),
+          actorName: `Admin #${req.user.userId}`,
           sellerId: listing.sellerId,
           buyerId: payment.buyerId,
           amount: payment.amount,
@@ -5422,7 +5413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const property3 = await storage.getProperty(listing.propertyId);
           if (buyerUser && property3) {
             await sendPaymentRejectedEmail(
-              buyerUser.email, buyerUser.fullName || buyerUser.email, property3.name,
+              buyerUser.email, getUserDisplayName(buyerUser), property3.name,
               payment.amount, payment.currency || "NGN",
               rejectionReason || "Payment could not be verified",
               MAX_PAYMENT_ATTEMPTS - buyerRejections.length
