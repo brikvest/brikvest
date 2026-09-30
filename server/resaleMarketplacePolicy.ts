@@ -1,4 +1,10 @@
 export const MARKETPLACE_PAYMENT_WINDOW_MS = 60 * 60 * 1000;
+export const RESALE_SQUARE_METERS_PER_UNIT = 5;
+
+export function resaleUnitsToSquareMeters(units: number): number {
+  if (!Number.isFinite(units)) return 0;
+  return Math.round((units * RESALE_SQUARE_METERS_PER_UNIT + Number.EPSILON) * 100) / 100;
+}
 
 export function parseMoneyMinor(value: unknown): number | null {
   const input = String(value ?? "").trim();

@@ -5,6 +5,7 @@ import {
   canAccessResaleReceipt,
   createMarketplacePaymentDeadline,
   getAvailableResaleUnits,
+  resaleUnitsToSquareMeters,
 } from "../server/resaleMarketplacePolicy";
 
 describe("resale marketplace safety policies", () => {
@@ -41,6 +42,11 @@ describe("resale marketplace safety policies", () => {
   it("never reports more units available than remain after listings and offers", () => {
     expect(getAvailableResaleUnits(10, 3, 4)).toBe(3);
     expect(getAvailableResaleUnits(10, 7, 8)).toBe(0);
+  });
+
+  it("shows each marketplace ownership unit as five square meters", () => {
+    expect(resaleUnitsToSquareMeters(1)).toBe(5);
+    expect(resaleUnitsToSquareMeters(2.5)).toBe(12.5);
   });
 
   it("requires verified payment and approved buyer KYC before transfer", () => {

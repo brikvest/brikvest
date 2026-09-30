@@ -27,6 +27,8 @@ import {
   formatMoneyMinor,
   getAvailableResaleUnits,
   parseMoneyMinor,
+  resaleUnitsToSquareMeters,
+  RESALE_SQUARE_METERS_PER_UNIT,
 } from "./resaleMarketplacePolicy";
 
 export { calculateResalePaymentTerms } from "./resaleMarketplacePolicy";
@@ -62,6 +64,16 @@ function parsePositiveUnits(value: unknown): number | null {
 
 function formatUnits(value: number): string {
   return value.toFixed(2);
+}
+
+function formatLandAreaSqm(units: number | string): string {
+  return formatUnits(resaleUnitsToSquareMeters(Number(units) || 0));
+}
+
+function formatLandQuantity(units: number | string): string {
+  const value = Number(units) || 0;
+  const count = value.toFixed(2).replace(/\.?0+$/, "");
+  return `${count} ${value === 1 ? "unit" : "units"} (${formatLandAreaSqm(value)} sqm)`;
 }
 
 function getUnitPrecision(property: any): number {
@@ -239,6 +251,9 @@ function visibleOffer(offer: any, currentUserId: number, property?: any, events:
     propertyName: property?.name || "Land holding",
     propertyLocation: property?.location || "",
     units: offer.units,
+    quantitySqm: formatLandAreaSqm(offer.units),
+    sqmPerUnit: RESALE_SQUARE_METERS_PER_UNIT,
+    unitPrecision: formatUnits(getUnitPrecision(property)),
     purchasePrice: offer.purchasePrice,
     transactionFee: offer.transactionFee,
     totalPayment: offer.totalPayment,
@@ -256,6 +271,7 @@ function visibleOffer(offer: any, currentUserId: number, property?: any, events:
       action: event.action,
       actor: event.actorId === currentUserId ? "You" : event.actorType === "system" ? "Brikvest" : "Brikvest Member",
       units: event.units,
+      quantitySqm: formatLandAreaSqm(event.units || 0),
       purchasePrice: event.purchasePrice,
       transactionFee: event.transactionFee,
       totalPayment: event.totalPayment,
