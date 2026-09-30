@@ -21,9 +21,11 @@ export default function Marketplace() {
   const [, setLocation] = useLocation();
   const { formatCurrency, convertAmount } = useCurrency();
   const { toast } = useToast();
-  const [marketplaceSection, setMarketplaceSection] = useState<"listed" | "unlisted">(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("offer") ? "unlisted" : "listed"
-  );
+  const [marketplaceSection, setMarketplaceSection] = useState<"listed" | "unlisted">(() => {
+    if (typeof window === "undefined") return "listed";
+    const params = new URLSearchParams(window.location.search);
+    return params.has("offer") || params.get("section") === "unlisted" ? "unlisted" : "listed";
+  });
   const [clockNow, setClockNow] = useState(Date.now());
   const [selectedListing, setSelectedListing] = useState<any>(null);
   const [bidAmount, setBidAmount] = useState("");
@@ -40,7 +42,8 @@ export default function Marketplace() {
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      setLocation(`/login?redirect=${encodeURIComponent('/marketplace')}`);
+      const returnPath = `${window.location.pathname}${window.location.search}`;
+      setLocation(`/login?redirect=${encodeURIComponent(returnPath || "/marketplace")}`);
     }
   }, [isLoading, isAuthenticated, setLocation]);
 

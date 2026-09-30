@@ -32,6 +32,10 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { user, isAuthenticated } = useAuth();
+  const existingOwnerMarketplacePath = "/marketplace?section=unlisted";
+  const existingOwnerMarketplaceHref = isAuthenticated
+    ? existingOwnerMarketplacePath
+    : `/login?redirect=${encodeURIComponent(existingOwnerMarketplacePath)}`;
   const { formatCurrency: formatCurrencyFromHook, userCurrency, convertAmount } = useCurrency();
   const [investmentModalOpen, setInvestmentModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
@@ -225,7 +229,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
                 Buy fractions of verified land, grow your real estate portfolio, and trade seamlessly.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4">
                 <Button 
                   onClick={() => document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' })}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-semibold"
@@ -239,6 +243,14 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 >
                   Learn More
                 </Button>
+                <Link href={existingOwnerMarketplaceHref}>
+                  <Button
+                    variant="outline"
+                    className="border-2 border-emerald-600 text-emerald-700 bg-white hover:bg-emerald-50 px-6 py-4 text-base font-semibold"
+                  >
+                    Make an Offer to Existing Owners
+                  </Button>
+                </Link>
               </div>
             </div>
             <div className="lg:text-right">
