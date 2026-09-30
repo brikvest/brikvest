@@ -242,7 +242,6 @@ export default function Marketplace() {
             </Link>
             <div className="h-6 w-px bg-slate-200" />
             <img src={brikvest_logo} alt="Brikvest" className="h-7" />
-            <h1 className="text-xl font-bold text-slate-900">Marketplace</h1>
           </div>
         </div>
       </header>
