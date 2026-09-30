@@ -42,7 +42,10 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
   const [propertyDetailModalOpen, setPropertyDetailModalOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
-  const [propertiesTab, setPropertiesTab] = useState<"properties" | "resale">("properties");
+  const [propertiesTab, setPropertiesTab] = useState<"properties" | "resale">(() => {
+    if (embedded || typeof window === "undefined") return "properties";
+    return new URLSearchParams(window.location.search).get("tab") === "p2p" ? "resale" : "properties";
+  });
 
   // Form states
   const [investmentForm, setInvestmentForm] = useState({
@@ -64,6 +67,14 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
       }));
     }
   }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    if (embedded || new URLSearchParams(window.location.search).get("tab") !== "p2p") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("properties")?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [embedded]);
 
   // Fetch properties with currency conversion (only when authenticated - membership required)
   const { data: properties = [], isLoading: propertiesLoading } = useConvertedProperties();
