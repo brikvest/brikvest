@@ -229,7 +229,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">
                 Buy fractions of verified land, grow your real estate portfolio, and trade seamlessly.
               </p>
-              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
                   onClick={() => document.getElementById('properties')?.scrollIntoView({ behavior: 'smooth' })}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 text-lg font-semibold"
@@ -243,14 +243,6 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                 >
                   Learn More
                 </Button>
-                <Link href={existingOwnerMarketplaceHref}>
-                  <Button
-                    variant="outline"
-                    className="border-2 border-emerald-600 text-emerald-700 bg-white hover:bg-emerald-50 px-6 py-4 text-base font-semibold"
-                  >
-                    Make an Offer to Existing Owners
-                  </Button>
-                </Link>
               </div>
             </div>
             <div className="lg:text-right">
@@ -465,6 +457,18 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
 
           {propertiesTab === "resale" && (
             <>
+              <div className="mb-8 flex flex-col gap-4 rounded-xl border border-purple-100 bg-purple-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Want to buy from current owners?</h3>
+                  <p className="mt-1 text-sm text-slate-600">Send an offer on an available owner holding.</p>
+                </div>
+                <Link href={existingOwnerMarketplaceHref}>
+                  <Button className="bg-purple-700 text-white hover:bg-purple-800">
+                    Make an Offer to Existing Owners
+                    <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </Link>
+              </div>
               {resaleLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {[1, 2, 3].map(i => (
