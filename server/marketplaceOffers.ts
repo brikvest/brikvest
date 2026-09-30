@@ -574,7 +574,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
         ownershipUnit: "sqm",
         unitPrecision: property.unitPrecision,
         availableUnits: formatUnits(positions.reduce((sum: number, row: { reservation: any; availableUnits: number }) => sum + row.availableUnits, 0)),
-        ownerCount: positions.length,
+        ownerCount: new Set(positions.map((row: { reservation: any; availableUnits: number }) => row.reservation.userId)).size,
       })));
     } catch (error) {
       console.error("[MARKETPLACE-OFFER] Failed to load unlisted land:", error);
@@ -891,7 +891,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       res.json({ id: outcome.offer.id, reference: outcome.offer.reference, status: outcome.offer.status, paymentDeadline: outcome.offer.paymentDeadline });
     } catch (error: any) {
       const message = error?.message || "";
-      const status = /not found/i.test(message) ? 404 : /not a participant|not waiting|not available|increments/i.test(message) ? 409 : 500;
+      const status = /not found/i.test(message) ? 404 : /not a participant|not waiting|not available|no longer available|increments/i.test(message) ? 409 : 500;
       if (status === 500) console.error("[MARKETPLACE-OFFER] Failed to process response:", error);
       res.status(status).json({ message: status === 500 ? "Failed to process offer response" : message });
     }

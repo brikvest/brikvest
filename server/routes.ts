@@ -5110,6 +5110,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (listing.winnerId !== user.id) {
         return res.status(403).json({ message: "You are not the designated buyer for this listing" });
       }
+      if (user.kycStatus !== "approved") {
+        return res.status(403).json({ message: "KYC verification must be approved before submitting resale payment proof" });
+      }
 
       if (!listing.paymentDeadline || new Date(listing.paymentDeadline).getTime() <= Date.now()) {
         return res.status(400).json({ message: "Payment deadline has passed. The listing may be offered to the next bidder." });
@@ -5211,6 +5214,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const listing = await storage.getResaleListing(parseInt(req.params.listingId));
     if (!listing) return res.status(404).json({ message: "Listing not found" });
     if (listing.winnerId !== userId) return res.status(403).json({ message: "You are not the designated buyer for this listing" });
+    if ((req.user as any).kycStatus !== "approved") {
+      return res.status(403).json({ message: "KYC verification must be approved before viewing resale payment instructions" });
+    }
     if (listing.status !== "awaiting_payment") return res.status(400).json({ message: "This listing is not awaiting payment" });
     if (!listing.paymentDeadline || new Date(listing.paymentDeadline).getTime() <= Date.now()) {
       return res.status(400).json({ message: "Payment deadline has passed" });
