@@ -10,6 +10,7 @@ import {
   resaleMarketplaceOfferEvents,
   resaleMarketplaceOffers,
   resaleMarketplaceNotifications,
+  resaleMarketplaceAlertRetries,
   resalePayments,
   users,
 } from "@shared/schema";
@@ -169,6 +170,24 @@ async function readMarketplaceSnapshot() {
 
 async function notifyMarketplaceUser(userId: number, offerId: number, title: string, message: string) {
   await db.insert(resaleMarketplaceNotifications).values({ userId, offerId, title, message });
+}
+
+async function queueMarketplaceAlertRetry(params: {
+  offerId: number;
+  sellerId: number;
+  channel: "in_app" | "email";
+  title: string;
+  message: string;
+  error: unknown;
+}) {
+  await db.insert(resaleMarketplaceAlertRetries).values({
+    offerId: params.offerId,
+    sellerId: params.sellerId,
+    channel: params.channel,
+    title: params.title,
+    message: params.message,
+    lastError: String(params.error).slice(0, 2000),
+  }).onConflictDoNothing();
 }
 
 async function notifyAdmins(offer: any, propertyName: string, title: string, message: string) {
@@ -813,12 +832,15 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
         return res.status(409).json({ message: "The eligible owner positions changed before the offers could be sent. Refresh and try again." });
       }
 
-      await Promise.all(createdOffers.map(async (created) => {
+      const alertResults = await Promise.all(createdOffers.map(async (created) => {
         const message = `A buyer has submitted offer ${created.reference} for ${formatLandQuantity(created.units)} of ${property.name || "land holding"}. No payment deadline starts until you and the buyer agree.`;
+        const title = "New land purchase offer";
+        const failedChannels: Array<{ channel: "in_app" | "email"; error: unknown }> = [];
         try {
-          await notifyMarketplaceUser(created.sellerId, created.id, "New land purchase offer", message);
+          await notifyMarketplaceUser(created.sellerId, created.id, title, message);
         } catch (notificationError) {
           console.error(`[MARKETPLACE-OFFER] In-app notification failed for ${created.reference}:`, notificationError);
+          failedChannels.push({ channel: "in_app", error: notificationError });
         }
 
         try {
@@ -841,13 +863,42 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
           }
         } catch (emailError) {
           console.error(`[MARKETPLACE-OFFER] Seller email failed for ${created.reference}:`, emailError);
+          failedChannels.push({ channel: "email", error: emailError });
         }
+
+        let queuedForRetry = 0;
+        let recoveryFailures = 0;
+        for (const failure of failedChannels) {
+          try {
+            await queueMarketplaceAlertRetry({
+              offerId: created.id,
+              sellerId: created.sellerId,
+              channel: failure.channel,
+              title,
+              message,
+              error: failure.error,
+            });
+            queuedForRetry += 1;
+          } catch (queueError) {
+            recoveryFailures += 1;
+            console.error(
+              `[MARKETPLACE-OFFER] Could not queue ${failure.channel} retry for ${created.reference}:`,
+              queueError,
+            );
+          }
+        }
+        return { queuedForRetry, recoveryFailures };
       }));
+      const sellerAlertsQueuedForRetry = alertResults.reduce((count, result) => count + result.queuedForRetry, 0);
+      const sellerAlertRecoveryFailures = alertResults.reduce((count, result) => count + result.recoveryFailures, 0);
 
       res.status(201).json({
         sentCount: createdOffers.length,
         skippedCount: otherPositions.length - createdOffers.length,
         references: createdOffers.map((offer) => offer.reference),
+        allSellerAlertsDeliveredOrQueued: sellerAlertRecoveryFailures === 0,
+        sellerAlertsQueuedForRetry,
+        sellerAlertRecoveryFailures,
       });
     } catch (error) {
       console.error("[MARKETPLACE-OFFER] Failed to broadcast offers:", error);

@@ -73,3 +73,23 @@ CREATE TABLE IF NOT EXISTS resale_marketplace_notifications (
 
 CREATE INDEX IF NOT EXISTS "IDX_resale_marketplace_notification_user"
   ON resale_marketplace_notifications (user_id, read_at, created_at);
+
+CREATE TABLE IF NOT EXISTS resale_marketplace_alert_retries (
+  id serial PRIMARY KEY,
+  offer_id integer NOT NULL REFERENCES resale_marketplace_offers(id) ON DELETE CASCADE,
+  seller_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel text NOT NULL,
+  title text NOT NULL,
+  message text NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text,
+  next_attempt_at timestamp NOT NULL DEFAULT now(),
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "IDX_resale_marketplace_alert_retry_offer_channel"
+  ON resale_marketplace_alert_retries (offer_id, channel);
+CREATE INDEX IF NOT EXISTS "IDX_resale_marketplace_alert_retry_pending"
+  ON resale_marketplace_alert_retries (status, next_attempt_at);

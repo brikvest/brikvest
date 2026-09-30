@@ -235,9 +235,14 @@ export function UnlistedLandMarketplace() {
         queryClient.invalidateQueries({ queryKey: ["/api/marketplace/offers/mine"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/marketplace/notifications/mine"] }),
       ]);
+      const deliverySummary = !result.allSellerAlertsDeliveredOrQueued
+        ? `${result.sellerAlertRecoveryFailures} seller alert${result.sellerAlertRecoveryFailures === 1 ? "" : "s"} could not be delivered or queued for retry.`
+        : result.sellerAlertsQueuedForRetry > 0
+          ? `${result.sellerAlertsQueuedForRetry} seller alert${result.sellerAlertsQueuedForRetry === 1 ? "" : "s"} could not send immediately and ${result.sellerAlertsQueuedForRetry === 1 ? "was" : "were"} queued for retry.`
+          : "Seller alerts were sent.";
       toast({
-        title: "Offers sent to eligible owners",
-        description: `${result.sentCount} separate offer${result.sentCount === 1 ? "" : "s"} sent. ${result.skippedCount} position${result.skippedCount === 1 ? " was" : "s were"} skipped.`,
+        title: result.allSellerAlertsDeliveredOrQueued ? "Offers sent to eligible owners" : "Offers sent with an alert issue",
+        description: `${result.sentCount} separate offer${result.sentCount === 1 ? "" : "s"} sent. ${result.skippedCount} position${result.skippedCount === 1 ? " was" : "s were"} skipped. ${deliverySummary}`,
       });
       setOfferDialogOpen(false);
       setSelectedProperty(null);

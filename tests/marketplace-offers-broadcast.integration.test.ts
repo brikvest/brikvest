@@ -6,6 +6,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   investmentReservations,
   properties,
+  resaleMarketplaceAlertRetries,
   resaleMarketplaceOfferEvents,
   resaleMarketplaceOffers,
   resaleMarketplaceNotifications,
@@ -39,6 +40,8 @@ describeWithIsolatedDatabase("marketplace offer broadcast integration", () => {
       const offerIds = offers.map(({ id }) => id);
 
       if (offerIds.length) {
+        await db.delete(resaleMarketplaceAlertRetries)
+          .where(inArray(resaleMarketplaceAlertRetries.offerId, offerIds));
         await db.delete(resaleMarketplaceNotifications)
           .where(inArray(resaleMarketplaceNotifications.offerId, offerIds));
         await db.delete(resaleMarketplaceOfferEvents)
@@ -237,13 +240,47 @@ describeWithIsolatedDatabase("marketplace offer broadcast integration", () => {
       await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
     }
 
-    const sent = await request(app)
-      .post("/api/marketplace/offers/broadcast")
-      .send({ propertyId: property.id, units: "2", purchasePrice: "500.00" });
+    const notificationTriggerSuffix = randomUUID().replace(/-/g, "");
+    const notificationTriggerName = `broadcast_notification_fail_${notificationTriggerSuffix}`;
+    const notificationFunctionName = `broadcast_notification_fail_fn_${notificationTriggerSuffix}`;
+    let notificationTriggerCreated = false;
+
+    let sent: any;
+    try {
+      await db.execute(sql.raw(`
+        CREATE FUNCTION ${notificationFunctionName}() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.user_id = ${eligibleOwner.id} THEN
+            RAISE EXCEPTION 'intentional seller notification failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `));
+      await db.execute(sql.raw(`
+        CREATE TRIGGER ${notificationTriggerName}
+        BEFORE INSERT ON resale_marketplace_notifications
+        FOR EACH ROW EXECUTE FUNCTION ${notificationFunctionName}()
+      `));
+      notificationTriggerCreated = true;
+
+      sent = await request(app)
+        .post("/api/marketplace/offers/broadcast")
+        .send({ propertyId: property.id, units: "2", purchasePrice: "500.00" });
+    } finally {
+      if (notificationTriggerCreated) {
+        await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${notificationTriggerName} ON resale_marketplace_notifications`));
+      }
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${notificationFunctionName}()`));
+    }
 
     expect(sent.status).toBe(201);
     expect(sent.body.sentCount).toBe(2);
     expect(sent.body.skippedCount).toBe(3);
+    expect(sent.body.allSellerAlertsDeliveredOrQueued).toBe(true);
+    expect(sent.body.sellerAlertsQueuedForRetry).toBe(1);
+    expect(sent.body.sellerAlertRecoveryFailures).toBe(0);
     expect(sendMarketplaceOfferEmail).toHaveBeenCalledTimes(2);
 
     const committedOffers = await db.select()
@@ -269,10 +306,22 @@ describeWithIsolatedDatabase("marketplace offer broadcast integration", () => {
     const notifications = await db.select()
       .from(resaleMarketplaceNotifications)
       .where(inArray(resaleMarketplaceNotifications.offerId, committedOfferIds));
-    expect(notifications).toHaveLength(2);
-    expect(notifications.map(({ userId }) => userId).sort())
-      .toEqual([eligibleOwner.id, rollbackOwner.id].sort());
+    expect(notifications).toHaveLength(1);
+    expect(notifications.map(({ userId }) => userId))
+      .toEqual([rollbackOwner.id]);
     expect(notifications.every(({ offerId }) => committedOfferIds.includes(offerId))).toBe(true);
+
+    const retries = await db.select()
+      .from(resaleMarketplaceAlertRetries)
+      .where(inArray(resaleMarketplaceAlertRetries.offerId, committedOfferIds));
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({
+      sellerId: eligibleOwner.id,
+      channel: "in_app",
+      status: "pending",
+      attempts: 0,
+    });
+    expect(retries[0].message).toContain("A buyer has submitted offer");
 
     const events = await db.select()
       .from(resaleMarketplaceOfferEvents)

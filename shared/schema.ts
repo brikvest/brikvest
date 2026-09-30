@@ -842,6 +842,24 @@ export const resaleMarketplaceNotifications = pgTable("resale_marketplace_notifi
   index("IDX_resale_marketplace_notification_user").on(table.userId, table.readAt, table.createdAt),
 ]);
 
+export const resaleMarketplaceAlertRetries = pgTable("resale_marketplace_alert_retries", {
+  id: serial("id").primaryKey(),
+  offerId: integer("offer_id").notNull().references(() => resaleMarketplaceOffers.id, { onDelete: "cascade" }),
+  sellerId: integer("seller_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(), // 'in_app' | 'email'
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'completed'
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("IDX_resale_marketplace_alert_retry_offer_channel").on(table.offerId, table.channel),
+  index("IDX_resale_marketplace_alert_retry_pending").on(table.status, table.nextAttemptAt),
+]);
+
 export const insertResaleAuditLogSchema = createInsertSchema(resaleAuditLogs).omit({
   id: true,
   createdAt: true,
