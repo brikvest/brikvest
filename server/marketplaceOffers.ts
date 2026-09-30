@@ -25,6 +25,7 @@ import {
   canAccessResaleReceipt,
   createMarketplacePaymentDeadline,
   formatMoneyMinor,
+  getEligibleResaleBroadcastPositions,
   getAvailableResaleUnits,
   parseMoneyMinor,
   resaleUnitsToSquareMeters,
@@ -587,9 +588,12 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
         propertyType: property.propertyType || "land",
         imageUrl: property.imageUrl,
         totalLandArea: property.totalSquareMeters,
-        ownershipUnit: "sqm",
+        ownershipUnit: "unit",
+        sqmPerUnit: RESALE_SQUARE_METERS_PER_UNIT,
         unitPrecision: property.unitPrecision,
         availableUnits: formatUnits(positions.reduce((sum: number, row: { reservation: any; availableUnits: number }) => sum + row.availableUnits, 0)),
+        availableAreaSqm: formatLandAreaSqm(positions.reduce((sum: number, row: { reservation: any; availableUnits: number }) => sum + row.availableUnits, 0)),
+        currency: property.currency || "NGN",
         ownerCount: new Set(positions.map((row: { reservation: any; availableUnits: number }) => row.reservation.userId)).size,
       })));
     } catch (error) {
@@ -606,11 +610,15 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       const positions = holdings
         .filter((holding) => holding.property.id === propertyId)
         .sort((a, b) => a.reservation.id - b.reservation.id);
-      res.json(positions.map(({ reservation, availableUnits }, index) => ({
+      res.json(positions.map(({ reservation, availableUnits, property }, index) => ({
         ownerReference: `Owner ${String(index + 1).padStart(3, "0")}`,
         positionToken: positionToken(reservation.id, propertyId),
         totalOwned: formatUnits(Number(reservation.units)),
+        totalOwnedSqm: formatLandAreaSqm(Number(reservation.units)),
         availableToReceiveOffers: formatUnits(availableUnits),
+        availableToReceiveOffersSqm: formatLandAreaSqm(availableUnits),
+        sqmPerUnit: RESALE_SQUARE_METERS_PER_UNIT,
+        unitPrecision: formatUnits(getUnitPrecision(property)),
         isOwn: reservation.userId === req.user.id,
         currency: reservation.currency || "NGN",
       })));
@@ -680,7 +688,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
         storage.getProperty(created.propertyId),
       ]);
       const title = "New land purchase offer";
-      const message = `A buyer has submitted offer ${created.reference} for ${created.units} sqm of your ${property?.name || "land holding"}. No payment deadline starts until you and the buyer agree.`;
+      const message = `A buyer has submitted offer ${created.reference} for ${formatLandQuantity(created.units)} of your ${property?.name || "land holding"}. No payment deadline starts until you and the buyer agree.`;
       await notifyMarketplaceUser(created.sellerId, created.id, title, message);
       if (seller?.email) {
         try {
@@ -694,7 +702,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
             reference: created.reference,
             offerId: created.id,
             rows: [
-              ["Quantity requested", `${created.units} sqm`],
+              ["Quantity requested", formatLandQuantity(created.units)],
               ["Proposed price", `${created.currency} ${created.purchasePrice}`],
             ],
           });
@@ -707,6 +715,143 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       const status = /no longer|not eligible|no longer available/i.test(error?.message || "") ? 409 : 500;
       if (status === 500) console.error("[MARKETPLACE-OFFER] Failed to submit offer:", error);
       res.status(status).json({ message: status === 409 ? error.message : "Failed to submit offer" });
+    }
+  });
+
+  app.post("/api/marketplace/offers/broadcast", auth.requireApprovedUser, async (req: any, res) => {
+    try {
+      const buyer = req.user as any;
+      const propertyId = Number(req.body?.propertyId);
+      const units = parsePositiveUnits(req.body?.units);
+      const terms = calculateResalePaymentTerms(req.body?.purchasePrice);
+      if (!Number.isSafeInteger(propertyId) || propertyId <= 0 || !units || !terms) {
+        return res.status(400).json({ message: "Enter a valid property, quantity, and purchase price" });
+      }
+
+      const { holdings, offers, allProperties } = await readMarketplaceSnapshot();
+      const property = allProperties.find((item) => item.id === propertyId);
+      if (!property || !property.isTransferable) {
+        return res.status(404).json({ message: "This property is not available for marketplace offers" });
+      }
+      if (!alignsWithUnitPrecision(units, property)) {
+        return res.status(400).json({ message: `Quantity must be in increments of ${getUnitPrecision(property)} units` });
+      }
+
+      const buyerId = Number(buyer.id);
+      const propertyCurrency = property.currency || "NGN";
+      const otherPositions = holdings.filter(
+        (holding) => holding.property.id === propertyId && Number(holding.reservation.userId) !== buyerId,
+      );
+      const candidatePositions = getEligibleResaleBroadcastPositions(
+        otherPositions,
+        offers,
+        buyerId,
+        propertyId,
+        units,
+        propertyCurrency,
+      );
+      if (candidatePositions.length === 0) {
+        return res.status(400).json({
+          message: "No other owner position has enough available units for this offer. Reduce the quantity or send an offer to one position.",
+        });
+      }
+
+      const createdOffers = await db.transaction(async (tx) => {
+        const created: any[] = [];
+        for (const holding of candidatePositions) {
+          const [lockedReservation] = await tx.select().from(investmentReservations)
+            .where(eq(investmentReservations.id, holding.reservation.id))
+            .limit(1)
+            .for("update");
+          if (
+            !lockedReservation ||
+            lockedReservation.propertyId !== propertyId ||
+            Number(lockedReservation.userId) === buyerId ||
+            lockedReservation.status !== "converted_to_investment" ||
+            (lockedReservation.currency || propertyCurrency) !== propertyCurrency
+          ) {
+            continue;
+          }
+
+          const current = await getAvailableUnitsInTransaction(tx, lockedReservation.id, new Date());
+          if (
+            !property.isTransferable ||
+            units > current.availableUnits ||
+            !alignsWithUnitPrecision(units, property)
+          ) {
+            continue;
+          }
+
+          const reference = `BV-${Date.now().toString(36).toUpperCase()}-${randomBytes(4).toString("hex").toUpperCase()}`;
+          const [offer] = await tx.insert(resaleMarketplaceOffers).values({
+            reference,
+            sellerReservationId: lockedReservation.id,
+            propertyId,
+            sellerId: lockedReservation.userId!,
+            buyerId,
+            units: formatUnits(units),
+            purchasePrice: terms.purchasePrice,
+            transactionFee: terms.transactionFee,
+            totalPayment: terms.totalPayment,
+            currency: propertyCurrency,
+            status: "awaiting_seller_response",
+          }).returning();
+          await recordOfferEvent(
+            tx,
+            offer,
+            "offer_submitted",
+            "buyer",
+            buyerId,
+            "Buyer sent the same offer to eligible owner positions. Each owner responds independently; payment starts only after agreement.",
+          );
+          created.push(offer);
+        }
+        return created;
+      });
+
+      if (createdOffers.length === 0) {
+        return res.status(409).json({ message: "The eligible owner positions changed before the offers could be sent. Refresh and try again." });
+      }
+
+      await Promise.all(createdOffers.map(async (created) => {
+        const message = `A buyer has submitted offer ${created.reference} for ${formatLandQuantity(created.units)} of ${property.name || "land holding"}. No payment deadline starts until you and the buyer agree.`;
+        try {
+          await notifyMarketplaceUser(created.sellerId, created.id, "New land purchase offer", message);
+        } catch (notificationError) {
+          console.error(`[MARKETPLACE-OFFER] In-app notification failed for ${created.reference}:`, notificationError);
+        }
+
+        try {
+          const seller = await storage.getUser(created.sellerId);
+          if (seller?.email) {
+            await sendMarketplaceOfferEmail({
+              to: seller.email,
+              recipientName: userDisplayName(seller),
+              subject: `New purchase offer — ${created.reference}`,
+              heading: "New purchase offer received",
+              message,
+              propertyName: property.name || "Land holding",
+              reference: created.reference,
+              offerId: created.id,
+              rows: [
+                ["Quantity requested", formatLandQuantity(created.units)],
+                ["Proposed price", `${created.currency} ${created.purchasePrice}`],
+              ],
+            });
+          }
+        } catch (emailError) {
+          console.error(`[MARKETPLACE-OFFER] Seller email failed for ${created.reference}:`, emailError);
+        }
+      }));
+
+      res.status(201).json({
+        sentCount: createdOffers.length,
+        skippedCount: otherPositions.length - createdOffers.length,
+        references: createdOffers.map((offer) => offer.reference),
+      });
+    } catch (error) {
+      console.error("[MARKETPLACE-OFFER] Failed to broadcast offers:", error);
+      res.status(500).json({ message: "Failed to send offers to all eligible owners" });
     }
   });
 
@@ -877,7 +1022,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       const message = action === "decline"
         ? `Offer ${outcome.offer.reference} for ${property?.name || "land"} was declined.`
         : action === "counter"
-          ? `A counteroffer was submitted for ${property?.name || "land"}: ${outcome.offer.units} sqm at ${outcome.offer.currency} ${outcome.offer.purchasePrice}, plus a 2% Brikvest fee.`
+          ? `A counteroffer was submitted for ${property?.name || "land"}: ${formatLandQuantity(outcome.offer.units)} at ${outcome.offer.currency} ${outcome.offer.purchasePrice}, plus a 2% Brikvest fee.`
           : `Offer ${outcome.offer.reference} was accepted. Pay ${outcome.offer.currency} ${outcome.offer.totalPayment} within one hour and submit payment proof.`;
       const title = action === "decline" ? "Offer declined" : action === "counter" ? "Counteroffer received" : "Offer accepted";
       await notifyMarketplaceUser(recipientId, offerId, title, message);
@@ -893,7 +1038,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
             reference: outcome.offer.reference,
             offerId,
             rows: [
-              ["Quantity", `${outcome.offer.units} sqm`],
+              ["Quantity", formatLandQuantity(outcome.offer.units)],
               ["Agreed / counter price", `${outcome.offer.currency} ${outcome.offer.purchasePrice}`],
               ["Brikvest fee (2%)", `${outcome.offer.currency} ${outcome.offer.transactionFee}`],
               ["Total buyer payment", `${outcome.offer.currency} ${outcome.offer.totalPayment}`],
@@ -1243,7 +1388,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       if (result.alreadyCompleted) return res.json({ message: "Transfer was already completed.", status: "completed" });
       if (!result.property) throw new Error("Land details are unavailable for this transfer");
       const [seller] = await Promise.all([storage.getUser(result.offer.sellerId)]);
-      const completionMessage = `The purchase of ${result.offer.units} sqm at ${result.property.name} is complete. Brikvest recorded the purchase price and 2% transaction fee separately.`;
+      const completionMessage = `The purchase of ${formatLandQuantity(result.offer.units)} at ${result.property.name} is complete. Brikvest recorded the purchase price and 2% transaction fee separately.`;
       await Promise.all([
         notifyMarketplaceUser(result.offer.buyerId, result.offer.id, "Ownership transfer completed", completionMessage),
         notifyMarketplaceUser(result.offer.sellerId, result.offer.id, "Ownership transfer completed", completionMessage),
@@ -1261,7 +1406,7 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
             reference: result.offer.reference,
             offerId: result.offer.id,
             rows: [
-              ["Quantity", `${result.offer.units} sqm`],
+              ["Quantity", formatLandQuantity(result.offer.units)],
               ["Purchase price", `${result.offer.currency} ${result.offer.purchasePrice}`],
               ["Brikvest fee (2%)", `${result.offer.currency} ${result.offer.transactionFee}`],
               ["Total payment", `${result.offer.currency} ${result.offer.totalPayment}`],

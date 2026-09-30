@@ -4,6 +4,7 @@ import {
   calculateResalePaymentTerms,
   canAccessResaleReceipt,
   createMarketplacePaymentDeadline,
+  getEligibleResaleBroadcastPositions,
   getAvailableResaleUnits,
   resaleUnitsToSquareMeters,
 } from "../server/resaleMarketplacePolicy";
@@ -47,6 +48,25 @@ describe("resale marketplace safety policies", () => {
   it("shows each marketplace ownership unit as five square meters", () => {
     expect(resaleUnitsToSquareMeters(1)).toBe(5);
     expect(resaleUnitsToSquareMeters(2.5)).toBe(12.5);
+  });
+
+  it("broadcasts only to other owners with enough units and no active offer", () => {
+    const positions = [
+      { property: { id: 7 }, reservation: { id: 1, userId: 20, currency: "NGN" }, availableUnits: 5 },
+      { property: { id: 7 }, reservation: { id: 2, userId: 21, currency: "NGN" }, availableUnits: 2 },
+      { property: { id: 7 }, reservation: { id: 3, userId: 22, currency: "USD" }, availableUnits: 5 },
+      { property: { id: 7 }, reservation: { id: 4, userId: 23, currency: "NGN" }, availableUnits: 5 },
+      { property: { id: 8 }, reservation: { id: 5, userId: 24, currency: "NGN" }, availableUnits: 5 },
+    ];
+    const selected = getEligibleResaleBroadcastPositions(
+      positions,
+      [{ buyerId: 10, sellerReservationId: 4, status: "awaiting_seller_response" }],
+      10,
+      7,
+      3,
+      "NGN",
+    );
+    expect(selected.map((position) => position.reservation.id)).toEqual([1]);
   });
 
   it("requires verified payment and approved buyer KYC before transfer", () => {

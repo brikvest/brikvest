@@ -6,6 +6,51 @@ export function resaleUnitsToSquareMeters(units: number): number {
   return Math.round((units * RESALE_SQUARE_METERS_PER_UNIT + Number.EPSILON) * 100) / 100;
 }
 
+type ResaleBroadcastPosition = {
+  property: { id: number };
+  reservation: { id: number; userId: number | null; currency?: string | null };
+  availableUnits: number;
+};
+
+type ResaleBroadcastOffer = {
+  buyerId: number;
+  sellerReservationId: number;
+  status: string;
+};
+
+export function getEligibleResaleBroadcastPositions<T extends ResaleBroadcastPosition>(
+  positions: T[],
+  offers: ResaleBroadcastOffer[],
+  buyerId: number,
+  propertyId: number,
+  requestedUnits: number,
+  currency: string,
+): T[] {
+  const activeStatuses = new Set([
+    "awaiting_seller_response",
+    "awaiting_buyer_response",
+    "payment_pending",
+    "payment_rejected",
+    "payment_under_review",
+    "payment_verified",
+    "transfer_pending",
+  ]);
+  const alreadyOfferedReservations = new Set(
+    offers
+      .filter((offer) => offer.buyerId === buyerId && activeStatuses.has(offer.status))
+      .map((offer) => offer.sellerReservationId),
+  );
+
+  return positions.filter(
+    (position) =>
+      position.property.id === propertyId &&
+      position.reservation.userId !== buyerId &&
+      position.availableUnits >= requestedUnits &&
+      (position.reservation.currency || currency) === currency &&
+      !alreadyOfferedReservations.has(position.reservation.id),
+  );
+}
+
 export function parseMoneyMinor(value: unknown): number | null {
   const input = String(value ?? "").trim();
   const match = input.match(/^(\d+)(?:\.(\d+))?$/);

@@ -22,8 +22,11 @@ type LandAsset = {
   imageUrl: string;
   totalLandArea: string | null;
   ownershipUnit: string;
+  sqmPerUnit: number;
   unitPrecision: string;
   availableUnits: string;
+  availableAreaSqm: string;
+  currency: string;
   ownerCount: number;
 };
 
@@ -31,7 +34,11 @@ type OwnerPosition = {
   ownerReference: string;
   positionToken: string;
   totalOwned: string;
+  totalOwnedSqm: string;
   availableToReceiveOffers: string;
+  availableToReceiveOffersSqm: string;
+  sqmPerUnit: number;
+  unitPrecision: string;
   isOwn: boolean;
   currency: string;
 };
@@ -43,6 +50,9 @@ type Offer = {
   propertyName: string;
   propertyLocation: string;
   units: string;
+  quantitySqm: string;
+  sqmPerUnit: number;
+  unitPrecision: string;
   purchasePrice: string;
   transactionFee: string;
   totalPayment: string;
@@ -56,6 +66,7 @@ type Offer = {
     action: string;
     actor: string;
     units: string;
+    quantitySqm: string;
     purchasePrice: string;
     transactionFee: string;
     totalPayment: string;
@@ -63,6 +74,35 @@ type Offer = {
     createdAt: string;
   }>;
 };
+
+function displayNumber(value: number | string) {
+  return (Number(value) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function landQuantityLabel(units: number | string, areaSqm: number | string, sqmPerUnit = 5) {
+  const unitCount = Number(units) || 0;
+  const area = areaSqm === undefined || areaSqm === null
+    ? unitCount * sqmPerUnit
+    : Number(areaSqm) || 0;
+  return `${displayNumber(area)} sqm (${displayNumber(unitCount)} ${unitCount === 1 ? "unit" : "units"})`;
+}
+
+function readablePropertyDescription(description: string) {
+  if (typeof DOMParser === "undefined") {
+    return description
+      .replace(/<[^>]*>/g, " ")
+      .replace(/[<>]/g, "")
+      .replace(/\bco[\s-]*own\b/gi, "own")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  const parsed = new DOMParser().parseFromString(description, "text/html");
+  return (parsed.body.textContent || "")
+    .replace(/[<>]/g, "")
+    .replace(/\bco[\s-]*own\b/gi, "own")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 async function requestJson(url: string, options?: RequestInit) {
   const response = await fetch(url, { credentials: "include", ...options });
@@ -109,6 +149,7 @@ export function UnlistedLandMarketplace() {
   const { formatCurrency, convertAmount } = useCurrency();
   const [selectedProperty, setSelectedProperty] = useState<LandAsset | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<OwnerPosition | null>(null);
+  const [offerAllOwners, setOfferAllOwners] = useState(false);
   const [offerDialogOpen, setOfferDialogOpen] = useState(false);
   const [offerUnits, setOfferUnits] = useState("");
   const [offerPrice, setOfferPrice] = useState("");
@@ -181,6 +222,33 @@ export function UnlistedLandMarketplace() {
     onError: (error: Error) => toast({ title: "Offer not submitted", description: error.message, variant: "destructive" }),
   });
 
+  const broadcastOfferMutation = useMutation({
+    mutationFn: (payload: { propertyId: number; units: string; purchasePrice: string }) =>
+      requestJson("/api/marketplace/offers/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: async (result: any) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/marketplace/unlisted-land"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/marketplace/offers/mine"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/marketplace/notifications/mine"] }),
+      ]);
+      toast({
+        title: "Offers sent to eligible owners",
+        description: `${result.sentCount} separate offer${result.sentCount === 1 ? "" : "s"} sent. ${result.skippedCount} position${result.skippedCount === 1 ? " was" : "s were"} skipped.`,
+      });
+      setOfferDialogOpen(false);
+      setSelectedProperty(null);
+      setSelectedPosition(null);
+      setOfferAllOwners(false);
+      setOfferUnits("");
+      setOfferPrice("");
+    },
+    onError: (error: Error) => toast({ title: "Offers not sent", description: error.message, variant: "destructive" }),
+  });
+
   const responseMutation = useMutation({
     mutationFn: ({ id, action, units, purchasePrice }: { id: number; action: string; units?: string; purchasePrice?: string }) =>
       requestJson(`/api/marketplace/offers/${id}/respond`, {
@@ -244,12 +312,17 @@ export function UnlistedLandMarketplace() {
   }, [offerPrice]);
 
   const submitOffer = () => {
-    if (!selectedPosition || !offerUnits || !offerPrice) return;
-    offerMutation.mutate({
-      positionToken: selectedPosition.positionToken,
-      units: offerUnits,
-      purchasePrice: offerPrice,
-    });
+    if (!offerUnits || !offerPrice) return;
+    if (offerAllOwners && selectedProperty) {
+      broadcastOfferMutation.mutate({
+        propertyId: selectedProperty.id,
+        units: offerUnits,
+        purchasePrice: offerPrice,
+      });
+      return;
+    }
+    if (!selectedPosition) return;
+    offerMutation.mutate({ positionToken: selectedPosition.positionToken, units: offerUnits, purchasePrice: offerPrice });
   };
 
   const copy = async (value: string) => {
@@ -263,6 +336,21 @@ export function UnlistedLandMarketplace() {
 
   const amount = (value: string | number, currency: string) =>
     formatCurrency(convertAmount(Number(value), currency || "NGN"));
+  const offerCurrency = selectedPosition?.currency || selectedProperty?.currency || "NGN";
+  const maxBroadcastUnits = Math.max(
+    0,
+    ...owners
+      .filter((position) => !position.isOwn && (position.currency || "NGN") === offerCurrency)
+      .map((position) => Number(position.availableToReceiveOffers) || 0),
+  );
+  const broadcastRecipientCount = owners.filter(
+    (position) =>
+      !position.isOwn &&
+      Number(position.availableToReceiveOffers) >= Number(offerUnits) &&
+      (position.currency || "NGN") === offerCurrency,
+  ).length;
+  const offerStep = selectedPosition?.unitPrecision || selectedProperty?.unitPrecision || "1.00";
+  const offerMaxUnits = offerAllOwners ? maxBroadcastUnits : selectedPosition?.availableToReceiveOffers;
 
   return (
     <div className="space-y-8">
@@ -297,7 +385,7 @@ export function UnlistedLandMarketplace() {
                   <p className="flex items-center gap-1.5 text-sm text-slate-500"><MapPin className="h-4 w-4" />{asset.location}</p>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <p className="line-clamp-2 text-sm text-slate-600">{asset.description}</p>
+                  <p className="line-clamp-2 text-sm text-slate-600">{readablePropertyDescription(asset.description)}</p>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="rounded-md bg-slate-50 p-2.5">
                       <p className="text-xs text-slate-500">Total land area</p>
@@ -305,12 +393,12 @@ export function UnlistedLandMarketplace() {
                     </div>
                     <div className="rounded-md bg-slate-50 p-2.5">
                       <p className="text-xs text-slate-500">Available to offer on</p>
-                      <p className="font-semibold">{Number(asset.availableUnits).toLocaleString()} sqm</p>
+                      <p className="font-semibold">{landQuantityLabel(asset.availableUnits, asset.availableAreaSqm, asset.sqmPerUnit)}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
                     <span>{asset.ownerCount} current owner position{asset.ownerCount === 1 ? "" : "s"}</span>
-                    <span>Min step: {asset.unitPrecision} sqm</span>
+                    <span>Min step: {displayNumber(asset.unitPrecision)} units ({displayNumber(Number(asset.unitPrecision) * asset.sqmPerUnit)} sqm)</span>
                   </div>
                   <Button className="w-full" variant="outline" onClick={() => setSelectedProperty(asset)}>
                     View anonymous owner positions
@@ -361,7 +449,7 @@ export function UnlistedLandMarketplace() {
                     </div>
 
                     <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-md bg-slate-50 p-2.5"><p className="text-xs text-slate-500">Quantity</p><p className="font-medium">{offer.units} sqm</p></div>
+                      <div className="rounded-md bg-slate-50 p-2.5"><p className="text-xs text-slate-500">Quantity</p><p className="font-medium">{landQuantityLabel(offer.units, offer.quantitySqm, offer.sqmPerUnit)}</p></div>
                       <div className="rounded-md bg-slate-50 p-2.5"><p className="text-xs text-slate-500">Land price</p><p className="font-medium">{amount(offer.purchasePrice, offer.currency)}</p></div>
                       <div className="rounded-md bg-slate-50 p-2.5"><p className="text-xs text-slate-500">Brikvest fee (2%)</p><p className="font-medium">{amount(offer.transactionFee, offer.currency)}</p></div>
                       <div className="rounded-md bg-blue-50 p-2.5"><p className="text-xs text-blue-700">Total buyer payment</p><p className="font-semibold text-blue-900">{amount(offer.totalPayment, offer.currency)}</p></div>
@@ -426,7 +514,7 @@ export function UnlistedLandMarketplace() {
                                   <time className="text-slate-500">{new Date(event.createdAt).toLocaleString()}</time>
                                 </div>
                                 <p className="mt-1 text-slate-600">{event.details}</p>
-                                <p className="mt-1 text-slate-500">{event.units} sqm · price {amount(event.purchasePrice, offer.currency)} · fee {amount(event.transactionFee, offer.currency)} · total {amount(event.totalPayment, offer.currency)}</p>
+                                <p className="mt-1 text-slate-500">{landQuantityLabel(event.units, event.quantitySqm, offer.sqmPerUnit)} · price {amount(event.purchasePrice, offer.currency)} · fee {amount(event.transactionFee, offer.currency)} · total {amount(event.totalPayment, offer.currency)}</p>
                               </li>
                             ))}
                           </ol>
@@ -471,12 +559,31 @@ export function UnlistedLandMarketplace() {
           </DialogHeader>
           {ownersLoading ? <p className="py-6 text-center text-sm text-slate-500">Loading available owner positions…</p> : (
             <div className="space-y-3">
+              {owners.some((position) => !position.isOwn && Number(position.availableToReceiveOffers) > 0 && (position.currency || "NGN") === (selectedProperty?.currency || "NGN")) && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-blue-950">Send one offer to every eligible owner. Each owner responds independently.</p>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setOfferAllOwners(true);
+                        setSelectedPosition(null);
+                        setOfferUnits("");
+                        setOfferPrice("");
+                        setOfferDialogOpen(true);
+                      }}
+                    >
+                      <Send className="mr-1.5 h-4 w-4" />Send to all owners
+                    </Button>
+                  </div>
+                </div>
+              )}
               {owners.map((position) => (
                 <div key={position.positionToken} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-slate-900">{position.ownerReference}</p>
-                    <p className="mt-1 text-sm text-slate-600">Total ownership: {position.totalOwned} sqm</p>
-                    <p className="text-sm text-slate-600">Available to receive offers: {position.availableToReceiveOffers} sqm</p>
+                    <p className="mt-1 text-sm text-slate-600">Total ownership: {landQuantityLabel(position.totalOwned, position.totalOwnedSqm, position.sqmPerUnit)}</p>
+                    <p className="text-sm text-slate-600">Available to receive offers: {landQuantityLabel(position.availableToReceiveOffers, position.availableToReceiveOffersSqm, position.sqmPerUnit)}</p>
                   </div>
                   {position.isOwn ? (
                     <Badge variant="outline">Your holding</Badge>
@@ -485,6 +592,7 @@ export function UnlistedLandMarketplace() {
                       size="sm"
                       disabled={Number(position.availableToReceiveOffers) <= 0}
                       onClick={() => {
+                        setOfferAllOwners(false);
                         setSelectedPosition(position);
                         setOfferUnits("");
                         setOfferPrice("");
@@ -505,33 +613,49 @@ export function UnlistedLandMarketplace() {
       <Dialog open={offerDialogOpen} onOpenChange={setOfferDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Make an Offer</DialogTitle>
-            <DialogDescription>{selectedProperty?.name} · {selectedPosition?.ownerReference}. The seller sees your offer without receiving your personal contact details.</DialogDescription>
+            <DialogTitle>{offerAllOwners ? "Send an Offer to All Owners" : "Make an Offer"}</DialogTitle>
+            <DialogDescription>
+              {offerAllOwners
+                ? `${selectedProperty?.name}. The same terms will be sent as separate offers to eligible anonymous owners.`
+                : `${selectedProperty?.name} · ${selectedPosition?.ownerReference}. The seller sees your offer without receiving your personal contact details.`}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg bg-slate-50 p-3 text-sm">
-              <p>Available position: <strong>{selectedPosition?.availableToReceiveOffers} sqm</strong></p>
-              <p className="mt-1 text-slate-500">No payment timer starts until both parties accept the same terms.</p>
+              {offerAllOwners ? (
+                <p>Eligible positions for this quantity: <strong>{broadcastRecipientCount}</strong></p>
+              ) : (
+                <p>Available position: <strong>{selectedPosition && landQuantityLabel(selectedPosition.availableToReceiveOffers, selectedPosition.availableToReceiveOffersSqm, selectedPosition.sqmPerUnit)}</strong></p>
+              )}
+              <p className="mt-1 text-slate-500">Each unit represents 5 sqm. No payment timer starts until both parties accept the same terms.</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="offer-quantity">Quantity (sqm)</Label>
-              <Input id="offer-quantity" type="number" min={selectedProperty?.unitPrecision || "0.01"} step={selectedProperty?.unitPrecision || "0.01"} max={selectedPosition?.availableToReceiveOffers} value={offerUnits} onChange={(event) => setOfferUnits(event.target.value)} />
+              <Label htmlFor="offer-quantity">Quantity (5 sqm units)</Label>
+              <Input id="offer-quantity" type="number" min={offerStep} step={offerStep} max={offerMaxUnits} value={offerUnits} onChange={(event) => setOfferUnits(event.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="offer-price">Proposed total purchase price ({selectedPosition?.currency || "NGN"})</Label>
+              <Label htmlFor="offer-price">{offerAllOwners ? "Total purchase price per owner" : "Proposed total purchase price"} ({offerCurrency})</Label>
               <Input id="offer-price" type="number" min="0.01" step="0.01" value={offerPrice} onChange={(event) => setOfferPrice(event.target.value)} />
             </div>
             {preview && (
               <div className="space-y-1 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm">
-                <div className="flex justify-between"><span>Purchase price</span><strong>{amount(preview.price, selectedPosition?.currency || "NGN")}</strong></div>
-                <div className="flex justify-between"><span>Brikvest fee (2%)</span><strong>{amount(preview.fee, selectedPosition?.currency || "NGN")}</strong></div>
-                <div className="flex justify-between border-t border-blue-200 pt-1 font-semibold"><span>Total buyer payment</span><strong>{amount(preview.total, selectedPosition?.currency || "NGN")}</strong></div>
+                <div className="flex justify-between"><span>Purchase price</span><strong>{amount(preview.price, offerCurrency)}</strong></div>
+                <div className="flex justify-between"><span>Brikvest fee (2%)</span><strong>{amount(preview.fee, offerCurrency)}</strong></div>
+                <div className="flex justify-between border-t border-blue-200 pt-1 font-semibold"><span>Total buyer payment per owner</span><strong>{amount(preview.total, offerCurrency)}</strong></div>
+              </div>
+            )}
+            {offerAllOwners && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                <p>Each owner receives a separate offer. If several owners accept, each accepted offer is a separate purchase with its own one-hour payment window.</p>
+                {preview && broadcastRecipientCount > 0 && (
+                  <p className="mt-2 font-medium">If all {broadcastRecipientCount} eligible owners accept, the total payment could be {amount(preview.total * broadcastRecipientCount, offerCurrency)}.</p>
+                )}
               </div>
             )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setOfferDialogOpen(false)}>Cancel</Button>
-              <Button onClick={submitOffer} disabled={offerMutation.isPending || !offerUnits || !offerPrice}>
-                <Send className="mr-1.5 h-4 w-4" />{offerMutation.isPending ? "Submitting…" : "Review & Submit"}
+              <Button onClick={submitOffer} disabled={offerMutation.isPending || broadcastOfferMutation.isPending || !offerUnits || !offerPrice || (offerAllOwners && broadcastRecipientCount === 0)}>
+                <Send className="mr-1.5 h-4 w-4" />{offerMutation.isPending || broadcastOfferMutation.isPending ? "Submitting…" : offerAllOwners ? "Send Offers" : "Review & Submit"}
               </Button>
             </div>
           </div>
@@ -546,7 +670,11 @@ export function UnlistedLandMarketplace() {
           </DialogHeader>
           {counterOffer && (
             <div className="space-y-4">
-              <div className="space-y-2"><Label>Quantity (sqm)</Label><Input type="number" min="0.01" step="0.01" value={counterOffer.units} onChange={(event) => setCounterOffer({ ...counterOffer, units: event.target.value })} /></div>
+              <div className="space-y-2">
+                <Label>Quantity (5 sqm units)</Label>
+                <Input type="number" min={counterOffer.offer.unitPrecision} step={counterOffer.offer.unitPrecision} value={counterOffer.units} onChange={(event) => setCounterOffer({ ...counterOffer, units: event.target.value })} />
+                <p className="text-xs text-slate-500">Current quantity: {landQuantityLabel(counterOffer.offer.units, counterOffer.offer.quantitySqm, counterOffer.offer.sqmPerUnit)}</p>
+              </div>
               <div className="space-y-2"><Label>Total purchase price ({counterOffer.offer.currency})</Label><Input type="number" min="0.01" step="0.01" value={counterOffer.price} onChange={(event) => setCounterOffer({ ...counterOffer, price: event.target.value })} /></div>
               {Number(counterOffer.price) > 0 && (
                 <div className="rounded-lg bg-blue-50 p-3 text-sm">

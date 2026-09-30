@@ -17,6 +17,13 @@ function displayStatus(status: string) {
   return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function quantityLabel(units: number | string, areaSqm: number | string, sqmPerUnit = 5) {
+  const count = Number(units) || 0;
+  const area = Number(areaSqm) || count * sqmPerUnit;
+  const format = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `${format(area)} sqm (${format(count)} ${count === 1 ? "unit" : "units"})`;
+}
+
 export function MarketplaceOffersAdminTab({ authenticatedRequest }: AdminTabProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -111,7 +118,7 @@ export function MarketplaceOffersAdminTab({ authenticatedRequest }: AdminTabProp
               <div className="rounded-md bg-slate-50 p-3"><p className="text-xs text-slate-500">Buyer</p><p className="font-medium">{offer.buyerName}</p><p className="text-xs text-slate-500">{offer.buyerEmail}</p></div>
               <div className="rounded-md bg-slate-50 p-3"><p className="text-xs text-slate-500">Seller</p><p className="font-medium">{offer.sellerName}</p><p className="text-xs text-slate-500">{offer.sellerEmail}</p></div>
               <div className="rounded-md bg-slate-50 p-3"><p className="text-xs text-slate-500">Buyer KYC</p><p className="font-medium">{offer.buyerKycStatus}</p></div>
-              <div className="rounded-md bg-slate-50 p-3"><p className="text-xs text-slate-500">Quantity</p><p className="font-medium">{offer.units} sqm</p></div>
+              <div className="rounded-md bg-slate-50 p-3"><p className="text-xs text-slate-500">Quantity</p><p className="font-medium">{quantityLabel(offer.units, offer.quantitySqm, offer.sqmPerUnit)}</p></div>
               <div className="rounded-md border border-slate-200 p-3"><p className="text-xs text-slate-500">Land purchase price</p><p className="font-semibold">{offer.currency} {Number(offer.purchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p></div>
               <div className="rounded-md border border-slate-200 p-3"><p className="text-xs text-slate-500">Brikvest fee (2%)</p><p className="font-semibold">{offer.currency} {Number(offer.transactionFee).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p></div>
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">Total expected</p><p className="font-semibold text-blue-900">{offer.currency} {Number(offer.totalPayment).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p></div>
@@ -167,7 +174,7 @@ export function MarketplaceOffersAdminTab({ authenticatedRequest }: AdminTabProp
                       <time>{new Date(event.createdAt).toLocaleString()}</time>
                     </div>
                     <p className="mt-1 text-slate-600">{event.details}</p>
-                    <p className="mt-1 text-slate-500">{event.units} sqm · price {offer.currency} {event.purchasePrice} · fee {offer.currency} {event.transactionFee} · total {offer.currency} {event.totalPayment}</p>
+                    <p className="mt-1 text-slate-500">{quantityLabel(event.units, event.quantitySqm, offer.sqmPerUnit)} · price {offer.currency} {event.purchasePrice} · fee {offer.currency} {event.transactionFee} · total {offer.currency} {event.totalPayment}</p>
                   </div>
                 )) : <p className="text-xs text-slate-500">No event history.</p>}
               </div>
