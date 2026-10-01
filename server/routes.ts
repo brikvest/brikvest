@@ -2,10 +2,25 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import fs from "fs";
 import path from "path";
-import { ProjectHasConfirmedInvestorsError, storage } from "./storage";
+import {
+  ConfirmedInvestmentCancellationRequiredError,
+  ProjectHasConfirmedInvestorsError,
+  ReservationInventoryUnavailableError,
+  UnsupportedFractionalInventoryReservationError,
+  storage,
+} from "./storage";
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
+import { registerLegalRoutes } from "./legal/routes";
 import { randomBytes } from "crypto";
+import {
+  approvePaymentSubmissionAtomically,
+  cancelConfirmedInvestmentAtomically,
+  confirmInvestmentAtomically,
+  LegalApprovalTransitionError,
+  reinstateInvestmentAtomically,
+  type ManualFullPaymentAttestation,
+} from "./legal/approval";
 import { documentUpload, upload, uploadToCloudinary, uploadVideoToCloudinary, uploadToObjectStorage } from "./cloudinary";
 import { sendEmail } from "./emailService";
 import {
@@ -105,6 +120,48 @@ function getUserDisplayName(user: any): string {
   return [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || user?.email || "Brikvest user";
 }
 
+function dispatchCommittedLegalApproval(pairId?: number) {
+  if (!pairId || process.env.NODE_ENV === "test") return;
+  // Best-effort immediate wakeup, not durability: committed jobs are also
+  // recovered by the authenticated scheduler when autoscale is idle.
+  void import("./legal/worker").then(({ dispatchLegalJobs }) => dispatchLegalJobs(3))
+    .catch(() => console.error("[LEGAL] Immediate dispatch failed; durable jobs remain queued."));
+}
+
+function getLegalPaymentAttestation(body: any): ManualFullPaymentAttestation | undefined {
+  const value = body?.fullPaymentConfirmation;
+  if (!value || value.confirmed !== true) return undefined;
+  const amountNaira = typeof value.amount === "string"
+    ? value.amount.trim()
+    : typeof value.amount === "number" && Number.isFinite(value.amount)
+      ? String(value.amount)
+      : "";
+  return {
+    fullPaymentConfirmed: true,
+    amountNaira,
+    currency: typeof value.currency === "string" ? value.currency.trim().toUpperCase() : "",
+    auditNote: typeof value.reference === "string" ? value.reference.trim() : "",
+  };
+}
+
+function rejectPublicLegalObjectNamespace(req: any, res: any, next: any) {
+  let objectPath = String(req.originalUrl || req.url || "").split("?")[0];
+  objectPath = objectPath.replace(/^\/objects\/?/i, "");
+  try {
+    for (let pass = 0; pass < 3; pass += 1) {
+      const decoded = decodeURIComponent(objectPath);
+      if (decoded === objectPath) break;
+      objectPath = decoded;
+    }
+  } catch {
+    return res.status(404).json({ error: "Object not found" });
+  }
+  if (objectPath.split("/").some((segment) => /^legal(?:[-_]|$)/i.test(segment))) {
+    return res.status(404).json({ error: "Object not found" });
+  }
+  return next();
+}
+
 function requireDocumentUploadAuth(req: any, res: any, next: any) {
   const sessionId = req.headers.authorization?.replace('Bearer ', '');
   if (sessionId) {
@@ -157,9 +214,14 @@ async function generateSpvName(city: string, district: string, propertyId: numbe
   return `BRK${cityCode}${districtCode}${propertyCode}`;
 }
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Some deployments expose legacy object URLs outside the API router. Keep
+  // legal namespaces private even if a generic /objects/* handler is mounted.
+  app.use(["/objects", "/api/objects"], rejectPublicLegalObjectNamespace);
+
   // Setup email/password authentication
   setupAuth(app);
   registerMarketplaceOfferRoutes(app, { requireApprovedUser, requireAdminAuth });
+  registerLegalRoutes(app, { requireAuth, requireAdminAuth });
 
   // User authentication routes
   app.post('/api/register', async (req, res) => {
@@ -837,21 +899,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reservedUnits = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
       console.log(`[AUDIT:PAYMENT] Proceeding with approval: userId=${user.id}, email=${user.email}, propertyId=${property.id}, propertyName="${property.name}", units=${reservedUnits}, amount=${reservation.amount}, currency=${reservation.currency}`);
 
-      // Atomically: update submission, update reservation to converted, update property unit counts
-      await storage.updatePaymentSubmission(submissionId, {
-        status: 'approved',
-        reviewedAt: new Date(),
-        reviewedByAdminId: adminUser.userId
-      });
-
-      await storage.updateReservation(reservation.id, {
-        status: 'converted_to_investment'
-      });
-
-      // Move units from reserved to sold
-      await storage.updatePropertyUnitCounts(reservation.propertyId, -reservedUnits, reservedUnits);
+      // A guarded transaction claims the payment, converts the holding, updates
+      // its unit counts, and writes the legal generation outbox record together.
+      const approval = await approvePaymentSubmissionAtomically(submissionId, adminUser.userId);
+      dispatchCommittedLegalApproval(approval.legal.pairId);
       
       console.log(`[AUDIT:PAYMENT] APPROVED: submissionId=${submissionId}, reservationId=${reservation.id}, userId=${user.id}, email=${user.email}, units=${reservedUnits}, amount=${reservation.amount}, approvedBy=${adminUser.username}`);
+      if (approval.legal.pairId) {
+        console.log(`[AUDIT:LEGAL] Approval source=${approval.legal.duplicate ? 'duplicate' : 'payment_submission'}, pairId=${approval.legal.pairId}, status=${approval.legal.status}`);
+      }
 
       // Generate ownership certificate
       let certNumber = null;
@@ -900,9 +956,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         message: "Payment approved and investment confirmed",
         reservationId: reservation.id,
-        certificateNumber: certNumber
+        certificateNumber: certNumber,
+        legalDocuments: approval.legal.pairId
+          ? { pairId: approval.legal.pairId, status: approval.legal.status }
+          : undefined,
       });
     } catch (error) {
+      if (error instanceof LegalApprovalTransitionError) {
+        return res.status(error.httpStatus).json({ error: error.message });
+      }
       console.error("[AUDIT:PAYMENT] Approval ERROR:", error);
       res.status(500).json({ error: "Failed to approve payment" });
     }
@@ -1239,6 +1301,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!userId || !propertyId || !units) {
         return res.status(400).json({ error: "userId, propertyId, and units are required" });
       }
+      const requestedUnits = Number(units);
+      if (!Number.isFinite(requestedUnits) || requestedUnits <= 0) {
+        return res.status(400).json({ error: "Units must be a positive number" });
+      }
+      if (!Number.isInteger(requestedUnits)) {
+        return res.status(409).json({
+          error: "Fractional reservations cannot be safely allocated to whole-unit inventory counters.",
+        });
+      }
 
       // Get user and property
       const user = await storage.getUser(userId);
@@ -1257,7 +1328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? (property.availableSlots || 0)
         : (property.totalUnits || 0) - (property.reservedUnits || 0) - (property.soldUnits || 0);
       
-      if (units > availableUnits) {
+      if (requestedUnits > availableUnits) {
         return res.status(400).json({ 
           error: `Not enough units available. Only ${availableUnits} units remaining.` 
         });
@@ -1265,7 +1336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate amount - use unitPrice if available, otherwise use minInvestment
       const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
-      const amount = Math.round(units * unitPriceSnapshot);
+      const amount = Math.round(requestedUnits * unitPriceSnapshot);
 
       // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
       const investmentCurrency = property.currency || 'NGN';
@@ -1278,10 +1349,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fullName: user.kycFullName || `${user.firstName} ${user.lastName}`,
         email: user.email,
         phone: user.phone || '',
-        units: units.toString(),
-        amount,
+        units: requestedUnits.toString(),
+        amount: String(amount),
         currency: investmentCurrency,
-        unitPriceSnapshot,
+        unitPriceSnapshot: String(unitPriceSnapshot),
         status: 'reserved',
         paymentMethod: paymentMethod || null,
         paymentReference: paymentReference || null,
@@ -1289,19 +1360,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdByAdminId: (req.user as any).userId,
         notes: notes || null,
         expiresAt,
-      });
+      }, { accountInventoryAtomically: true });
       
       console.log(`[INVESTMENT] Created reservation ${reservation.id} with currency ${investmentCurrency} for property ${property.name}`);
-
-      // Update property reserved units
-      await storage.updatePropertyUnitCounts(propertyId, units, 0);
 
       // Send email to user
       try {
         const emailContent = investmentCreatedEmailTemplate({
           fullName: reservation.fullName,
           propertyName: property.name,
-          units,
+          units: requestedUnits,
           amount,
           currency: investmentCurrency,
         });
@@ -1316,6 +1384,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json(reservation);
     } catch (error) {
+      if (error instanceof ReservationInventoryUnavailableError) {
+        return res.status(409).json({ error: error.message });
+      }
+      if (error instanceof UnsupportedFractionalInventoryReservationError) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error("Error creating admin investment:", error);
       res.status(500).json({ error: "Failed to create investment" });
     }
@@ -1427,24 +1501,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
-      // Check KYC status
-      if (reservation.userId) {
-        const user = await storage.getUser(reservation.userId);
-        if (user && user.kycStatus !== 'approved') {
-          return res.status(400).json({ 
-            error: "Cannot confirm investment. User KYC must be approved first." 
-          });
-        }
-      }
-
-      // Update reservation to converted_to_investment
-      await storage.updateReservation(reservationId, {
-        status: 'converted_to_investment'
-      });
-
-      // Move units from reserved to sold
+      const adminId = (req.user as any).userId;
+      const approval = await confirmInvestmentAtomically(
+        reservationId,
+        adminId,
+        getLegalPaymentAttestation(req.body),
+      );
+      dispatchCommittedLegalApproval(approval.legal.pairId);
       const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-      await storage.updatePropertyUnitCounts(reservation.propertyId, -units, units);
 
       // Get property for email and certificate
       const property = await storage.getProperty(reservation.propertyId);
@@ -1504,9 +1568,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ 
         message: "Investment confirmed successfully",
-        certificateNumber: certificate?.certificateNumber 
+        certificateNumber: certificate?.certificateNumber,
+        legalDocuments: approval.legal.pairId
+          ? { pairId: approval.legal.pairId, status: approval.legal.status }
+          : undefined,
+        legalDocumentNotice: approval.legal.reason,
       });
     } catch (error) {
+      if (error instanceof LegalApprovalTransitionError) {
+        return res.status(error.httpStatus).json({ error: error.message });
+      }
       console.error("Error confirming investment:", error);
       res.status(500).json({ error: "Failed to confirm investment" });
     }
@@ -1559,29 +1630,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const adminId = (req.user as any).userId;
+      const legalPaymentAttestation = getLegalPaymentAttestation(req.body);
       const dateStamp = new Date().toISOString().slice(0, 10);
-      const reinstateRef = reservation.paymentReference
+      const reinstateRef = legalPaymentAttestation?.auditNote
+        || reservation.paymentReference
         || `ADM-${dateStamp.replace(/-/g, '')}-${randomBytes(3).toString('hex').toUpperCase()}`;
       const reinstateNote = `${reservation.notes ? reservation.notes + ' | ' : ''}Reinstated from ${reservation.status} & confirmed by admin (off-platform payment verified) on ${dateStamp}`;
 
-      // Atomically claim the reservation: this only succeeds if it is still
-      // expired/cancelled, so two concurrent requests (or a double-click) cannot
-      // both flip it and double-count sold units. The loser gets null and aborts
-      // before any unit-count mutation runs.
-      const claimed = await storage.reinstateReservationIfEligible(reservationId, {
-        status: 'converted_to_investment',
-        funnelStage: null,
-        expiresAt: null,
-        paymentReference: reinstateRef,
-        paymentMethod: reservation.paymentMethod || 'bank_transfer',
-        notes: reinstateNote,
-      });
-      if (!claimed) {
-        return res.status(409).json({ error: "This reservation was just reinstated by another request." });
-      }
-
-      // Only add to sold — reserved was already decremented when it expired/cancelled.
-      await storage.updatePropertyUnitCounts(reservation.propertyId, 0, units);
+      const approval = await reinstateInvestmentAtomically(
+        reservationId,
+        adminId,
+        reinstateRef,
+        reservation.paymentMethod || 'bank_transfer',
+        reinstateNote,
+        legalPaymentAttestation,
+      );
+      dispatchCommittedLegalApproval(approval.legal.pairId);
 
       // Generate an ownership certificate if one doesn't already exist.
       let certificate = await storage.getCertificateByReservationId(reservationId);
@@ -1630,8 +1694,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         message: "Reservation reinstated and confirmed as investment",
         certificateNumber: certificate?.certificateNumber,
+        legalDocuments: approval.legal.pairId
+          ? { pairId: approval.legal.pairId, status: approval.legal.status }
+          : undefined,
+        legalDocumentNotice: approval.legal.reason,
       });
     } catch (error) {
+      if (error instanceof LegalApprovalTransitionError) {
+        return res.status(error.httpStatus).json({ error: error.message });
+      }
       console.error("Error reinstating reservation:", error);
       res.status(500).json({ error: "Failed to reinstate reservation" });
     }
@@ -1783,24 +1854,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Reservation not found" });
       }
 
-      // Update reservation to cancelled
-      await storage.updateReservation(reservationId, {
-        status: 'cancelled'
-      });
-
-      // Release units back to the property for any active status
-      if (reservation.status === 'reserved' || reservation.status === 'converted_to_investment') {
+      if (reservation.status === "converted_to_investment") {
+        await cancelConfirmedInvestmentAtomically(
+          reservationId,
+          Number((req.user as any).userId),
+        );
+      } else if (reservation.status === "reserved" || reservation.status === "payment_pending") {
         const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-        // For converted_to_investment, decrease soldUnits; for reserved, decrease reservedUnits
-        if (reservation.status === 'converted_to_investment') {
-          await storage.updatePropertyUnitCounts(reservation.propertyId, 0, -units);
-        } else {
-          await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
-        }
+        await storage.updateReservation(reservationId, { status: "cancelled" });
+        await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
+      } else {
+        return res.status(409).json({ error: "Only active reservations or confirmed investments can be cancelled." });
       }
 
       res.json({ message: "Investment cancelled successfully" });
     } catch (error) {
+      if (error instanceof LegalApprovalTransitionError) {
+        return res.status(error.httpStatus).json({ error: error.message });
+      }
+      if (error instanceof ConfirmedInvestmentCancellationRequiredError) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error("Error cancelling investment:", error);
       res.status(500).json({ error: "Failed to cancel investment" });
     }
@@ -2165,6 +2239,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "Please enter a valid number of units (must be greater than 0)" 
         });
       }
+      if (!Number.isInteger(requestedUnits)) {
+        return res.status(409).json({
+          message: "Fractional reservations cannot be safely allocated to whole-unit inventory counters.",
+        });
+      }
       
       // Add userId if user is authenticated
       let reservationData = validatedData;
@@ -2254,10 +2333,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[RESERVATION] Creating reservation with currency ${investmentCurrency} for property ${property.name} (expires ${expiresAt.toISOString()})`);
 
-      const reservation = await storage.createInvestmentReservation(sanitizedReservationData);
-      
-      // Update property available slots
-      await storage.updatePropertySlots(reservationData.propertyId, units);
+      const reservation = await storage.createInvestmentReservation(
+        sanitizedReservationData,
+        { accountInventoryAtomically: true },
+      );
 
       // Send confirmation email
       try {
@@ -2282,6 +2361,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(201).json(reservation);
     } catch (error) {
+      if (error instanceof ReservationInventoryUnavailableError) {
+        return res.status(409).json({ message: error.message });
+      }
+      if (error instanceof UnsupportedFractionalInventoryReservationError) {
+        return res.status(409).json({ message: error.message });
+      }
       console.error("Error creating reservation:", error);
       if (error instanceof Error && error.name === 'ZodError') {
         return res.status(400).json({ message: "Invalid data provided" });
@@ -3032,7 +3117,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/documents/*", async (req, res) => {
     try {
       // Extract the full path after /api/documents/
-      const fullPath = (req.params as any)[0] as string; // e.g., "kyc/documents/filename.pdf" or "documents/filename.pdf"
+      const requestedPath = (req.params as any)[0] as string;
+      let fullPath = requestedPath;
+      // Express already decodes the wildcard once. Reject malformed/double-
+      // encoded traversal too, before composing any Object Storage path.
+      try {
+        for (let pass = 0; pass < 2; pass += 1) {
+          const decoded = decodeURIComponent(fullPath);
+          if (decoded === fullPath) break;
+          fullPath = decoded;
+        }
+      } catch {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      if (
+        !fullPath ||
+        fullPath.startsWith("/") ||
+        fullPath.includes("\\") ||
+        fullPath.includes("\0") ||
+        fullPath.split("/").some((segment) => segment === "." || segment === "..")
+      ) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      // Legal objects are available only through authenticated legal-document
+      // endpoints, never through this legacy path-based download route. Match
+      // any segment named "legal" to cover every versioned/private namespace.
+      if (fullPath.split("/").some((segment) => /^legal(?:[-_]|$)/i.test(segment))) {
+        return res.status(404).json({ error: "Document not found" });
+      }
       // Marketplace receipts are private and are served only by routes that
       // first verify the requesting participant or administrator.
       if (fullPath.startsWith("resale-payment-proofs/")) {
@@ -7049,7 +7161,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
         return res.status(400).json({ message: "Units must be a positive number" });
       }
-
       // Resolve the chosen unit type (if any) so we can both snapshot its
       // label on the reservation and price the purchase off that type.
       const cfgTypes: Array<{ label: string; quantity: number; price: number }> =
@@ -7401,6 +7512,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!units || isNaN(units) || units <= 0) {
         return res.status(400).json({ message: "A positive units value is required to convert" });
       }
+      if (!Number.isInteger(units)) {
+        return res.status(409).json({
+          message: "Fractional reservations cannot be safely allocated to whole-unit inventory counters.",
+        });
+      }
       const unitPrice = Number(property.unitPrice || 0);
       const totalUnits = Number(property.totalUnits || 0);
       const soldUnits = Number(property.soldUnits || 0);
@@ -7423,11 +7539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         unitPriceSnapshot: String(unitPrice),
         status: "reserved",
         notes: `Converted from CRM lead #${lead.id}${lead.notes ? ` — ${lead.notes}` : ""}`,
-      });
-      // Soft-lock the units on the property so subsequent availability checks
-      // (and the Sales analytics counters) stay in sync. Mirrors the admin
-      // reservation creation flow at /api/admin/.../reservations.
-      await storage.updatePropertyUnitCounts(propertyId, units, 0);
+      }, { accountInventoryAtomically: true });
       const updated = await storage.updateDeveloperLead(leadId, {
         stage: "converted",
         convertedReservationId: reservation.id,
@@ -7435,6 +7547,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json({ lead: updated, reservation });
     } catch (err) {
+      if (err instanceof ReservationInventoryUnavailableError) {
+        return res.status(409).json({ message: err.message });
+      }
+      if (err instanceof UnsupportedFractionalInventoryReservationError) {
+        return res.status(409).json({ message: err.message });
+      }
       console.error("Failed to convert lead:", err);
       res.status(500).json({ message: "Failed to convert lead" });
     }

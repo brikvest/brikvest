@@ -2,9 +2,16 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { rejectLegalTemplateSourcePaths } from "./legal/source-access";
 
 const app = express();
-app.use(express.json());
+// Vite's development static-file middleware must not expose the source Word
+// files through workspace paths (including /@fs/). These are never public
+// assets, even before they are imported into private object storage.
+app.use(rejectLegalTemplateSourcePaths);
+app.use(express.json({
+  limit: "1mb",
+}));
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
@@ -22,7 +29,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Signing responses contain short-lived challenge tokens. Never include
+      // these, signature images, identity evidence or passwords in logs.
+      if (capturedJsonResponse && !/^\/api\/(?:admin\/)?legal(?:\/|$)/.test(path)) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

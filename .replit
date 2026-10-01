@@ -4,6 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
+packages = ["libreoffice", "poppler_utils", "liberation_ttf", "dejavu_fonts", "chromium"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -30,6 +31,14 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "legal-workflow"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "production-build"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -38,6 +47,28 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "legal-workflow"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:legal"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "production-build"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 integrations = ["javascript_sendgrid:1.0.0"]

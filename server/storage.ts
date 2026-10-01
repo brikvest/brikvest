@@ -3,6 +3,7 @@ import {
   adminUsers,
   properties,
   investmentReservations,
+  investmentReservationInventory,
   investmentPayments,
   investmentGroups,
   groupMemberships,
@@ -102,11 +103,45 @@ function deriveFunnelStageFromStatus(status: string): string | null {
   }
 }
 
+function queryRows<T>(result: unknown): T[] {
+  const rows = (result as { rows?: T[] } | null)?.rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
 export class ProjectHasConfirmedInvestorsError extends Error {
   constructor(public readonly count: number) {
     super(`Project has ${count} confirmed investment(s)`);
     this.name = "ProjectHasConfirmedInvestorsError";
   }
+}
+
+export class ReservationInventoryUnavailableError extends Error {
+  constructor() {
+    super("Not enough whole units are available to reserve this investment.");
+    this.name = "ReservationInventoryUnavailableError";
+  }
+}
+
+export class UnsupportedFractionalInventoryReservationError extends Error {
+  constructor() {
+    super(
+      "Fractional reservations cannot be safely allocated to whole-unit inventory counters. " +
+        "No reservation or inventory changes were made.",
+    );
+    this.name = "UnsupportedFractionalInventoryReservationError";
+  }
+}
+
+export class ConfirmedInvestmentCancellationRequiredError extends Error {
+  constructor() {
+    super("Confirmed investments must be cancelled through the legal-aware cancellation transition.");
+    this.name = "ConfirmedInvestmentCancellationRequiredError";
+  }
+}
+
+export interface CreateInvestmentReservationOptions {
+  /** Atomically claim capacity and track this reservation's exact counter contribution. */
+  accountInventoryAtomically?: boolean;
 }
 
 export interface IStorage {
@@ -174,7 +209,10 @@ export interface IStorage {
   updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
   
   // Investment reservation methods
-  createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation>;
+  createInvestmentReservation(
+    reservation: InsertInvestmentReservation,
+    options?: CreateInvestmentReservationOptions,
+  ): Promise<InvestmentReservation>;
   getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
   getUserReservationsWithPropertyByEmail(email: string): Promise<(InvestmentReservation & { property?: Property })[]>;
   getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
@@ -628,13 +666,76 @@ export class DatabaseStorage implements IStorage {
 
   // Investment reservation methods
 
-  async createInvestmentReservation(reservation: InsertInvestmentReservation): Promise<InvestmentReservation> {
+  async createInvestmentReservation(
+    reservation: InsertInvestmentReservation,
+    options: CreateInvestmentReservationOptions = {},
+  ): Promise<InvestmentReservation> {
     // Derive funnel_stage at write time so funnel/conversion charts are
     // accurate in real time (no reliance on the startup backfill).
     const withFunnel = {
       ...reservation,
       funnelStage: reservation.funnelStage ?? deriveFunnelStageFromStatus(reservation.status ?? "reserved"),
     };
+
+    if (options.accountInventoryAtomically) {
+      const units = Number(reservation.units);
+      if (!Number.isFinite(units) || units <= 0) {
+        throw new ReservationInventoryUnavailableError();
+      }
+      if (!Number.isInteger(units)) {
+        throw new UnsupportedFractionalInventoryReservationError();
+      }
+      if (reservation.status && reservation.status !== "reserved" && reservation.status !== "payment_pending") {
+        throw new Error("Atomic reservation inventory accounting only applies to active reservations.");
+      }
+
+      return db.transaction(async (tx) => {
+        const accountingInstalled = queryRows<{ installed: boolean }>(await tx.execute(sql`
+          SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+        `))[0]?.installed === true;
+        if (!accountingInstalled) {
+          throw new Error(
+            "Reservation inventory accounting migration is required before accepting new reservations.",
+          );
+        }
+        const inventoryResult = await tx.execute(sql`
+          UPDATE properties
+          SET available_slots = CASE WHEN total_slots > 0
+                THEN available_slots - ${units} ELSE available_slots END,
+              funding_progress = CASE WHEN total_slots > 0
+                THEN round(
+                  (total_slots - (available_slots - ${units})::numeric) /
+                  total_slots::numeric * 100
+                )::integer
+                ELSE funding_progress END,
+              reserved_units = reserved_units + ${units}
+          WHERE id = ${reservation.propertyId}
+            AND (
+              (total_slots > 0 AND available_slots >= ${units})
+              OR
+              (COALESCE(total_slots, 0) <= 0
+                AND total_units - reserved_units - sold_units >= ${units})
+            )
+          RETURNING id
+        `);
+        const inventoryRows = (inventoryResult as { rows?: unknown[] } | null)?.rows;
+        if (!inventoryRows?.length) throw new ReservationInventoryUnavailableError();
+
+        const [newReservation] = await tx
+          .insert(investmentReservations)
+          .values({
+            ...withFunnel,
+          })
+          .returning();
+        await tx.insert(investmentReservationInventory).values({
+          reservationId: newReservation.id,
+          propertyId: reservation.propertyId,
+          reservedUnits: String(units),
+        });
+        return newReservation;
+      });
+    }
+
     const [newReservation] = await db
       .insert(investmentReservations)
       .values(withFunnel)
@@ -763,63 +864,122 @@ export class DatabaseStorage implements IStorage {
     
     let totalCancelled = 0;
     let totalUnitsReleased = 0;
-    
+
     for (const reservation of expiredReservations) {
-      // Check if reservation has a pending payment submission - if so, protect it from expiration
-      const pendingSubmissions = await db
-        .select()
-        .from(paymentSubmissions)
-        .where(
-          and(
-            eq(paymentSubmissions.reservationId, reservation.id),
-            eq(paymentSubmissions.status, 'pending_admin_review')
-          )
-        );
-      
-      if (pendingSubmissions.length > 0) {
+      const outcome = await db.transaction(async (tx) => {
+        const holding = queryRows<{
+          id: number;
+          propertyId: number;
+          units: string;
+          email: string;
+          reservedUnits: number;
+        }>(await tx.execute(sql`
+          SELECT r.id, r.property_id AS "propertyId",
+            r.units::numeric::text AS units, r.email,
+            p.reserved_units AS "reservedUnits"
+          FROM investment_reservations r
+          JOIN properties p ON p.id = r.property_id
+          WHERE r.id = ${reservation.id}
+            AND r.status = 'reserved'
+            AND r.expires_at IS NOT NULL
+            AND r.expires_at < ${now}
+          FOR UPDATE OF r, p
+        `))[0];
+        if (!holding) return { state: "changed" as const };
+
+        const pending = queryRows<{ id: number }>(await tx.execute(sql`
+          SELECT id FROM payment_submissions
+          WHERE reservation_id = ${reservation.id}
+            AND status = 'pending_admin_review'
+          LIMIT 1
+          FOR UPDATE
+        `))[0];
+        if (pending) return { state: "pending" as const };
+
+        const units = Number(holding.units);
+        const accountingInstalled = queryRows<{ installed: boolean }>(await tx.execute(sql`
+          SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+        `))[0]?.installed === true;
+        let reservedRelease = units;
+        if (accountingInstalled) {
+          const ownAccount = queryRows<{ units: string }>(await tx.execute(sql`
+            SELECT reserved_units::numeric::text AS units
+            FROM investment_reservation_inventory
+            WHERE reservation_id = ${reservation.id}
+          `))[0];
+          const ownReservedUnits = Number(ownAccount?.units ?? 0);
+          if (ownReservedUnits > 0) {
+            reservedRelease = ownReservedUnits === units ? ownReservedUnits : 0;
+          } else {
+            const legacyReservations = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT r.units::numeric::text AS units
+              FROM investment_reservations r
+              WHERE r.property_id = ${holding.propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND NOT EXISTS (
+                  SELECT 1 FROM investment_reservation_inventory i
+                  WHERE i.reservation_id = r.id AND i.reserved_units > 0
+                )
+              ORDER BY r.id
+              FOR UPDATE OF r
+            `));
+            const tracked = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT COALESCE(sum(i.reserved_units), 0)::numeric::text AS units
+              FROM investment_reservation_inventory i
+              JOIN investment_reservations r ON r.id = i.reservation_id
+              WHERE r.property_id = ${holding.propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND i.reserved_units > 0
+            `))[0];
+            const legacyDemand = legacyReservations.reduce((sum, row) => sum + Number(row.units), 0);
+            const untrackedCounter = Number(holding.reservedUnits) - Number(tracked?.units ?? 0);
+            reservedRelease = untrackedCounter >= legacyDemand ? units : 0;
+          }
+        }
+
+        const [updated] = await tx
+          .update(investmentReservations)
+          .set({ status: "expired", funnelStage: null, updatedAt: now })
+          .where(and(
+            eq(investmentReservations.id, reservation.id),
+            eq(investmentReservations.status, "reserved"),
+            sql`${investmentReservations.expiresAt} IS NOT NULL`,
+            sql`${investmentReservations.expiresAt} < ${now}`,
+          ))
+          .returning({ id: investmentReservations.id });
+        if (!updated) return { state: "changed" as const };
+
+        if (units > 0) {
+          await tx.execute(sql`
+            UPDATE properties
+            SET available_slots = available_slots + ${units},
+                reserved_units = GREATEST(0, reserved_units - ${reservedRelease})
+            WHERE id = ${holding.propertyId}
+          `);
+        }
+        if (accountingInstalled) {
+          await tx.execute(sql`
+            UPDATE investment_reservation_inventory
+            SET reserved_units = 0, release_pending = false, updated_at = now()
+            WHERE reservation_id = ${reservation.id}
+          `);
+        }
+        return { state: "expired" as const, units, email: holding.email };
+      });
+
+      if (outcome.state === "pending") {
         console.log(`[CLEANUP] Skipped reservation ${reservation.id} - has pending payment proof awaiting admin review`);
         continue;
       }
-
-      const units = typeof reservation.units === 'string' 
-        ? parseFloat(reservation.units) 
-        : Number(reservation.units) || 0;
-      
-      const [updated] = await db
-        .update(investmentReservations)
-        // status='expired' means the reservation has left the funnel — null
-        // out funnel_stage so analytics don't keep counting it.
-        .set({ status: 'expired', funnelStage: null })
-        .where(
-          and(
-            eq(investmentReservations.id, reservation.id),
-            eq(investmentReservations.status, 'reserved'),
-            sql`${investmentReservations.expiresAt} IS NOT NULL`,
-            sql`${investmentReservations.expiresAt} < ${now}`
-          )
-        )
-        .returning();
-      
-      if (!updated) {
+      if (outcome.state === "changed") {
         console.log(`[CLEANUP] Skipped reservation ${reservation.id} - status changed during cleanup`);
         continue;
       }
-      
       totalCancelled++;
-      
-      if (units > 0 && reservation.propertyId) {
-        await db
-          .update(properties)
-          .set({
-            availableSlots: sql`${properties.availableSlots} + ${units}`,
-            reservedUnits: sql`GREATEST(0, ${properties.reservedUnits} - ${units})`
-          })
-          .where(eq(properties.id, reservation.propertyId));
-        
-        totalUnitsReleased += units;
-      }
-      
-      console.log(`[CLEANUP] Cancelled expired reservation ${reservation.id} (${reservation.email}), released ${units} units`);
+      totalUnitsReleased += outcome.units;
+      console.log(
+        `[CLEANUP] Cancelled expired reservation ${reservation.id} (${outcome.email}), released ${outcome.units} units`,
+      );
     }
     
     console.log(`[CLEANUP] Total: ${totalCancelled} reservations cancelled, ${totalUnitsReleased} units released`);
@@ -851,6 +1011,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    if (updates.status === "cancelled") {
+      return db.transaction(async (tx) => {
+        const existing = queryRows<{ id: number; propertyId: number; status: string }>(await tx.execute(sql`
+          SELECT id, property_id AS "propertyId", status
+          FROM investment_reservations
+          WHERE id = ${id}
+          FOR UPDATE
+        `))[0];
+        if (!existing) return undefined as unknown as InvestmentReservation;
+        if (existing.status === "cancelled") {
+          throw new Error("This reservation has already been cancelled.");
+        }
+        if (existing.status === "converted_to_investment") {
+          throw new ConfirmedInvestmentCancellationRequiredError();
+        }
+        const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+          ...updates,
+          updatedAt: new Date(),
+        };
+        if (updates.status != null && updates.funnelStage === undefined) {
+          merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+        }
+        const [updated] = await tx
+          .update(investmentReservations)
+          .set(merged)
+          .where(eq(investmentReservations.id, id))
+          .returning();
+
+        if (existing.status === "reserved" || existing.status === "payment_pending") {
+          const accountingSchema = queryRows<{ installed: boolean }>(await tx.execute(sql`
+            SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+          `))[0]?.installed;
+          if (accountingSchema) {
+            await tx.execute(sql`
+              INSERT INTO investment_reservation_inventory
+                (reservation_id, property_id, reserved_units, release_pending, updated_at)
+              VALUES (${id}, ${existing.propertyId}, 0, true, now())
+              ON CONFLICT (reservation_id) DO UPDATE
+              SET release_pending = true, updated_at = now()
+            `);
+          }
+        }
+        return updated;
+      });
+    }
+
     // If the caller changes status without explicitly setting funnelStage,
     // re-derive it so funnel analytics stay correct in real time. Callers
     // can still pass funnelStage explicitly to override this default.
@@ -925,6 +1131,88 @@ export class DatabaseStorage implements IStorage {
     // Get the property to determine which system to use
     const property = await this.getProperty(propertyId);
     if (!property) return;
+
+    if (reservedDelta < 0 && soldDelta === 0) {
+      const accountingSchema = queryRows<{ installed: boolean }>(await db.execute(sql`
+        SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+      `))[0]?.installed;
+      if (accountingSchema) {
+        const unitsToRelease = Math.abs(reservedDelta);
+        const released = await db.transaction(async (tx) => {
+          const release = queryRows<{
+            reservationId: number;
+            units: string;
+            reservedUnits: string;
+          }>(await tx.execute(sql`
+            SELECT r.id AS "reservationId", r.units::numeric::text AS units,
+              i.reserved_units::numeric::text AS "reservedUnits"
+            FROM investment_reservation_inventory i
+            JOIN investment_reservations r ON r.id = i.reservation_id
+            WHERE i.property_id = ${propertyId}
+              AND i.release_pending = true
+              AND r.status = 'cancelled'
+              AND r.units::numeric = ${unitsToRelease}::numeric
+            ORDER BY i.updated_at, r.id
+            LIMIT 1
+            FOR UPDATE OF i, r
+          `))[0];
+          if (!release) return false;
+
+          const currentProperty = queryRows<{ reservedUnits: number }>(await tx.execute(sql`
+            SELECT reserved_units AS "reservedUnits"
+            FROM properties WHERE id = ${propertyId} FOR UPDATE
+          `))[0];
+          if (!currentProperty) return true;
+
+          let reservedRelease = 0;
+          const markedUnits = Number(release.reservedUnits);
+          if (markedUnits > 0) {
+            if (markedUnits === unitsToRelease) reservedRelease = markedUnits;
+          } else {
+            const legacyReservations = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT r.units::numeric::text AS units
+              FROM investment_reservations r
+              WHERE r.property_id = ${propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND NOT EXISTS (
+                  SELECT 1 FROM investment_reservation_inventory i
+                  WHERE i.reservation_id = r.id AND i.reserved_units > 0
+                )
+              ORDER BY r.id
+              FOR UPDATE OF r
+            `));
+            const tracked = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT COALESCE(sum(i.reserved_units), 0)::numeric::text AS units
+              FROM investment_reservation_inventory i
+              JOIN investment_reservations r ON r.id = i.reservation_id
+              WHERE r.property_id = ${propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND i.reserved_units > 0
+            `))[0];
+            const legacyDemand = legacyReservations.reduce((sum, row) => sum + Number(row.units), 0);
+            const untrackedCounter = Number(currentProperty.reservedUnits) - Number(tracked?.units ?? 0);
+            if (untrackedCounter >= legacyDemand + unitsToRelease) {
+              reservedRelease = unitsToRelease;
+            }
+          }
+
+          await tx.execute(sql`
+            UPDATE properties
+            SET reserved_units = GREATEST(0, reserved_units - ${reservedRelease}),
+                available_slots = CASE WHEN total_slots > 0
+                  THEN available_slots + ${unitsToRelease} ELSE available_slots END
+            WHERE id = ${propertyId}
+          `);
+          await tx.execute(sql`
+            UPDATE investment_reservation_inventory
+            SET reserved_units = 0, release_pending = false, updated_at = now()
+            WHERE reservation_id = ${release.reservationId}
+          `);
+          return true;
+        });
+        if (released) return;
+      }
+    }
 
     // Calculate total delta for slots system
     const totalDelta = reservedDelta + soldDelta;

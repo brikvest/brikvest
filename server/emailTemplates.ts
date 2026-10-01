@@ -776,6 +776,64 @@ const BRAND_WRAP = (inner: string) => `
   </div>
 `;
 
+export function legalDocumentsReadyEmailTemplate({
+  fullName,
+  dashboardUrl,
+}: {
+  fullName: string;
+  dashboardUrl: string;
+}) {
+  const url = new URL(dashboardUrl);
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("Legal document email requires a safe dashboard URL");
+  }
+  const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[character]!));
+  const safeUrl = escape(dashboardUrl);
+  return {
+    subject: "Your Brikvest legal documents are ready",
+    html: BRAND_WRAP(`
+      <h2 style="color: #222; text-align: center;">Your Legal Documents Are Ready</h2>
+      <p style="font-size: 16px; color: #444;">Hello ${escape(fullName)},</p>
+      <p style="font-size: 16px; color: #444; line-height: 1.7;">
+        Your legal documents for your <strong>SD118 holding</strong> are ready.
+        Please sign in to your Brikvest account to review and sign them securely.
+      </p>
+      <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+        <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Documents to Review and Sign</h3>
+        <ul style="margin: 0; padding-left: 20px; font-size: 15px; color: #1e3a8a; line-height: 1.8;">
+          <li>Deed of Assignment</li>
+          <li>Transfer and Exit Rights Agreement</li>
+        </ul>
+      </div>
+      <h3 style="color: #222; font-size: 18px;">What Happens Next?</h3>
+      <ol style="padding-left: 20px; font-size: 15px; color: #444; line-height: 1.8;">
+        <li><strong>Review:</strong> open and read both documents in your dashboard.</li>
+        <li><strong>Sign:</strong> confirm your consent, re-enter your Brikvest password, and add a fresh drawn or typed signature.</li>
+        <li><strong>Keep your copies:</strong> download your investor-signed PDFs once signing is complete.</li>
+      </ol>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${safeUrl}" style="background: #2563eb; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+          Review &amp; Sign Your Documents
+        </a>
+      </div>
+      <p style="font-size: 14px; color: #666; line-height: 1.7;">
+        This secure link takes you to the relevant holding in your dashboard.
+        You must sign in to access your documents; they are not attached to this email.
+        Never send your password or signature by email.
+      </p>
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
+        <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.7;">
+          <strong>Important:</strong> Your signature records investor signing only, not full legal execution.
+          Company signatures, witnessing, sealing and any notarial execution are handled separately.
+        </p>
+      </div>
+      <p style="font-size: 16px; color: #444;">Thank you for choosing Brikvest.</p>
+    `),
+  };
+}
+
 export function developerOnboardingSubmittedEmailTemplate({ firstName, companyName }: { firstName: string; companyName: string }) {
   return {
     subject: "We've received your submission – Brikvest Developer Onboarding",

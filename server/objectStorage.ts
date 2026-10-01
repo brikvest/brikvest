@@ -37,6 +37,20 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
+function isLegalObjectNamespace(rawPath: string): boolean {
+  let decoded = rawPath;
+  try {
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    }
+  } catch {
+    return true;
+  }
+  return decoded.split("/").some((segment) => /^legal(?:[-_]|$)/i.test(segment));
+}
+
 // The object storage service is used to interact with the object storage service.
 export class ObjectStorageService {
   constructor() {}
@@ -75,6 +89,9 @@ export class ObjectStorageService {
 
   // Search for a public object from the search paths.
   async searchPublicObject(filePath: string): Promise<File | null> {
+    if (isLegalObjectNamespace(filePath)) {
+      throw new ObjectNotFoundError();
+    }
     for (const searchPath of this.getPublicObjectSearchPaths()) {
       const fullPath = `${searchPath}/${filePath}`;
 
@@ -141,6 +158,9 @@ export class ObjectStorageService {
     }
 
     const entityId = parts.slice(1).join("/");
+    if (isLegalObjectNamespace(entityId)) {
+      throw new ObjectNotFoundError();
+    }
     let entityDir = this.getPrivateObjectDir();
     if (!entityDir.endsWith("/")) {
       entityDir = `${entityDir}/`;

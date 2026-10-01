@@ -26,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-cost-breakdown";
 import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
+import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
 
 // Helper function to get currency symbol
 const getCurrencySymbol = (currency: string) => {
@@ -314,6 +315,8 @@ function AdminInvestmentsTab({
   const [editUploadingEvidence, setEditUploadingEvidence] = useState(false);
   const [editNotes, setEditNotes] = useState("");
   const [editingSubmitting, setEditingSubmitting] = useState(false);
+  const [confirmingReservation, setConfirmingReservation] = useState<{ reservation: InvestmentReservation; action: "confirm" | "reinstate" } | null>(null);
+  const [fullPaymentReference, setFullPaymentReference] = useState("");
 
   const searchUserMutation = useMutation({
     mutationFn: async (email: string) => {
@@ -428,18 +431,27 @@ function AdminInvestmentsTab({
   });
 
   const confirmInvestmentMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return await authenticatedRequest(`/api/admin/investments/${id}/confirm`, {
+    mutationFn: async ({ reservation, reference }: { reservation: InvestmentReservation; reference: string }) => {
+      return await authenticatedRequest(`/api/admin/investments/${reservation.id}/confirm`, {
         method: "PUT",
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          fullPaymentConfirmation: {
+            amount: String(reservation.amount),
+            currency: "NGN",
+            reference,
+            confirmed: true,
+          },
+        }),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/legal"] });
+      setConfirmingReservation(null);
       toast({
         title: "Investment confirmed",
-        description: "Investment has been confirmed successfully",
+        description: "The full payment confirmation was recorded and the investment confirmed.",
       });
     },
     onError: (error: any) => {
@@ -452,15 +464,24 @@ function AdminInvestmentsTab({
   });
 
   const reinstateInvestmentMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return await authenticatedRequest(`/api/admin/investments/${id}/reinstate`, {
+    mutationFn: async ({ reservation, reference }: { reservation: InvestmentReservation; reference: string }) => {
+      return await authenticatedRequest(`/api/admin/investments/${reservation.id}/reinstate`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          fullPaymentConfirmation: {
+            amount: String(reservation.amount),
+            currency: "NGN",
+            reference,
+            confirmed: true,
+          },
+        }),
       });
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/reservations/all"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/legal"] });
+      setConfirmingReservation(null);
       toast({
         title: "Investment reinstated",
         description: data?.certificateNumber
@@ -1114,6 +1135,17 @@ function AdminInvestmentsTab({
                                 {reservation.status === "reserved" && (
                                   <>
                                     <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setConfirmingReservation({ reservation, action: "confirm" });
+                                          setFullPaymentReference(reservation.paymentReference || "");
+                                        }}
+                                        data-testid={`menu-confirm-${reservation.id}`}
+                                      >
+                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                        Confirm full payment
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                       onClick={() => handleOpenEditReservation(reservation)}
                                       data-testid={`menu-edit-${reservation.id}`}
@@ -1141,7 +1173,10 @@ function AdminInvestmentsTab({
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
-                                      onClick={() => reinstateInvestmentMutation.mutate(reservation.id)}
+                                      onClick={() => {
+                                        setConfirmingReservation({ reservation, action: "reinstate" });
+                                        setFullPaymentReference(reservation.paymentReference || "");
+                                      }}
                                       disabled={reinstateInvestmentMutation.isPending}
                                       className="text-emerald-600 focus:text-emerald-600"
                                       data-testid={`menu-reinstate-${reservation.id}`}
@@ -1330,6 +1365,55 @@ function AdminInvestmentsTab({
                   data-testid="button-save-edit"
                 >
                   {editUploadingEvidence ? "Uploading..." : editingSubmitting ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!confirmingReservation} onOpenChange={(open) => {
+        if (!open && !confirmInvestmentMutation.isPending && !reinstateInvestmentMutation.isPending) setConfirmingReservation(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmingReservation?.action === "reinstate" ? "Reinstate and confirm full payment" : "Confirm full payment"}</DialogTitle>
+            <DialogDescription>
+              This is an audited payment confirmation. Verify the complete amount and enter the payment reference. Legal document generation is triggered only after confirmation succeeds.
+            </DialogDescription>
+          </DialogHeader>
+          {confirmingReservation && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+                <p><span className="font-medium">Investor:</span> {confirmingReservation.reservation.fullName} ({confirmingReservation.reservation.email})</p>
+                <p className="mt-1"><span className="font-medium">Full amount:</span> ₦{Number(confirmingReservation.reservation.amount).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} NGN</p>
+                <p className="mt-1"><span className="font-medium">Units:</span> {confirmingReservation.reservation.units}</p>
+                <p className="mt-1"><span className="font-medium">Payment method:</span> {confirmingReservation.reservation.paymentMethod || "Not recorded"}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="full-payment-reference">Verified payment reference</Label>
+                <Input
+                  id="full-payment-reference"
+                  value={fullPaymentReference}
+                  onChange={(event) => setFullPaymentReference(event.target.value)}
+                  placeholder="Enter the bank or transaction reference"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-slate-500">The confirmation records the full reservation amount in NGN. Do not confirm unless payment for the full amount has been verified.</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfirmingReservation(null)}>Cancel</Button>
+                <Button
+                  disabled={!fullPaymentReference.trim() || confirmInvestmentMutation.isPending || reinstateInvestmentMutation.isPending}
+                  onClick={() => {
+                    if (!confirmingReservation) return;
+                    const values = { reservation: confirmingReservation.reservation, reference: fullPaymentReference.trim() };
+                    if (confirmingReservation.action === "reinstate") reinstateInvestmentMutation.mutate(values);
+                    else confirmInvestmentMutation.mutate(values);
+                  }}
+                >
+                  {(confirmInvestmentMutation.isPending || reinstateInvestmentMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {confirmingReservation.action === "reinstate" ? "Reinstate & confirm" : "Confirm payment"}
                 </Button>
               </div>
             </div>
@@ -3897,6 +3981,17 @@ export default function AdminDashboard() {
                 Payment Reviews
               </Button>
               <Button
+                variant={selectedTab === "legal-documents" ? "secondary" : "ghost"}
+                className="w-full justify-start mb-1"
+                onClick={() => {
+                  setSelectedTab("legal-documents");
+                  setIsMenuOpen(false);
+                }}
+              >
+                <FileText className="mr-3 h-4 w-4" />
+                Legal Documents
+              </Button>
+              <Button
                 variant={selectedTab === "user-portfolio" ? "secondary" : "ghost"}
                 className="w-full justify-start mb-1"
                 onClick={() => setSelectedTab("user-portfolio")}
@@ -5234,6 +5329,13 @@ export default function AdminDashboard() {
                 getCurrencySymbol={getCurrencySymbol}
                 queryClient={queryClient}
                 toast={toast}
+              />
+            )}
+
+            {selectedTab === "legal-documents" && (
+              <AdminLegalManagement
+                authenticatedRequest={authenticatedRequest}
+                properties={properties as Property[]}
               />
             )}
 

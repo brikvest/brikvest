@@ -238,6 +238,22 @@ export const investmentReservations = pgTable("investment_reservations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Optional per-reservation provenance for reservations whose contribution to
+// properties.reserved_units was atomically recorded. Kept separate from the
+// core reservation row so older installations can still serve unrelated APIs
+// until the additive accounting migration is installed.
+export const investmentReservationInventory = pgTable("investment_reservation_inventory", {
+  reservationId: integer("reservation_id")
+    .primaryKey()
+    .references(() => investmentReservations.id, { onDelete: "restrict", onUpdate: "restrict" }),
+  propertyId: integer("property_id")
+    .notNull()
+    .references(() => properties.id, { onDelete: "restrict", onUpdate: "restrict" }),
+  reservedUnits: decimal("reserved_units", { precision: 15, scale: 2 }).notNull().default("0"),
+  releasePending: boolean("release_pending").notNull().default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Payment records for investment reservations (legacy - admin recorded)
 export const investmentPayments = pgTable("investment_payments", {
   id: serial("id").primaryKey(),
@@ -1351,3 +1367,13 @@ export type InsertContractorBudgetCategory = z.infer<typeof insertContractorBudg
 export type ContractorExpense = typeof contractorExpenses.$inferSelect;
 export type InsertContractorExpense = z.infer<typeof insertContractorExpenseSchema>;
 export type ContractorRegister = z.infer<typeof contractorRegisterSchema>;
+
+export {
+  legalPropertyBindings,
+  legalTemplates,
+  legalDocumentPairs,
+  legalDocuments,
+  legalJobs,
+  legalAuditEvents,
+} from "./legal-schema";
+export { localLegalSigningOperations } from "./legal-local-signing-schema";

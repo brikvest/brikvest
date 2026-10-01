@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { PropertyBrowsingContent } from "@/pages/home";
 import { MarketInsightsContent } from "@/pages/insights";
 import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type DashboardSection } from "@/lib/investorNavigation";
+import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -463,6 +464,7 @@ export default function Portfolio() {
   const { toast } = useToast();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pendingPaymentReservationId, setPendingPaymentReservationId] = useState<number | null>(null);
+  const [legalFocusHoldingId, setLegalFocusHoldingId] = useState<number | null>(null);
   
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -480,6 +482,7 @@ export default function Portfolio() {
       }
     }
   }, [searchString]);
+
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [kycFormData, setKycFormData] = useState({
     fullName: '',
@@ -534,6 +537,22 @@ export default function Portfolio() {
     queryKey: ["/api/user/reservations"],
     enabled: isAuthenticated,
   });
+
+  useEffect(() => {
+    const requestedHolding = new URLSearchParams(searchString).get("holding");
+    const holdingId = requestedHolding ? Number(requestedHolding) : NaN;
+    if (!Number.isInteger(holdingId) || holdingId <= 0) return;
+    const target = reservations.find((reservation) => reservation.id === holdingId)
+      || (reservations.filter((reservation) => reservation.propertyId === holdingId).length === 1
+        ? reservations.find((reservation) => reservation.propertyId === holdingId)
+        : undefined);
+    if (!target) return;
+    setLegalFocusHoldingId(holdingId);
+    const timer = window.setTimeout(() => {
+      document.getElementById(`holding-${target.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [searchString, reservations]);
 
   // Fetch user's payment submissions to show status and rejection reasons
   const { data: paymentSubmissions = [] } = useQuery<any[]>({
@@ -1640,6 +1659,10 @@ export default function Portfolio() {
                                   <ArrowRight className="h-4 w-4 ml-1" />
                                 </Button>
                               </div>
+                              <InvestorLegalDocuments
+                                reservationId={reservation.id}
+                                focus={legalFocusHoldingId === reservation.id || legalFocusHoldingId === reservation.propertyId}
+                              />
                             </div>
                           </div>
                         </div>

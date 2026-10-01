@@ -1,0 +1,195 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  assessDocxFontReadiness,
+  readDocxFontRequirements,
+  type LegalFontReadiness,
+} from "../server/legal/font-validation";
+export type { LegalFontReadiness } from "../server/legal/font-validation";
+
+export type LegalReadinessCheck = {
+  id: string;
+  ready: boolean;
+  detail: string;
+};
+
+export type LegalReadiness = {
+  ready: boolean;
+  checks: LegalReadinessCheck[];
+  missingEnvironmentVariables: string[];
+  fonts: LegalFontReadiness[];
+};
+
+type ReadinessEnvironment = Record<string, string | undefined>;
+type Execute = (command: string, args: string[]) => string;
+
+const SECRET_NAMES = [
+  "DATABASE_URL",
+  "PRIVATE_OBJECT_DIR",
+  "SESSION_SECRET",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "APP_BASE_URL",
+] as const;
+const TEMPLATE_ASSET_DIRECTORY = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../server/legal/template-assets",
+);
+const TEMPLATE_FILENAMES = [
+  "deed_of_assignment_v1.docx",
+  "transfer_exit_rights_v1.docx",
+];
+
+function execute(command: string, args: string[]): string {
+  return execFileSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 10_000,
+  }).trim();
+}
+
+function getFontReadiness(
+  run: Execute,
+): { fonts: LegalFontReadiness[]; available: boolean; detail: string } {
+  let requirements: ReturnType<typeof readDocxFontRequirements>;
+  try {
+    requirements = readDocxFontRequirements(
+      TEMPLATE_FILENAMES.map((filename) =>
+        readFileSync(path.join(TEMPLATE_ASSET_DIRECTORY, filename)),
+      ),
+    );
+  } catch {
+    return {
+      fonts: [],
+      available: false,
+      detail: "Pinned legal template font metadata is unavailable.",
+    };
+  }
+  const fonts = assessDocxFontReadiness(requirements, (family) => {
+    try {
+      return run("fc-match", ["-f", "%{family}", family]);
+    } catch {
+      // Missing fontconfig is reported as an unavailable exact system match.
+      return "";
+    }
+  });
+  const detail = fonts.length
+    ? fonts
+        .map((font) =>
+          `${font.family}: ${font.matchedFamily}` +
+          (font.embeddedInTemplate ? " (embedded in pinned DOCX)" : ""),
+        )
+        .join("; ")
+    : "No explicit font families were found in the pinned legal templates.";
+  return {
+    fonts,
+    available: fonts.length > 0 && fonts.every((font) => font.ready),
+    detail,
+  };
+}
+
+/**
+ * Readiness is deliberately read-only: it only inspects whether configuration
+ * is present and queries local converter/font executables. It never connects
+ * to PostgreSQL, creates files, or returns secret values.
+ */
+export function getLegalReadiness(
+  env: ReadinessEnvironment = process.env,
+  run: Execute = execute,
+): LegalReadiness {
+  const missingEnvironmentVariables: string[] = SECRET_NAMES.filter(
+    (name) => !env[name]?.trim(),
+  );
+  let libreOfficeVersion = "";
+  try {
+    libreOfficeVersion = run("libreoffice", ["--version"]);
+  } catch {
+    // The readiness result reports a simple unavailable state, never an
+    // exception message that could include unrelated process configuration.
+  }
+
+  const fontReadiness = getFontReadiness(run);
+
+  const checks: LegalReadinessCheck[] = [
+    {
+      id: "database-configuration",
+      ready: Boolean(env.DATABASE_URL?.trim()),
+      detail: env.DATABASE_URL?.trim()
+        ? "Database connection is configured; no connection was attempted."
+        : "DATABASE_URL is not configured.",
+    },
+    {
+      id: "fractional-unit-inventory-accounting",
+      ready: false,
+      detail:
+        "BLOCKED: property total_units, reserved_units, and sold_units are integer counters. Fractional-unit approvals fail closed; only whole-unit holdings can be allocated until a reviewed fractional-inventory accounting design is implemented.",
+    },
+    {
+      id: "private-object-storage",
+      ready: Boolean(env.PRIVATE_OBJECT_DIR?.trim()),
+      detail: env.PRIVATE_OBJECT_DIR?.trim()
+        ? "Private object storage is configured; no object was read or written."
+        : "PRIVATE_OBJECT_DIR is not configured.",
+    },
+    {
+      id: "session-authentication",
+      ready: Boolean(env.SESSION_SECRET?.trim()),
+      detail: env.SESSION_SECRET?.trim()
+        ? "The built-in authenticated-session secret is configured."
+        : "SESSION_SECRET is not configured.",
+    },
+    {
+      id: "email",
+      ready: Boolean(env.SMTP_USER?.trim() && env.SMTP_PASS?.trim()),
+      detail:
+        env.SMTP_USER?.trim() && env.SMTP_PASS?.trim()
+          ? "SMTP credentials are configured; no email was sent."
+          : "SMTP_USER and SMTP_PASS are both required.",
+    },
+    {
+      id: "legal-job-scheduler-authentication",
+      ready: true,
+      detail: env.LEGAL_DISPATCH_SECRET?.trim()
+        ? "Optional scheduler bearer authentication is configured; admin-authenticated dispatch is also available."
+        : "Optional LEGAL_DISPATCH_SECRET is not configured; the scheduler bearer route is unavailable, but admin-authenticated dispatch remains available.",
+    },
+    {
+      id: "application-base-url",
+      ready: Boolean(env.APP_BASE_URL?.trim()),
+      detail: env.APP_BASE_URL?.trim()
+        ? "Application origin is configured for email deep links; local signing does not use a provider callback."
+        : "APP_BASE_URL is not configured.",
+    },
+    {
+      id: "libreoffice",
+      ready: Boolean(libreOfficeVersion),
+      detail: libreOfficeVersion
+        ? `Converter available: ${libreOfficeVersion}`
+        : "LibreOffice executable is unavailable.",
+    },
+    {
+      id: "document-fonts",
+      ready: fontReadiness.available,
+      detail: fontReadiness.detail,
+    },
+  ];
+
+  return {
+    ready: checks.every((check) => check.ready),
+    checks,
+    missingEnvironmentVariables,
+    fonts: fontReadiness.fonts,
+  };
+}
+
+function main(): void {
+  const readiness = getLegalReadiness();
+  // Only identifiers, booleans, and explicitly safe operational detail are
+  // emitted. Never output environment values, credentials, or connection URLs.
+  console.log(JSON.stringify(readiness, null, 2));
+  if (!readiness.ready) process.exitCode = 1;
+}
+
+if (process.argv[1]?.endsWith("legal-readiness.ts")) main();

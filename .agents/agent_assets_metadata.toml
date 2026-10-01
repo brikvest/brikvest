@@ -4,7 +4,7 @@ generated = []
 [[outputs]]
 id = "7cnNMs83j6_ltlzTWCr6D"
 uri = "file://email-preview.html"
-type = "text"
+type = "html"
 title = "Corrected Brikvest P2P email preview"
 description = "Self-contained preview using the current Brikvest logo, no tagline, and the corrected Asking Price label."
 logical_id = "28efcf87-85c4-4098-8e0e-7b3b429aff6c"
@@ -28,3 +28,17 @@ mtime_ms = 1788911930213
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/a7806663-58ce-4c61-a057-22b932eca0f3/c7a12df9-4b8e-4b57-baa0-3af7874bb115"
 storage_version_token = "1788911936573505"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "AkiRTXfiPApI9hSaTcQPv"
+uri = "file://client/public/email-previews/legal-documents-ready.html"
+type = "html"
+title = "Brikvest Documents-Ready Email Preview"
+description = "Branded email preview with sample investor details: Brikvest logo, document list, signing steps, secure review/sign button and standard footer. No email was sent."
+logical_id = "6b38b010-7af6-4c9e-b2d7-63fb8d6f9cc7"
+content_hash = "sha256:0e8079114ed541e51b65c201dfff774efd903db6ca4faee5b2bda0c49bc8cfb5"
+size = 233002
+mtime_ms = 1790867554215
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/6b38b010-7af6-4c9e-b2d7-63fb8d6f9cc7/aac3c06c-0af5-4240-b8e7-9d4f6e602eb9"
+storage_version_token = "1790867667437856"
+content_type = "text/html"
