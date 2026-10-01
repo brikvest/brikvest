@@ -7,3 +7,5 @@ vite.config.ts.*
 .env
 .env.*
 .agents/outputs/referral-removal-prechange-snapshot.txt
+test-results/
+playwright-report/
