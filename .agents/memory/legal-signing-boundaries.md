@@ -3,9 +3,9 @@ name: Legal signing boundaries
 description: Confirmed scope and legal-authority limits for investor legal-document signing
 ---
 
-The confirmed scope is only Lilycrest Garden Estate Plot SD118, with an administrator explicitly confirming its property identity and 5 square metres per unit. Extending the templates to another property requires a new scope decision, not an inferred name match.
+Every property is eligible for future confirmed purchases, with a fixed server-side calculation of units × 5 square metres and no area confirmation step. Each property must receive its own supplied legal template pair; bundled SD118 clauses must never be generalized or reused for another property.
 
-**Why:** The supplied legal forms describe a particular plot; similar property names are not evidence that those clauses apply elsewhere.
+**Why:** The user explicitly extended eligibility to every property while requiring property-specific supplied forms. Similar property names are not evidence that legal clauses apply elsewhere.
 
 Signing must happen inside Brikvest, without DocuSign or any other external signing service. Investors actively create a new drawn or typed signature and explicitly confirm identity and consent; never reuse a saved KYC signature image.
 
@@ -21,4 +21,4 @@ Use LilyCrest Garden Estate as the outward-facing estate name outside the deed a
 
 **Why:** The user explicitly requested a display-name change, with an exception for the deed and transfer rights agreement; this is not permission to rewrite legal terms or migrate existing legal records.
 
-**How to apply:** Apply the estate name to emails and validation messages without changing agreement templates, retained signed evidence, or exact-ID property binding rules.
+**How to apply:** Preserve agreement clauses and retained evidence. Legacy template ownership may be inferred only from unambiguous exact binding or pinned provenance, never a property name; ambiguous versions require an explicit administrator destination choice.

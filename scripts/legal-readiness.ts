@@ -1,10 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
-  assessDocxFontReadiness,
-  readDocxFontRequirements,
+  assertDocxFontsAvailable,
   type LegalFontReadiness,
 } from "../server/legal/font-validation";
 export type { LegalFontReadiness } from "../server/legal/font-validation";
@@ -33,14 +29,6 @@ const SECRET_NAMES = [
   "SMTP_PASS",
   "APP_BASE_URL",
 ] as const;
-const TEMPLATE_ASSET_DIRECTORY = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../server/legal/template-assets",
-);
-const TEMPLATE_FILENAMES = [
-  "deed_of_assignment_v1.docx",
-  "transfer_exit_rights_v1.docx",
-];
 
 function execute(command: string, args: string[]): string {
   return execFileSync(command, args, {
@@ -53,40 +41,21 @@ function execute(command: string, args: string[]): string {
 function getFontReadiness(
   run: Execute,
 ): { fonts: LegalFontReadiness[]; available: boolean; detail: string } {
-  let requirements: ReturnType<typeof readDocxFontRequirements>;
+  let fontconfigAvailable = false;
   try {
-    requirements = readDocxFontRequirements(
-      TEMPLATE_FILENAMES.map((filename) =>
-        readFileSync(path.join(TEMPLATE_ASSET_DIRECTORY, filename)),
-      ),
-    );
+    fontconfigAvailable = Boolean(run("fc-match", ["--version"]).trim());
   } catch {
-    return {
-      fonts: [],
-      available: false,
-      detail: "Pinned legal template font metadata is unavailable.",
-    };
+    // Infrastructure presence only; actual fonts belong to each uploaded DOCX.
   }
-  const fonts = assessDocxFontReadiness(requirements, (family) => {
-    try {
-      return run("fc-match", ["-f", "%{family}", family]);
-    } catch {
-      // Missing fontconfig is reported as an unavailable exact system match.
-      return "";
-    }
-  });
-  const detail = fonts.length
-    ? fonts
-        .map((font) =>
-          `${font.family}: ${font.matchedFamily}` +
-          (font.embeddedInTemplate ? " (embedded in pinned DOCX)" : ""),
-        )
-        .join("; ")
-    : "No explicit font families were found in the pinned legal templates.";
+  const helperAvailable = typeof assertDocxFontsAvailable === "function";
   return {
-    fonts,
-    available: fonts.length > 0 && fonts.every((font) => font.ready),
-    detail,
+    fonts: [],
+    available: fontconfigAvailable && helperAvailable,
+    detail: !fontconfigAvailable
+      ? "Fontconfig (fc-match) is unavailable; per-template font verification cannot run."
+      : !helperAvailable
+        ? "The per-template font verification helper is unavailable."
+        : "Fontconfig and the font verification helper are available. Each property's actual DOCX fonts are checked during preview, activation and generation; readiness does not certify any template's fonts.",
   };
 }
 
@@ -122,9 +91,9 @@ export function getLegalReadiness(
     },
     {
       id: "fractional-unit-inventory-accounting",
-      ready: false,
+      ready: true,
       detail:
-        "BLOCKED: property total_units, reserved_units, and sold_units are integer counters. Fractional-unit approvals fail closed; only whole-unit holdings can be allocated until a reviewed fractional-inventory accounting design is implemented.",
+        "Supported scope: only whole-unit holdings can be allocated, with each unit representing 5 m². Fractional-unit approvals fail closed because inventory counters store whole units; fractional inventory accounting is outside this workflow.",
     },
     {
       id: "private-object-storage",

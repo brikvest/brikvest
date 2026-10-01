@@ -46,8 +46,59 @@ export interface LegalTemplateValidation {
 }
 
 export interface LegalTemplateValidationOptions {
-  /** Require new admin-uploaded templates to use the canonical date token. */
+  /** Retained for callers; complete legacy split-date tokens are also accepted. */
   requireCanonicalDate?: boolean;
+}
+
+export interface LegalTemplateFieldMetadata {
+  token: string;
+  label: string;
+  meaning: string;
+  source: string;
+  format: string;
+  count: number;
+}
+
+const FIELD_DESCRIPTIONS: Record<keyof LegalTemplateValues, Omit<LegalTemplateFieldMetadata, "token" | "count">> = {
+  USER_FULL_NAME: { label: "Investor full name", meaning: "The investor's verified legal name.", source: "Approved KYC full name, frozen at holding confirmation", format: "Text" },
+  USER_HOME_ADDRESS: { label: "Investor home address", meaning: "The investor's verified residential address.", source: "Approved KYC address, frozen at holding confirmation", format: "Text" },
+  PROPERTY_AREA_SQM: { label: "Allocated land area", meaning: "The area allocated to this confirmed holding.", source: "Confirmed units × the property's confirmed square metres per unit", format: "Square metres, grouped number with up to 2 decimal places" },
+  PAYMENT_AMOUNT_NAIRA_NUMERIC: { label: "Payment amount (number)", meaning: "The approved full purchase payment in Naira.", source: "Approved payment amount frozen at holding confirmation", format: "Grouped Naira amount with up to 2 kobo digits" },
+  PAYMENT_AMOUNT_NAIRA_WORDS: { label: "Payment amount (words)", meaning: "The same approved payment written in words.", source: "Approved payment amount frozen at holding confirmation", format: "Naira and Kobo in words; adapts to an existing literal Naira suffix" },
+  DOCUMENT_DATE: { label: "Document date", meaning: "The effective date of this legal document.", source: "Frozen holding approval effective timestamp (UTC)", format: "Ordinal day, full month and four-digit year" },
+  DOCUMENT_DATE_DAY: { label: "Document day", meaning: "Day component of the effective document date.", source: "Frozen holding approval effective timestamp (UTC)", format: "Ordinal day, e.g. 30th" },
+  DOCUMENT_DATE_MONTH: { label: "Document month", meaning: "Month component of the effective document date.", source: "Frozen holding approval effective timestamp (UTC)", format: "Full month name" },
+  DOCUMENT_DATE_YEAR: { label: "Document year", meaning: "Year component of the effective document date.", source: "Frozen holding approval effective timestamp (UTC)", format: "Four-digit year" },
+};
+
+/** Reports only tokens actually present, including tokens split across Word runs. */
+export function getLegalTemplateFieldMetadata(
+  buffer: Buffer,
+  documentType: LegalDocumentType,
+): { fields: LegalTemplateFieldMetadata[]; issues: string[] } {
+  let zip: PizZip;
+  try {
+    zip = inspectLegalDocxArchive(buffer);
+  } catch (error) {
+    if (error instanceof LegalTemplateValidationError) return { fields: [], issues: error.issues };
+    throw error;
+  }
+  const issues: string[] = [];
+  const counts = getPlaceholderCounts(zip, issues);
+  try {
+    validateLegalTemplate(buffer, documentType);
+  } catch (error) {
+    if (error instanceof LegalTemplateValidationError) issues.push(...error.issues);
+    else throw error;
+  }
+  return {
+    fields: Object.entries(counts).map(([token, count]) => ({
+      token,
+      ...FIELD_DESCRIPTIONS[token as keyof LegalTemplateValues],
+      count,
+    })),
+    issues: Array.from(new Set(issues)),
+  };
 }
 
 export class LegalTemplateValidationError extends Error {
@@ -466,11 +517,9 @@ export function validateLegalTemplate(
   for (const required of LEGAL_TEMPLATE_PLACEHOLDERS[documentType]) {
     if (
       required === "DOCUMENT_DATE" &&
-      !options.requireCanonicalDate &&
       DOCUMENT_DATE_PARTS.every((part) => placeholderCounts[part] > 0)
     ) {
-      // Backward-compatible validation for the supplied forms; new uploads
-      // are stored only when they use the canonical date token.
+      // The existing wording can use separate day/month/year tokens.
       continue;
     }
     if (!placeholderCounts[required]) {
@@ -502,22 +551,14 @@ export function assertLegalTemplateIsRendered(buffer: Buffer): void {
 }
 
 function assertValues(
-  documentType: LegalDocumentType,
+  tokens: string[],
   values: LegalTemplateValues,
 ): void {
-  const missing = LEGAL_TEMPLATE_PLACEHOLDERS[documentType]
-    .filter((key) => key !== "DOCUMENT_DATE")
+  const missing = tokens
     .filter((key) => {
       const value = values[key as keyof LegalTemplateValues];
       return typeof value !== "string" || value.trim().length === 0;
     });
-  const canonicalDate = values.DOCUMENT_DATE?.trim();
-  const splitDate = [
-    values.DOCUMENT_DATE_DAY,
-    values.DOCUMENT_DATE_MONTH,
-    values.DOCUMENT_DATE_YEAR,
-  ].every((value) => typeof value === "string" && value.trim().length > 0);
-  if (!canonicalDate && !splitDate) missing.push("DOCUMENT_DATE");
   if (missing.length > 0) {
     throw new LegalTemplateRenderError(
       `Missing trusted document values: ${missing.join(", ")}`,
@@ -535,8 +576,8 @@ export function renderLegalTemplate(
   documentType: LegalDocumentType,
   values: LegalTemplateValues,
 ): Buffer {
-  validateLegalTemplate(templateBuffer, documentType);
-  assertValues(documentType, values);
+  const validation = validateLegalTemplate(templateBuffer, documentType);
+  assertValues(Object.keys(validation.placeholderCounts), values);
 
   try {
     const zip = inspectLegalDocxArchive(templateBuffer);

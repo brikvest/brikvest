@@ -158,14 +158,6 @@ async function enqueueManualLegalApproval(
   source: "admin_full_confirmation" | "admin_reinstate",
   attestation?: ManualFullPaymentAttestation,
 ): Promise<EnqueueLegalApprovalResult> {
-  const binding = rows<{ propertyId: number }>(await tx.execute(sql`
-    SELECT r.property_id AS "propertyId"
-    FROM investment_reservations r
-    JOIN legal_property_bindings b
-      ON b.property_id = r.property_id AND b.enabled = true
-    WHERE r.id = ${reservationId}
-  `))[0];
-  if (!binding) return { eligible: false, reason: "property_not_bound" };
   const legal = await enqueueLegalApproval(tx, {
     reservationId,
     source,
@@ -197,7 +189,7 @@ async function enqueueManualLegalApproval(
 /**
  * Atomically approves a user-submitted payment, converts its reservation,
  * updates unit counters, and records a legal generation outbox job if the
- * approved submission is a full NGN purchase for the explicitly bound estate.
+ * approved submission is a full NGN purchase.
  */
 export async function approvePaymentSubmissionAtomically(
   submissionId: number,
@@ -333,7 +325,7 @@ export async function approvePaymentSubmissionAtomically(
 }
 
 /**
- * Admin full confirmation. On explicitly bound legal holdings, an independently
+ * Admin full confirmation. An independently
  * submitted, audited full-NGN-payment attestation is required for legal
  * generation. The amount is checked against the locked reservation and never
  * replaces its trusted value.

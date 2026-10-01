@@ -32,8 +32,14 @@ CREATE TABLE IF NOT EXISTS legal_templates (
   activated_at timestamptz,
   CONSTRAINT legal_templates_type_version_uq UNIQUE (document_type, version)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS legal_templates_one_active_per_type_uq
-  ON legal_templates(document_type) WHERE is_active;
+-- On an upgraded database the property-scoped migration owns this index.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'legal_templates' AND column_name = 'property_id') THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS legal_templates_one_active_per_type_uq
+      ON legal_templates(document_type) WHERE is_active;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS legal_document_pairs (
   id serial PRIMARY KEY,
@@ -186,10 +192,10 @@ BEGIN
       ]) THEN
     RAISE EXCEPTION 'Legal approval provenance and snapshots are immutable';
   END IF;
-  IF OLD.deed_template_id IS NOT NULL AND (
-      NEW.deed_template_id IS DISTINCT FROM OLD.deed_template_id OR
-      NEW.transfer_template_id IS DISTINCT FROM OLD.transfer_template_id
-  ) THEN
+  IF (OLD.deed_template_id IS NOT NULL AND
+      NEW.deed_template_id IS DISTINCT FROM OLD.deed_template_id) OR
+     (OLD.transfer_template_id IS NOT NULL AND
+      NEW.transfer_template_id IS DISTINCT FROM OLD.transfer_template_id) THEN
     RAISE EXCEPTION 'Pinned legal template versions cannot be changed';
   END IF;
   RETURN NEW;

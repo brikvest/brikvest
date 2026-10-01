@@ -214,16 +214,26 @@ export async function storeLegalTemplateVersion(options: {
   documentType: LegalDocumentType;
   version: number;
   docxBuffer: Buffer;
+  propertyId?: number;
+  uploadId?: string;
 }): Promise<LegalStorageReference> {
   if (!Number.isSafeInteger(options.version) || options.version < 1) {
     throw new Error("Legal template version must be a positive integer");
   }
-  validateLegalTemplate(options.docxBuffer, options.documentType, {
-    requireCanonicalDate: true,
-  });
+  validateLegalTemplate(options.docxBuffer, options.documentType);
+  if (options.propertyId !== undefined && (!Number.isSafeInteger(options.propertyId) || options.propertyId < 1)) {
+    throw new Error("Legal template property ID must be a positive integer");
+  }
+  if (options.uploadId !== undefined) assertRecordKey(options.uploadId);
+  if (options.propertyId === undefined && options.uploadId !== undefined) {
+    throw new Error("A property ID is required for a scoped template upload");
+  }
+  const uploadId = options.propertyId === undefined ? undefined : options.uploadId ?? randomUUID();
 
   const storageReference =
-    `legal/templates/${options.documentType}/v${options.version}` as LegalStorageReference;
+    (options.propertyId === undefined
+      ? `legal/templates/${options.documentType}/v${options.version}`
+      : `legal/templates/properties/${options.propertyId}/${options.documentType}/v${options.version}/${uploadId}`) as LegalStorageReference;
   const objectPath = `.private/${storageReference}.docx`;
   const file = objectStorageClient.bucket(getPrivateBucketName()).file(objectPath);
   try {
@@ -256,6 +266,16 @@ function parseTemplateStorageReference(reference: string): {
   documentType: LegalDocumentType;
   version: number;
 } {
+  const scoped = reference.match(
+    /^legal\/templates\/properties\/([1-9]\d*)\/(deed_of_assignment|transfer_exit_rights)\/v([1-9]\d*)\/([^/]+)$/,
+  );
+  if (scoped) {
+    if (!Number.isSafeInteger(Number(scoped[1])) || !Number.isSafeInteger(Number(scoped[3]))) {
+      throw new LegalFileNotFoundError();
+    }
+    try { assertRecordKey(scoped[4]); } catch { throw new LegalFileNotFoundError(); }
+    return { documentType: scoped[2] as LegalDocumentType, version: Number(scoped[3]) };
+  }
   const match = reference.match(
     /^legal\/templates\/(deed_of_assignment|transfer_exit_rights)\/v([1-9]\d*)$/,
   );
@@ -268,10 +288,10 @@ function parseTemplateStorageReference(reference: string): {
 export async function readLegalTemplateVersion(
   storageReference: string,
 ): Promise<Buffer> {
-  const { documentType, version } = parseTemplateStorageReference(storageReference);
+  const { documentType } = parseTemplateStorageReference(storageReference);
   const file = objectStorageClient
     .bucket(getPrivateBucketName())
-    .file(`.private/legal/templates/${documentType}/v${version}.docx`);
+    .file(`.private/${storageReference}.docx`);
   const [exists] = await file.exists();
   if (!exists) throw new LegalFileNotFoundError();
   const [contents] = await file.download();

@@ -179,7 +179,7 @@ export function buildLegalTemplateValues(
   const date = formatLegalDocumentDate(data.documentDate);
   let paymentNumeric = "";
   let paymentWords = "";
-  if (documentType === "deed_of_assignment") {
+  if (documentType === "deed_of_assignment" || data.approvedPaymentAmountNaira !== undefined) {
     if (
       data.approvedPaymentAmountNaira === undefined ||
       data.approvedPaymentAmountNaira === null ||
@@ -207,9 +207,8 @@ export function buildLegalTemplateValues(
     ...date,
   };
 
-  // Both source templates share the legal identity/land/date fields. The deed
-  // additionally requires the amount fields; the transfer template does not
-  // contain them and must not receive extra wording inserted into the form.
+  // Populate payment tokens for either type when trusted payment data exists.
+  // Rendering uses only actual template tokens; no extra wording is inserted.
   if (
     documentType === "deed_of_assignment" &&
     (!values.PAYMENT_AMOUNT_NAIRA_NUMERIC || !values.PAYMENT_AMOUNT_NAIRA_WORDS)

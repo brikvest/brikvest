@@ -14,6 +14,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LegalFileAlreadyExistsError,
   LegalFileNotFoundError,
+  storeLegalTemplateVersion,
   type LegalDocumentFileKind,
   type LegalStorageReference,
   type StoreLegalDocumentOptions,
@@ -21,6 +22,38 @@ import {
 import type { ConvertDocxToPdfOptions } from "../server/legal/converter";
 
 const databaseRef = vi.hoisted(() => ({ current: null as unknown }));
+const templateObjects = vi.hoisted(() => ({
+  contents: new Map<string, Buffer>(),
+  reads: [] as string[],
+}));
+// Model exact object paths, not the template-reader boundary: a wrong reader
+// path must fail instead of returning whichever fixture matches a document type.
+vi.mock("../server/objectStorage", () => ({
+  objectStorageClient: {
+    bucket: (bucket: string) => {
+      if (bucket !== "isolated-legal-e2e") throw new Error("Unexpected test bucket");
+      return {
+        file: (objectPath: string) => {
+          const key = `${bucket}/${objectPath}`;
+          return {
+            save: async (bytes: Buffer, options: { preconditionOpts?: { ifGenerationMatch?: number } }) => {
+              if (options.preconditionOpts?.ifGenerationMatch !== 0) throw new Error("Immutable write required");
+              if (templateObjects.contents.has(key)) throw Object.assign(new Error("Object exists"), { code: 412 });
+              templateObjects.contents.set(key, Buffer.from(bytes));
+            },
+            exists: async () => [templateObjects.contents.has(key)],
+            download: async () => {
+              templateObjects.reads.push(objectPath);
+              const bytes = templateObjects.contents.get(key);
+              if (!bytes) throw Object.assign(new Error("Object missing"), { code: 404 });
+              return [Buffer.from(bytes)];
+            },
+          };
+        },
+      };
+    },
+  },
+}));
 vi.mock("../server/db", () => ({
   get db() {
     return databaseRef.current;
@@ -309,6 +342,7 @@ async function seedIsolatedDatabase(installLegalSchema = true): Promise<void> {
       ('transfer_exit_rights', 1, 'transfer.docx', 'legal/templates/transfer_exit_rights/v1',
        '${sha256(transferTemplate)}', ${transferTemplate.length}, 'valid', true, ${adminId}, now())
   `);
+  await pglite.exec(await fs.readFile("scripts/ensure-legal-property-templates.sql", "utf8"));
 }
 
 beforeEach(async () => {
@@ -317,6 +351,9 @@ beforeEach(async () => {
   testDb = drizzle(pglite);
   databaseRef.current = testDb;
   storage = new Map();
+  templateObjects.contents.clear();
+  templateObjects.reads.length = 0;
+  process.env.PRIVATE_OBJECT_DIR = "/isolated-legal-e2e/.private";
   process.env.APP_BASE_URL = "https://brikvest.example";
   await seedIsolatedDatabase();
 });
@@ -370,13 +407,124 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
     expect(blockNotice).toBe("workflow_schema_not_installed");
   });
 
-  it("keeps a missing enabled binding distinct from an uninstalled legal schema", async () => {
+  it("never borrows another property's active templates and recovers only with its own pair", async () => {
+    const { approvePaymentSubmissionAtomically } = await import("../server/legal/approval");
+    const firstApproval = await approvePaymentSubmissionAtomically(submissionId, adminId);
+    expect(firstApproval.legal.status).toBe("queued");
+    const other = await pglite.query<{ id: number }>(`
+      INSERT INTO properties (name, location) VALUES ('Other property', 'Abuja') RETURNING id
+    `);
+    const otherId = other.rows[0].id;
+    for (const [documentType, docxBuffer] of [
+      ["deed_of_assignment", deedTemplate],
+      ["transfer_exit_rights", transferTemplate],
+    ] as const) {
+      expect(await storeLegalTemplateVersion({ documentType, docxBuffer, version: 1 }))
+        .toBe(`legal/templates/${documentType}/v1`);
+      expect(await storeLegalTemplateVersion({
+        documentType, docxBuffer, version: 2, propertyId: otherId,
+        uploadId: "00000000-0000-4000-8000-000000000001",
+      })).toBe(`legal/templates/properties/${otherId}/${documentType}/v2/00000000-0000-4000-8000-000000000001`);
+    }
+    const holding = await pglite.query<{ id: number }>(`
+      INSERT INTO investment_reservations (user_id, property_id, units, amount, currency, status)
+      VALUES (${ownerId}, ${otherId}, 1, 1000000.50, 'NGN', 'reserved') RETURNING id
+    `);
+    const payment = await pglite.query<{ id: number }>(`
+      INSERT INTO payment_submissions (reservation_id, user_id, amount, currency, status)
+      VALUES (${holding.rows[0].id}, ${ownerId}, 1000000.50, 'NGN', 'pending_admin_review') RETURNING id
+    `);
+    const { pinActiveTemplatesAndQueue } = await import("../server/legal/repository");
+    const approval = await approvePaymentSubmissionAtomically(payment.rows[0].id, adminId);
+    expect(approval.legal).toMatchObject({ eligible: true, status: "awaiting_templates" });
+    const pairId = approval.legal.pairId!;
+    expect(await testDb.transaction((tx) => pinActiveTemplatesAndQueue(pairId, adminId, tx))).toBe(false);
+    const frozen = await pglite.query<{ property_area_sqm: string; data_snapshot: unknown }>(
+      `SELECT property_area_sqm, data_snapshot FROM legal_document_pairs WHERE id = ${pairId}`,
+    );
+    expect(Number(frozen.rows[0].property_area_sqm)).toBe(5);
+    await pglite.query(`
+      INSERT INTO legal_templates
+        (property_id, document_type, version, original_filename, storage_key, sha256, byte_size,
+         validation_status, is_active, created_by_admin_id)
+      SELECT ${otherId}, document_type, 2, original_filename,
+        'legal/templates/properties/${otherId}/' || document_type || '/v2/00000000-0000-4000-8000-000000000001',
+        sha256, byte_size, 'valid', true, ${adminId} FROM legal_templates WHERE version = 1
+    `);
+    expect(await testDb.transaction((tx) => pinActiveTemplatesAndQueue(pairId, adminId, tx))).toBe(true);
+    const recovered = await pglite.query<{ property_id: number; data_snapshot: unknown }>(`
+      SELECT t.property_id, p.data_snapshot FROM legal_document_pairs p
+      JOIN legal_templates t ON t.id IN (p.deed_template_id, p.transfer_template_id)
+      WHERE p.id = ${pairId}
+    `);
+    expect(recovered.rows).toHaveLength(2);
+    expect(recovered.rows.every((row) => row.property_id === otherId)).toBe(true);
+    expect(recovered.rows[0].data_snapshot).toEqual(frozen.rows[0].data_snapshot);
+    // Exercise real repository selection, rendering and PDF conversion for both
+    // properties, using test-only template bytes and entirely in-memory files.
+    const { createLegalWorker } = await import("../server/legal/worker");
+    const worker = createLegalWorker({
+      readLegalDocument: async (key) => {
+        const bytes = storage.get(key);
+        if (!bytes) throw new LegalFileNotFoundError();
+        return bytes;
+      },
+      storeLegalDocument: async (input) => {
+        const key = `legal/documents/${input.recordKey}/${input.kind}` as LegalStorageReference;
+        if (storage.has(key)) throw new LegalFileAlreadyExistsError();
+        storage.set(key, input.contents);
+        return key;
+      },
+      sendEmail: async () => { throw new Error("This generation test must not send mail"); },
+    });
+    expect(await worker.dispatchLegalJobs(2)).toMatchObject({ claimed: 2, completed: 2, failed: 0 });
+    expect(templateObjects.reads).toEqual([
+      ".private/legal/templates/deed_of_assignment/v1.docx",
+      ".private/legal/templates/transfer_exit_rights/v1.docx",
+      `.private/legal/templates/properties/${otherId}/deed_of_assignment/v2/00000000-0000-4000-8000-000000000001.docx`,
+      `.private/legal/templates/properties/${otherId}/transfer_exit_rights/v2/00000000-0000-4000-8000-000000000001.docx`,
+    ]);
+  }, 120_000);
+
+  it("fills a missing template pin without replacing the historical pinned side", async () => {
+    // Simulate a legacy partial record from a schema without the newer pair
+    // constraint; new approvals deliberately pin both templates or neither.
+    await pglite.query(`ALTER TABLE legal_document_pairs DROP CONSTRAINT legal_pair_templates_both_or_neither`);
+    await pglite.query(`UPDATE legal_templates SET is_active = false WHERE document_type = 'transfer_exit_rights'`);
+    const { approvePaymentSubmissionAtomically } = await import("../server/legal/approval");
+    const { pinActiveTemplatesAndQueue } = await import("../server/legal/repository");
+    const approval = await approvePaymentSubmissionAtomically(submissionId, adminId);
+    const pairId = approval.legal.pairId!;
+    expect(approval.legal.status).toBe("awaiting_templates");
+    await pglite.query(`UPDATE legal_document_pairs SET deed_template_id =
+      (SELECT id FROM legal_templates WHERE document_type = 'deed_of_assignment' AND version = 1)
+      WHERE id = ${pairId}`);
+    const before = await pglite.query<{ deed_template_id: number }>(`SELECT deed_template_id FROM legal_document_pairs WHERE id = ${pairId}`);
+    await pglite.query(`UPDATE legal_templates SET is_active = (document_type = 'transfer_exit_rights')`);
+    expect(await testDb.transaction((tx) => pinActiveTemplatesAndQueue(pairId, adminId, tx))).toBe(true);
+    const after = await pglite.query<{ deed_template_id: number; transfer_template_id: number }>(
+      `SELECT deed_template_id, transfer_template_id FROM legal_document_pairs WHERE id = ${pairId}`,
+    );
+    expect(after.rows[0].deed_template_id).toBe(before.rows[0].deed_template_id);
+    expect(after.rows[0].transfer_template_id).toBeTruthy();
+  });
+
+  it("leaves both pins empty when a property has only one active template", async () => {
+    await pglite.query(`UPDATE legal_templates SET is_active = false WHERE document_type = 'transfer_exit_rights'`);
+    const { approvePaymentSubmissionAtomically } = await import("../server/legal/approval");
+    const approval = await approvePaymentSubmissionAtomically(submissionId, adminId);
+    expect(approval.legal).toMatchObject({ eligible: true, status: "awaiting_templates" });
+    const pins = await pglite.query(`SELECT deed_template_id, transfer_template_id FROM legal_document_pairs WHERE id = ${approval.legal.pairId}`);
+    expect(pins.rows[0]).toEqual({ deed_template_id: null, transfer_template_id: null });
+  });
+
+  it("approves a property without any area binding", async () => {
     await pglite.query("DELETE FROM legal_property_bindings");
     const { approvePaymentSubmissionAtomically } = await import("../server/legal/approval");
     const result = await approvePaymentSubmissionAtomically(submissionId, adminId);
     expect(result.legal).toMatchObject({
-      eligible: false,
-      reason: "property_not_bound_or_holding_missing",
+      eligible: true,
+      status: "queued",
     });
     const status = await pglite.query<{ status: string }>(`
       SELECT status FROM payment_submissions WHERE id = ${submissionId}
@@ -655,12 +803,12 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
     `);
     await pglite.query(`
       INSERT INTO legal_templates (
-        document_type, version, original_filename, storage_key, sha256, byte_size,
+        property_id, document_type, version, original_filename, storage_key, sha256, byte_size,
         validation_status, is_active, created_by_admin_id, activated_at
       ) VALUES
-        ('deed_of_assignment', 2, 'deed-v2.docx', 'legal/templates/deed_of_assignment/v2',
+        ((SELECT property_id FROM investment_reservations WHERE id = ${reservationId}), 'deed_of_assignment', 2, 'deed-v2.docx', 'legal/templates/deed_of_assignment/v2',
          '${sha256(deedTemplate)}', ${deedTemplate.length}, 'valid', true, ${adminId}, now()),
-        ('transfer_exit_rights', 2, 'transfer-v2.docx', 'legal/templates/transfer_exit_rights/v2',
+        ((SELECT property_id FROM investment_reservations WHERE id = ${reservationId}), 'transfer_exit_rights', 2, 'transfer-v2.docx', 'legal/templates/transfer_exit_rights/v2',
          '${sha256(transferTemplate)}', ${transferTemplate.length}, 'valid', true, ${adminId}, now())
     `);
     const pinnedIds = await pglite.query<{

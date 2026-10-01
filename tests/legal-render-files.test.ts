@@ -24,9 +24,9 @@ import {
   LegalFileAlreadyExistsError,
   storeLegalDocument,
   storeLegalTemplateVersion,
+  readLegalTemplateVersion,
   streamAuthorizedLegalDocument,
 } from "../server/legal/files";
-import { normalizeSuppliedLegalTemplate } from "../server/legal/templates";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const deedTemplate = readFileSync(
@@ -126,45 +126,111 @@ describe("private legal document storage", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
-  it("requires the canonical document date field on newly uploaded templates", async () => {
+  it("accepts complete legacy split dates without changing clause bytes", async () => {
     await expect(
       storeLegalTemplateVersion({
         documentType: "deed_of_assignment",
         version: 2,
         docxBuffer: deedTemplate,
       }),
-    ).rejects.toThrow("DOCUMENT_DATE");
-    expect(mocks.save).not.toHaveBeenCalled();
-
-    const zip = new PizZip(normalizeSuppliedLegalTemplate(deedTemplate));
-    for (const [name, file] of Object.entries(zip.files)) {
-      if (!name.startsWith("word/") || name.endsWith("/")) continue;
-      let xml = file.asText();
-      for (const legacyField of [
-        "{{DOCUMENT_DATE_DAY}}",
-        "{{DOCUMENT_DATE_MONTH}}",
-        "{{DOCUMENT_DATE_YEAR}}",
-      ]) {
-        xml = xml.replaceAll(legacyField, "{{DOCUMENT_DATE}}");
-      }
-      zip.file(name, xml);
-    }
-    const canonicalDateTemplate = zip.generate({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-      compressionOptions: { level: 6 },
-    });
-    await expect(
-      storeLegalTemplateVersion({
-        documentType: "deed_of_assignment",
-        version: 2,
-        docxBuffer: canonicalDateTemplate,
-      }),
     ).resolves.toBe("legal/templates/deed_of_assignment/v2");
     expect(mocks.file).toHaveBeenCalledWith(
       ".private/legal/templates/deed_of_assignment/v2.docx",
     );
     expect(mocks.save).toHaveBeenCalledTimes(1);
+    expect(mocks.save.mock.calls[0][0]).toEqual(deedTemplate);
+    await expect(readLegalTemplateVersion("legal/templates/deed_of_assignment/v2")).resolves.toEqual(deedTemplate);
+  });
+
+  it("stores collision-safe scoped uploads immutably and reads scoped and legacy keys", async () => {
+    const uploadId = "a2b2a2b2-a2b2-42b2-82b2-a2b2a2b2a2b2";
+    const reference = `legal/templates/properties/19/deed_of_assignment/v2/${uploadId}`;
+    await expect(storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, uploadId, docxBuffer: deedTemplate,
+    })).resolves.toBe(reference);
+    expect(mocks.file).toHaveBeenCalledWith(`.private/${reference}.docx`);
+    expect(mocks.save.mock.calls[0][1].preconditionOpts).toEqual({ ifGenerationMatch: 0 });
+    await expect(readLegalTemplateVersion(reference)).resolves.toEqual(deedTemplate);
+    mocks.save.mockRejectedValueOnce(Object.assign(new Error("collision"), { code: 412 }));
+    await expect(storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, uploadId, docxBuffer: deedTemplate,
+    })).rejects.toBeInstanceOf(LegalFileAlreadyExistsError);
+    const first = await storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, docxBuffer: deedTemplate,
+    });
+    const second = await storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, docxBuffer: deedTemplate,
+    });
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^legal\/templates\/properties\/19\/deed_of_assignment\/v2\/[a-f0-9-]{36}$/);
+  });
+
+  it("rejects unsafe scoped template IDs before accessing storage", async () => {
+    await expect(storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 0, docxBuffer: deedTemplate,
+    })).rejects.toThrow("property ID");
+    await expect(storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, uploadId: "../escape", docxBuffer: deedTemplate,
+    })).rejects.toThrow("UUID");
+    await expect(readLegalTemplateVersion("legal/templates/properties/19/deed_of_assignment/v2/../../escape"))
+      .rejects.toThrow("not found");
+    expect(mocks.file).not.toHaveBeenCalled();
+  });
+
+  it("round-trips exact scoped paths for two properties without falling back to a legacy object", async () => {
+    // Unlike the broad response mocks above, this adapter binds every operation
+    // to its actual object key. A reader that drops property/upload IDs fails.
+    const objects = new Map<string, Buffer>();
+    const reads: string[] = [];
+    mocks.file.mockImplementation((objectPath: string) => ({
+      save: async (contents: Buffer, options: { preconditionOpts: { ifGenerationMatch: number } }) => {
+        expect(options.preconditionOpts).toEqual({ ifGenerationMatch: 0 });
+        if (objects.has(objectPath)) throw Object.assign(new Error("immutable object exists"), { code: 412 });
+        objects.set(objectPath, Buffer.from(contents));
+      },
+      exists: async () => {
+        reads.push(objectPath);
+        return [objects.has(objectPath)];
+      },
+      download: async () => {
+        const contents = objects.get(objectPath);
+        if (!contents) throw new Error(`Missing fixture object: ${objectPath}`);
+        return [Buffer.from(contents)];
+      },
+    }));
+    const zip = new PizZip(deedTemplate);
+    zip.file("word/document.xml", zip.file("word/document.xml")!.asText().replace(
+      "</w:body>", "<w:p><w:r><w:t>Distinct property-specific clause fixture</w:t></w:r></w:p></w:body>",
+    ));
+    const otherPropertyTemplate = zip.generate({ type: "nodebuffer" });
+    const uploadId = "a2b2a2b2-a2b2-42b2-82b2-a2b2a2b2a2b2";
+    const first = await storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, uploadId, docxBuffer: deedTemplate,
+    });
+    const second = await storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 20, uploadId, docxBuffer: otherPropertyTemplate,
+    });
+    // Deliberately create a legacy file for the same type/version. It must never
+    // be returned for a scoped reference, even when the scoped file is absent.
+    const legacy = await storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, docxBuffer: deedTemplate,
+    });
+    await expect(readLegalTemplateVersion(first)).resolves.toEqual(deedTemplate);
+    await expect(readLegalTemplateVersion(second)).resolves.toEqual(otherPropertyTemplate);
+    await expect(readLegalTemplateVersion(legacy)).resolves.toEqual(deedTemplate);
+    expect(reads).toEqual([`.private/${first}.docx`, `.private/${second}.docx`, `.private/${legacy}.docx`]);
+
+    await expect(readLegalTemplateVersion(first.replace("/properties/19/", "/properties/21/")))
+      .rejects.toThrow("Legal document not found");
+    await expect(readLegalTemplateVersion(first.replace(uploadId, "b2b2a2b2-a2b2-42b2-82b2-a2b2a2b2a2b2")))
+      .rejects.toThrow("Legal document not found");
+    objects.delete(`.private/${second}.docx`);
+    await expect(readLegalTemplateVersion(second)).rejects.toThrow("Legal document not found");
+    await expect(readLegalTemplateVersion(legacy)).resolves.toEqual(deedTemplate);
+    await expect(storeLegalTemplateVersion({
+      documentType: "deed_of_assignment", version: 2, propertyId: 19, uploadId, docxBuffer: otherPropertyTemplate,
+    })).rejects.toBeInstanceOf(LegalFileAlreadyExistsError);
+    await expect(readLegalTemplateVersion(first)).resolves.toEqual(deedTemplate);
   });
 
   it("does not resolve a storage object for another user's record", async () => {

@@ -1,33 +1,30 @@
 import type { Express, RequestHandler } from "express";
 import multer from "multer";
-import { createHash, timingSafeEqual } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import {
-  bindLegalProperty,
-  getLegalPropertyBinding,
   pinActiveTemplatesAndQueue,
   requestLegalNotificationResend,
   type LegalNotificationResendResult,
 } from "./repository";
-import { validateLegalTemplate, renderIllustrativeLegalTemplate, type LegalDocumentType } from "./templates";
+import { validateLegalTemplate, renderIllustrativeLegalTemplate, getLegalTemplateFieldMetadata, type LegalDocumentType } from "./templates";
 import { convertDocxToPdf, verifyAssigneeSignaturePosition } from "./converter";
 import { buildIllustrativeTemplateValues } from "./values";
-import { storeLegalTemplateVersion, readLegalTemplateVersion, streamAuthorizedLegalDocument, LegalFileAlreadyExistsError } from "./files";
+import { storeLegalTemplateVersion, readLegalTemplateVersion, streamAuthorizedLegalDocument } from "./files";
 import { getLegalReadiness } from "../../scripts/legal-readiness";
 import { dispatchLegalJobs } from "./worker";
 import { beginLocalSigning, completeLocalSigning } from "./local-signing";
 import { assertActiveConfirmedHolding } from "./holding-state";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 2 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
   if (error) return res.status(400).json({ error: "Upload one DOCX file no larger than 20 MB." });
   next();
 });
 const rows = (result: any): any[] => result.rows || [];
-const id = (value: string): number => {
-  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error("Invalid record ID");
+const id = (value: unknown): number => {
+  if ((typeof value !== "string" && typeof value !== "number") || !/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new Error("Invalid record ID");
   return Number(value);
 };
 const handler = (fn: (req: any, res: any) => Promise<unknown>): RequestHandler => (req, res) => {
@@ -66,37 +63,32 @@ async function audit(tx: any, adminId: number, event: string, details: any, pair
   await tx.execute(sql`INSERT INTO legal_audit_events (pair_id, actor_type, actor_id, event_type, details)
     VALUES (${pairId}, 'admin', ${adminId}, ${event}, ${JSON.stringify(details)}::jsonb)`);
 }
-async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, initial = false) {
-  const validation = validateLegalTemplate(bytes, documentType, { requireCanonicalDate: !initial });
+async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, propertyId: number) {
+  const validation = validateLegalTemplate(bytes, documentType);
   // Serializes version allocation and upload; a failed DB commit can leave an
   // orphan object, never an overwritable version or active invalid template.
   return db.transaction(async (tx) => {
+    if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new Error("Property not found");
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + documentType}))`);
     const version = rows(await tx.execute(sql`SELECT COALESCE(MAX(version), 0) + 1 AS version FROM legal_templates WHERE document_type = ${documentType}`))[0].version;
     const sha = createHash("sha256").update(bytes).digest("hex");
-    let key: string;
-    try { key = await storeLegalTemplateVersion({ documentType, version, docxBuffer: bytes }); }
-    catch (error) {
-      if (!(error instanceof LegalFileAlreadyExistsError)) throw error;
-      key = `legal/templates/${documentType}/v${version}`;
-      const retained = await readLegalTemplateVersion(key);
-      if (createHash("sha256").update(retained).digest("hex") !== sha) throw new Error("A retained template upload occupies this version. Retry with the original identical DOCX; retained legal files cannot be overwritten.");
-    }
+    const key = await storeLegalTemplateVersion({ documentType, version, docxBuffer: bytes, propertyId, uploadId: randomUUID() });
     const result = rows(await tx.execute(sql`INSERT INTO legal_templates
-      (document_type, version, original_filename, storage_key, sha256, byte_size, required_placeholders, validation_status, created_by_admin_id)
-      VALUES (${documentType}, ${version}, ${filename.replace(/[^a-zA-Z0-9_. -]/g, "_").slice(0, 160)}, ${key}, ${sha}, ${bytes.length},
+      (property_id, document_type, version, original_filename, storage_key, sha256, byte_size, required_placeholders, validation_status, created_by_admin_id)
+      VALUES (${propertyId}, ${documentType}, ${version}, ${filename.replace(/[^a-zA-Z0-9_. -]/g, "_").slice(0, 160)}, ${key}, ${sha}, ${bytes.length},
       ${Object.keys(validation.placeholderCounts)}::text[], 'valid', ${adminId}) RETURNING id`))[0];
-    await audit(tx, adminId, "template_version_uploaded", { templateId: result.id, documentType, version, sha256: sha });
-    return { id: result.id, version, documentType, validationStatus: "valid" };
+    await audit(tx, adminId, "template_version_uploaded", { templateId: result.id, propertyId, documentType, version, sha256: sha });
+    return { id: result.id, propertyId, version, documentType, validationStatus: "valid" };
   });
 }
-async function listPairs(userId?: number) {
+async function listPairs(userId?: number, propertyId?: number) {
   const result = rows(await db.execute(sql`SELECT p.*, pr.name AS property_name, u.email AS user_email,
     dt.version AS deed_template_version, tt.version AS transfer_template_version
     FROM legal_document_pairs p JOIN properties pr ON pr.id = p.property_id JOIN users u ON u.id = p.user_id
     LEFT JOIN legal_templates dt ON dt.id = p.deed_template_id
     LEFT JOIN legal_templates tt ON tt.id = p.transfer_template_id
-    WHERE ${userId === undefined ? sql`true` : sql`p.user_id = ${userId}`} ORDER BY p.created_at DESC LIMIT 500`));
+     WHERE ${userId === undefined ? sql`true` : sql`p.user_id = ${userId}`}
+     AND ${propertyId === undefined ? sql`true` : sql`p.property_id = ${propertyId}`} ORDER BY p.created_at DESC LIMIT 500`));
   if (!result.length) return [];
   const documents = rows(await db.execute(sql`SELECT id,pair_id,document_type,status,unsigned_pdf_key IS NOT NULL AS has_unsigned,
     signed_pdf_key IS NOT NULL AS has_signed,signing_certificate_key IS NOT NULL AS has_certificate
@@ -124,69 +116,75 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   app.use("/api/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   app.use("/api/admin/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   app.get("/api/legal/holdings", auth.requireAuth, handler(async (req, res) => res.json(await listPairs(req.user.id))));
-  app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (_req, res) => res.json(await listPairs())));
-  app.get("/api/admin/legal/failures", auth.requireAdminAuth, handler(async (_req, res) => res.json(rows(await db.execute(sql`
+  app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (req, res) => res.json(await listPairs(undefined, id(req.query.propertyId)))));
+  app.get("/api/admin/legal/failures", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
     SELECT a.id,a.reservation_id AS "reservationId",a.event_type AS "eventType",a.details,a.created_at AS "createdAt"
-    FROM legal_audit_events a WHERE a.event_type LIKE '%blocked%' OR a.event_type LIKE '%failed%'
+     FROM legal_audit_events a
+     LEFT JOIN legal_document_pairs p ON p.id=a.pair_id
+     LEFT JOIN investment_reservations r ON r.id=a.reservation_id
+     WHERE (a.event_type LIKE '%blocked%' OR a.event_type LIKE '%failed%')
+       AND COALESCE(p.property_id::text,r.property_id::text,a.details->>'propertyId')=${String(id(req.query.propertyId))}
     ORDER BY a.id DESC LIMIT 100`)))));
-  app.get("/api/admin/legal/templates", auth.requireAdminAuth, handler(async (_req, res) => res.json(rows(await db.execute(sql`
-    SELECT id, document_type AS "documentType", version, validation_status AS "validationStatus",
-    is_active AS active, created_at AS "createdAt", activated_at AS "activatedAt", sha256 FROM legal_templates ORDER BY document_type, version DESC`)))));
+  app.get("/api/admin/legal/templates", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
+     SELECT id, property_id AS "propertyId", document_type AS "documentType", version, validation_status AS "validationStatus",
+     is_active AS active, created_at AS "createdAt", activated_at AS "activatedAt", sha256 FROM legal_templates
+     WHERE ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${id(req.query.propertyId)}`}
+     ORDER BY document_type, version DESC`)))));
   app.get("/api/admin/legal/readiness", auth.requireAdminAuth, handler(async (_req, res) => {
     const config = getLegalReadiness();
-    const blockers = config.checks.filter((c) => !c.ready).map((c) => c.detail);
-    let binding = null;
+    const checks = [...config.checks];
     try {
-      binding = rows(await db.execute(sql`SELECT property_id AS "propertyId",square_meters_per_unit AS "sqmPerUnit" FROM legal_property_bindings WHERE enabled`))[0] || null;
-      if (!binding) blockers.push("An administrator must explicitly bind the exact LilyCrest Garden Estate property ID and 5 m²/unit mapping.");
-      const active = rows(await db.execute(sql`SELECT id FROM legal_templates WHERE is_active AND validation_status = 'valid'`));
-      if (active.length !== 2) blockers.push("Upload, preview and activate one valid version of each template.");
-    } catch { blockers.push("Legal-document database migrations have not been applied."); }
+      await db.execute(sql`SELECT property_id FROM legal_templates LIMIT 0`);
+      checks.push({ id: "legal-schema", ready: true, detail: "Property-owned legal schema installed." });
+    } catch { checks.push({ id: "legal-schema", ready: false, detail: "Legal-document database migrations have not been applied." }); }
     const localSchema = rows(await db.execute(sql`SELECT to_regclass('public.local_legal_signing_operations') IS NOT NULL AS installed`))[0];
-    if (!localSchema?.installed) blockers.push("The additive in-app signing migration must be installed.");
-    res.json({ ready: blockers.length === 0, configured: config.ready, signingMode: "brikvest_local", checks: config.checks, blockers, binding });
+    checks.push({ id: "local-signing-schema", ready: !!localSchema?.installed, detail: localSchema?.installed ? "In-app signing schema installed." : "The additive in-app signing migration must be installed." });
+    const blockers = checks.filter((check) => !check.ready).map((check) => check.detail);
+    res.json({ ready: blockers.length === 0, configured: config.ready, signingMode: "brikvest_local", checks, blockers });
   }));
-  app.post("/api/admin/legal/binding", auth.requireAdminAuth, handler(async (req, res) => {
-    if (req.body.confirmed !== true) throw new Error("Explicit confirmation of the LilyCrest Garden Estate property identity is required");
-    const binding = await db.transaction(async (tx) => {
-      const saved = await bindLegalProperty(tx, { propertyId: Number(req.body.propertyId), squareMetersPerUnit: Number(req.body.sqmPerUnit), adminId: req.user.userId, note: "Admin explicitly confirms LilyCrest Garden Estate and 5 sqm per unit." });
-      await audit(tx, req.user.userId, "sd118_property_binding_confirmed", { propertyId: saved.propertyId, sqmPerUnit: 5 });
-      return saved;
-    });
-    res.json(binding);
-  }));
+  app.post("/api/admin/legal/binding", auth.requireAdminAuth, (_req, res) => res.status(410).json({ error: "Area binding is retired. Every new legal holding uses 5 m² per unit." }));
   app.get("/api/admin/legal/holdings/:id", auth.requireAdminAuth, handler(async (req, res) => {
     const holding = rows(await db.execute(sql`SELECT id,property_id AS "propertyId",status,amount,currency,units,user_id AS "userId" FROM investment_reservations WHERE id = ${id(req.params.id)}`))[0];
     if (!holding) return res.status(404).json({ error: "Holding not found" });
-    res.json({ ...holding, binding: await getLegalPropertyBinding(holding.propertyId) });
+    if (Number(holding.propertyId) !== id(req.query.propertyId)) return res.status(404).json({ error: "Holding not found" });
+    res.json(holding);
   }));
   app.get("/api/admin/legal/properties/:id", auth.requireAdminAuth, handler(async (req, res) => {
     const propertyId = id(req.params.id);
     const property = rows(await db.execute(sql`SELECT id,name,location,plot_number AS "plotNumber",currency FROM properties WHERE id=${propertyId}`))[0];
     if (!property) return res.status(404).json({ error: "Property not found" });
-    res.json({ ...property, binding: await getLegalPropertyBinding(propertyId) });
+    res.json(property);
   }));
   app.post("/api/admin/legal/templates", auth.requireAdminAuth, safeUpload, handler(async (req, res) => {
     const type = req.body.documentType;
     if (!["deed_of_assignment", "transfer_exit_rights"].includes(type) || !req.file || !/\.docx$/i.test(req.file.originalname)) throw new Error("Choose a document type and a DOCX file");
-    res.status(201).json(await saveTemplate(type, req.file.buffer, req.file.originalname, req.user.userId));
+    res.status(201).json(await saveTemplate(type, req.file.buffer, req.file.originalname, req.user.userId, id(req.body.propertyId)));
   }));
-  app.post("/api/admin/legal/templates/import-initial", auth.requireAdminAuth, handler(async (req, res) => {
-    const imported = [];
-    for (const type of ["deed_of_assignment", "transfer_exit_rights"] as LegalDocumentType[]) {
-      const existing = rows(await db.execute(sql`SELECT id FROM legal_templates WHERE document_type=${type} LIMIT 1`));
-      if (existing.length) { imported.push({ id: existing[0].id, documentType: type, retained: true }); continue; }
-      const bytes = await readFile(`server/legal/template-assets/${type}_v1.docx`);
-      imported.push(await saveTemplate(type, bytes, `${type}-v1.docx`, req.user.userId, true));
-    }
-    res.status(201).json(imported);
+  app.post("/api/admin/legal/templates/import-initial", auth.requireAdminAuth, (_req, res) => res.status(410).json({ error: "Upload property-specific legal forms. Bundled forms cannot be automatically assigned." }));
+  app.post("/api/admin/legal/templates/:id/assign", auth.requireAdminAuth, handler(async (req, res) => {
+    const templateId = id(req.params.id);
+    const propertyId = id(String(req.body.propertyId));
+    if (req.body.confirmed !== true) throw new Error("Explicit confirmation of the template destination is required");
+    await db.transaction(async (tx) => {
+      if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new Error("Property not found");
+      const assigned = rows(await tx.execute(sql`UPDATE legal_templates SET property_id=${propertyId}
+        WHERE id=${templateId} AND property_id IS NULL AND NOT is_active RETURNING id`))[0];
+      if (!assigned) throw new Error("Only an unassigned, inactive legacy template may be assigned. Ownership cannot be changed.");
+      await audit(tx, req.user.userId, "template_property_explicitly_assigned", { templateId, propertyId });
+    });
+    res.json({ message: "Template assigned. Review and activate it separately.", templateId, propertyId });
   }));
-  for (const action of ["download", "preview"] as const) {
+  for (const action of ["download", "preview", "fields"] as const) {
     app.get(`/api/admin/legal/templates/:id/${action}`, auth.requireAdminAuth, handler(async (req, res) => {
-      const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${id(req.params.id)}`))[0];
+      const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${id(req.params.id)}
+        AND ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${id(req.query.propertyId)}`}`))[0];
       if (!t) return res.status(404).json({ error: "Template not found" });
       const bytes = await readLegalTemplateVersion(t.storage_key);
       if (createHash("sha256").update(bytes).digest("hex") !== t.sha256) throw new Error("Stored template checksum mismatch");
+      if (action === "fields") return res.json({
+        templateId: t.id, propertyId: t.property_id, documentType: t.document_type, version: t.version,
+        active: t.is_active, ...getLegalTemplateFieldMetadata(bytes, t.document_type),
+      });
       if (action === "download") return privateResponse(res, bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", `template-${t.document_type}-v${t.version}.docx`, true);
       const preview = renderIllustrativeLegalTemplate(bytes, t.document_type);
       const pdf = await convertDocxToPdf(preview.renderedDocx);
@@ -196,7 +194,8 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   }
   app.post("/api/admin/legal/templates/:id/activate", auth.requireAdminAuth, handler(async (req, res) => {
     const templateId = id(req.params.id);
-    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${templateId}`))[0];
+    const propertyId = id(String(req.body.propertyId));
+    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${templateId} AND property_id=${propertyId}`))[0];
     if (!t) return res.status(404).json({ error: "Template not found" });
     const bytes = await readLegalTemplateVersion(t.storage_key);
     if (createHash("sha256").update(bytes).digest("hex") !== t.sha256) throw new Error("Stored template checksum mismatch");
@@ -204,17 +203,18 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     const pdf = await convertDocxToPdf(preview.renderedDocx);
     await verifyAssigneeSignaturePosition(pdf, { templateVersionId: String(t.id), assigneeFullName: buildIllustrativeTemplateValues(t.document_type).USER_FULL_NAME });
     await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + t.document_type}))`);
-      await tx.execute(sql`UPDATE legal_templates SET is_active = false WHERE document_type = ${t.document_type} AND is_active`);
-      await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now() WHERE id = ${templateId} AND validation_status = 'valid'`);
-      await audit(tx, req.user.userId, "template_version_activated", { templateId, version: t.version, signaturePlacementVerified: true });
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + propertyId + ":" + t.document_type}))`);
+      if (t.validation_status !== "valid") throw new Error("Only validated templates can be activated");
+      await tx.execute(sql`UPDATE legal_templates SET is_active = false WHERE property_id=${propertyId} AND document_type = ${t.document_type} AND is_active`);
+      await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now() WHERE id = ${templateId} AND property_id=${propertyId} AND validation_status = 'valid'`);
+      await audit(tx, req.user.userId, "template_version_activated", { templateId, propertyId, version: t.version, signaturePlacementVerified: true });
     });
     res.json({ message: "Template activated; historical documents are unchanged" });
   }));
   for (const action of ["preview", "download"] as const) {
     const serve = (isAdmin: boolean) => handler(async (req, res) => {
       const doc = rows(await db.execute(sql`SELECT d.*,p.user_id FROM legal_documents d JOIN legal_document_pairs p ON p.id=d.pair_id
-        WHERE d.id=${id(req.params.id)} AND ${isAdmin ? sql`true` : sql`p.user_id=${req.user.id}`}`))[0];
+         WHERE d.id=${id(req.params.id)} AND ${isAdmin ? sql`p.property_id=${id(req.query.propertyId)}` : sql`p.user_id=${req.user.id}`}`))[0];
       if (!doc) return res.status(404).json({ error: "Legal document not found" });
       const version = req.query.version || "unsigned";
       const key = version === "signed" ? doc.signed_pdf_key : version === "certificate" ? doc.signing_certificate_key : version === "docx" ? doc.source_docx_key : version === "unsigned" ? doc.unsigned_pdf_key : null;
@@ -239,14 +239,17 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   }));
   app.get("/api/admin/legal/pairs/:id/audit", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
     SELECT id,actor_type AS "actorType",actor_id AS "actorId",event_type AS "eventType",details,created_at AS "createdAt"
-    FROM legal_audit_events WHERE pair_id=${id(req.params.id)} ORDER BY id`)))));
+     FROM legal_audit_events WHERE pair_id=${id(req.params.id)}
+       AND EXISTS (SELECT 1 FROM legal_document_pairs p WHERE p.id=pair_id AND p.property_id=${id(req.query.propertyId)})
+     ORDER BY id`)))));
   for (const action of ["retry", "resend"] as const) app.post(`/api/admin/legal/pairs/:id/${action}`, auth.requireAdminAuth, handler(async (req, res) => {
     const pairId = id(req.params.id);
+    const propertyId = id(req.body.propertyId);
     let resendResult: LegalNotificationResendResult | undefined;
     await db.transaction(async (tx) => {
       const reference = rows(await tx.execute(sql`
         SELECT reservation_id, user_id, property_id
-        FROM legal_document_pairs WHERE id = ${pairId}
+        FROM legal_document_pairs WHERE id = ${pairId} AND property_id=${propertyId}
       `))[0];
       if (!reference) throw new Error("Legal document pair not found");
       const holdingIdentity = {
@@ -269,7 +272,7 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
         resendResult = await requestLegalNotificationResend(tx, pairId, req.user.userId);
         return;
       }
-      if (action === "retry" && !await pinActiveTemplatesAndQueue(pairId, req.user.userId, tx)) throw new Error("Both valid active templates are required");
+      if (action === "retry" && !await pinActiveTemplatesAndQueue(pairId, req.user.userId, tx)) throw new Error("Both valid active templates for this property are required");
       const kind = p.documents_ready_at ? "reconcile" : "generation";
       await tx.execute(sql`INSERT INTO legal_jobs (pair_id,kind,status) VALUES (${pairId},${kind},'queued')
         ON CONFLICT (pair_id,kind) DO UPDATE SET status='queued',available_at=now(),attempts=0,last_error=NULL

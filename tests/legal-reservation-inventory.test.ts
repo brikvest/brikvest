@@ -126,6 +126,7 @@ async function seedDatabase(): Promise<void> {
       ('transfer_exit_rights',1,'transfer.docx','legal/templates/transfer/v1',
        '${sha256("transfer template")}',100,'valid',true,${adminId},now());
   `);
+  await pglite.exec(await fs.readFile("scripts/ensure-legal-property-templates.sql", "utf8"));
 }
 
 async function createReservationAndPayment(
@@ -285,8 +286,8 @@ describe("reservation inventory to legal approval (isolated PGlite)", () => {
     const { approvePaymentSubmissionAtomically } = await import("../server/legal/approval");
     const approval = await approvePaymentSubmissionAtomically(submissionId, adminId);
     expect(approval.legal).toMatchObject({
-      eligible: false,
-      reason: "property_not_bound_or_holding_missing",
+      eligible: true,
+      status: "awaiting_templates",
     });
     expect(await propertyInventory(otherPropertyId)).toEqual({
       available_slots: 4,

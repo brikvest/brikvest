@@ -26,6 +26,7 @@ export const legalPropertyBindings = pgTable("legal_property_bindings", {
 
 export const legalTemplates = pgTable("legal_templates", {
   id: serial("id").primaryKey(),
+  propertyId: integer("property_id"),
   documentType: text("document_type").notNull(),
   version: integer("version").notNull(),
   originalFilename: text("original_filename").notNull(),
@@ -40,7 +41,7 @@ export const legalTemplates = pgTable("legal_templates", {
   activatedAt: timestamp("activated_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("legal_templates_type_version_uq").on(table.documentType, table.version),
-  uniqueIndex("legal_templates_one_active_per_type_uq").on(table.documentType).where(sql`${table.isActive} = true`),
+  uniqueIndex("legal_templates_one_active_per_property_type_uq").on(table.propertyId, table.documentType).where(sql`${table.isActive} = true`),
 ]);
 
 export const legalDocumentPairs = pgTable("legal_document_pairs", {

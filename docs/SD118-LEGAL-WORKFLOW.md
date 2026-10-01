@@ -1,4 +1,4 @@
-# LilyCrest Garden Estate legal workflow and local-signing operations runbook
+# Property-owned legal workflow and local-signing operations runbook
 
 This feature creates an immutable Deed of Assignment and Transfer and Exit
 Rights Agreement for an approved land reservation, with a local electronic
@@ -10,16 +10,37 @@ Approval enqueues a durable job; generation and email delivery happen
 asynchronously. The database's reservation/document uniqueness constraint,
 rather than the admin button, is the idempotency boundary.
 
+Task 141 extends **new eligible approvals across all properties**: each new
+legal holding freezes **5 m² per confirmed unit**, with area calculated as
+`round(units × 5, 2)`. This is not a LilyCrest-only workflow and does not use a
+property binding, fuzzy property-name match, or configurable area multiplier.
+Approved KYC identity/address, a confirmed holding, and full NGN payment remain
+required. Fractional inventory allocation remains blocked as described below.
+There is **no historical approval backfill**: rollout, template assignment, and
+activation do not scan old holdings or manufacture approval events.
+
 ## Before enabling the workflow
 
 1. Apply the additive, idempotent base schema migration
-   `scripts/ensure-legal-documents.sql`, followed by the first-party local
-   signing migration `scripts/ensure-legal-local-signing.sql`. The
-   `scripts/post-merge.sh` workflow applies the local migration after the base
-   legal schema. They are deliberately not applied via `drizzle-kit push`:
-   this project's development database contains live investor data. Review
-   both migrations before applying them; they add legal tables, indexes, and
-   triggers without rewriting existing reservations.
+   `scripts/ensure-legal-documents.sql`, followed by
+   `scripts/ensure-legal-local-signing.sql`,
+   `scripts/ensure-legal-notification-cycles.sql`, and the **explicit new
+   additive migration** `scripts/ensure-legal-property-templates.sql`.
+   `scripts/post-merge.sh` lists this sequence. The property-ownership migration
+   is a required deployment step, not an implicit runtime schema change.
+   These migrations are deliberately not applied via `drizzle-kit push`:
+   this project's development database contains live investor data. Obtain
+   authorization and review the SQL before applying it; this runbook is not
+   permission to mutate a live database.
+   The new migration adds `legal_templates.property_id`, ownership/history
+   guards, and one-active-version-per-property-and-document-type uniqueness.
+   Its one-time provenance adoption assigns a legacy version only when pinned
+   pairs and enabled bindings that predate the version identify exactly one
+   property. Ambiguous or unsupported versions remain unassigned and are made
+   inactive; rerunning the migration does not silently reconsider adoption.
+   It preserves historical pair pins, frozen snapshots, files, signatures,
+   hashes, and evidence, and does not rewrite existing reservations or backfill
+   historical approvals.
 2. Run `npx tsx scripts/legal-readiness.ts`. It reports readiness booleans and
    missing **variable names only**; it never prints values or connects to the
    database. Configure the existing authenticated-session secret
@@ -28,18 +49,18 @@ rather than the admin button, is the idempotency boundary.
    a signing-provider callback. `LEGAL_DISPATCH_SECRET` is optional and only
    enables bearer authentication for a scheduled dispatcher; administrators
    can dispatch jobs through the admin-authenticated route without it.
-   Readiness inspects each pinned template's declared fonts and real embedded
-   font-file relationships. A family must be an exact installed match or have
-   valid, embedded font files. The supplied DOCX files use Cambria, Georgia,
-   and Palatino Linotype: Palatino Linotype has embedded font data, but Cambria
-   and Georgia do not. Those two exact font families must therefore be
-   installed in the DOCX conversion environment; fontconfig substitution is
-    not a production match. Outside isolated `NODE_ENV=test` layout tests,
-    each conversion checks the actual DOCX input and blocks preview, activation,
-    and live generation before LibreOffice unless every declared family is an
-    exact installed match or has valid embedded font data. Review the
-    `document-fonts` result and rendered output. The local audit-evidence PDF
-    uses a separately resolved DejaVu Sans
+   The `document-fonts` check verifies infrastructure only: fontconfig
+   (`fc-match`) and the per-template font verification helper must be available.
+   It does not inspect bundled forms or certify any uploaded, active, or
+   historically pinned template's fonts; the returned `fonts` list is empty.
+   Unused legacy forms therefore do not block infrastructure readiness.
+   Fontconfig substitution is not a production match. Outside isolated
+   `NODE_ENV=test` layout tests, each conversion checks the **actual DOCX input**
+   and blocks preview, activation, and live generation before LibreOffice
+   unless every declared family is an exact installed match or has valid
+   embedded font data. Review each property template's rendered output;
+   infrastructure readiness alone does not establish its conversion readiness.
+   The local audit-evidence PDF uses a separately resolved DejaVu Sans
    font, embeds it with fontkit, records its SHA-256, and checks that digest
    during finalization/recovery. Keep that helper font available and stable.
    These are production prerequisites; the whole workflow is not automatically
@@ -47,32 +68,47 @@ rather than the admin button, is the idempotency boundary.
 3. Configure SMTP through the existing `SMTP_USER` and `SMTP_PASS` server
    secrets. Do not copy credentials into source, client settings, template
    files, logs, or this runbook.
-4. In the admin Legal Documents area, explicitly bind only the exact LilyCrest Garden Estate
-   property record and confirm its 5 m²-per-unit mapping against the actual
-   legal/title records. No fuzzy name matching or other property is supported.
-   The admin-only
-   `POST /api/admin/legal/templates/import-initial` endpoint imports the
-   bundled `server/legal/template-assets/deed_of_assignment_v1.docx` and
-   `server/legal/template-assets/transfer_exit_rights_v1.docx` files
-   idempotently: it retains an existing version for either document type and
-   imports only a missing type. Use the admin-only
-   `POST /api/admin/legal/templates` multipart upload route for subsequent
-   versions. Resolve placeholder validation errors. Assignee placement is
-   verified from the rendered PDF, not supplied by the browser or guessed from
-   a director, witness or notary location. Preview the
-   `GET /api/admin/legal/templates/:id/preview` rendered/conversion output
-   before activating it with `POST /api/admin/legal/templates/:id/activate`.
-   An unbound property, absent active template, missing verified user name or
-   address, unverified assignee placement, or invalid document data must
-   prevent generation/signing; do not work around these gates with frontend
-   values.
-5. The generated document pins the exact template version and trusted user,
-   reservation, property, and approved amount snapshot at creation. Replacing
-   a template affects future approvals only. The original DOCX/PDF and final
-   locally signed PDF/completion evidence are separate private, write-once
-   artifacts.
+4. Open the admin Legal Documents workspace for the **exact property record**.
+   Upload that property's legally reviewed Deed of Assignment and Transfer
+   and Exit Rights Agreement using `POST /api/admin/legal/templates`, with
+   multipart `propertyId`, `documentType`, and `file`. Each uploaded version
+   belongs to one property; assigned ownership cannot be changed. Version
+   numbers remain sequenced by document type, not restarted for each property.
+   There is no bundled import or area-binding setup: both
+   `POST /api/admin/legal/templates/import-initial` and
+   `POST /api/admin/legal/binding` return **410 Gone**.
+   Inspect fields, source DOCX, and rendered PDF with the property scope below.
+   Resolve placeholder validation errors and verify legal wording, property
+   clauses, font fidelity, and the rendered assignee signing position. Placement
+   is verified from the PDF, not supplied by the browser or guessed from a
+   director, witness, or notary location. Activate each version separately with
+   `POST /api/admin/legal/templates/:id/activate` and JSON `propertyId`.
+   Activation replaces only that property's active version of the same type.
+5. Use **Unassigned legacy templates** to inspect retained versions with
+   `unassigned=true`. An authorized admin must explicitly confirm the exact
+   destination using `POST /api/admin/legal/templates/:id/assign` with
+   `{"propertyId": <destination id>, "confirmed": true}`. Only inactive,
+   unassigned versions qualify. Assignment records ownership and an audit
+   event; it does not activate the version or change any pinned investor
+   document. Review and activate it separately for that property. Never adopt
+   another property's clauses just to clear a setup warning.
+6. A new eligible approval freezes trusted user, reservation, property, area,
+   payment, and approval provenance. Both valid active property-owned template
+   versions are pinned together when available. If either is missing, payment
+   approval can still commit, but the pair is `awaiting_templates`, both new
+   pins are null, and generation is blocked with an audited failure reason.
+   Complete the property setup, then use the authorized admin retry to pin
+   missing versions and resume generation. Missing verified KYC, invalid data,
+   or unverified placement must not be bypassed with frontend values.
+   Existing non-null pins never change; controlled recovery may fill a missing
+   historical counterpart without replacing the other pin. Retry is recovery
+   of an existing approval, not historical backfill. Activation never
+   regenerates old documents. Historical area/unit snapshots are not converted
+   to 5 m²; generation/recovery uses their frozen values.
+   The original DOCX/PDF and final locally signed PDF/completion evidence remain
+   separate private, write-once artifacts.
 
-The supplied deed contains a pre-inserted witness-signature image. The original
+The legacy supplied deed contains a pre-inserted witness-signature image. The original
 upload is retained unchanged. Its normalized copy removes execution-region
 graphics and their unused media while retaining legal text, fields, paragraph
 formatting and reserved inline height. New templates containing pre-inserted
@@ -192,12 +228,41 @@ allocation safe.
 Until a reviewed fractional-inventory accounting design is approved and
 deployed, only whole-unit holdings may be allocated. Do not change the existing
 property column types ad hoc, round fractional values, or retry the same
-fractional holding through another approval endpoint. This is a readiness
-blocker for fractional holdings and is reported by
-`scripts/legal-readiness.ts`; the legal workflow remains incomplete for any
-business requirement that needs fractional-unit approvals.
+fractional holding through another approval endpoint.
+`scripts/legal-readiness.ts` reports this whole-unit supported scope
+informationally with `fractional-unit-inventory-accounting.ready: true`; it
+does not block infrastructure readiness for supported whole-unit approvals.
+That flag does not enable fractional approvals: fractional holdings still fail
+closed, and fractional inventory accounting remains outside this workflow.
 
 The legal API currently exposes:
+
+### Property scope and field inspection
+
+Admin document lists, failures, holding detail, pair audit, and admin document
+preview/download require query `propertyId=<exact property id>`. Template
+list/download/preview/fields require that same query scope, or
+`unassigned=true` for retained versions with no owner. A different property
+cannot retrieve a scoped template or holding. Upload, activate, assign,
+retry, and resend carry `propertyId` in their multipart or JSON body; sending
+it only in the URL is not sufficient for those writes. Readiness and dispatch
+are infrastructure-wide, not proof that a property's two templates are ready.
+Investor routes remain owner-authorized, rather than accepting an admin scope.
+
+`GET /api/admin/legal/templates/:id/fields` returns `templateId`, `propertyId`,
+`documentType`, `version`, `active`, `fields`, and `issues`. Each detected field
+includes its token, label, meaning, trusted source, format, and occurrence
+count, including tokens split across Word runs. It is inspection metadata,
+not an API for setting investor values. Supported fields are
+`USER_FULL_NAME`, `USER_HOME_ADDRESS`, `PROPERTY_AREA_SQM`, `DOCUMENT_DATE`,
+and the deed's `PAYMENT_AMOUNT_NAIRA_NUMERIC` and
+`PAYMENT_AMOUNT_NAIRA_WORDS`. A complete legacy date trio
+(`DOCUMENT_DATE_DAY`, `DOCUMENT_DATE_MONTH`, `DOCUMENT_DATE_YEAR`) is also
+accepted. Identity/address come from frozen approved KYC, payment from the
+frozen approved full NGN amount, and the date from the frozen approval effective
+timestamp in UTC. New area snapshots use units × 5; historical snapshots keep
+their original multiplier even if generic field metadata describes a
+property's confirmed square metres per unit.
 
 | Method and path | Access / purpose |
 | --- | --- |
@@ -206,19 +271,25 @@ The legal API currently exposes:
 | `GET /api/legal/documents/:id/download?version=unsigned` | Owner-only private download; supports the same versions |
 | `POST /api/legal/documents/:id/signing-session` | Owner-only short-lived signing challenge and unsigned-PDF digest |
 | `POST /api/legal/documents/:id/sign` | Owner-only completion with password reauthentication, explicit consent/review, typed name, challenge, digest, and PNG signature |
-| `GET /api/admin/legal/documents` | Admin document-pair overview |
-| `GET /api/admin/legal/holdings/:id` | Admin holding detail and property binding |
-| `POST /api/admin/legal/binding` | Admin-only explicit property binding; requires `confirmed: true`, `propertyId`, and `sqmPerUnit` |
+| `GET /api/admin/legal/properties/:id` | Admin exact-property identity, location, plot number, and currency |
+| `GET /api/admin/legal/documents` | Admin property-scoped document-pair overview |
+| `GET /api/admin/legal/failures` | Admin property-scoped blocked/failed audit events |
+| `GET /api/admin/legal/holdings/:id` | Admin property-scoped holding detail; no binding setup |
+| `POST /api/admin/legal/binding` | Retired; returns 410 Gone |
 | `GET /api/admin/legal/readiness` | Admin operational readiness blockers |
-| `GET /api/admin/legal/templates` | Admin template-version list |
-| `POST /api/admin/legal/templates` | Admin DOCX version upload (`documentType` and multipart `file`) |
-| `POST /api/admin/legal/templates/import-initial` | Idempotent import of missing bundled v1 templates |
-| `GET /api/admin/legal/templates/:id/download` | Admin source DOCX download |
-| `GET /api/admin/legal/templates/:id/preview` | Admin illustrative PDF preview |
-| `POST /api/admin/legal/templates/:id/activate` | Admin validation/conversion/signature-position gate and activation |
-| `GET /api/admin/legal/pairs/:id/audit` | Admin audit history |
-| `POST /api/admin/legal/pairs/:id/retry` | Admin audited retry; permanently blocked after investor signature |
-| `POST /api/admin/legal/pairs/:id/resend` | Admin audited notification resend after both unsigned PDFs are ready |
+| `GET /api/admin/legal/templates` | Admin property-scoped versions, or `unassigned=true` legacy list |
+| `POST /api/admin/legal/templates` | Admin property-owned DOCX version upload (multipart `propertyId`, `documentType`, `file`) |
+| `POST /api/admin/legal/templates/import-initial` | Retired; returns 410 Gone |
+| `POST /api/admin/legal/templates/:id/assign` | Admin explicit legacy destination (`propertyId`, `confirmed: true`); no activation |
+| `GET /api/admin/legal/templates/:id/download` | Admin scoped source DOCX download |
+| `GET /api/admin/legal/templates/:id/preview` | Admin scoped illustrative PDF preview |
+| `GET /api/admin/legal/templates/:id/fields` | Admin scoped detected-token metadata and validation issues |
+| `POST /api/admin/legal/templates/:id/activate` | Admin validation/conversion/signature-position gate and property-only activation (JSON `propertyId`) |
+| `GET /api/admin/legal/documents/:id/preview` | Admin property-scoped private document preview; same versions as owner routes |
+| `GET /api/admin/legal/documents/:id/download` | Admin property-scoped private document download |
+| `GET /api/admin/legal/pairs/:id/audit` | Admin property-scoped audit history |
+| `POST /api/admin/legal/pairs/:id/retry` | Admin audited recovery (JSON `propertyId`); permanently blocked after investor signature |
+| `POST /api/admin/legal/pairs/:id/resend` | Admin audited notification resend (JSON `propertyId`) after both unsigned PDFs are ready |
 | `POST /api/admin/legal/dispatch` | Admin-authenticated bounded legal-job dispatch |
 | `POST /api/legal/dispatch` | Optional scheduled bounded dispatch; requires `Authorization: Bearer <LEGAL_DISPATCH_SECRET>` when enabled |
 
@@ -236,7 +307,7 @@ document-serving route must not be used to bypass legal-record authorization.
 
 Keep the existing Brikvest account/admin authentication; do not introduce a
 second user identity or accept legal field values from the browser. Restrict
-template changes, property binding, retry/resend, and administrative review to
+template changes, explicit legacy ownership assignment, retry/resend, and administrative review to
 authorized admins. A signed/final record and its signed file are immutable:
 there is no user delete, edit, replace, void, or second-sign action. Keep
 generation/signing failures visible and retry only through the audited,
@@ -294,13 +365,14 @@ a test fixture. Test template/data/format validation, queue idempotency,
 ownership authorization, private document access, failed conversion and email
 paths, template version pinning, and immutable finalization using unit tests or
 an explicitly provisioned isolated test database. Readiness reports the
-fractional-inventory blocker and does not certify that the workflow is generally
+whole-unit supported scope and font-checking infrastructure availability; it
+does not certify individual property templates or that the workflow is generally
 production-ready.
 
 ## Review prerequisites and limits
 
-The source templates supply legal wording, but field mapping, the
-per-property area/unit binding, font fidelity, signature-field coordinates,
+The property-owned templates supply legal wording, but field mapping, the
+universal 5 m² rule's legal suitability for new approvals, font fidelity, signature-field coordinates,
 the exact signing-consent version, and the legal suitability and execution
 requirements of the completed forms require authorized human review. The
 local electronic mark and application evidence must not be described as a

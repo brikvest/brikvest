@@ -161,6 +161,7 @@ beforeEach(() => {
   templateBytes = Buffer.from(transferTemplateV1);
   activeTemplate = {
     id: TEMPLATE_ID,
+    property_id: 12,
     document_type: "transfer_exit_rights",
     version: 1,
     storage_key: "legal/templates/transfer_exit_rights/v1",
@@ -172,6 +173,7 @@ beforeEach(() => {
 
   mocks.execute.mockImplementation(async (query: unknown) => {
     const { sql: text, params } = compile(query);
+    if (text.includes("SELECT id FROM properties")) return { rows: params[0] === 12 ? [{ id: 12 }] : [] };
     if (text.includes("information_schema.columns")) {
       return { rows: [{ installed: true }] };
     }
@@ -187,7 +189,7 @@ beforeEach(() => {
       };
     }
     if (text.includes("FROM legal_document_pairs p JOIN properties")) {
-      const authorized = params.length === 0 || params[0] === OWNER_ID;
+      const authorized = text.includes("p.property_id =") ? params[0] === 12 : params[0] === OWNER_ID;
       return { rows: authorized ? [{ ...pairRow, status: pairStatus }] : [] };
     }
     if (text.includes("FROM legal_documents WHERE pair_id IN")) {
@@ -204,20 +206,20 @@ beforeEach(() => {
       };
     }
     if (text.includes("FROM legal_documents d JOIN legal_document_pairs p")) {
-      const authorized = params.length === 1 || params[1] === OWNER_ID;
+      const authorized = text.includes("p.property_id=") ? params[1] === 12 : params[1] === OWNER_ID;
       return {
         rows: params[0] === DOCUMENT_ID && authorized ? [documentRow] : [],
       };
     }
     if (text.includes("FROM legal_document_pairs WHERE id")) {
       return {
-        rows: params[0] === PAIR_ID
+        rows: params[0] === PAIR_ID && (params.length === 1 || params[1] === 12)
           ? [{ ...pairRow, status: pairStatus }]
           : [],
       };
     }
     if (text.includes("SELECT * FROM legal_templates WHERE id")) {
-      return { rows: params[0] === TEMPLATE_ID ? [activeTemplate] : [] };
+      return { rows: params[0] === TEMPLATE_ID && params[1] === 12 ? [activeTemplate] : [] };
     }
     if (text.includes("COALESCE(MAX(version), 0) + 1")) {
       return { rows: [{ version: 1 }] };
@@ -293,6 +295,47 @@ afterEach(() => {
 });
 
 describe("legal document routes", () => {
+  it("requires a selected property for administrator lists and artifact actions", async () => {
+    for (const path of ["templates", "documents", "failures", `templates/${TEMPLATE_ID}/fields`, `documents/${DOCUMENT_ID}/preview`]) {
+      await request(app).get(`/api/admin/legal/${path}`).set("x-admin-user-id", String(ADMIN_ID)).expect(400);
+    }
+  });
+
+  it("rejects cross-property template activation, inspection, document access and pair retry", async () => {
+    await request(app).post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .set("x-admin-user-id", String(ADMIN_ID)).send({ propertyId: 13 }).expect(404);
+    await request(app).get(`/api/admin/legal/templates/${TEMPLATE_ID}/fields?propertyId=13`)
+      .set("x-admin-user-id", String(ADMIN_ID)).expect(404);
+    await request(app).get(`/api/admin/legal/documents/${DOCUMENT_ID}/preview?propertyId=13`)
+      .set("x-admin-user-id", String(ADMIN_ID)).expect(404);
+    await request(app).post(`/api/admin/legal/pairs/${PAIR_ID}/retry`)
+      .set("x-admin-user-id", String(ADMIN_ID)).send({ propertyId: 13 }).expect(400);
+    expect(mocks.convertDocxToPdf).not.toHaveBeenCalled();
+    expect(mocks.pinActiveTemplatesAndQueue).not.toHaveBeenCalled();
+  });
+
+  it("returns checksum-verified fields for the selected template and rejects corrupt bytes", async () => {
+    const response = await request(app).get(`/api/admin/legal/templates/${TEMPLATE_ID}/fields?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID)).expect(200);
+    expect(response.body).toMatchObject({ templateId: TEMPLATE_ID, propertyId: 12, active: false });
+    expect(response.body.fields.length).toBeGreaterThan(0);
+    activeTemplate.sha256 = "invalid";
+    await request(app).get(`/api/admin/legal/templates/${TEMPLATE_ID}/fields?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID)).expect(400);
+  });
+
+  it("scopes activation updates to the selected property without changing other properties", async () => {
+    await request(app).post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .set("x-admin-user-id", String(ADMIN_ID)).send({ propertyId: 12 }).expect(200);
+    const updates = mocks.execute.mock.calls.map(([query]) => compile(query))
+      .filter((query) => query.sql.includes("UPDATE legal_templates"));
+    expect(updates).toHaveLength(2);
+    for (const query of updates) {
+      expect(query.sql).toContain("property_id=");
+      expect(query.params).toContain(12);
+    }
+  });
+
   it("requires login, scopes holdings to their owner, and exposes full holding metadata only to admins", async () => {
     await request(app).get("/api/legal/holdings").expect(401);
 
@@ -316,7 +359,7 @@ describe("legal document routes", () => {
 
     await request(app).get("/api/admin/legal/documents").expect(401);
     const admin = await request(app)
-      .get("/api/admin/legal/documents")
+      .get("/api/admin/legal/documents?propertyId=12")
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(200);
     expect(admin.body[0]).toMatchObject({
@@ -357,10 +400,10 @@ describe("legal document routes", () => {
 
   it("lets admins retrieve sensitive artifacts only through the admin-authenticated route", async () => {
     await request(app)
-      .get(`/api/admin/legal/documents/${DOCUMENT_ID}/download?version=certificate`)
+      .get(`/api/admin/legal/documents/${DOCUMENT_ID}/download?version=certificate&propertyId=12`)
       .expect(401);
     await request(app)
-      .get(`/api/admin/legal/documents/${DOCUMENT_ID}/download?version=certificate`)
+      .get(`/api/admin/legal/documents/${DOCUMENT_ID}/download?version=certificate&propertyId=12`)
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(200);
     expect(mocks.streamAuthorizedLegalDocument).toHaveBeenCalledWith(
@@ -600,6 +643,7 @@ describe("legal document routes", () => {
     pairStatus = "investor_signed";
     await request(app)
       .post(`/api/admin/legal/pairs/${PAIR_ID}/retry`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(400, { error: "Investor-signed documents are permanently locked" });
 
@@ -612,6 +656,7 @@ describe("legal document routes", () => {
   it("returns the actual notification-resend queue state instead of claiming every request queued", async () => {
     const response = await request(app)
       .post(`/api/admin/legal/pairs/${PAIR_ID}/resend`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(200);
 
@@ -640,6 +685,7 @@ describe("legal document routes", () => {
 
     const response = await request(app)
       .post(`/api/admin/legal/pairs/${PAIR_ID}/resend`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(200);
 
@@ -663,6 +709,7 @@ describe("legal document routes", () => {
 
     const response = await request(app)
       .post(`/api/admin/legal/pairs/${PAIR_ID}/resend`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID))
       .expect(409);
 
@@ -683,6 +730,7 @@ describe("legal document routes", () => {
       .post("/api/admin/legal/templates")
       .set("x-admin-user-id", String(ADMIN_ID))
       .field("documentType", "transfer_exit_rights")
+      .field("propertyId", "12")
       .attach("file", validTransfer, "transfer.docx");
     expect(uploaded.status, JSON.stringify(uploaded.body)).toBe(201);
     expect(uploaded.body).toMatchObject({
@@ -704,6 +752,7 @@ describe("legal document routes", () => {
       .post("/api/admin/legal/templates")
       .set("x-admin-user-id", String(ADMIN_ID))
       .field("documentType", "transfer_exit_rights")
+      .field("propertyId", "12")
       .attach("file", malformedTransfer, "missing-address.docx")
       .expect(400);
     expect(invalid.body.error).toContain("Required placeholder is missing: {{USER_HOME_ADDRESS}}");
@@ -713,6 +762,7 @@ describe("legal document routes", () => {
   it("activates a validated template only after rendered PDF conversion and signature-position checks", async () => {
     const response = await request(app)
       .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID));
     expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.message).toContain("historical documents are unchanged");
@@ -731,6 +781,7 @@ describe("legal document routes", () => {
 
     const response = await request(app)
       .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID));
     expect(response.status, JSON.stringify(response.body)).toBe(400);
     expect(response.body.error).toContain("Required placeholder is missing: {{PROPERTY_AREA_SQM}}");

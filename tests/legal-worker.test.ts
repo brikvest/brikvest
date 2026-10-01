@@ -66,6 +66,7 @@ function createPairResult(options?: {
   return {
     pair: {
       id: 60,
+      property_id: 7,
       reservation_id: 12,
       user_id: 40,
       status: options?.ready ? "documents_ready" : "generating",
@@ -386,6 +387,26 @@ describe("legal durable job worker", () => {
     expect(invalidUrl.failed).toBe(1);
     expect(invalidUrlDependencies.beginLegalNotificationAttempt).not.toHaveBeenCalled();
     expect(invalidUrlDependencies.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("accepts property-owned immutable upload references and rejects cross-property pins", async () => {
+    const makeDependencies = (propertyId: number) => createGenerationDependencies({
+      getPinnedLegalTemplate: vi.fn(async (templateId: number) => {
+        const type = templateId === 101 ? "deed_of_assignment" : "transfer_exit_rights";
+        return {
+          id: templateId, propertyId, documentType: type, version: 1,
+          storageKey: `legal/templates/properties/${propertyId}/${type}/v1/00000000-0000-4000-8000-000000000001`,
+          sha256: sha256(templateId === 101 ? deedTemplate : transferTemplate),
+        };
+      }),
+      readLegalTemplateVersion: vi.fn(async (key: string) =>
+        key.includes("deed_of_assignment") ? deedTemplate : transferTemplate),
+    }).dependencies;
+    const own = makeDependencies(7);
+    expect((await createLegalWorker(own).dispatchLegalJobs(1)).completed).toBe(1);
+    const foreign = makeDependencies(8);
+    expect((await createLegalWorker(foreign).dispatchLegalJobs(1)).failed).toBe(1);
+    expect(foreign.storeLegalDocument).not.toHaveBeenCalled();
   });
 
   it("caps dispatch at ten jobs and retries pending signing reconciliation", async () => {

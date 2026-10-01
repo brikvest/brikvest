@@ -61,6 +61,7 @@ export interface LegalJobClaim {
 
 export interface LegalPinnedTemplate {
   id: number;
+  propertyId?: number | null;
   documentType: LegalDocumentType;
   version: number;
   storageKey: string;
@@ -94,12 +95,15 @@ function resultRows<T>(result: unknown): T[] {
 async function hasLegalApprovalSchema(executor: LegalSchemaExecutor): Promise<boolean> {
   const installed = resultRows<{ installed: boolean }>(await executor.execute(sql`
     SELECT
-      to_regclass('legal_property_bindings') IS NOT NULL
-      AND to_regclass('legal_document_pairs') IS NOT NULL
+      to_regclass('legal_document_pairs') IS NOT NULL
       AND to_regclass('legal_templates') IS NOT NULL
       AND to_regclass('legal_documents') IS NOT NULL
       AND to_regclass('legal_jobs') IS NOT NULL
-      AND to_regclass('legal_audit_events') IS NOT NULL AS installed
+      AND to_regclass('legal_audit_events') IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'legal_templates' AND column_name = 'property_id'
+      ) AS installed
   `))[0]?.installed;
   return installed === true;
 }
@@ -221,13 +225,12 @@ export async function recordLegalApprovalBlock(
   },
 ): Promise<"recorded" | "not_applicable" | "workflow_schema_not_installed"> {
   if (!(await hasLegalApprovalSchema(tx))) return "workflow_schema_not_installed";
-  const binding = resultRows<{ propertyId: number }>(await tx.execute(sql`
-    SELECT b.property_id AS "propertyId"
-    FROM legal_property_bindings b
-    JOIN investment_reservations r ON r.property_id = b.property_id
-    WHERE r.id = ${input.reservationId} AND b.enabled = true
+  const holding = resultRows<{ propertyId: number }>(await tx.execute(sql`
+    SELECT property_id AS "propertyId"
+    FROM investment_reservations
+    WHERE id = ${input.reservationId}
   `))[0];
-  if (!binding) return "not_applicable";
+  if (!holding) return "not_applicable";
   await tx.execute(sql`
     INSERT INTO legal_audit_events
       (reservation_id, actor_type, actor_id, event_type, details)
@@ -246,7 +249,7 @@ export async function recordLegalApprovalBlock(
 
 /**
  * Call only inside the same transaction as the authoritative approval state
- * transition. Locks the investment holding, checks the exact admin binding and
+ * transition. Locks the investment holding, checks
  * approved payment/KYC facts, snapshots them, pins active template IDs, and
  * places a unique durable generation job in the transactional outbox.
  */
@@ -289,7 +292,7 @@ export async function enqueueLegalApproval(
       r.property_id AS "propertyId",
       r.units::numeric::text AS units,
       r.amount::numeric::text AS "reservationAmount",
-      round(r.units::numeric * b.square_meters_per_unit::numeric, 2)::text AS "areaSqm",
+      round(r.units::numeric * 5, 2)::text AS "areaSqm",
       r.currency AS "reservationCurrency",
       r.status AS "reservationStatus",
       u.kyc_status AS "kycStatus",
@@ -297,8 +300,7 @@ export async function enqueueLegalApproval(
       NULLIF(trim(u.kyc_address), '') AS "verifiedHomeAddress",
       p.name AS "propertyName",
       p.location AS "propertyLocation",
-      b.square_meters_per_unit::numeric::text AS "squareMetersPerUnit",
-      b.note AS "bindingNote",
+      '5'::text AS "squareMetersPerUnit",
       ps.id AS "paymentSubmissionId",
       ps.amount::numeric::text AS "paymentSubmissionAmount",
       ps.currency AS "paymentSubmissionCurrency",
@@ -306,7 +308,6 @@ export async function enqueueLegalApproval(
     FROM investment_reservations r
     JOIN users u ON u.id = r.user_id
     JOIN properties p ON p.id = r.property_id
-    JOIN legal_property_bindings b ON b.property_id = r.property_id AND b.enabled = true
     LEFT JOIN payment_submissions ps
       ON ps.id = ${input.source === "payment_submission" ? sourceId : null}
       AND ps.reservation_id = r.id
@@ -317,7 +318,7 @@ export async function enqueueLegalApproval(
   `);
   const purchase = resultRows<Record<string, any>>(rowResult)[0];
   if (!purchase) {
-    return { eligible: false, reason: "property_not_bound_or_holding_missing" };
+    return { eligible: false, reason: "holding_missing" };
   }
   if (
     purchase.reservationStatus !== "converted_to_investment" ||
@@ -360,14 +361,21 @@ export async function enqueueLegalApproval(
     SELECT id, document_type AS "documentType", version
     FROM legal_templates
     WHERE is_active = true AND validation_status = 'valid'
+      AND property_id = ${purchase.propertyId}
       AND document_type IN ('deed_of_assignment', 'transfer_exit_rights')
     ORDER BY document_type
     FOR SHARE
   `);
   const activeTemplates = resultRows<{ id: number; documentType: string; version: number }>(activeTemplateResult);
-  const deedTemplate = activeTemplates.find((template) => template.documentType === "deed_of_assignment");
-  const transferTemplate = activeTemplates.find((template) => template.documentType === "transfer_exit_rights");
+  let deedTemplate = activeTemplates.find((template) => template.documentType === "deed_of_assignment");
+  let transferTemplate = activeTemplates.find((template) => template.documentType === "transfer_exit_rights");
   const templatesReady = !!deedTemplate && !!transferTemplate;
+  // New approvals pin an entire pair atomically. The database requires both
+  // pins or neither; an incomplete property setup must remain recoverable.
+  if (!templatesReady) {
+    deedTemplate = undefined;
+    transferTemplate = undefined;
+  }
   const units = Number(purchase.units);
   const areaSqm = Number(purchase.areaSqm);
   const sqmPerUnit = Number(purchase.squareMetersPerUnit);
@@ -426,7 +434,7 @@ export async function enqueueLegalApproval(
       : { eligible: false, reason: "legal_pair_insert_conflict" };
   }
 
-  if (templatesReady) {
+  if (deedTemplate && transferTemplate) {
     await tx.execute(sql`
       INSERT INTO legal_documents (pair_id, document_type, template_id)
       VALUES
@@ -479,7 +487,7 @@ export async function pinActiveTemplatesAndQueue(
 ): Promise<boolean> {
   const existing = resultRows<Record<string, any>>(await executor.execute(sql`
     SELECT id, reservation_id AS "reservationId", deed_template_id AS "deedTemplateId",
-      transfer_template_id AS "transferTemplateId", status
+      transfer_template_id AS "transferTemplateId", property_id AS "propertyId", status
     FROM legal_document_pairs WHERE id = ${pairId} FOR UPDATE
   `))[0];
   if (!existing) return false;
@@ -510,19 +518,25 @@ export async function pinActiveTemplatesAndQueue(
     SELECT id, document_type AS "documentType"
     FROM legal_templates
     WHERE is_active = true AND validation_status = 'valid'
+      AND property_id = ${existing.propertyId}
       AND document_type IN ('deed_of_assignment', 'transfer_exit_rights')
     FOR SHARE
   `));
-  const deedTemplate = templates.find((template) => template.documentType === "deed_of_assignment");
-  const transferTemplate = templates.find((template) => template.documentType === "transfer_exit_rights");
+  // A partial historical pin is immutable too; fill only the missing side.
+  const deedTemplate = existing.deedTemplateId
+    ? { id: existing.deedTemplateId }
+    : templates.find((template) => template.documentType === "deed_of_assignment");
+  const transferTemplate = existing.transferTemplateId
+    ? { id: existing.transferTemplateId }
+    : templates.find((template) => template.documentType === "transfer_exit_rights");
   if (!deedTemplate || !transferTemplate) return false;
 
   await executor.execute(sql`
     UPDATE legal_document_pairs
-    SET deed_template_id = ${deedTemplate.id},
-        transfer_template_id = ${transferTemplate.id},
+    SET deed_template_id = COALESCE(deed_template_id, ${deedTemplate.id}),
+        transfer_template_id = COALESCE(transfer_template_id, ${transferTemplate.id}),
         status = 'queued', last_error = NULL
-    WHERE id = ${pairId} AND deed_template_id IS NULL AND transfer_template_id IS NULL
+    WHERE id = ${pairId}
   `);
   await executor.execute(sql`
     INSERT INTO legal_documents (pair_id, document_type, template_id)
@@ -567,7 +581,7 @@ export async function getPinnedLegalTemplate(
 ): Promise<LegalPinnedTemplate | undefined> {
   if (!Number.isSafeInteger(templateId) || templateId < 1) return undefined;
   const result = await db.execute(sql`
-    SELECT id, document_type AS "documentType", version,
+    SELECT id, property_id AS "propertyId", document_type AS "documentType", version,
       storage_key AS "storageKey", sha256
     FROM legal_templates
     WHERE id = ${templateId}

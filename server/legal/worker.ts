@@ -104,6 +104,7 @@ interface ParsedPairSnapshot {
 
 interface PairForWorker {
   id: number;
+  propertyId: number;
   reservationId: number;
   userId: number;
   status: string;
@@ -227,6 +228,7 @@ function readPairForWorker(pairValue: Record<string, unknown>, documents: unknow
 
   return {
     id: requiredPositiveInteger(pairValue.id, "pair ID"),
+    propertyId: requiredPositiveInteger(pairValue.property_id, "property ID"),
     reservationId: requiredPositiveInteger(pairValue.reservation_id, "holding ID"),
     userId: requiredPositiveInteger(pairValue.user_id, "investor ID"),
     status: requiredString(pairValue.status, "pair status"),
@@ -272,8 +274,12 @@ function expectedTemplateReference(
   type: LegalDocumentType,
   version: number,
   reference: string,
+  propertyId: number,
 ): void {
-  if (reference !== `legal/templates/${type}/v${version}`) {
+  const propertyPrefix = `legal/templates/properties/${propertyId}/${type}/v${version}/`;
+  const uploadId = reference.startsWith(propertyPrefix) ? reference.slice(propertyPrefix.length) : "";
+  if (reference !== `legal/templates/${type}/v${version}` &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadId)) {
     throw new Error("Pinned legal template storage key does not match its document version");
   }
 }
@@ -356,6 +362,7 @@ async function getPinnedTemplateMetadata(
   dependencies: LegalWorkerDependencies,
   type: LegalDocumentType,
   templateId: number,
+  propertyId: number,
 ) {
   const template = await dependencies.getPinnedLegalTemplate(templateId);
   if (
@@ -368,7 +375,10 @@ async function getPinnedTemplateMetadata(
   ) {
     throw new Error(`Pinned ${type} template metadata is unavailable or invalid`);
   }
-  expectedTemplateReference(type, template.version, template.storageKey);
+  if (template.propertyId != null && Number(template.propertyId) !== propertyId) {
+    throw new Error("Pinned legal template belongs to a different property");
+  }
+  expectedTemplateReference(type, template.version, template.storageKey, propertyId);
   return {
     template,
     templateVersionId: `${type}:v${template.version}`,
@@ -408,6 +418,7 @@ async function generateOrRecoverDocument(
     dependencies,
     type,
     templateId,
+    pair.propertyId,
   );
   const recordKey = deterministicRecordKey(documentId);
   const docxKey = expectedStorageReference(recordKey, "source_docx");

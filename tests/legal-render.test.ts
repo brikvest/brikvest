@@ -10,6 +10,7 @@ import {
 } from "../server/legal/converter";
 import {
   LegalTemplateValidationError,
+  getLegalTemplateFieldMetadata,
   normalizeSuppliedLegalTemplate,
   renderIllustrativeLegalTemplate,
   renderLegalTemplate,
@@ -285,11 +286,11 @@ describe("legal Word template rendering", () => {
     expect(() => validateLegalTemplate(missingRequired, "transfer_exit_rights")).toThrow(
       "Unsupported placeholder",
     );
-    expect(() =>
+    expect(
       validateLegalTemplate(transferV1, "transfer_exit_rights", {
         requireCanonicalDate: true,
-      }),
-    ).toThrow("Required placeholder is missing: {{DOCUMENT_DATE}}");
+      }).placeholderCounts.DOCUMENT_DATE_DAY,
+    ).toBeGreaterThan(0);
 
     const canonicalDateZip = new PizZip(transferV1);
     const canonicalDateXml = canonicalDateZip.file("word/document.xml")!.asText()
@@ -336,6 +337,54 @@ describe("legal Word template rendering", () => {
     expect(getVisibleText(illustrative.renderedDocx)).toContain(
       "Illustrative Example — Not for Execution",
     );
+  });
+
+  it("reports actual distinct fields across split runs, tables, headers and footers", () => {
+    const zip = new PizZip(transferV1);
+    const originalXml = zip.file("word/document.xml")!.asText();
+    const counts = validateLegalTemplate(transferV1, "transfer_exit_rights").placeholderCounts;
+    zip.file("word/document.xml", originalXml.replace("</w:body>",
+      "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>{{PAYMENT_AMOUNT_</w:t></w:r><w:r><w:t>NAIRA_NUMERIC}}</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body>"));
+    zip.file("word/header1.xml", '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>{{USER_</w:t></w:r><w:r><w:t>FULL_NAME}}</w:t></w:r></w:p></w:hdr>');
+    zip.file("word/footer1.xml", '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>{{DOCUMENT_DATE_YEAR}}</w:t></w:r></w:p></w:ftr>');
+    const buffer = zip.generate({ type: "nodebuffer" });
+    const metadata = getLegalTemplateFieldMetadata(buffer, "transfer_exit_rights");
+    expect(metadata.issues).toEqual([]);
+    expect(metadata.fields.find((field) => field.token === "USER_FULL_NAME")?.count)
+      .toBe(counts.USER_FULL_NAME + 1);
+    expect(metadata.fields.find((field) => field.token === "DOCUMENT_DATE_YEAR")?.count)
+      .toBe(counts.DOCUMENT_DATE_YEAR + 1);
+    expect(metadata.fields.find((field) => field.token === "PAYMENT_AMOUNT_NAIRA_NUMERIC"))
+      .toEqual(expect.objectContaining({ count: 1, source: expect.stringContaining("Approved payment") }));
+    expect(metadata.fields.some((field) => field.token === "PAYMENT_AMOUNT_NAIRA_WORDS")).toBe(false);
+    expect(zip.file("word/document.xml")!.asText()).toContain(originalXml.slice(0, originalXml.indexOf("</w:body>")));
+
+    zip.file("word/footer1.xml", "<w:p><w:r><w:t>{{UNKNOWN_FIELD}} {{USER_FULL_NAME</w:t></w:r></w:p>");
+    const invalid = getLegalTemplateFieldMetadata(zip.generate({ type: "nodebuffer" }), "transfer_exit_rights");
+    expect(invalid.issues.join("; ")).toContain("Unsupported placeholder");
+    expect(invalid.issues.join("; ")).toContain("Malformed");
+    expect(getLegalTemplateFieldMetadata(Buffer.from("not docx"), "transfer_exit_rights").issues.length).toBeGreaterThan(0);
+  });
+
+  it("populates transfer payment tokens and rejects blank values for every actual token", () => {
+    const zip = new PizZip(transferV1);
+    zip.file("word/document.xml", zip.file("word/document.xml")!.asText().replace("</w:body>",
+      "<w:p><w:r><w:t>Payment: {{PAYMENT_AMOUNT_NAIRA_NUMERIC}} / {{PAYMENT_AMOUNT_NAIRA_WORDS}}</w:t></w:r></w:p></w:body>"));
+    const buffer = zip.generate({ type: "nodebuffer" });
+    const data = {
+      verifiedFullName: "Ada Lovelace", verifiedHomeAddress: "1 Example Street",
+      propertyAreaSqm: 20, documentDate: FIXED_DATE,
+    };
+    expect(() => renderLegalTemplate(buffer, "transfer_exit_rights",
+      buildLegalTemplateValues("transfer_exit_rights", data))).toThrow("PAYMENT_AMOUNT_NAIRA_NUMERIC");
+    const values = buildLegalTemplateValues("transfer_exit_rights", {
+      ...data, approvedPaymentAmountNaira: "1000000.50",
+    });
+    expect(getVisibleText(renderLegalTemplate(buffer, "transfer_exit_rights", values)))
+      .toContain("Payment: 1,000,000.50 / One Million Naira and Fifty Kobo");
+    expect(() => renderLegalTemplate(buffer, "transfer_exit_rights", {
+      ...values, DOCUMENT_DATE_DAY: "",
+    })).toThrow("DOCUMENT_DATE_DAY");
   });
 
   it("uses one approved amount and one date source for all tokens", () => {
