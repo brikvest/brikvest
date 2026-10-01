@@ -215,7 +215,7 @@ function readPairForWorker(pairValue: Record<string, unknown>, documents: unknow
     Decimal.ROUND_HALF_UP,
   );
   if (areaFromUnits.comparedTo(areaSnapshot) !== 0) {
-    throw new Error("Frozen SD118 property area does not match its unit allocation");
+    throw new Error("Frozen LilyCrest Garden Estate property area does not match its unit allocation");
   }
   if (!Number.isFinite(effectiveAt.getTime())) {
     throw new Error("Legal pair has an invalid effective date");

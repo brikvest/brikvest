@@ -139,11 +139,11 @@ export async function bindLegalProperty(
     throw new Error("A valid exact property ID is required");
   }
   if (input.squareMetersPerUnit !== 5) {
-    throw new Error("SD118 legal documents require the confirmed 5 sqm per-unit mapping");
+    throw new Error("LilyCrest Garden Estate legal documents require the confirmed 5 sqm per-unit mapping");
   }
   const note = input.note.trim();
   if (note.length < 8) {
-    throw new Error("An audit note explaining the SD118 property binding is required");
+    throw new Error("An audit note explaining the LilyCrest Garden Estate property binding is required");
   }
   const previousBindings = resultRows<{ propertyId: number }>(await executor.execute(sql`
     UPDATE legal_property_bindings

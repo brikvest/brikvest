@@ -11,12 +11,14 @@ describe("Brikvest legal documents ready email", () => {
     for (const content of [
       'alt="Brikvest Logo"', "max-width: 600px", "#2563eb",
       "Deed of Assignment", "Transfer and Exit Rights Agreement",
+      "LilyCrest Garden Estate holding",
       "Review &amp; Sign Your Documents", "must sign in",
       "fresh drawn or typed signature", "not full legal execution",
       "handled separately", "The Brikvest Team", "All rights reserved.",
     ]) expect(email.html).toContain(content);
     expect(email.html).toContain('href="https://brikvest.example/dashboard?holding=12"');
     expect(email.html).not.toContain("DocuSign");
+    expect(email.html).not.toContain("SD118");
   });
 
   it("escapes names and query attributes without breaking the holding link", () => {

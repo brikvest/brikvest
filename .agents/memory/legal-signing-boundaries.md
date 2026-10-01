@@ -16,3 +16,9 @@ Investor-only signing completion must never be represented as full legal executi
 **Why:** The user explicitly chose investor-only electronic signing. That choice is not a legal determination that Nigerian deed formalities are satisfied, nor a qualified certificate-backed digital signature.
 
 **How to apply:** Preserve these limits when extending approval paths, the first-party signing flow, dashboard labels or document correction processes. Ordinary financial cancellation suspends only unsigned legal work; it must not act as a backdoor void of accepted or permanently retained investor-signed evidence. Do not infer permission to sign for the company or replace signed artifacts.
+
+Use LilyCrest Garden Estate as the outward-facing estate name outside the deed and transfer rights agreement. Preserve the SD118 plot references inside those legal documents and the stable internal scope identifiers.
+
+**Why:** The user explicitly requested a display-name change, with an exception for the deed and transfer rights agreement; this is not permission to rewrite legal terms or migrate existing legal records.
+
+**How to apply:** Apply the estate name to emails and validation messages without changing agreement templates, retained signed evidence, or exact-ID property binding rules.

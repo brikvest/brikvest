@@ -1,4 +1,4 @@
-# SD118 legal workflow and local-signing operations runbook
+# LilyCrest Garden Estate legal workflow and local-signing operations runbook
 
 This feature creates an immutable Deed of Assignment and Transfer and Exit
 Rights Agreement for an approved land reservation, with a local electronic
@@ -47,7 +47,7 @@ rather than the admin button, is the idempotency boundary.
 3. Configure SMTP through the existing `SMTP_USER` and `SMTP_PASS` server
    secrets. Do not copy credentials into source, client settings, template
    files, logs, or this runbook.
-4. In the admin Legal Documents area, explicitly bind only the exact SD118
+4. In the admin Legal Documents area, explicitly bind only the exact LilyCrest Garden Estate
    property record and confirm its 5 m²-per-unit mapping against the actual
    legal/title records. No fuzzy name matching or other property is supported.
    The admin-only

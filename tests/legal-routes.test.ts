@@ -304,7 +304,7 @@ describe("legal document routes", () => {
     expect(owner.body[0]).toMatchObject({
       id: PAIR_ID,
       reservationId: 901,
-      propertyName: "Lilycrest Garden Estate — Plot SD118",
+      propertyName: "LilyCrest Garden Estate",
       documents: [{ id: DOCUMENT_ID, type: "deed_of_assignment", hasUnsignedPdf: true }],
     });
 

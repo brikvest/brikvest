@@ -797,7 +797,7 @@ export function legalDocumentsReadyEmailTemplate({
       <h2 style="color: #222; text-align: center;">Your Legal Documents Are Ready</h2>
       <p style="font-size: 16px; color: #444;">Hello ${escape(fullName)},</p>
       <p style="font-size: 16px; color: #444; line-height: 1.7;">
-        Your legal documents for your <strong>SD118 holding</strong> are ready.
+        Your legal documents for your <strong>LilyCrest Garden Estate holding</strong> are ready.
         Please sign in to your Brikvest account to review and sign them securely.
       </p>
       <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">

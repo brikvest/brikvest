@@ -105,7 +105,8 @@ async function listPairs(userId?: number) {
   const operations = signingSchema?.installed ? rows(await db.execute(sql`SELECT document_id,pair_id,status,last_error
     FROM local_legal_signing_operations WHERE pair_id IN (${sql.join(result.map((p) => sql`${p.id}`), sql`,`)})`)) : [];
   return result.map((p) => ({
-    id: p.id, reservationId: p.reservation_id, propertyId: p.property_id, propertyName: p.property_name,
+    id: p.id, reservationId: p.reservation_id, propertyId: p.property_id,
+    propertyName: /\bSD118\b/i.test(p.property_name || "") ? "LilyCrest Garden Estate" : p.property_name,
     area: p.property_area_sqm, status: p.status, userEmail: userId === undefined ? p.user_email : undefined,
     userName: userId === undefined ? p.full_name_snapshot : undefined, approvalSource: p.approval_source,
     approvalSourceId: p.approval_source_id, approvedAt: p.approved_at, deedTemplateId: p.deed_template_id,
@@ -137,7 +138,7 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     let binding = null;
     try {
       binding = rows(await db.execute(sql`SELECT property_id AS "propertyId",square_meters_per_unit AS "sqmPerUnit" FROM legal_property_bindings WHERE enabled`))[0] || null;
-      if (!binding) blockers.push("An administrator must explicitly bind the exact SD118 property ID and 5 m²/unit mapping.");
+      if (!binding) blockers.push("An administrator must explicitly bind the exact LilyCrest Garden Estate property ID and 5 m²/unit mapping.");
       const active = rows(await db.execute(sql`SELECT id FROM legal_templates WHERE is_active AND validation_status = 'valid'`));
       if (active.length !== 2) blockers.push("Upload, preview and activate one valid version of each template.");
     } catch { blockers.push("Legal-document database migrations have not been applied."); }
@@ -146,9 +147,9 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     res.json({ ready: blockers.length === 0, configured: config.ready, signingMode: "brikvest_local", checks: config.checks, blockers, binding });
   }));
   app.post("/api/admin/legal/binding", auth.requireAdminAuth, handler(async (req, res) => {
-    if (req.body.confirmed !== true) throw new Error("Explicit confirmation of the SD118 property identity is required");
+    if (req.body.confirmed !== true) throw new Error("Explicit confirmation of the LilyCrest Garden Estate property identity is required");
     const binding = await db.transaction(async (tx) => {
-      const saved = await bindLegalProperty(tx, { propertyId: Number(req.body.propertyId), squareMetersPerUnit: Number(req.body.sqmPerUnit), adminId: req.user.userId, note: "Admin explicitly confirms Lilycrest Garden Estate Plot SD118 and 5 sqm per unit." });
+      const saved = await bindLegalProperty(tx, { propertyId: Number(req.body.propertyId), squareMetersPerUnit: Number(req.body.sqmPerUnit), adminId: req.user.userId, note: "Admin explicitly confirms LilyCrest Garden Estate and 5 sqm per unit." });
       await audit(tx, req.user.userId, "sd118_property_binding_confirmed", { propertyId: saved.propertyId, sqmPerUnit: 5 });
       return saved;
     });
