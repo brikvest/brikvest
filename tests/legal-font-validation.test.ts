@@ -8,6 +8,10 @@ import PizZip from "pizzip";
 import {
   assessDocxFontReadiness,
   assertDocxFontsAvailable,
+  inspectFontconfigFace,
+  LIBERATION_SERIF_STYLES,
+  resolveFontconfigFace,
+  resolveFontconfigFamily,
   readDocxFontRequirements,
 } from "../server/legal/font-validation";
 import { convertDocxToPdf, prepareDocxForPdf, verifyAssigneeSignaturePosition } from "../server/legal/converter";
@@ -52,6 +56,48 @@ function addUnavailableFontFamily(buffer: Buffer): Buffer {
 }
 
 describe("DOCX conversion font fidelity", () => {
+  it("resolves every licensed Liberation Serif face to an exact readable converter font file", () => {
+    const previousConfig = process.env.FONTCONFIG_FILE;
+    process.env.FONTCONFIG_FILE = path.join(projectRoot, "server/legal/fonts/fontconfig.conf");
+    try {
+      for (const style of LIBERATION_SERIF_STYLES) {
+        const face = resolveFontconfigFace("Liberation Serif", style);
+        expect(face).toMatchObject({
+          family: "Liberation Serif",
+          style,
+          exactFamily: true,
+          exactStyle: true,
+          readableFile: true,
+          ready: true,
+        });
+        expect(face.file).toMatch(/LiberationSerif.*\.ttf$/);
+      }
+    } finally {
+      if (previousConfig === undefined) delete process.env.FONTCONFIG_FILE;
+      else process.env.FONTCONFIG_FILE = previousConfig;
+    }
+  });
+
+  it("treats an unreadable original-font path as unavailable so new documents may use the authorized fallback", () => {
+    const exactButUnreadable = inspectFontconfigFace(
+      "Cambria",
+      "Regular",
+      "Cambria|Regular|/unreadable/Cambria.ttf",
+      () => false,
+    );
+    expect(exactButUnreadable).toMatchObject({
+      exactFamily: true,
+      exactStyle: true,
+      readableFile: false,
+      ready: false,
+    });
+
+    const prepared = prepareDocxForPdf(addUnavailableFontFamily(renderedDeed()), (family) =>
+      family === "Liberation Serif" ? family : "unavailable",
+    );
+    expect(readDocxFontRequirements([prepared]).families).toEqual(["Liberation Serif"]);
+  });
+
   it("uses per-family exact-match and valid embedded-font evidence", () => {
     const requirements = readDocxFontRequirements([deedTemplate, transferTemplate]);
     const readiness = assessDocxFontReadiness(requirements, (family) =>
@@ -112,6 +158,18 @@ describe("DOCX conversion font fidelity", () => {
     ).rejects.toThrow(/LibreOffice DOCX-to-PDF conversion failed|could not start/);
   });
 
+  it("classifies immutable recovery font failures separately from fallback and font-service failures", async () => {
+    const source = addUnavailableFontFamily(renderedDeed());
+    await expect(convertDocxToPdf(source, {
+      preserveTypography: true,
+      resolveFontFamily: () => "Substitute Serif",
+    })).rejects.toMatchObject({ kind: "recovery-fonts" });
+    await expect(convertDocxToPdf(source, {
+      preserveTypography: true,
+      resolveFontFamily: () => { throw new Error("font service unavailable"); },
+    })).rejects.toMatchObject({ kind: "font-service" });
+  });
+
   it("retains byte-identical original typography and sizing when every required font is ready", () => {
     const original = renderedDeed();
     expect(prepareLegalDocxTypography(original, (family) => family)).toBe(original);
@@ -164,6 +222,9 @@ describe("DOCX conversion font fidelity", () => {
   it("distinguishes missing fallback, corrupt metadata, and unavailable verification infrastructure", () => {
     const source = addUnavailableFontFamily(renderedDeed());
     expect(() => prepareDocxForPdf(source, () => "Different Serif")).toThrow(/authorized Liberation Serif.*unavailable/);
+    expect(() => prepareDocxForPdf(source, (_family, style) =>
+      style === "Bold Italic" ? "Substitute Serif" : "Liberation Serif",
+    )).toThrow(/authorized Liberation Serif 12-point fallback is unavailable/);
     for (const resolver of [() => "", () => { throw new Error("service down"); }]) {
       try { prepareDocxForPdf(source, resolver); throw new Error("Expected rejection"); } catch (error) {
         expect(error).toMatchObject({ kind: "font-service" });
@@ -224,7 +285,9 @@ describe("DOCX conversion font fidelity", () => {
 
   it.each(["development", "production"])("converts both legal types and checks final fallback PDF positions under %s policy", async (environment) => {
     const previous = process.env.NODE_ENV;
+    const previousFontConfig = process.env.FONTCONFIG_FILE;
     process.env.NODE_ENV = environment;
+    process.env.FONTCONFIG_FILE = path.join(projectRoot, "server/legal/fonts/fontconfig.conf");
     const directory = mkdtempSync(path.join(tmpdir(), "legal-serif-policy-"));
     try {
       for (const type of ["deed_of_assignment", "transfer_exit_rights"] as const) {
@@ -248,8 +311,15 @@ describe("DOCX conversion font fidelity", () => {
           PAYMENT_AMOUNT_NAIRA_WORDS: "One Million Naira", DOCUMENT_DATE: "30th September 2026",
           DOCUMENT_DATE_DAY: "30th", DOCUMENT_DATE_MONTH: "September", DOCUMENT_DATE_YEAR: "2026",
         });
-        const working = prepareDocxForPdf(addUnavailableFontFamily(source), () => "Liberation Serif");
-        const pdf = await convertDocxToPdf(working, { preserveTypography: true });
+        const deploymentFontResolver = (family: string, style?: string, exact?: boolean) =>
+          family === "Liberation Serif"
+            ? resolveFontconfigFamily(family, style, exact)
+            : "Unavailable source font";
+        const working = prepareDocxForPdf(addUnavailableFontFamily(source), deploymentFontResolver);
+        const pdf = await convertDocxToPdf(working, {
+          preserveTypography: true,
+          resolveFontFamily: deploymentFontResolver,
+        });
         const filename = path.join(directory, `${type}.pdf`);
         writeFileSync(filename, pdf);
         const fonts = execFileSync("pdffonts", [filename], { encoding: "utf8" });
@@ -270,6 +340,8 @@ describe("DOCX conversion font fidelity", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
       if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous;
+      if (previousFontConfig === undefined) delete process.env.FONTCONFIG_FILE;
+      else process.env.FONTCONFIG_FILE = previousFontConfig;
     }
   }, 120_000);
 });

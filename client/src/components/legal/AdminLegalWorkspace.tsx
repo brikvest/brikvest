@@ -14,7 +14,7 @@ import { LegalActionError, LegalActionNotice, legalNetworkError, readLegalRespon
 
 type Request = (url: string, options?: any) => Promise<any>;
 type Property = { id: number; name: string; location?: string };
-type Template = { id: number; propertyId?: number | null; documentType: string; version: number; active: boolean; validationStatus: string; createdAt: string };
+type Template = { id: number; propertyId?: number | null; documentType: string; version: number; active: boolean; validationStatus: string; createdAt: string; deletionBlockedReason?: "active" | "referenced" | null };
 type LegalDocument = { id: number; type: string; status: string; hasUnsignedPdf: boolean; hasSignedPdf: boolean; hasCertificate: boolean };
 type Pair = {
   id: number; propertyId?: number; reservationId?: number; userName?: string; userEmail?: string;
@@ -152,6 +152,7 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
   const [audit, setAudit] = useState<{ title: string; events: unknown } | null>(null);
   const [activation, setActivation] = useState<Template | null>(null);
   const [assignment, setAssignment] = useState<Template | null>(null);
+  const [deletion, setDeletion] = useState<Template | null>(null);
   const [dispatchConfirm, setDispatchConfirm] = useState(false);
   const [showLegacy, setShowLegacy] = useState(false);
   const [legacyFieldsId, setLegacyFieldsId] = useState<string>("");
@@ -243,6 +244,30 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
     if (kind === "audit") setAudit({ title: `${pair.userName || "Investor"} · Audit trail`, events: result });
     else { toast({ title: kind === "retry" ? "Retry queued" : "Email queued", description: `${property.name} · ${pair.userName || pair.userEmail || `Holding #${pair.reservationId}`}: ${result?.message || (kind === "retry" ? "Processing will continue in the background." : "The worker will send the document notification; delivery is not yet confirmed.")}` }); refresh(); }
   });
+  const deleteTemplate = (template: Template) => action(`delete-${template.id}`, async () => {
+    const context = { property: property.name, documentType: template.documentType, templateVersion: `v${template.version}`, action: "deletion", confirm: "message" as const };
+    const session = localStorage.getItem("admin_session_id");
+    if (!session) throw new LegalActionError({ ...context, stage: "session", summary: "Your administrator session has expired.", issues: [], instructions: [], nextAction: "Sign in again and retry deletion.", kind: "session" });
+    const controller = new AbortController(); controllers.current.add(controller);
+    try {
+      const response = await fetch(scoped(`/api/admin/legal/templates/${template.id}`), { method: "DELETE", credentials: "include", headers: { Authorization: `Bearer ${session}`, "Content-Type": "application/json" }, body: JSON.stringify({ propertyId, confirmed: true }), signal: controller.signal });
+      await readLegalResponse(response, context);
+      if (!mounted.current) return;
+      await client.cancelQueries({ queryKey: ["/api/admin/legal/templates", propertyId], exact: true });
+      client.setQueryData<Template[]>(["/api/admin/legal/templates", propertyId], (previous) => previous?.filter((item) => item.id !== template.id));
+      client.removeQueries({ queryKey: ["/api/admin/legal/templates", template.id] });
+      if (draftId === String(template.id)) setDraftId("");
+      setPreview(null);
+      setActivation((previous) => previous?.id === template.id ? null : previous);
+      setTemplateResults((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${template.id}:`))));
+      setDeletion(null);
+      toast({ title: "Template removed", description: `${property.name} · ${name(template.documentType)} · v${template.version}. Source files and audit history are retained.` });
+      refresh();
+    } finally { controllers.current.delete(controller); }
+  }, (error) => {
+    setTemplateResults((previous) => ({ ...previous, [`${template.id}:deletion`]: error instanceof LegalActionError ? error.result : legalNetworkError(error, { property: property.name, documentType: template.documentType, templateVersion: `v${template.version}`, action: "deletion" }).result }));
+    refresh();
+  });
   const templateControls = (template: Template, unassigned = false) => <div className="flex flex-wrap gap-2">
      <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void action(`preview-${template.id}`, () => openFile(`/api/admin/legal/templates/${template.id}/preview`, `${name(template.documentType)} · v${template.version}`, undefined, unassigned, template), (error) => setTemplateResults((previous) => ({ ...previous, [`${template.id}:preview`]: error instanceof LegalActionError ? error.result : legalNetworkError(error, { property: property.name, documentType: template.documentType, templateVersion: `v${template.version}`, action: "preview" }).result })))}><Eye className="mr-1.5 h-4 w-4" />Preview PDF</Button>
      <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void action(`download-${template.id}`, () => openFile(`/api/admin/legal/templates/${template.id}/download`, name(template.documentType), `${template.documentType}-v${template.version}.docx`, unassigned, template), (error) => setTemplateResults((previous) => ({ ...previous, [`${template.id}:download`]: error instanceof LegalActionError ? error.result : legalNetworkError(error, { property: property.name, documentType: template.documentType, templateVersion: `v${template.version}`, action: "download" }).result })))}><Download className="mr-1.5 h-4 w-4" />Word file</Button>
@@ -254,10 +279,13 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
       }
     }}>Inspect fields</Button>
     {unassigned ? <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setAssignment(template)}>Assign to {property.name}</Button> : !template.active && <Button size="sm" disabled={!!busy || template.validationStatus !== "valid"} onClick={() => setActivation(template)}>Activate v{template.version}</Button>}
+     {!unassigned && <><Button size="sm" variant="outline" disabled={!!busy || template.active || !!template.deletionBlockedReason} aria-describedby={template.active || template.deletionBlockedReason ? `delete-restriction-${template.id}` : undefined} onClick={() => { setTemplateResults((previous) => { const next = { ...previous }; delete next[`${template.id}:deletion`]; return next; }); setDeletion(template); }}>Delete</Button>{(template.active || template.deletionBlockedReason) && <p id={`delete-restriction-${template.id}`} className="w-full text-xs text-slate-600">{template.active || template.deletionBlockedReason === "active" ? "Live versions cannot be deleted. Activate another version first; referenced versions remain protected." : "This version is pinned to an investor document or document pair, including historical records, and cannot be deleted."}</p>}</>}
      {(["preview", "download", "activation"] as const).map((operation) => templateResults[`${template.id}:${operation}`] && <div key={operation} className="w-full basis-full"><LegalActionNotice result={templateResults[`${template.id}:${operation}`]} /></div>)}
+     {!deletion && templateResults[`${template.id}:deletion`] && <div className="w-full basis-full"><LegalActionNotice result={templateResults[`${template.id}:deletion`]} /></div>}
    </div>;
 
   return <div className="space-y-6">
+    <Dialog open={!!deletion} onOpenChange={(open) => { if (!open && !busy) setDeletion(null); }}><DialogContent><DialogHeader><DialogTitle>Delete template version?</DialogTitle><DialogDescription>{deletion ? `${property.name} · ${name(deletion.documentType)} · Version ${deletion.version}` : ""}</DialogDescription></DialogHeader><p className="text-sm text-slate-600">This removes the version from this workspace and prevents future use. It does not erase its private source file, provenance or administrator-attributed audit record. Version numbers will not be reused. Live and referenced versions cannot be deleted; existing investor documents are unchanged.</p>{deletion && templateResults[`${deletion.id}:deletion`] && <LegalActionNotice result={templateResults[`${deletion.id}:deletion`]} />}<div className="flex justify-end gap-2"><Button variant="outline" disabled={!!busy} onClick={() => setDeletion(null)}>Cancel</Button><Button variant="destructive" disabled={!!busy} onClick={() => deletion && void deleteTemplate(deletion)}>{busy?.startsWith("delete-") ? "Deleting…" : "Delete version"}</Button></div></DialogContent></Dialog>
     <Card>
       <CardHeader><CardTitle className="text-lg">Templates</CardTitle><CardDescription>Two property-specific Word documents. Upload a version, review it, then activate it for future document generation. Existing investor documents retain their original versions.</CardDescription></CardHeader>
       <CardContent className="space-y-5">

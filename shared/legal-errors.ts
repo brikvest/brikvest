@@ -1,5 +1,5 @@
 /** Safe administrator-facing details; never put raw exceptions in this contract. */
-export type LegalFailureStage = "upload" | "validation" | "save" | "inspection" | "storage" | "render" | "conversion" | "placement" | "preview" | "activation";
+export type LegalFailureStage = "upload" | "validation" | "save" | "inspection" | "storage" | "render" | "conversion" | "placement" | "preview" | "activation" | "deletion";
 export interface LegalCorrectionIssue {
   code: string;
   message: string;

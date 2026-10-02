@@ -1,5 +1,16 @@
 # Administrator template correction and service failures
 
+## Reported converter support error investigation
+
+The supplied bounded production diagnostic identifies a font-category failure
+with a `LegalFontValidationError` cause. The exact unavailable family/path and
+underlying message were not part of the safe diagnostic provided, so the
+specific missing font is not established here. No private runtime log content,
+document data, or secret values are included in this runbook. Administrators
+should use the incident's `LEGAL-…` reference to review only bounded
+category/cause-code diagnostics; do not paste raw exceptions, process output,
+credentials, document text, or private paths.
+
 Uploads validate before persistence and never activate automatically. Placeholder
 names are persisted with a parameterized PostgreSQL `ARRAY[...]::text[]`
 constructor, not by interpolating a JavaScript array as a SQL record.
@@ -51,6 +62,35 @@ startup can perform backfills.
 
 # Property-owned legal workflow and local-signing operations runbook
 
+## Removing obsolete template versions
+
+Within a property's Templates section, **Delete** is available only for an
+inactive version with no current or historical document-pair pin or generated
+document reference. The confirmation identifies the property, document type
+and version. Cancellation changes nothing. A successful deletion removes the
+version from the list and selection without a page refresh; the live version
+and investor documents remain unchanged.
+
+Deletion is logical, not storage erasure. Private source bytes, checksums,
+upload attribution, timestamps and exact historical references are retained.
+Deletion metadata is write-once and the transaction records the administrator
+and exact version in the append-only audit log. Retrying a confirmed deletion
+does not create a second deletion audit record. Global version allocation still
+includes removed rows, so an upload never reuses their version numbers.
+
+The server and database reject deletion of live or referenced versions even
+when another administrator activates or pins a version concurrently. Removed
+versions are excluded from template lists, direct preview/download/inspection,
+assignment, activation and generation. Investor artifact access is unchanged.
+If confirmation returns a conflict, retain the version and refresh its state;
+do not edit database rows or erase its objects to bypass the restriction.
+
+Apply the explicit `scripts/ensure-legal-template-deletion.sql` migration after
+the property-template migration as part of an authorized release. It is
+idempotent and does not mark any existing version deleted. Older setup scripts
+preserve the compatible guards when rerun. This task's verification uses
+isolated fixtures and does not apply the migration to the live database.
+
 This feature creates an immutable Deed of Assignment and Transfer and Exit
 Rights Agreement for an approved land reservation, with a local electronic
 signing flow and locally retained completion evidence. The authoritative
@@ -76,7 +116,8 @@ activation do not scan old holdings or manufacture approval events.
    `scripts/ensure-legal-documents.sql`, followed by
    `scripts/ensure-legal-local-signing.sql`,
    `scripts/ensure-legal-notification-cycles.sql`, and the **explicit new
-   additive migration** `scripts/ensure-legal-property-templates.sql`.
+   additive migration** `scripts/ensure-legal-property-templates.sql`, then
+   `scripts/ensure-legal-template-deletion.sql`.
    `scripts/post-merge.sh` lists this sequence. The property-ownership migration
    is a required deployment step, not an implicit runtime schema change.
    These migrations are deliberately not applied via `drizzle-kit push`:
@@ -92,7 +133,9 @@ activation do not scan old holdings or manufacture approval events.
    It preserves historical pair pins, frozen snapshots, files, signatures,
    hashes, and evidence, and does not rewrite existing reservations or backfill
    historical approvals.
-2. Run `npx tsx scripts/legal-readiness.ts`. It reports readiness booleans and
+2. Run `npm run legal:readiness` (or
+   `bash scripts/legal-font-env.sh npx tsx scripts/legal-readiness.ts`). It
+   reports readiness booleans and
    missing **variable names only**; it never prints values or connects to the
    database. Configure the existing authenticated-session secret
    `SESSION_SECRET`, private object storage, SMTP, and `APP_BASE_URL` as an
@@ -100,24 +143,40 @@ activation do not scan old holdings or manufacture approval events.
    a signing-provider callback. `LEGAL_DISPATCH_SECRET` is optional and only
    enables bearer authentication for a scheduled dispatcher; administrators
    can dispatch jobs through the admin-authenticated route without it.
-   The `document-fonts` check verifies infrastructure only: fontconfig
-   (`fc-match`) and the per-template font verification helper must be available.
-   The authorized Liberation Serif fallback is verified during preparation
-   whenever a working document needs normalization.
-   It does not inspect bundled forms or certify any uploaded, active, or
-   historically pinned template's fonts; the returned `fonts` list is empty.
+    The converter runtime and autoscale deployment ship the four unmodified
+    Liberation Serif 2.1.0 TTF faces with the upstream SIL Open Font License.
+    Provenance and SHA-256 values are in `server/legal/fonts/README.md`.
+    `server/legal/fonts/fontconfig.conf` declares this relative bundle before
+    optionally including platform font directories. `.replit` also retains
+    LibreOffice and its licensed system-font packages, but fallback availability
+    no longer depends on those font paths. Keep the bundled directory and config
+    in release assets alongside `dist/index.js`; compiling JavaScript does not
+    copy or embed TTFs. `npm run dev` and `npm run start` both use
+   `scripts/legal-font-env.sh` to export `FONTCONFIG_FILE` to the server,
+   readiness checks, and LibreOffice child process. `LEGAL_FONTCONFIG_FILE`
+   can select a readable deployment-equivalent config, while `FC_MATCH_PATH`
+   can select the matching fontconfig executable. Do not rely on workstation
+   fonts or install substitute families.
+   `document-fonts` uses the same exact fontconfig face/path validation as the
+   converter and requires all four authorized fallback faces to resolve to
+   readable files. Its `fonts` entries report family/style, exact-match and
+   readable-path booleans only; no filesystem paths are returned. This checks
+   fallback provisioning, not uploaded templates: it does not inspect or
+   certify any uploaded, active, or historically pinned template's fonts.
    Unused legacy forms therefore do not block infrastructure readiness.
    Fontconfig substitution is not an exact original-font match. In every
    environment, including tests, each conversion checks the **actual DOCX input**
-    and validates its font metadata before LibreOffice. If original font families
-    are not exact installed matches and no valid embedded font data is available,
-    the authorized fallback is Liberation Serif 12 pt for the whole document.
-    Corrupt metadata, unavailable verification infrastructure, or an unavailable
-    fallback blocks conversion rather than silently substituting fonts. The
-    fallback preserves legal wording but may change pagination. Review every
-    rendered PDF and confirm final investor signature placement; infrastructure
-    readiness alone does not establish a template's conversion or placement
-    readiness.
+   and validates its font metadata before LibreOffice. If original font families
+   are not exact installed matches and no valid embedded font data is available,
+   the authorized fallback is Liberation Serif 12 pt for the whole document.
+   Corrupt metadata, unavailable verification infrastructure, or an unavailable
+   fallback blocks conversion rather than silently substituting fonts. An
+   immutable recovery conversion separately requires exact original fonts or
+   valid embedded fonts and never reformats the saved DOCX or uses the new
+   document fallback. The fallback preserves legal wording but may change
+   pagination. Review every rendered PDF and confirm final investor signature
+   placement; infrastructure readiness alone does not establish a template's
+   conversion or placement readiness.
    The local audit-evidence PDF uses a separately resolved DejaVu Sans
    font, embeds it with fontkit, records its SHA-256, and checks that digest
    during finalization/recovery. Keep that helper font available and stable.
@@ -367,6 +426,7 @@ property's confirmed square metres per unit.
 | `GET /api/admin/legal/templates/:id/preview` | Admin scoped illustrative PDF preview |
 | `GET /api/admin/legal/templates/:id/fields` | Admin scoped detected-token metadata and validation issues |
 | `POST /api/admin/legal/templates/:id/activate` | Admin validation/conversion/signature-position gate and property-only activation (JSON `propertyId`) |
+| `DELETE /api/admin/legal/templates/:id` | Admin confirmed logical deletion of an inactive, never-referenced property-owned version (JSON `propertyId`, `confirmed: true`); retains bytes and audit |
 | `GET /api/admin/legal/documents/:id/preview` | Admin property-scoped private document preview; same versions as owner routes |
 | `GET /api/admin/legal/documents/:id/download` | Admin property-scoped private document download |
 | `GET /api/admin/legal/pairs/:id/audit` | Admin property-scoped audit history |
@@ -434,15 +494,18 @@ both types, including their source inline/anchored drawings; raster comparisons
 require existing image pages to remain unchanged outside the investor stamp.
 These checks neither restart the application nor access the live development
 database. Conversion uses the same font policy in tests as in development and
-production. Dedicated fixtures control font resolution to exercise both exact
-original formatting and authorized whole-document normalization; this does not
-certify any live property template. The normal per-template font gate remains in
-place outside tests.
+production. Real-converter font fixtures set the shared `FONTCONFIG_FILE` asset,
+verify readable exact regular/bold/italic/bold-italic font files, and exercise
+both legal document types with their original drawings, preserved text
+formatting, PDF typography, and assignee placement checks. Other dedicated
+fixtures control font resolution to test unavailable originals and authorized
+whole-document normalization; these checks do not certify any live property
+template. The normal per-template font gate remains in place outside tests.
 
 ```sh
 npx vitest run --config vitest.legal.config.ts
 npm run test:legal:browser
-npx tsx scripts/legal-readiness.ts
+npm run legal:readiness
 ```
 
 The browser command requires an existing HTTPS development UI origin and

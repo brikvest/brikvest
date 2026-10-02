@@ -360,7 +360,7 @@ export async function enqueueLegalApproval(
   const activeTemplateResult = await tx.execute(sql`
     SELECT id, document_type AS "documentType", version
     FROM legal_templates
-    WHERE is_active = true AND validation_status = 'valid'
+    WHERE is_active = true AND validation_status = 'valid' AND deleted_at IS NULL
       AND property_id = ${purchase.propertyId}
       AND document_type IN ('deed_of_assignment', 'transfer_exit_rights')
     ORDER BY document_type
@@ -517,7 +517,7 @@ export async function pinActiveTemplatesAndQueue(
   const templates = resultRows<{ id: number; documentType: string }>(await executor.execute(sql`
     SELECT id, document_type AS "documentType"
     FROM legal_templates
-    WHERE is_active = true AND validation_status = 'valid'
+    WHERE is_active = true AND validation_status = 'valid' AND deleted_at IS NULL
       AND property_id = ${existing.propertyId}
       AND document_type IN ('deed_of_assignment', 'transfer_exit_rights')
     FOR SHARE
@@ -584,7 +584,7 @@ export async function getPinnedLegalTemplate(
     SELECT id, property_id AS "propertyId", document_type AS "documentType", version,
       storage_key AS "storageKey", sha256
     FROM legal_templates
-    WHERE id = ${templateId}
+    WHERE id = ${templateId} AND deleted_at IS NULL
   `);
   return resultRows<LegalPinnedTemplate>(result)[0];
 }

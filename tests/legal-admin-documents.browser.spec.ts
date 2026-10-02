@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
 
-type Template = { id: number; propertyId: number | null; documentType: string; version: number; active: boolean; validationStatus: string; createdAt: string };
+type Template = { id: number; propertyId: number | null; documentType: string; version: number; active: boolean; validationStatus: string; createdAt: string; deletionBlockedReason?: "active" | "referenced" | null };
 type RequestRecord = { path: string; method: string; propertyId: number; body: any; query: string };
 type Fixture = {
   requests: RequestRecord[];
@@ -14,6 +14,7 @@ type Fixture = {
   activationFailure?: boolean;
   activationNonJson?: boolean;
   fieldMetadata?: boolean;
+  deletionFailure?: boolean;
 };
 const properties = [{ id: 108, name: "North Estate", location: "Lagos" }, { id: 209, name: "South Estate", location: "Abuja" }];
 const template = (id: number, propertyId: number | null, documentType: string, active = false, version = 1): Template =>
@@ -45,7 +46,7 @@ async function installMocks(page: Page): Promise<Fixture> {
     const path = url.pathname;
     const method = request.method();
     let body: any = {};
-    if (method === "POST") {
+    if (method === "POST" || method === "DELETE") {
       if (request.headers()["content-type"]?.includes("multipart")) {
         const multipart = request.postData() || "";
         body = {
@@ -90,6 +91,17 @@ async function installMocks(page: Page): Promise<Fixture> {
       const uploaded = template(33, 108, body.documentType, false, 2);
       fixture.templates.push(uploaded);
       return json(route, uploaded, 201);
+    }
+    const deletionMatch = path.match(/^\/api\/admin\/legal\/templates\/(\d+)$/);
+    if (deletionMatch && method === "DELETE") {
+      const current = fixture.templates.find((item) => item.id === Number(deletionMatch[1]));
+      if (!current || current.propertyId !== propertyId) return json(route, { error: "Template not found" }, 404);
+      if (fixture.deletionFailure || current.active || current.deletionBlockedReason) return json(route, {
+        failure: { code: "TEMPLATE_REFERENCED", stage: "deletion", summary: "This version is now pinned to a historical document pair.", issues: [], nextAction: "Retain this version. Refresh the template list." },
+      }, 409);
+      if (body.confirmed !== true) return json(route, { error: "Confirmation required" }, 400);
+      fixture.templates = fixture.templates.filter((item) => item.id !== current.id);
+      return json(route, { message: "Template removed; source and audit retained." });
     }
     const templateMatch = path.match(/^\/api\/admin\/legal\/templates\/(\d+)\/(activate|assign|fields|preview|download)$/);
     if (templateMatch) {
@@ -158,6 +170,56 @@ async function chooseProperty(page: Page, name: string) {
 async function closeDialog(page: Page) {
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
 }
+
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} delete confirms exact version, cancels safely and clears selected draft without changing live versions`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installMocks(page);
+    await openWorkspace(page, mobile);
+    await chooseProperty(page, "South Estate");
+    const draftRow = page.getByText("Uploaded · not active · Version 2", { exact: true }).locator("..").locator("..");
+    await draftRow.getByRole("button", { name: "Inspect fields" }).click();
+    await draftRow.getByRole("button", { name: "Delete", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("South Estate · Deed of Assignment · Version 2");
+    await expect(dialog).toContainText("does not erase");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(fixture.requests.filter((item) => item.method === "DELETE")).toHaveLength(0);
+    await draftRow.getByRole("button", { name: "Delete", exact: true }).click();
+    await dialog.getByRole("button", { name: "Delete version", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText("Uploaded · not active · Version 2", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Activate v2", exact: true })).toHaveCount(0);
+    expect(fixture.templates.filter((item) => item.propertyId === 209 && item.active).map((item) => item.id)).toEqual([41, 42]);
+    const request = fixture.requests.find((item) => item.method === "DELETE");
+    expect(request).toMatchObject({ path: "/api/admin/legal/templates/40", propertyId: 209, body: { confirmed: true, propertyId: 209 } });
+    expect(fixture.unexpected).toEqual([]);
+  });
+}
+
+test("active and historically referenced versions explain blocked deletion; a concurrent pin is a structured dialog error", async ({ page }) => {
+  const fixture = await installMocks(page);
+  fixture.templates.find((item) => item.id === 32)!.deletionBlockedReason = "referenced";
+  await openWorkspace(page);
+  await chooseProperty(page, "North Estate");
+  const referencedRow = page.getByRole("heading", { name: "Transfer and Exit Rights Agreement", exact: true }).locator("..").locator("..");
+  await expect(referencedRow.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await expect(referencedRow).toContainText("including historical records");
+  await chooseProperty(page, "South Estate");
+  const liveRow = page.getByText("Live · Version 1", { exact: true }).first().locator("..").locator("..");
+  await expect(liveRow.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await expect(liveRow).toContainText("Live versions cannot be deleted");
+  fixture.deletionFailure = true;
+  const draftRow = page.getByText("Uploaded · not active · Version 2", { exact: true }).locator("..").locator("..");
+  await draftRow.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete version", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Stage: deletion");
+  await expect(page.getByRole("dialog")).toContainText("now pinned to a historical document pair");
+  expect(fixture.templates.some((item) => item.id === 40)).toBe(true);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(draftRow.getByRole("alert")).toBeVisible();
+  expect(fixture.unexpected).toEqual([]);
+});
 
 test("readiness retains font infrastructure failures regardless of template wording", async ({ page }) => {
   await installMocks(page);

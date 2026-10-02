@@ -29,7 +29,7 @@ function safeText(value: unknown, fallback: string): string {
 function failureFrom(body: any): LegalActionFailure | undefined {
   const failure = body?.failure;
   if (!failure || typeof failure !== "object" || typeof failure.summary !== "string" || typeof failure.stage !== "string") return;
-  const stages: LegalActionFailure["stage"][] = ["upload", "validation", "save", "inspection", "storage", "render", "conversion", "placement", "preview", "activation"];
+  const stages: LegalActionFailure["stage"][] = ["upload", "validation", "save", "inspection", "storage", "render", "conversion", "placement", "preview", "activation", "deletion"];
   const reportedIssues = Array.isArray(failure.correctionIssues) ? failure.correctionIssues
     : Array.isArray(body?.correctionIssues) ? body.correctionIssues
       : Array.isArray(failure.issues) ? failure.issues : [];

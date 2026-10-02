@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
 import {
-  assertDocxFontsAvailable,
+  fontconfigFaceReadiness,
+  LIBERATION_SERIF_STYLES,
+  resolveFontconfigFamily,
   type LegalFontReadiness,
 } from "../server/legal/font-validation";
+import { resolveLibreOfficeExecutable } from "../server/legal/converter";
 export type { LegalFontReadiness } from "../server/legal/font-validation";
 
 export type LegalReadinessCheck = {
@@ -40,22 +43,43 @@ function execute(command: string, args: string[]): string {
 
 function getFontReadiness(
   run: Execute,
+  fontconfigPath?: string,
 ): { fonts: LegalFontReadiness[]; available: boolean; detail: string } {
-  let fontconfigAvailable = false;
-  try {
-    fontconfigAvailable = Boolean(run("fc-match", ["--version"]).trim());
-  } catch {
-    // Infrastructure presence only; actual fonts belong to each uploaded DOCX.
+  let successfulFontQueries = 0;
+  const fonts: LegalFontReadiness[] = [];
+  for (const style of LIBERATION_SERIF_STYLES) {
+    try {
+      const output = run(
+        fontconfigPath || process.env.FC_MATCH_PATH || "fc-match",
+        ["-f", "%{family}|%{style}|%{file}", `Liberation Serif:style=${style}`],
+      );
+      successfulFontQueries += 1;
+      fonts.push(fontconfigFaceReadiness("Liberation Serif", style, output));
+    } catch {
+      fonts.push({
+        family: "Liberation Serif",
+        style,
+        matchedFamily: "unavailable",
+        pathReadable: false,
+        installedExactMatch: false,
+        embeddedInTemplate: false,
+        ready: false,
+      });
+    }
   }
-  const helperAvailable = typeof assertDocxFontsAvailable === "function";
+  const fontconfigAvailable = successfulFontQueries > 0;
+  const facesReady = fonts.length === LIBERATION_SERIF_STYLES.length && fonts.every((font) => font.ready);
+  const helperAvailable = typeof resolveFontconfigFamily === "function";
   return {
-    fonts: [],
-    available: fontconfigAvailable && helperAvailable,
+    fonts,
+    available: fontconfigAvailable && helperAvailable && facesReady,
     detail: !fontconfigAvailable
-      ? "Fontconfig (fc-match) is unavailable; per-template font verification cannot run."
+      ? "Fontconfig (fc-match) is unavailable; font verification and exact Liberation Serif face checks cannot run."
       : !helperAvailable
         ? "The per-template font verification helper is unavailable."
-        : "Fontconfig and the font verification helper are available. Each property's actual DOCX fonts are checked during preview, activation and generation; readiness does not certify any template's fonts.",
+        : !facesReady
+          ? "The authorized Liberation Serif fallback is not ready: exact regular, bold, italic and bold-italic faces with readable font files are required in this converter environment."
+          : "The exact Liberation Serif regular, bold, italic and bold-italic faces resolve to readable files in this converter environment. Each property's actual DOCX fonts are separately checked during preview, activation and generation; readiness does not certify any template's fonts.",
   };
 }
 
@@ -73,13 +97,16 @@ export function getLegalReadiness(
   );
   let libreOfficeVersion = "";
   try {
-    libreOfficeVersion = run("libreoffice", ["--version"]);
+    libreOfficeVersion = run(
+      resolveLibreOfficeExecutable(env.LIBREOFFICE_PATH, env.SOFFICE_PATH),
+      ["--version"],
+    );
   } catch {
     // The readiness result reports a simple unavailable state, never an
     // exception message that could include unrelated process configuration.
   }
 
-  const fontReadiness = getFontReadiness(run);
+  const fontReadiness = getFontReadiness(run, env.FC_MATCH_PATH);
   let pdfImagePositionAvailable = false;
   try {
     // Poppler writes its version to stderr; successful execution is sufficient.

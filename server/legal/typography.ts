@@ -1,7 +1,7 @@
 import type { Element } from "@xmldom/xmldom";
 import { inspectLegalDocxArchive } from "./templates";
 import {
-  assessDocxFontReadiness, readDocxFontRequirements, resolveFontconfigFamily,
+  assertLiberationSerifFacesAvailable, assessDocxFontReadiness, readDocxFontRequirements, resolveFontconfigFamily,
   LegalFontValidationError, type FontFamilyResolver,
 } from "./font-validation";
 import { DRAWING_NS, WORD_NS, fontElements, parseFontXml, serializeFontXml } from "./font-xml";
@@ -43,11 +43,14 @@ export function prepareLegalDocxTypography(
   }
   const unavailable = assessDocxFontReadiness(requirements, resolveFamily).some((font) => !font.ready);
   if (!unavailable) return buffer;
-  const fallback = assessDocxFontReadiness({
-    families: [LEGAL_FALLBACK_FONT], embeddedFamilies: new Set(),
-  }, resolveFamily)[0];
-  if (!fallback.ready) {
-    throw new LegalFontValidationError("The authorized Liberation Serif 12-point fallback is unavailable. Install the licensed Liberation Serif family in the conversion environment and retry the saved draft.", "unavailable");
+  try {
+    assertLiberationSerifFacesAvailable(resolveFamily);
+  } catch (error) {
+    if (error instanceof LegalFontValidationError && error.kind === "service") throw error;
+    throw new LegalFontValidationError(
+      "The authorized Liberation Serif 12-point fallback is unavailable. Install the licensed Liberation Serif regular, bold, italic and bold-italic faces in the conversion environment and retry the saved draft.",
+      "unavailable",
+    );
   }
 
   const zip = inspectLegalDocxArchive(buffer);

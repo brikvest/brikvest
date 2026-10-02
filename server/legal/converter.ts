@@ -12,7 +12,7 @@ const PDF_MAGIC = Buffer.from("%PDF-");
 const PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024;
 
 export class LegalPdfConversionError extends Error {
-  constructor(message: string, options?: ErrorOptions, public kind: "service" | "fonts" | "font-metadata" | "font-service" = "service") {
+  constructor(message: string, options?: ErrorOptions, public kind: "service" | "fonts" | "recovery-fonts" | "font-metadata" | "font-service" = "service") {
     super(message, options);
     this.name = "LegalPdfConversionError";
   }
@@ -31,6 +31,13 @@ export interface ConvertDocxToPdfOptions {
   /** Recovery must never produce a differently formatted PDF from an immutable DOCX. */
   preserveTypography?: boolean;
   resolveFontFamily?: FontFamilyResolver;
+}
+
+export function resolveLibreOfficeExecutable(
+  libreOfficePath = process.env.LIBREOFFICE_PATH,
+  sofficePath = process.env.SOFFICE_PATH,
+): string {
+  return libreOfficePath || sofficePath || "soffice";
 }
 
 export function prepareDocxForPdf(buffer: Buffer, resolveFamily?: FontFamilyResolver): Buffer {
@@ -144,8 +151,9 @@ export async function convertDocxToPdf(
       throw new LegalPdfConversionError(
         `DOCX-to-PDF conversion blocked by font fidelity requirements: ${error instanceof Error ? error.message : "font requirements could not be verified"}`,
         { cause: error },
-        error instanceof LegalFontValidationError && error.kind === "metadata" ? "font-metadata" :
-          error instanceof LegalFontValidationError && error.kind === "service" ? "font-service" : "fonts",
+          error instanceof LegalFontValidationError && error.kind === "metadata" ? "font-metadata" :
+          error instanceof LegalFontValidationError && error.kind === "service" ? "font-service" :
+          options.preserveTypography ? "recovery-fonts" : "fonts",
       );
     }
   } else docxBuffer = prepareDocxForPdf(docxBuffer, options.resolveFontFamily);
@@ -160,9 +168,7 @@ export async function convertDocxToPdf(
   const outputPath = inputPath.replace(/\.docx$/i, ".pdf");
   const executable =
     options.libreOfficePath ||
-    process.env.LIBREOFFICE_PATH ||
-    process.env.SOFFICE_PATH ||
-    "soffice";
+    resolveLibreOfficeExecutable();
 
   try {
     await writeFile(inputPath, docxBuffer, { flag: "wx", mode: 0o600 });

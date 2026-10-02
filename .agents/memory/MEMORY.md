@@ -9,3 +9,4 @@
 - [Legal signing boundaries](legal-signing-boundaries.md) — SD118 scope requires explicit identity confirmation; investor signing is not certification of full legal execution.
 - [Legacy reservation inventory](legacy-reservation-inventory.md) — historical creation paths counted slots and units differently; never borrow another holding's allocation.
 - [Legal typography authorization](legal-typography-authorization.md) — authorized fallback changes new working copies only; pagination changes never permit bypassing placement checks.
+- [Converter font provisioning](converter-font-provisioning.md) — ship licensed fallback faces; workspace font resolution does not establish converter deployment readiness.

@@ -5,6 +5,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("safe template service diagnostics", () => {
   it.each([
     ["fonts", 503, "FONT_FALLBACK_UNAVAILABLE"],
+    ["recovery-fonts", 503, "RECOVERY_FONT_UNAVAILABLE"],
     ["font-service", 503, "FONT_SERVICE_UNAVAILABLE"],
     ["font-metadata", 422, "FONT_METADATA_REJECTED"],
     ["service", 503, "PDF_CONVERSION_UNAVAILABLE"],
@@ -24,6 +25,11 @@ describe("safe template service diagnostics", () => {
       expect(result.failure.nextAction).toMatch(/signature placement/);
     }
     if (kind === "font-service") expect(result.failure.nextAction).toMatch(/verification infrastructure/);
+    if (kind === "recovery-fonts") {
+      expect(result.failure.nextAction).toMatch(/exact original font files/);
+      expect(result.failure.nextAction).toMatch(/Do not reformat the immutable Word document/);
+      expect(result.failure.nextAction).not.toMatch(/fallback preserves/i);
+    }
     if (kind === "font-metadata") expect(result.failure.issues).toHaveLength(1);
     else expect(result.failure.supportReference).toMatch(/^LEGAL-/);
   });

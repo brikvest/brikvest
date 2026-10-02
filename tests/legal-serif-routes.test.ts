@@ -7,7 +7,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerLegalRoutes } from "../server/legal/routes";
 import { prepareDocxForPdf } from "../server/legal/converter";
-import { readDocxFontRequirements } from "../server/legal/font-validation";
+import { LIBERATION_SERIF_STYLES, readDocxFontRequirements } from "../server/legal/font-validation";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -181,7 +181,10 @@ beforeEach(() => {
     if (sql.includes("UPDATE legal_templates")) {
       activationUpdates += 1;
       if (sql.includes("SET is_active = false")) liveActive = false;
-      if (sql.includes("SET is_active = true")) draftActive = true;
+      if (sql.includes("SET is_active = true")) {
+        draftActive = true;
+        return { rows: [{ id: TEMPLATE_ID }] };
+      }
     }
     return { rows: [] };
   });
@@ -243,7 +246,9 @@ describe("legal template fallback-serif routes", () => {
         expect(preview.headers["content-type"]).toContain("application/pdf");
         expect(preview.body.subarray(0, 5).toString()).toBe("%PDF-");
         expect(mocks.resolveFontFamily).toHaveBeenCalledWith(ORIGINAL_FONT);
-        expect(mocks.resolveFontFamily).toHaveBeenCalledWith("Liberation Serif");
+        for (const style of LIBERATION_SERIF_STYLES) {
+          expect(mocks.resolveFontFamily).toHaveBeenCalledWith("Liberation Serif", style, true);
+        }
         expect(activationUpdates).toBe(0);
         expect(draftActive).toBe(false);
         expect(liveActive).toBe(true);

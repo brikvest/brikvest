@@ -19,6 +19,7 @@ import { assertActiveConfirmedHolding } from "./holding-state";
 import { templateUploadInsert } from "./template-query";
 import { AdminLegalInputError, adminLegalFailure } from "./admin-errors";
 import type { LegalFailureStage } from "../../shared/legal-errors";
+import { deleteLegalTemplateVersion, LegalTemplateDeletionError } from "./template-deletion";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -152,15 +153,22 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
        AND COALESCE(p.property_id::text,r.property_id::text,a.details->>'propertyId')=${String(id(req.query.propertyId))}
     ORDER BY a.id DESC LIMIT 100`)))));
   app.get("/api/admin/legal/templates", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
-     SELECT id, property_id AS "propertyId", document_type AS "documentType", version, validation_status AS "validationStatus",
-     is_active AS active, created_at AS "createdAt", activated_at AS "activatedAt", sha256 FROM legal_templates
-     WHERE ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${id(req.query.propertyId)}`}
-     ORDER BY document_type, version DESC`)))));
+      SELECT t.id, t.property_id AS "propertyId", t.document_type AS "documentType", t.version, t.validation_status AS "validationStatus",
+      t.is_active AS active, t.created_at AS "createdAt", t.activated_at AS "activatedAt", t.sha256,
+      CASE WHEN t.is_active THEN 'active'
+        WHEN EXISTS (SELECT 1 FROM legal_document_pairs p
+          WHERE p.deed_template_id = t.id OR p.transfer_template_id = t.id)
+          OR EXISTS (SELECT 1 FROM legal_documents d WHERE d.template_id = t.id)
+        THEN 'referenced' ELSE NULL END AS "deletionBlockedReason"
+      FROM legal_templates t
+      WHERE t.deleted_at IS NULL
+        AND ${req.query.unassigned === "true" ? sql`t.property_id IS NULL` : sql`t.property_id=${id(req.query.propertyId)}`}
+      ORDER BY t.document_type, t.version DESC`)))));
   app.get("/api/admin/legal/readiness", auth.requireAdminAuth, handler(async (_req, res) => {
     const config = getLegalReadiness();
     const checks = [...config.checks];
     try {
-      await db.execute(sql`SELECT property_id FROM legal_templates LIMIT 0`);
+      await db.execute(sql`SELECT property_id, deleted_at, deleted_by_admin_id FROM legal_templates LIMIT 0`);
       checks.push({ id: "legal-schema", ready: true, detail: "Property-owned legal schema installed." });
     } catch { checks.push({ id: "legal-schema", ready: false, detail: "Legal-document database migrations have not been applied." }); }
     const localSchema = rows(await db.execute(sql`SELECT to_regclass('public.local_legal_signing_operations') IS NOT NULL AS installed`))[0];
@@ -195,15 +203,52 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     await db.transaction(async (tx) => {
       if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new Error("Property not found");
       const assigned = rows(await tx.execute(sql`UPDATE legal_templates SET property_id=${propertyId}
-        WHERE id=${templateId} AND property_id IS NULL AND NOT is_active RETURNING id`))[0];
+        WHERE id=${templateId} AND property_id IS NULL AND NOT is_active AND deleted_at IS NULL RETURNING id`))[0];
       if (!assigned) throw new Error("Only an unassigned, inactive legacy template may be assigned. Ownership cannot be changed.");
       await audit(tx, req.user.userId, "template_property_explicitly_assigned", { templateId, propertyId });
     });
     res.json({ message: "Template assigned. Review and activate it separately.", templateId, propertyId });
   }));
+  app.delete("/api/admin/legal/templates/:id", auth.requireAdminAuth, templateHandler("deletion", async (req, res) => {
+    const selectedTemplateId = templateId(req.params.id);
+    const propertyId = templateId(req.body?.propertyId ?? req.query.propertyId);
+    if (req.body?.confirmed !== true) throw new AdminLegalInputError(
+      "TEMPLATE_DELETE_CONFIRMATION_REQUIRED",
+      "Confirm deletion of this exact property template version.",
+      "Review the property, document type and version, then confirm the deletion explicitly.",
+      400,
+    );
+    try {
+      const result = await deleteLegalTemplateVersion({
+        templateId: selectedTemplateId,
+        propertyId,
+        adminId: req.user.userId,
+      });
+      if (!result.deleted) throw new AdminLegalInputError(
+        "TEMPLATE_NOT_FOUND",
+        "The template is not available in this property workspace.",
+        "Refresh this property’s template list and select a version again.",
+        404,
+      );
+      res.json({ message: "Template version logically deleted; its source and audit provenance are retained.", templateId: selectedTemplateId });
+    } catch (error) {
+      if (error instanceof LegalTemplateDeletionError) {
+        throw new AdminLegalInputError(
+          error.reason === "active" ? "TEMPLATE_DELETE_ACTIVE" : "TEMPLATE_DELETE_REFERENCED",
+          error.message,
+          error.reason === "active"
+            ? "Activate another valid version for this property and document type before deleting this version."
+            : "This version is retained because a current or historical legal document pair or generated document references it.",
+          409,
+        );
+      }
+      throw error;
+    }
+  }));
   for (const action of ["download", "preview", "fields"] as const) {
     app.get(`/api/admin/legal/templates/:id/${action}`, auth.requireAdminAuth, templateHandler(action === "preview" ? "preview" : "inspection", async (req, res) => {
       const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${templateId(req.params.id)}
+        AND deleted_at IS NULL
         AND ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${templateId(req.query.propertyId)}`}`))[0];
       if (!t) throw new AdminLegalInputError("TEMPLATE_NOT_FOUND", "The template is not available in this property workspace.", "Refresh this property’s template list and select a version again.", 404);
       req.legalStage = "storage";
@@ -227,7 +272,7 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   app.post("/api/admin/legal/templates/:id/activate", auth.requireAdminAuth, templateHandler("activation", async (req, res) => {
     const selectedTemplateId = templateId(req.params.id);
     const propertyId = templateId(req.body.propertyId);
-    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${selectedTemplateId} AND property_id=${propertyId}`))[0];
+    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${selectedTemplateId} AND property_id=${propertyId} AND deleted_at IS NULL`))[0];
     if (!t) throw new AdminLegalInputError("TEMPLATE_NOT_FOUND", "The template is not available in this property workspace.", "Refresh this property’s template list and select a version again.", 404);
     req.legalStage = "storage";
     const bytes = await readLegalTemplateVersion(t.storage_key);
@@ -243,7 +288,15 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + propertyId + ":" + t.document_type}))`);
       if (t.validation_status !== "valid") throw new AdminLegalInputError("TEMPLATE_NOT_VALIDATED", "This version is not validated and cannot be activated.", "Inspect its fields and upload a corrected, valid Word version.", 422);
       await tx.execute(sql`UPDATE legal_templates SET is_active = false WHERE property_id=${propertyId} AND document_type = ${t.document_type} AND is_active`);
-      await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now() WHERE id = ${selectedTemplateId} AND property_id=${propertyId} AND validation_status = 'valid'`);
+      const activation = rows(await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now()
+        WHERE id = ${selectedTemplateId} AND property_id=${propertyId}
+          AND validation_status = 'valid' AND deleted_at IS NULL RETURNING id`))[0];
+      if (!activation) throw new AdminLegalInputError(
+        "TEMPLATE_NOT_FOUND",
+        "The template is no longer available for activation.",
+        "Refresh the property template list and select an undeleted version again.",
+        404,
+      );
       await audit(tx, req.user.userId, "template_version_activated", { templateId: selectedTemplateId, propertyId, version: t.version, signaturePlacementVerified: true });
     });
     res.json({ message: "Template activated; historical documents are unchanged" });

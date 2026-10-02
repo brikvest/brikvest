@@ -34,6 +34,26 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
       nextAction: "Have the document author work with the technical administrator to correct the font metadata, then upload a corrected draft. The saved draft remains and no live template was changed.",
     },
   };
+  if (candidate?.name === "LegalPdfConversionError" && candidate.kind === "recovery-fonts") {
+    const reference = `LEGAL-${randomUUID()}`;
+    const failure: LegalActionFailure = {
+      code: "RECOVERY_FONT_UNAVAILABLE",
+      stage: "conversion",
+      summary: "The immutable Word document's exact original fonts are unavailable for unchanged recovery conversion.",
+      issues: [],
+      nextAction: "Ask the technical administrator to restore the exact original font files or valid embedded fonts, then retry recovery. Do not reformat the immutable Word document or apply the new-document fallback; its saved bytes remain unchanged.",
+      supportReference: reference,
+    };
+    console.error("[LEGAL TEMPLATE FAILURE]", {
+      reference,
+      stage: "conversion",
+      code: failure.code,
+      errorType: "LegalPdfConversionError",
+      category: candidate.kind,
+      causes: safeCauseDiagnostics(error),
+    });
+    return { status: 503, failure };
+  }
   // Class names avoid importing converter/files here (and their service dependencies).
   const placement = candidate?.name === "SignaturePositionValidationError" && candidate?.kind === "layout";
   if (placement) return {
@@ -79,7 +99,7 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
     reference, stage, code,
     errorType: ["Error", "LegalPdfConversionError", "SignaturePositionValidationError", "LegalTemplateRenderError"].includes(candidate?.name || "") ? candidate.name : "InternalError",
     databaseCode: /^[0-9A-Z]{5}$/.test(candidate?.code || "") ? candidate.code : undefined,
-    category: ["service", "fonts", "font-metadata", "font-service", "layout"].includes(candidate?.kind || "") ? candidate.kind : undefined,
+    category: ["service", "fonts", "recovery-fonts", "font-metadata", "font-service", "layout"].includes(candidate?.kind || "") ? candidate.kind : undefined,
     causes: safeCauseDiagnostics(error),
   });
   if (stage === "save" || stage === "storage") nextAction += " Refresh the template list before retrying; do not assume the upload was saved.";

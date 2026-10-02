@@ -8,6 +8,7 @@ it("adopts only unambiguous provenance, repeats safely, and preserves ownership 
   const db = new PGlite();
   try {
     await db.exec(`
+      CREATE TABLE admin_users(id integer PRIMARY KEY);
       CREATE TABLE properties(id integer PRIMARY KEY);
       INSERT INTO properties VALUES(1),(2);
       CREATE TABLE legal_templates(id integer PRIMARY KEY, document_type text, version integer,

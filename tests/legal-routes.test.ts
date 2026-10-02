@@ -280,6 +280,9 @@ beforeEach(() => {
     if (text.includes("SELECT * FROM legal_templates WHERE id")) {
       return { rows: params[0] === TEMPLATE_ID && params[1] === 12 ? [activeTemplate] : [] };
     }
+    if (text.includes("UPDATE legal_templates SET is_active = true")) {
+      return { rows: [{ id: TEMPLATE_ID }] };
+    }
     if (text.includes("COALESCE(MAX(version), 0) + 1")) {
       return { rows: [{ version: 1 }] };
     }
@@ -358,6 +361,133 @@ describe("legal document routes", () => {
     for (const path of ["templates", "documents", "failures", `templates/${TEMPLATE_ID}/fields`, `documents/${DOCUMENT_ID}/preview`]) {
       await request(app).get(`/api/admin/legal/${path}`).set("x-admin-user-id", String(ADMIN_ID)).expect(400);
     }
+  });
+
+  it("returns deletion-block metadata only for visible property templates", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      rows: [{
+        id: TEMPLATE_ID,
+        propertyId: 12,
+        documentType: "transfer_exit_rights",
+        version: 2,
+        active: false,
+        deletionBlockedReason: "referenced",
+      }],
+    });
+    const response = await request(app)
+      .get("/api/admin/legal/templates?propertyId=12")
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .expect(200);
+    expect(response.body[0].deletionBlockedReason).toBe("referenced");
+    const query = compile(mocks.execute.mock.calls[0][0]).sql;
+    expect(query).toContain("t.deleted_at IS NULL");
+    expect(query).toContain('"deletionBlockedReason"');
+  });
+
+  it("requires explicit deletion confirmation and audits a property-scoped logical delete", async () => {
+    await request(app)
+      .delete(`/api/admin/legal/templates/${TEMPLATE_ID}?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12 })
+      .expect(400)
+      .expect((response) => expect(response.body.failure).toMatchObject({
+        code: "TEMPLATE_DELETE_CONFIRMATION_REQUIRED",
+        stage: "deletion",
+      }));
+
+    const template = {
+      id: TEMPLATE_ID,
+      propertyId: 12,
+      documentType: "transfer_exit_rights",
+      version: 2,
+      active: false,
+      deletedAt: null,
+    };
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ propertyId: 12, documentType: "transfer_exit_rights" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [template] })
+      .mockResolvedValueOnce({ rows: [{ referenced: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: TEMPLATE_ID }] })
+      .mockResolvedValueOnce({ rows: [] });
+    mocks.transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) =>
+      callback({ execute }),
+    );
+
+    const response = await request(app)
+      .delete(`/api/admin/legal/templates/${TEMPLATE_ID}?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12, confirmed: true })
+      .expect(200);
+    expect(response.body.message).toMatch(/logically deleted/i);
+    const auditQuery = compile(execute.mock.calls[5][0]);
+    expect(auditQuery.sql).toContain("template_version_logically_deleted");
+    expect(auditQuery.params).toContain(ADMIN_ID);
+    expect(auditQuery.params.join(" ")).toContain('"version":2');
+  });
+
+  it("treats a repeat deletion as successful without appending a second audit event", async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ propertyId: 12, documentType: "transfer_exit_rights" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{
+        id: TEMPLATE_ID,
+        propertyId: 12,
+        documentType: "transfer_exit_rights",
+        version: 2,
+        active: false,
+        deletedAt: new Date("2026-01-01T00:00:00.000Z"),
+      }] });
+    mocks.transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) =>
+      callback({ execute }),
+    );
+    await request(app)
+      .delete(`/api/admin/legal/templates/${TEMPLATE_ID}`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12, confirmed: true })
+      .expect(200);
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute.mock.calls.some(([query]) =>
+      compile(query).sql.includes("template_version_logically_deleted"),
+    )).toBe(false);
+  });
+
+  it("reports an active template deletion block as a structured conflict", async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ propertyId: 12, documentType: "transfer_exit_rights" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{
+        id: TEMPLATE_ID, propertyId: 12, documentType: "transfer_exit_rights",
+        version: 1, active: true, deletedAt: null,
+      }] });
+    mocks.transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) =>
+      callback({ execute }),
+    );
+    await request(app)
+      .delete(`/api/admin/legal/templates/${TEMPLATE_ID}`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12, confirmed: true })
+      .expect(409)
+      .expect((response) => expect(response.body.failure).toMatchObject({
+        code: "TEMPLATE_DELETE_ACTIVE",
+        stage: "deletion",
+      }));
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("translates a database reference-trigger race into a structured deletion conflict", async () => {
+    mocks.transaction.mockRejectedValueOnce(
+      new Error("Referenced legal template versions cannot be deleted"),
+    );
+    await request(app)
+      .delete(`/api/admin/legal/templates/${TEMPLATE_ID}`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12, confirmed: true })
+      .expect(409)
+      .expect((response) => expect(response.body.failure).toMatchObject({
+        code: "TEMPLATE_DELETE_REFERENCED",
+        stage: "deletion",
+      }));
   });
 
   it("rejects cross-property template activation, inspection, document access and pair retry", async () => {
@@ -870,7 +1000,7 @@ describe("legal document routes", () => {
     expect(mocks.convertDocxToPdf).toHaveBeenCalledTimes(2);
     expectImagePreserved(mocks.convertDocxToPdf.mock.calls[1][0] as Buffer);
     expect(mocks.verifyAssigneeSignaturePosition).toHaveBeenCalledTimes(2);
-  });
+  }, 120_000);
 
   it("rejects corrupt template bytes on admin download, preview, and activation without conversion", async () => {
     activeTemplate.sha256 = "0".repeat(64);

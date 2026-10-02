@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import PizZip from "pizzip";
 import { inspectLegalDocxArchive } from "./templates";
@@ -21,13 +22,32 @@ export interface DocxFontRequirements {
 
 export interface LegalFontReadiness {
   family: string;
+  style?: string;
   matchedFamily: string;
+  pathReadable?: boolean;
   installedExactMatch: boolean;
   embeddedInTemplate: boolean;
   ready: boolean;
 }
 
-export type FontFamilyResolver = (family: string) => string;
+export type FontFamilyResolver = (family: string, style?: string, requireExactMatch?: boolean) => string;
+
+export const LIBERATION_SERIF_STYLES = [
+  "Regular",
+  "Bold",
+  "Italic",
+  "Bold Italic",
+] as const;
+
+export interface FontconfigFaceMatch {
+  family: string;
+  style: string;
+  file: string;
+  exactFamily: boolean;
+  exactStyle: boolean;
+  readableFile: boolean;
+  ready: boolean;
+}
 
 function normalizedFamilyKey(family: string): string {
   return family.trim().toLocaleLowerCase("en-US");
@@ -202,16 +222,128 @@ export function readDocxFontRequirements(
   return { families: Array.from(families).sort(), embeddedFamilies };
 }
 
-export function resolveFontconfigFamily(family: string): string {
+function isReadableFontFile(file: string): boolean {
   try {
-    return execFileSync("fc-match", ["-f", "%{family}", family], {
+    if (!path.isAbsolute(file) || !statSync(file).isFile()) return false;
+    accessSync(file, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse the same fontconfig response used both by conversion and readiness.
+ * Fontconfig's fallback match is not an exact match, even when it returns a
+ * perfectly readable substitute font.
+ */
+export function inspectFontconfigFace(
+  requestedFamily: string,
+  requestedStyle: string,
+  output: string,
+  readableFile: (file: string) => boolean = isReadableFontFile,
+): FontconfigFaceMatch {
+  const [family = "", style = "", file = ""] = output.trim().split("|");
+  const names = family.split(",").map((name) => name.trim().toLocaleLowerCase("en-US"));
+  const exactFamily = names.includes(requestedFamily.trim().toLocaleLowerCase("en-US"));
+  const exactStyle = style.trim().toLocaleLowerCase("en-US") === requestedStyle.trim().toLocaleLowerCase("en-US");
+  const hasReadableFile = Boolean(file && readableFile(file));
+  return {
+    family: family.trim(),
+    style: style.trim(),
+    file: file.trim(),
+    exactFamily,
+    exactStyle,
+    readableFile: hasReadableFile,
+    ready: exactFamily && exactStyle && hasReadableFile,
+  };
+}
+
+export function resolveFontconfigFace(
+  family: string,
+  style = "Regular",
+  requireExactMatch = false,
+): FontconfigFaceMatch {
+  let output: string;
+  try {
+    output = execFileSync(
+      process.env.FC_MATCH_PATH || "fc-match",
+      ["-f", "%{family}|%{style}|%{file}", `${family}:style=${style}`],
+      {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 10_000,
       maxBuffer: 64 * 1024,
-    }).trim();
+      },
+    );
   } catch {
     throw new LegalFontValidationError("Font verification service (fc-match) is unavailable. Restore fontconfig before retrying the saved draft.", "service");
+  }
+  const match = inspectFontconfigFace(family, style, output);
+  if (requireExactMatch && !match.ready) {
+    throw new LegalFontValidationError(
+      `Fontconfig did not resolve an exact, readable ${style} face for "${family}".`,
+      "unavailable",
+    );
+  }
+  return match;
+}
+
+export function fontconfigFaceReadiness(
+  family: string,
+  style: string,
+  output: string,
+): LegalFontReadiness {
+  const match = inspectFontconfigFace(family, style, output);
+  return {
+    family,
+    style,
+    matchedFamily: match.family || "unavailable",
+    pathReadable: match.readableFile,
+    installedExactMatch: match.exactFamily && match.exactStyle,
+    embeddedInTemplate: false,
+    ready: match.ready,
+  };
+}
+
+export function resolveFontconfigFamily(
+  family: string,
+  style = "Regular",
+  requireExactMatch = false,
+): string {
+  const match = resolveFontconfigFace(family, style, requireExactMatch);
+  return match.readableFile ? match.family : "unavailable";
+}
+
+export function assertLiberationSerifFacesAvailable(
+  resolveFamily: FontFamilyResolver = resolveFontconfigFamily,
+): void {
+  for (const style of LIBERATION_SERIF_STYLES) {
+    let matchedFamily = "";
+    try {
+      matchedFamily = resolveFamily("Liberation Serif", style, true).trim();
+    } catch (error) {
+      if (error instanceof LegalFontValidationError) throw error;
+      throw new LegalFontValidationError(
+        "Font verification service is unavailable. Restore fontconfig before retrying the saved draft.",
+        "service",
+      );
+    }
+    if (!matchedFamily) {
+      throw new LegalFontValidationError(
+        `The authorized Liberation Serif ${style} face is unavailable.`,
+        "unavailable",
+      );
+    }
+    const exact = matchedFamily.split(",").some(
+      (candidate) => candidate.trim().toLocaleLowerCase("en-US") === "liberation serif",
+    );
+    if (!exact) {
+      throw new LegalFontValidationError(
+        `The authorized Liberation Serif ${style} face is unavailable; fontconfig resolved a substitute.`,
+        "unavailable",
+      );
+    }
   }
 }
 
@@ -223,7 +355,10 @@ export function assessDocxFontReadiness(
     let matchedFamily = "";
     try {
       matchedFamily = resolveFamily(family).trim();
-    } catch {
+    } catch (error) {
+      // Preserve an exact-font or verification-service classification emitted
+      // by the shared fontconfig resolver instead of conflating both failures.
+      if (error instanceof LegalFontValidationError) throw error;
       throw new LegalFontValidationError("Font verification service is unavailable. Restore fontconfig before retrying the saved draft.", "service");
     }
     if (!matchedFamily) throw new LegalFontValidationError("Font verification service returned no family. Restore fontconfig before retrying the saved draft.", "service");

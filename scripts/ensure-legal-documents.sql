@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS legal_templates (
   activated_at timestamptz,
   CONSTRAINT legal_templates_type_version_uq UNIQUE (document_type, version)
 );
+ALTER TABLE legal_templates ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE legal_templates ADD COLUMN IF NOT EXISTS deleted_by_admin_id integer
+  REFERENCES admin_users(id) ON DELETE RESTRICT ON UPDATE RESTRICT;
 -- On an upgraded database the property-scoped migration owns this index.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -117,6 +120,44 @@ CREATE TABLE IF NOT EXISTS legal_documents (
 CREATE INDEX IF NOT EXISTS legal_documents_envelope_idx
   ON legal_documents(signing_provider, signing_envelope_id);
 
+-- Pin writers take a share lock on each referenced template. The logical
+-- deletion update takes a conflicting row lock, so the reference check and
+-- deletion cannot pass one another concurrently.
+CREATE OR REPLACE FUNCTION legal_guard_template_references() RETURNS trigger AS $$
+DECLARE
+  template_deleted_at timestamptz;
+  template_id integer;
+BEGIN
+  IF TG_TABLE_NAME = 'legal_document_pairs' THEN
+    FOREACH template_id IN ARRAY ARRAY[NEW.deed_template_id, NEW.transfer_template_id]
+    LOOP
+      IF template_id IS NOT NULL THEN
+        SELECT deleted_at INTO template_deleted_at
+        FROM legal_templates WHERE id = template_id FOR SHARE;
+        IF template_deleted_at IS NOT NULL THEN
+          RAISE EXCEPTION 'Deleted legal template versions cannot be newly pinned';
+        END IF;
+      END IF;
+    END LOOP;
+  ELSE
+    SELECT deleted_at INTO template_deleted_at
+    FROM legal_templates WHERE id = NEW.template_id FOR SHARE;
+    IF template_deleted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Deleted legal template versions cannot be newly referenced';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS legal_document_pairs_template_reference ON legal_document_pairs;
+CREATE TRIGGER legal_document_pairs_template_reference
+  BEFORE INSERT OR UPDATE OF deed_template_id, transfer_template_id ON legal_document_pairs
+  FOR EACH ROW EXECUTE FUNCTION legal_guard_template_references();
+DROP TRIGGER IF EXISTS legal_documents_template_reference ON legal_documents;
+CREATE TRIGGER legal_documents_template_reference
+  BEFORE INSERT OR UPDATE OF template_id ON legal_documents
+  FOR EACH ROW EXECUTE FUNCTION legal_guard_template_references();
+
 CREATE TABLE IF NOT EXISTS legal_jobs (
   id serial PRIMARY KEY,
   pair_id integer NOT NULL REFERENCES legal_document_pairs(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -156,23 +197,63 @@ CREATE INDEX IF NOT EXISTS legal_audit_events_reservation_idx
   ON legal_audit_events(reservation_id, created_at);
 
 -- A template version's content and provenance can never be rewritten/deleted.
--- Only its active flag and activation timestamp may change.
+-- Activation metadata may change; deletion metadata may be set exactly once
+-- after the explicit deletion migration's reference/active checks.
 CREATE OR REPLACE FUNCTION legal_guard_template_history() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.deleted_at IS NOT NULL OR NEW.deleted_by_admin_id IS NOT NULL THEN
+      RAISE EXCEPTION 'New legal template versions cannot be inserted as deleted';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'Legal template versions are immutable and cannot be deleted';
   END IF;
-  IF (to_jsonb(NEW) - ARRAY['is_active', 'activated_at'])
+  IF (
+       OLD.deleted_at IS DISTINCT FROM NEW.deleted_at OR
+       OLD.deleted_by_admin_id IS DISTINCT FROM NEW.deleted_by_admin_id
+     ) THEN
+    IF OLD.deleted_at IS NOT NULL OR NEW.deleted_at IS NULL OR
+       OLD.deleted_by_admin_id IS NOT NULL OR NEW.deleted_by_admin_id IS NULL OR
+       OLD.is_active OR NEW.is_active THEN
+      RAISE EXCEPTION 'Legal template deletion metadata is write-once and cannot be cleared or activated';
+    END IF;
+    IF EXISTS (SELECT 1 FROM legal_document_pairs
+        WHERE deed_template_id = OLD.id OR transfer_template_id = OLD.id)
+       OR EXISTS (SELECT 1 FROM legal_documents WHERE template_id = OLD.id) THEN
+      RAISE EXCEPTION 'Referenced legal template versions cannot be deleted';
+    END IF;
+    IF (to_jsonb(NEW) - ARRAY['deleted_at', 'deleted_by_admin_id'])
+         IS DISTINCT FROM
+       (to_jsonb(OLD) - ARRAY['deleted_at', 'deleted_by_admin_id']) THEN
+      RAISE EXCEPTION 'Logical deletion may change only deletion metadata';
+    END IF;
+  END IF;
+  IF OLD.deleted_at IS NOT NULL AND
+     (to_jsonb(NEW) - ARRAY['deleted_at', 'deleted_by_admin_id'])
        IS DISTINCT FROM
-     (to_jsonb(OLD) - ARRAY['is_active', 'activated_at']) THEN
+     (to_jsonb(OLD) - ARRAY['deleted_at', 'deleted_by_admin_id']) THEN
+    RAISE EXCEPTION 'Deleted legal template versions are immutable';
+  END IF;
+  IF (to_jsonb(NEW) - ARRAY['is_active', 'activated_at', 'property_id', 'deleted_at', 'deleted_by_admin_id'])
+       IS DISTINCT FROM
+     (to_jsonb(OLD) - ARRAY['is_active', 'activated_at', 'property_id', 'deleted_at', 'deleted_by_admin_id']) THEN
     RAISE EXCEPTION 'Legal template content and provenance are immutable';
+  END IF;
+  IF (to_jsonb(OLD)->>'property_id') IS NOT NULL AND
+     (to_jsonb(NEW)->>'property_id') IS DISTINCT FROM (to_jsonb(OLD)->>'property_id') THEN
+    RAISE EXCEPTION 'Legal template property ownership is immutable once assigned';
+  END IF;
+  IF NEW.deleted_at IS NOT NULL AND NEW.is_active THEN
+    RAISE EXCEPTION 'Deleted legal template versions cannot be activated';
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS legal_templates_immutable ON legal_templates;
 CREATE TRIGGER legal_templates_immutable
-  BEFORE UPDATE OR DELETE ON legal_templates
+  BEFORE INSERT OR UPDATE OR DELETE ON legal_templates
   FOR EACH ROW EXECUTE FUNCTION legal_guard_template_history();
 
 -- Approved values and provenance are frozen. Templates may only be pinned once
