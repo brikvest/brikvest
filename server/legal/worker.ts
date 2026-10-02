@@ -630,6 +630,7 @@ async function processNotification(
     pairResult.pair,
     pairResult.documents,
   );
+  if (pairResult.pair.status === "investor_signed" || pairResult.documents.every((d) => d.status === "investor_signed")) return "ready";
   const pdfs: Buffer[] = [];
   for (const document of pairResult.documents) {
     const pdfKey = requiredString(document.unsigned_pdf_key, "stored unsigned PDF key");
@@ -641,12 +642,24 @@ async function processNotification(
     if (sha256(pdf) !== expectedHash.toLowerCase()) {
       throw new Error("Stored unsigned PDF does not match its recorded SHA-256");
     }
+    // Recheck placement against the retained PDF, never regenerate or update
+    // artifacts during a reminder. Both PDFs must pass before any mail starts.
+    const type = parseDocumentType(document.document_type);
+    const template = await getPinnedTemplateMetadata(dependencies, type,
+      requiredPositiveInteger(document.template_id, "document template ID"),
+      requiredPositiveInteger(pairResult.pair.property_id, "property ID"));
+    const placement = await dependencies.verifyAssigneeSignaturePosition(pdf, {
+      assigneeFullName: fullName, templateVersionId: template.templateVersionId,
+    });
+    if (!document.signature_placement) throw new Error("Stored signature placement is missing");
+    positionFromStoredPdf(placement, document.signature_placement);
     pdfs.push(pdf);
   }
   if (pdfs.length !== 2) throw new Error("Both unsigned PDFs must be privately available before notification");
 
   const recipient = await dependencies.getLegalNotificationRecipient(claim.pairId);
   const email = requiredString(recipient?.email, "investor email");
+  const propertyName = requiredString(recipient?.propertyName, "property name");
   const dashboardUrl = buildHoldingDashboardUrl(reservationId);
   const attemptState = await dependencies.beginLegalNotificationAttempt(
     claim.id,
@@ -661,7 +674,7 @@ async function processNotification(
   try {
     result = await dependencies.sendEmail({
       to: email,
-      ...legalDocumentsReadyEmailTemplate({ fullName, dashboardUrl }),
+      ...legalDocumentsReadyEmailTemplate({ fullName, dashboardUrl, propertyName }),
     });
   } catch {
     await dependencies.markLegalNotificationUncertain(

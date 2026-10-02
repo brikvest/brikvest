@@ -152,6 +152,12 @@ beforeEach(async () => {
   await database.exec(cycleMigration);
   installDatabase();
   pairId = await addPair();
+  await database.exec(`INSERT INTO legal_templates(document_type,version,original_filename,storage_key,sha256,byte_size,validation_status,created_by_admin_id)
+    VALUES ('deed_of_assignment',1,'d.docx','legal/templates/deed/v1',repeat('a',64),10,'valid',1),
+      ('transfer_exit_rights',1,'t.docx','legal/templates/transfer/v1',repeat('b',64),10,'valid',1);
+    INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
+    VALUES (${pairId},'deed_of_assignment',1,'awaiting_signature','legal/documents/test/unsigned_pdf',repeat('a',64),'{}'),
+      (${pairId},'transfer_exit_rights',2,'awaiting_signature','legal/documents/test2/unsigned_pdf',repeat('b',64),'{}');`);
 });
 
 afterEach(async () => {

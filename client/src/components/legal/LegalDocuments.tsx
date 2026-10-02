@@ -169,7 +169,7 @@ export function InvestorLegalDocuments({ reservationId, focus = false }: { reser
   });
   const holding = holdings.find((item) => Number(item.reservationId) === Number(reservationId));
   const requestedHoldingId = Number(new URLSearchParams(search).get("holding"));
-  const isFocused = focus || (!!holding && Number(holding.id) === requestedHoldingId);
+  const isFocused = focus || (!!holding && Number(holding.reservationId) === requestedHoldingId);
 
   useEffect(() => {
     if (!holding || !isFocused) return;

@@ -779,10 +779,13 @@ const BRAND_WRAP = (inner: string) => `
 export function legalDocumentsReadyEmailTemplate({
   fullName,
   dashboardUrl,
+  propertyName,
 }: {
   fullName: string;
   dashboardUrl: string;
+  propertyName: string;
 }) {
+  if (!propertyName?.trim()) throw new Error("Legal document email requires the actual property name");
   const url = new URL(dashboardUrl);
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {
     throw new Error("Legal document email requires a safe dashboard URL");
@@ -797,8 +800,8 @@ export function legalDocumentsReadyEmailTemplate({
       <h2 style="color: #222; text-align: center;">Your Legal Documents Are Ready</h2>
       <p style="font-size: 16px; color: #444;">Hello ${escape(fullName)},</p>
       <p style="font-size: 16px; color: #444; line-height: 1.7;">
-        Your legal documents for your <strong>LilyCrest Garden Estate holding</strong> are ready.
-        Please sign in to your Brikvest account to review and sign them securely.
+        Your legal documents for your <strong>${escape(propertyName)} holding</strong> are ready.
+        Please sign in to your Brikvest account to review and sign any outstanding document securely.
       </p>
       <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 16px; margin: 24px 0; border-radius: 4px;">
         <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 18px;">Documents to Review and Sign</h3>

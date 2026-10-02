@@ -13,5 +13,6 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-local-signing.sq
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-notification-cycles.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-property-templates.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-template-deletion.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-historical-rollout.sql
 # Idempotent: copies developer_id -> lister_id where lister_id is still NULL
 npx tsx scripts/backfill-lister-id.ts

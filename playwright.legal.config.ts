@@ -2,14 +2,19 @@ import { execFileSync } from "node:child_process";
 import { defineConfig } from "@playwright/test";
 
 const suppliedDomain = process.env.REPLIT_DEV_DOMAIN?.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-const baseURL = process.env.DEV_BASE_URL || (suppliedDomain ? `https://${suppliedDomain}` : undefined);
+// Explicit opt-in to a standalone frontend fixture server. This is never the
+// application backend and all legal browser fixtures intercept API traffic.
+const fixtureURL = process.env.LEGAL_FRONTEND_ONLY_BASE_URL;
+const baseURL = fixtureURL || process.env.DEV_BASE_URL || (suppliedDomain ? `https://${suppliedDomain}` : undefined);
 
 if (!baseURL) {
   throw new Error("Set DEV_BASE_URL or REPLIT_DEV_DOMAIN to the existing HTTPS development UI before running legal browser tests.");
 }
 
 const parsedBaseURL = new URL(baseURL);
-if (parsedBaseURL.protocol !== "https:" || ["localhost", "127.0.0.1", "::1"].includes(parsedBaseURL.hostname)) {
+const localFixture = !!fixtureURL && parsedBaseURL.protocol === "http:" &&
+  ["localhost", "127.0.0.1"].includes(parsedBaseURL.hostname) && parsedBaseURL.port === "5173";
+if (!localFixture && (parsedBaseURL.protocol !== "https:" || ["localhost", "127.0.0.1", "::1"].includes(parsedBaseURL.hostname))) {
   throw new Error("Legal browser tests must use the existing HTTPS development UI origin, not localhost.");
 }
 

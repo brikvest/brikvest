@@ -96,7 +96,7 @@ function createPairResult(options?: {
       source_docx_key: null,
       unsigned_pdf_key: null,
       unsigned_pdf_sha256: null,
-      signature_placement: null,
+      signature_placement: options?.pdfKeys ? placement("deed_of_assignment:v1") : null,
     },
     {
       id: 502,
@@ -105,7 +105,7 @@ function createPairResult(options?: {
       source_docx_key: null,
       unsigned_pdf_key: null,
       unsigned_pdf_sha256: null,
-      signature_placement: null,
+      signature_placement: options?.pdfKeys ? placement("transfer_exit_rights:v1") : null,
     },
   ];
   if (options?.pdfKeys) {
@@ -200,7 +200,7 @@ function createGenerationDependencies(overrides: Record<string, unknown> = {}) {
             sha256: sha256(transferTemplate),
           },
     ),
-    getLegalNotificationRecipient: vi.fn(async () => ({ email: "ada@example.test" })),
+    getLegalNotificationRecipient: vi.fn(async () => ({ email: "ada@example.test", propertyName: "North Estate" })),
     beginLegalNotificationAttempt: vi.fn(async () => ({ state: "send" as const, attempt: 1 })),
     recordLegalNotificationSent: vi.fn(async () => undefined),
     recordLegalNotificationFailed: vi.fn(async () => undefined),
@@ -454,6 +454,9 @@ describe("legal durable job worker", () => {
     expect(email.html).toContain('alt="Brikvest Logo"');
     expect(email.html).toContain("Review &amp; Sign Your Documents");
     expect(email.html).toContain("not full legal execution");
+    expect(email.html).toContain("North Estate");
+    expect(email.html).not.toContain("OceanView Estate");
+    expect(email).not.toHaveProperty("attachments");
     expect(email.html).toContain("The Brikvest Team");
     expect(email.html).toContain(
       "https://brikvest.example/dashboard?holding=12",
@@ -463,6 +466,31 @@ describe("legal durable job worker", () => {
       "lease-10",
       1,
     );
+  });
+  it("requires retained placement integrity and never sends a fully signed pair another request", async () => {
+    const pairResult = createPairResult({ ready: true, pdfKeys: [
+      "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",
+      "legal/documents/00000000-0000-5000-8000-000000000002/unsigned_pdf",
+    ] });
+    const dependencies = createGenerationDependencies({
+      claimNextLegalJob: vi.fn(async () => claim("notify")),
+      getPairWithDocuments: vi.fn(async () => pairResult),
+      readLegalDocument: vi.fn(async () => validPdf),
+    }).dependencies;
+    pairResult.documents[1].signature_placement = null;
+    expect((await createLegalWorker(dependencies).dispatchLegalJobs(1)).failed).toBe(1);
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    expect(dependencies.beginLegalNotificationAttempt).not.toHaveBeenCalled();
+    pairResult.documents[1].signature_placement = placement("transfer_exit_rights:v1");
+    pairResult.pair.status = "partially_signed";
+    pairResult.documents[0].status = "investor_signed";
+    expect((await createLegalWorker(dependencies).dispatchLegalJobs(1)).completed).toBe(1);
+    expect(dependencies.sendEmail).toHaveBeenCalledTimes(1);
+    pairResult.pair.status = "investor_signed";
+    pairResult.documents[1].status = "investor_signed";
+    expect((await createLegalWorker(dependencies).dispatchLegalJobs(1)).completed).toBe(1);
+    expect(dependencies.sendEmail).toHaveBeenCalledTimes(1);
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
   });
 
   it("treats a false email result as failure and quarantines stale uncertain delivery", async () => {

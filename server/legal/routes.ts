@@ -20,6 +20,7 @@ import { templateUploadInsert } from "./template-query";
 import { AdminLegalInputError, adminLegalFailure } from "./admin-errors";
 import type { LegalFailureStage } from "../../shared/legal-errors";
 import { deleteLegalTemplateVersion, LegalTemplateDeletionError } from "./template-deletion";
+import { searchHistoricalHoldings, prepareHistoricalHoldings } from "./historical-rollout";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -144,6 +145,13 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   app.use("/api/admin/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   app.get("/api/legal/holdings", auth.requireAuth, handler(async (req, res) => res.json(await listPairs(req.user.id))));
   app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (req, res) => res.json(await listPairs(undefined, id(req.query.propertyId)))));
+  app.get("/api/admin/legal/historical-holdings", auth.requireAdminAuth, handler(async (req, res) => res.json(await searchHistoricalHoldings({
+    propertyId: id(req.query.propertyId), search: String(req.query.search || ""),
+    page: req.query.page === undefined ? 1 : Number(req.query.page), pageSize: req.query.pageSize === undefined ? 20 : Number(req.query.pageSize),
+  }))));
+  app.post("/api/admin/legal/historical-holdings/prepare", auth.requireAdminAuth, handler(async (req, res) => res.json(await prepareHistoricalHoldings({
+    ...req.body, propertyId: id(req.body.propertyId), adminId: req.user.userId,
+  }))));
   app.get("/api/admin/legal/failures", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
     SELECT a.id,a.reservation_id AS "reservationId",a.event_type AS "eventType",a.details,a.created_at AS "createdAt"
      FROM legal_audit_events a

@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { LEGAL_REQUIRED_TOKENS, LEGAL_SUPPORTED_TOKENS, type LegalCorrectionIssue } from "../../../../shared/legal-errors";
 import { LegalActionError, LegalActionNotice, legalNetworkError, readLegalResponse, type LegalActionResult } from "./legalActionErrors";
+import { HistoricalLegalHoldings } from "./HistoricalLegalHoldings";
 
 type Request = (url: string, options?: any) => Promise<any>;
 type Property = { id: number; name: string; location?: string };
@@ -327,7 +328,8 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
         </>}
       </CardContent>
     </Card>
-    <Card>
+     <HistoricalLegalHoldings key={`historical-${propertyId}`} propertyId={propertyId} propertyName={property.name} authenticatedRequest={authenticatedRequest} />
+     <Card>
       <CardHeader><CardTitle className="text-lg">Investor documents</CardTitle><CardDescription>Confirmed holdings for {property.name}. Original template pins, signed files and signing audit records remain unchanged. Investor signed does not mean fully legally executed.</CardDescription></CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]"><Input aria-label="Search investor documents" placeholder="Search investor, email or holding" value={search} onChange={(event) => setSearch(event.target.value)} /><Select value={status} onValueChange={setStatus}><SelectTrigger aria-label="Filter document status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{pairStatuses.map((item) => <SelectItem key={item} value={item}>{human(item)}</SelectItem>)}</SelectContent></Select></div>

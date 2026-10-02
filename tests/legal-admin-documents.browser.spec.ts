@@ -70,6 +70,7 @@ async function installMocks(page: Page): Promise<Fixture> {
     if (path === "/api/admin/properties") return json(route, properties);
     if (path === "/api/exchange-rates") return json(route, { rates: { NGN: 1500, USD: 1 }, currencies: { NGN: { symbol: "₦", name: "Nigerian Naira" }, USD: { symbol: "$", name: "US Dollar" } } });
     if (path === "/api/admin/legal/readiness") return json(route, { ready: true, blockers: [] });
+    if (path === "/api/admin/legal/historical-holdings" && method === "GET") return json(route, { items: [], total: 0, page: 1, pageSize: 20, templates: [], propertyName: properties.find((p) => p.id === propertyId)?.name });
     if (path === "/api/admin/legal/templates" && method === "GET") return json(route, snapshot.filter((item) => url.searchParams.has("unassigned") ? item.propertyId === null : item.propertyId === propertyId));
     if (path === "/api/admin/legal/templates" && method === "POST" && body.propertyId === 108 && body.hasFile) {
       if (fixture.uploadFailure === "network") return route.abort("failed");

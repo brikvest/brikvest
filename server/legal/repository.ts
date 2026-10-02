@@ -3,11 +3,13 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import type { LegalDocumentType } from "./templates";
 import { assertActiveConfirmedHolding } from "./holding-state";
+import { hasOutstandingLegalSignature } from "./invitation-state";
 
 export type LegalApprovalSource =
   | "payment_submission"
   | "admin_full_confirmation"
-  | "admin_reinstate";
+  | "admin_reinstate"
+  | "historical_rollout";
 
 export type LegalJobKind = "generation" | "notify" | "reconcile";
 
@@ -25,6 +27,7 @@ export interface EnqueueLegalApprovalInput {
   confirmedFullPayment?: boolean;
   assertedAmountNaira?: string;
   assertedCurrency?: string;
+  historicalEvidence?: Record<string, unknown>;
 }
 
 export interface EnqueueLegalApprovalResult {
@@ -70,6 +73,7 @@ export interface LegalPinnedTemplate {
 
 export interface LegalNotificationRecipient {
   email: string;
+  propertyName: string;
 }
 
 export type LegalNotificationAttemptStart =
@@ -402,6 +406,7 @@ export async function enqueueLegalApproval(
     effectiveAt: now.toISOString(),
     deedTemplateId: deedTemplate?.id ?? null,
     transferTemplateId: transferTemplate?.id ?? null,
+    ...(input.source === "historical_rollout" ? { historicalEvidence: input.historicalEvidence, preparedAt: now.toISOString(), priorPaymentApprovalFabricated: false } : {}),
   };
   const insertResult = await tx.execute(sql`
     INSERT INTO legal_document_pairs (
@@ -459,7 +464,7 @@ export async function enqueueLegalApproval(
       (pair_id, reservation_id, actor_type, actor_id, event_type, details)
     VALUES (
       ${pair.id}, ${input.reservationId}, 'admin', ${input.adminId},
-      ${templatesReady ? "approval_generation_queued" : "approval_blocked_templates_missing"},
+      ${input.source === "historical_rollout" ? "historical_rollout_generation_queued" : templatesReady ? "approval_generation_queued" : "approval_blocked_templates_missing"},
       ${JSON.stringify({
         source: input.source,
         sourceId: input.sourceId,
@@ -469,6 +474,7 @@ export async function enqueueLegalApproval(
         areaSqm: purchase.areaSqm,
         deedTemplateId: deedTemplate?.id ?? null,
         transferTemplateId: transferTemplate?.id ?? null,
+        ...(input.source === "historical_rollout" ? { historicalEvidence: input.historicalEvidence, auditNote: approvalNote } : {}),
       })}::jsonb
     )
   `);
@@ -594,9 +600,10 @@ export async function getLegalNotificationRecipient(
 ): Promise<LegalNotificationRecipient | undefined> {
   if (!Number.isSafeInteger(pairId) || pairId < 1) return undefined;
   const result = await db.execute(sql`
-    SELECT u.email
+    SELECT u.email, pr.name AS "propertyName"
     FROM legal_document_pairs p
     JOIN users u ON u.id = p.user_id
+    JOIN properties pr ON pr.id = p.property_id
     WHERE p.id = ${pairId}
   `);
   return resultRows<LegalNotificationRecipient>(result)[0];
@@ -679,6 +686,7 @@ export async function requestLegalNotificationResend(
   `))[0];
   if (!pair) throw new Error("Legal document pair not found");
   if (!pair.documentsReadyAt) throw new Error("Both unsigned PDFs must be ready before notification");
+  if (!await hasOutstandingLegalSignature(tx, pairId)) throw new Error("Both documents are already investor-signed. No signing invitation was queued.");
 
   const job = resultRows<{
     id: number;
@@ -894,6 +902,10 @@ export async function beginLegalNotificationAttempt(
     }
     if (!job.notificationCycleId) {
       throw new Error("Legal notification cycle setup is required before sending email.");
+    }
+    if (!await hasOutstandingLegalSignature(tx, job.pairId)) {
+      await recordLegalNotificationEvent(tx, job.pairId, "system", "notification_suppressed_fully_investor_signed", { jobId });
+      return { state: "already_sent" };
     }
 
     const cycle = resultRows<{ id: number; cycleNumber: number; status: string }>(await tx.execute(sql`

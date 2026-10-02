@@ -552,3 +552,99 @@ the exact signing-consent version, and the legal suitability and execution
 requirements of the completed forms require authorized human review. The
 local electronic mark and application evidence must not be described as a
 certificate-authority digital signature or a guarantee of legal execution.
+
+## Explicit historical legal-signing rollout
+
+This is an administrator-controlled operation for **existing confirmed
+holdings without a legal pair**, not a payment approval or automatic backfill.
+Opening/searching a property workspace, startup, deployment and template
+activation do not prepare historical holdings or invite investors.
+
+### Schema deployment (explicit, no data rollout)
+
+Apply the existing legal-document, local-signing, notification-cycle,
+property-template and template-deletion migrations in their documented order,
+then apply `scripts/ensure-legal-historical-rollout.sql`. The post-merge setup
+lists this additional migration; **do not run post-merge setup during tests**.
+Do not use generic Drizzle schema push. The rollout migration only extends
+the provenance constraint; it creates no pairs, generation jobs or emails and
+preserves reservation uniqueness and all write-once guards.
+
+No migration or production-data rollout was performed as part of implementation.
+Apply schema changes only during an authorized deployment operation.
+
+### Administrator runbook
+
+1. In Legal Documents, select the exact property. Review both property-owned
+   active template versions and infrastructure readiness. Never reuse another
+   property's clauses. Confirm converter fonts and signature placement.
+2. Search Historical legal holdings by investor name or account email.
+   Each row represents one reservation/holding ID, even for the same investor.
+   Search is paginated (20 per page, API maximum 50) and read-only.
+3. Review eligibility and blockers. Approved KYC name/address, active confirmed
+   ownership, positive units, a positive NGN total, consistent units × recorded
+   unit price, and both valid active templates are required. Property aggregate
+   counters are never allocation evidence. Contradictory/multiple/partial or
+   other-owner approved payments, uncertain legacy payment records and completed
+   resale allocation history require separate correction, not guessed values.
+4. Select at most **20** eligible holdings. Where no approved submission proves
+   the full NGN purchase, review independent settlement evidence and explicitly
+   attest to full payment: checkbox, exact persisted NGN amount and an audit
+   note. Consistent legacy verified payment records do not waive this attestation.
+   Notes/references/status alone never imply full payment approval.
+5. Choose Review preparation. Confirm the property, each recipient email and
+   holding ID, both template IDs/versions and required attestations, then
+   Confirm and prepare. Cancelling does nothing. The server rechecks the reviewed
+   ownership/KYC/purchase fingerprint and active pins under holding locks; changed
+   values require a fresh review. Mixed batches report each holding independently.
+6. Observe preparation jobs and refresh/polling progress. `queued`/`leased`/`retry`
+   mean pending/processing; `blocked`/`dead` and errors need correction. Each new
+   pair records `historical_rollout` provenance, current preparation/effective
+   timestamps, approved evidence or the full attestation, frozen server values
+   and units × **5 m²**. Historical financial approval dates are not invented.
+   Payment/reservation states and financial/inventory counters are untouched.
+7. Only after both privately stored PDFs pass hashes and signature-placement
+   checks does the existing durable worker send the first invitation. The email
+   names the actual property, points to `/dashboard?holding=<reservation ID>`,
+   requires the investor's login and includes no private attachments. Investor
+   review, identity confirmation, password confirmation, consent and fresh
+   drawn/typed signature remain unchanged. Investor signing is not full execution.
+
+### Manual invitations and recovery
+
+For ready pairs with an outstanding signature (including one already signed
+document), use Send notification in the holding search results. It queues an
+explicit notification cycle, not document generation. Fully investor-signed
+holdings cannot be invited to sign again; cancelled/nonconfirmed holdings are
+blocked by the same active-ownership checks. Unprepared holdings must use
+preparation, not a mail-only shortcut.
+
+Queued or processing means work has not been accepted by the mail service.
+`sent` means **sent to mail service — inbox delivery not confirmed**; it is
+not a receipt/read acknowledgement. Check notification cycles and holding audit
+history before retrying. Duplicate requests coalesce, active worker leases are
+not reset, terminal cycles retain the existing one-minute cooldown and uncertain
+SMTP attempts stay quarantined. Do not clear uncertain cycles or audit evidence
+to force another email; establish what happened with the mail service and use
+the separately authorized recovery process. No automated reminder campaign is added.
+
+For generation/storage/converter failures, correct the reported setup/template
+issue and use the existing controlled pair recovery. Pins, generated/signed
+files, hashes and signing evidence are retained. A changed template requires a
+separate version for future pairs; it must not replace an existing holding's pins.
+After a lost preparation response, search the holding before retrying: repeated
+preparation returns the existing pair without restarting its jobs or invitations.
+
+### Safe verification
+
+`npm run test:legal` uses isolated PGlite and mocked mail/private storage; the
+legal test configuration forces any accidental default pool access to a
+non-serving test endpoint. Never import the general live-data test setup.
+For browser fixtures run only Vite with `vite.legal.config.ts` on port 5173 and use
+`LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173`. This explicit test-only opt-in
+permits only a local standalone frontend on port 5173; the ordinary browser
+configuration still requires HTTPS. Fixtures intercept every
+API and block external origins. **Do not restart the backend**, run generic
+schema push, send real investor emails or seed/backfill the live database as
+verification. Existing forward-purchase approval, document and signing tests
+remain part of the legal suite.

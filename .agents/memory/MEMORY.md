@@ -10,3 +10,4 @@
 - [Legacy reservation inventory](legacy-reservation-inventory.md) — historical creation paths counted slots and units differently; never borrow another holding's allocation.
 - [Legal typography authorization](legal-typography-authorization.md) — authorized fallback changes new working copies only; pagination changes never permit bypassing placement checks.
 - [Converter font provisioning](converter-font-provisioning.md) — ship licensed fallback faces; workspace font resolution does not establish converter deployment readiness.
+- [Historical rollout authorization](historical-rollout-authorization.md) — explicit admin selection only; legal preparation does not authorize financial corrections or automatic backfill.
