@@ -556,7 +556,9 @@ describe("legal PDF conversion and assignee position verification", () => {
         ["transfer_exit_rights", transferSource],
       ] as const) {
         const preview = renderIllustrativeLegalTemplate(normalizeSuppliedLegalTemplate(source), type);
-        const pdf = await convertDocxToPdf(preview.renderedDocx);
+        // Controlled exact-font resolution keeps this original-layout regression
+        // distinct from the serif-normalization cases in legal-font-validation.
+        const pdf = await convertDocxToPdf(preview.renderedDocx, { resolveFontFamily: (family) => family });
         const pdfPath = path.join(directory, `${type}.pdf`);
         writeFileSync(pdfPath, pdf);
         const images = execFileSync("pdfimages", ["-list", pdfPath], { encoding: "utf8", timeout: 20_000 });
@@ -588,7 +590,7 @@ describe("legal PDF conversion and assignee position verification", () => {
       ["transfer_exit_rights", transferV1, "transfer-v1"],
     ] as const) {
       const rendered = renderTestDocument(type, template);
-      const pdf = await convertDocxToPdf(rendered);
+      const pdf = await convertDocxToPdf(rendered, { resolveFontFamily: (family) => family });
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
       const placement = await verifyAssigneeSignaturePosition(pdf, {
         assigneeFullName: "Ada Lovelace",
@@ -628,7 +630,7 @@ describe("legal PDF conversion and assignee position verification", () => {
       DOCUMENT_DATE_MONTH: "September",
       DOCUMENT_DATE_YEAR: "2026",
     });
-    const pdf = await convertDocxToPdf(rendered);
+    const pdf = await convertDocxToPdf(rendered, { resolveFontFamily: (family) => family });
     const placement = await verifyAssigneeSignaturePosition(pdf, {
       assigneeFullName: fullName,
       templateVersionId: "deed_of_assignment:v1",

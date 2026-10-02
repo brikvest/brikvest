@@ -11,6 +11,7 @@ import {
 } from "./templates";
 import {
   convertDocxToPdf,
+  prepareDocxForPdf,
   verifyAssigneeSignaturePosition,
   type PdfTextPosition,
 } from "./converter";
@@ -68,6 +69,7 @@ export interface LegalWorkerDependencies {
   readLegalTemplateVersion: typeof readLegalTemplateVersion;
   storeLegalDocument: typeof storeLegalDocument;
   convertDocxToPdf: typeof convertDocxToPdf;
+  prepareDocxForPdf: typeof prepareDocxForPdf;
   verifyAssigneeSignaturePosition: typeof verifyAssigneeSignaturePosition;
   renderLegalTemplate: typeof renderLegalTemplate;
   validateLegalTemplate: typeof validateLegalTemplate;
@@ -438,6 +440,10 @@ async function generateOrRecoverDocument(
   if (storedPdf && !storedDocx) {
     throw new Error("Unsigned PDF exists without its immutable source DOCX");
   }
+  if ((!storedDocx || !storedPdf) &&
+      (pair.status === "investor_signed" || document.status === "investor_signed" || document.signed_pdf_key)) {
+    throw new Error("Investor-signed documents are permanently locked; missing historical artifacts require investigation, not regeneration");
+  }
 
   if (!storedDocx) {
     const templateBuffer = await readPinnedTemplateBuffer(
@@ -445,7 +451,9 @@ async function generateOrRecoverDocument(
       template,
       type,
     );
-    const rendered = dependencies.renderLegalTemplate(templateBuffer, type, values);
+    const rendered = dependencies.prepareDocxForPdf(
+      dependencies.renderLegalTemplate(templateBuffer, type, values),
+    );
     assertLegalTemplateIsRendered(rendered);
     try {
       await dependencies.storeLegalDocument({
@@ -492,7 +500,7 @@ async function generateOrRecoverDocument(
   };
 
   if (!storedPdf) {
-    const newlyConverted = await dependencies.convertDocxToPdf(storedDocx);
+    const newlyConverted = await dependencies.convertDocxToPdf(storedDocx, { preserveTypography: true });
     await dependencies.verifyAssigneeSignaturePosition(newlyConverted, {
       assigneeFullName: pair.fullNameSnapshot,
       templateVersionId,
@@ -715,6 +723,7 @@ export function createLegalWorker(
     readLegalTemplateVersion,
     storeLegalDocument,
     convertDocxToPdf,
+    prepareDocxForPdf,
     verifyAssigneeSignaturePosition,
     renderLegalTemplate,
     validateLegalTemplate,

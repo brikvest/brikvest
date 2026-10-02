@@ -562,7 +562,9 @@ describe("local legal signing (isolated PGlite)", () => {
           documentDate: new Date("2026-09-30T12:00:00.000Z"),
         }),
       );
-      const unsignedPdf = await convertDocxToPdf(rendered);
+      // Preserve the original-layout image/signing fixture. Missing-font
+      // normalization and its final placement checks have separate real tests.
+      const unsignedPdf = await convertDocxToPdf(rendered, { resolveFontFamily: (family) => family });
       const unsignedPath = path.join(outputDirectory, "unsigned-source.pdf");
       await fs.writeFile(unsignedPath, unsignedPdf, { mode: 0o600 });
       expect(imageCountInPdf(unsignedPath)).toBeGreaterThan(0);

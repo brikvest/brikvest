@@ -5,12 +5,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertLegalTemplateIsRendered } from "./templates";
 import { assertDocxFontsAvailable, LegalFontValidationError } from "./font-validation";
+import { prepareLegalDocxTypography } from "./typography";
+import type { FontFamilyResolver } from "./font-validation";
 
 const PDF_MAGIC = Buffer.from("%PDF-");
 const PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024;
 
 export class LegalPdfConversionError extends Error {
-  constructor(message: string, options?: ErrorOptions, public kind: "service" | "fonts" | "font-metadata" = "service") {
+  constructor(message: string, options?: ErrorOptions, public kind: "service" | "fonts" | "font-metadata" | "font-service" = "service") {
     super(message, options);
     this.name = "LegalPdfConversionError";
   }
@@ -26,6 +28,21 @@ export class SignaturePositionValidationError extends Error {
 export interface ConvertDocxToPdfOptions {
   timeoutMs?: number;
   libreOfficePath?: string;
+  /** Recovery must never produce a differently formatted PDF from an immutable DOCX. */
+  preserveTypography?: boolean;
+  resolveFontFamily?: FontFamilyResolver;
+}
+
+export function prepareDocxForPdf(buffer: Buffer, resolveFamily?: FontFamilyResolver): Buffer {
+  try {
+    return prepareLegalDocxTypography(buffer, resolveFamily);
+  } catch (error) {
+    if (!(error instanceof LegalFontValidationError)) throw error;
+    throw new LegalPdfConversionError(
+      `Document typography preparation failed: ${error.message}`, { cause: error },
+      error.kind === "metadata" ? "font-metadata" : error.kind === "service" ? "font-service" : "fonts",
+    );
+  }
 }
 
 export interface PdfTextPosition {
@@ -119,20 +136,19 @@ export async function convertDocxToPdf(
   options: ConvertDocxToPdfOptions = {},
 ): Promise<Buffer> {
   assertLegalTemplateIsRendered(docxBuffer);
-  // Real LibreOffice is retained in isolated NODE_ENV=test layout tests, where
-  // this sandbox intentionally permits host font substitution. Every other
-  // environment must prove exact installed or valid embedded fonts first.
-  if (process.env.NODE_ENV !== "test") {
+  // Identical policy in development, production and tests; no font bypass.
+  if (options.preserveTypography) {
     try {
-      assertDocxFontsAvailable(docxBuffer);
+      assertDocxFontsAvailable(docxBuffer, options.resolveFontFamily);
     } catch (error) {
       throw new LegalPdfConversionError(
         `DOCX-to-PDF conversion blocked by font fidelity requirements: ${error instanceof Error ? error.message : "font requirements could not be verified"}`,
         { cause: error },
-        error instanceof LegalFontValidationError && error.kind === "metadata" ? "font-metadata" : "fonts",
+        error instanceof LegalFontValidationError && error.kind === "metadata" ? "font-metadata" :
+          error instanceof LegalFontValidationError && error.kind === "service" ? "font-service" : "fonts",
       );
     }
-  }
+  } else docxBuffer = prepareDocxForPdf(docxBuffer, options.resolveFontFamily);
   const timeoutMs = options.timeoutMs ?? 60_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 5 * 60_000) {
     throw new LegalPdfConversionError("LibreOffice conversion timeout is invalid");

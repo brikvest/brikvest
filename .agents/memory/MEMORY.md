@@ -8,3 +8,4 @@
 - [Vitest module mocking](vitest-module-mocking.md) — with shared forks and isolation disabled, import order can bypass later file-level mocks; run mocked email tests independently.
 - [Legal signing boundaries](legal-signing-boundaries.md) — SD118 scope requires explicit identity confirmation; investor signing is not certification of full legal execution.
 - [Legacy reservation inventory](legacy-reservation-inventory.md) — historical creation paths counted slots and units differently; never borrow another holding's allocation.
+- [Legal typography authorization](legal-typography-authorization.md) — authorized fallback changes new working copies only; pagination changes never permit bypassing placement checks.

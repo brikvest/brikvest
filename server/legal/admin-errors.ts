@@ -29,9 +29,9 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
     status: 422,
     failure: {
       code: "FONT_METADATA_REJECTED", stage: "conversion",
-      summary: "The Word file does not declare verifiable font information.",
-      issues: [{ code: "FONT_METADATA", message: "Font declarations are absent, invalid or exceed the safe verification limit.", instruction: "Ask the document author to review explicit font formatting and embedded font data in Word, then save a new .docx. Preserve legal wording and do not substitute fonts without approval." }],
-      nextAction: "Review font formatting with the document author and technical administrator, then upload a corrected draft. The saved draft remains and no live template was changed.",
+      summary: "The Word file's font metadata is corrupt or cannot be safely interpreted.",
+      issues: [{ code: "FONT_METADATA", message: "Font declarations are absent, invalid or exceed the safe verification limit.", instruction: "Ask the document author to repair and verify explicit font formatting and embedded font data in Word, then save a new .docx. The authorized Liberation Serif fallback cannot be applied safely until font metadata is valid. Preserve legal wording." }],
+      nextAction: "Have the document author work with the technical administrator to correct the font metadata, then upload a corrected draft. The saved draft remains and no live template was changed.",
     },
   };
   // Class names avoid importing converter/files here (and their service dependencies).
@@ -63,8 +63,11 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
     code = "PDF_CONVERSION_UNAVAILABLE"; summary = "The PDF conversion service could not complete the preview.";
     nextAction = "Ask the technical administrator to check the converter and required fonts. Do not change legal wording to resolve a service failure. Retry the saved draft after service recovery.";
     if (candidate?.kind === "fonts") {
-      code = "FONT_SERVICE_UNAVAILABLE"; summary = "Exact document fonts could not be verified in the conversion environment.";
-      nextAction = "Ask the technical administrator to check font availability and licensing. They may install the exact fonts or arrange valid embedded font data with the document author. Do not replace fonts or edit legal wording just to bypass this check.";
+      code = "FONT_FALLBACK_UNAVAILABLE"; summary = "The authorized Liberation Serif 12 pt fallback could not be applied to the whole document.";
+      nextAction = "Ask the technical administrator to make the authorized Liberation Serif 12 pt fallback available and retry. This fallback preserves legal wording but may change pagination; review the final PDF and confirm the investor signature placement before activation. Do not edit legal wording to work around font availability.";
+    } else if (candidate?.kind === "font-service") {
+      code = "FONT_SERVICE_UNAVAILABLE"; summary = "Font verification infrastructure is unavailable.";
+      nextAction = "Ask the technical administrator to restore font verification infrastructure, then retry the saved draft. The authorized whole-document Liberation Serif 12 pt fallback is used only after verification succeeds; do not edit legal wording to work around a service failure.";
     }
   } else if (candidate?.name === "SignaturePositionValidationError") {
     code = "PLACEMENT_CHECK_UNAVAILABLE"; summary = "The signature-position checking service could not complete its check.";
@@ -76,7 +79,7 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
     reference, stage, code,
     errorType: ["Error", "LegalPdfConversionError", "SignaturePositionValidationError", "LegalTemplateRenderError"].includes(candidate?.name || "") ? candidate.name : "InternalError",
     databaseCode: /^[0-9A-Z]{5}$/.test(candidate?.code || "") ? candidate.code : undefined,
-    category: ["service", "fonts", "font-metadata", "layout"].includes(candidate?.kind || "") ? candidate.kind : undefined,
+    category: ["service", "fonts", "font-metadata", "font-service", "layout"].includes(candidate?.kind || "") ? candidate.kind : undefined,
     causes: safeCauseDiagnostics(error),
   });
   if (stage === "save" || stage === "storage") nextAction += " Refresh the template list before retrying; do not assume the upload was saved.";

@@ -27,12 +27,20 @@ fields. Supported tokens are shown in the upload controls; unknown-token
 replacement names are never guessed. Embedded other-party signature images
 remain source content and are preserved.
 
-Font availability and converter/text-extractor failures require technical
-administrator attention, not legal-clause editing. Missing or invalid font
-declarations are reported separately for document-author review. Internal logs
-contain the support reference, failed stage, bounded error/cause categories and
-recognized diagnostic codes, never raw exception messages, SQL parameters,
-document text, credentials or process output.
+Converter and font-verification infrastructure failures require technical
+administrator attention, not legal-clause editing. Corrupt or unverifiable font
+metadata is a separate document-author correction: automatic fallback is not
+safe until the metadata is valid. When declared original fonts are unavailable,
+the authorized fallback is Liberation Serif 12 pt applied consistently to the
+whole document (not selective or mixed-font substitution). It does not change
+legal wording, but pagination can change, so inspect the final PDF and confirm
+the required investor signature placement before activation. If the fallback
+itself is unavailable, conversion fails for technical repair. These preview or
+activation operations never rewrite the uploaded original or historical
+templates, signed PDFs, or completion evidence. Internal logs contain the
+support reference, failed stage, bounded error/cause categories and recognized
+diagnostic codes, never raw exception messages, SQL parameters, document text,
+credentials or process output.
 
 Regression checks use in-memory PGlite and intercepted browser APIs. The
 frontend-only fixture server can be run with
@@ -94,15 +102,22 @@ activation do not scan old holdings or manufacture approval events.
    can dispatch jobs through the admin-authenticated route without it.
    The `document-fonts` check verifies infrastructure only: fontconfig
    (`fc-match`) and the per-template font verification helper must be available.
+   The authorized Liberation Serif fallback is verified during preparation
+   whenever a working document needs normalization.
    It does not inspect bundled forms or certify any uploaded, active, or
    historically pinned template's fonts; the returned `fonts` list is empty.
    Unused legacy forms therefore do not block infrastructure readiness.
-   Fontconfig substitution is not a production match. Outside isolated
-   `NODE_ENV=test` layout tests, each conversion checks the **actual DOCX input**
-   and blocks preview, activation, and live generation before LibreOffice
-   unless every declared family is an exact installed match or has valid
-   embedded font data. Review each property template's rendered output;
-   infrastructure readiness alone does not establish its conversion readiness.
+   Fontconfig substitution is not an exact original-font match. In every
+   environment, including tests, each conversion checks the **actual DOCX input**
+    and validates its font metadata before LibreOffice. If original font families
+    are not exact installed matches and no valid embedded font data is available,
+    the authorized fallback is Liberation Serif 12 pt for the whole document.
+    Corrupt metadata, unavailable verification infrastructure, or an unavailable
+    fallback blocks conversion rather than silently substituting fonts. The
+    fallback preserves legal wording but may change pagination. Review every
+    rendered PDF and confirm final investor signature placement; infrastructure
+    readiness alone does not establish a template's conversion or placement
+    readiness.
    The local audit-evidence PDF uses a separately resolved DejaVu Sans
    font, embeds it with fontkit, records its SHA-256, and checks that digest
    during finalization/recovery. Keep that helper font available and stable.
@@ -121,8 +136,9 @@ activation do not scan old holdings or manufacture approval events.
    `POST /api/admin/legal/templates/import-initial` and
    `POST /api/admin/legal/binding` return **410 Gone**.
    Inspect fields, source DOCX, and rendered PDF with the property scope below.
-   Resolve placeholder validation errors and verify legal wording, property
-   clauses, font fidelity, and the rendered assignee signing position. Placement
+    Resolve placeholder validation errors and verify legal wording, property
+    clauses, the applied font treatment (including any authorized whole-document
+    fallback), pagination, and the rendered assignee signing position. Placement
    is verified from the PDF, not supplied by the browser or guessed from a
    director, witness, or notary location. Activate each version separately with
    `POST /api/admin/legal/templates/:id/activate` and JSON `propertyId`.
@@ -417,8 +433,10 @@ LibreOffice and Poppler checks cover illustrative previews and final signing for
 both types, including their source inline/anchored drawings; raster comparisons
 require existing image pages to remain unchanged outside the investor stamp.
 These checks neither restart the application nor access the live development
-database. Test-mode conversion allows host-font substitution, so it does not
-certify production font fidelity; the normal per-template font gate remains in
+database. Conversion uses the same font policy in tests as in development and
+production. Dedicated fixtures control font resolution to exercise both exact
+original formatting and authorized whole-document normalization; this does not
+certify any live property template. The normal per-template font gate remains in
 place outside tests.
 
 ```sh

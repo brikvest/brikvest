@@ -4,7 +4,8 @@ import { adminLegalFailure } from "../server/legal/admin-errors";
 afterEach(() => vi.restoreAllMocks());
 describe("safe template service diagnostics", () => {
   it.each([
-    ["fonts", 503, "FONT_SERVICE_UNAVAILABLE"],
+    ["fonts", 503, "FONT_FALLBACK_UNAVAILABLE"],
+    ["font-service", 503, "FONT_SERVICE_UNAVAILABLE"],
     ["font-metadata", 422, "FONT_METADATA_REJECTED"],
     ["service", 503, "PDF_CONVERSION_UNAVAILABLE"],
   ] as const)("classifies conversion %s without disclosing process output", (kind, status, code) => {
@@ -17,6 +18,12 @@ describe("safe template service diagnostics", () => {
     expect(result.failure.code).toBe(code);
     expect(JSON.stringify(result)).not.toMatch(/\/tmp|secret|sensitive/);
     expect(result.failure.nextAction).toMatch(/administrator/);
+    if (kind === "fonts") {
+      expect(result.failure.nextAction).toMatch(/Liberation Serif 12 pt/);
+      expect(result.failure.nextAction).toMatch(/pagination/);
+      expect(result.failure.nextAction).toMatch(/signature placement/);
+    }
+    if (kind === "font-service") expect(result.failure.nextAction).toMatch(/verification infrastructure/);
     if (kind === "font-metadata") expect(result.failure.issues).toHaveLength(1);
     else expect(result.failure.supportReference).toMatch(/^LEGAL-/);
   });

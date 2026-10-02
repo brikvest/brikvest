@@ -2,12 +2,13 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import PizZip from "pizzip";
 import { inspectLegalDocxArchive } from "./templates";
+import { DRAWING_NS, WORD_NS, fontElements, parseFontXml } from "./font-xml";
 
 const MAX_FONT_FAMILIES = 64;
 const MAX_FONT_FAMILY_LENGTH = 128;
 
 export class LegalFontValidationError extends Error {
-  constructor(message: string, public kind: "metadata" | "unavailable") {
+  constructor(message: string, public kind: "metadata" | "unavailable" | "service") {
     super(message);
     this.name = "LegalFontValidationError";
   }
@@ -60,17 +61,68 @@ function collectDocxFontRequirements(buffer: Buffer): DocxFontRequirements {
   const families = new Set<string>();
   const embeddedFamilies = new Set<string>();
 
+  const themeFonts = new Map<string, string>();
+  try {
+    for (const [name, entry] of Object.entries(zip.files)) {
+      if (entry.dir || !/^word\/theme\/.*\.xml$/i.test(name)) continue;
+      const theme = parseFontXml(entry.asText());
+      for (const group of ["major", "minor"]) {
+        for (const scheme of fontElements(theme, DRAWING_NS, `${group}Font`)) {
+          for (const slot of ["latin", "ea", "cs"]) {
+            const family = scheme.getElementsByTagNameNS(DRAWING_NS, slot)[0]?.getAttribute("typeface") || "";
+            themeFonts.set(`${group}:${slot}`, family);
+          }
+        }
+      }
+    }
+  } catch {
+    throw new LegalFontValidationError("DOCX contains malformed font or theme XML.", "metadata");
+  }
+  const addFamily = (value: string) => {
+    const family = value.trim();
+    if (!family || family.length > MAX_FONT_FAMILY_LENGTH || /[\u0000-\u001f\u007f]/.test(family)) {
+      throw new LegalFontValidationError("DOCX contains invalid font-family metadata that cannot be verified safely.", "metadata");
+    }
+    families.add(family);
+    if (families.size > MAX_FONT_FAMILIES) {
+      throw new LegalFontValidationError("DOCX declares too many font families to verify safely.", "metadata");
+    }
+  };
+  const themeFamily = (reference: string) => {
+    const match = reference.match(/^(major|minor)(Ascii|HAnsi|EastAsia|Bidi)$/);
+    if (!match) throw new LegalFontValidationError("DOCX contains an invalid theme-font reference.", "metadata");
+    const slot = match[2] === "EastAsia" ? "ea" : match[2] === "Bidi" ? "cs" : "latin";
+    // Word uses the Latin family when the theme's EA/CS slot is unspecified.
+    return themeFonts.get(`${match[1]}:${slot}`) || themeFonts.get(`${match[1]}:latin`) || "";
+  };
   for (const [name, entry] of Object.entries(zip.files)) {
     if (entry.dir || !/^word\/.*\.xml$/i.test(name)) continue;
-    const xml = entry.asText();
-    for (const fontsTag of Array.from(xml.matchAll(/<w:rFonts\b([^>]*)\/?>/g))) {
-      for (const familyMatch of Array.from(
-        fontsTag[1].matchAll(/\bw:(?:ascii|hAnsi|eastAsia|cs)="([^"]+)"/g),
-      )) {
-        const family = decodeXmlAttribute(familyMatch[1]).trim();
-        if (family) families.add(family);
-        if (families.size > MAX_FONT_FAMILIES) {
-          throw new LegalFontValidationError("DOCX declares too many font families to verify safely.", "metadata");
+    let document;
+    try { document = parseFontXml(entry.asText()); } catch {
+      throw new LegalFontValidationError("DOCX contains malformed font XML.", "metadata");
+    }
+    for (const fonts of fontElements(document, WORD_NS, "rFonts")) {
+      for (const slot of ["ascii", "hAnsi", "eastAsia", "cs"]) {
+        const themeAttribute = (slot === "cs" ? ["cstheme", "csTheme"] : [`${slot}Theme`])
+          .find((attribute) => fonts.hasAttributeNS(WORD_NS, attribute));
+        // Theme formatting takes precedence over a cached explicit family.
+        if (themeAttribute) addFamily(themeFamily(fonts.getAttributeNS(WORD_NS, themeAttribute)!));
+        else if (fonts.hasAttributeNS(WORD_NS, slot)) addFamily(fonts.getAttributeNS(WORD_NS, slot)!);
+      }
+    }
+    for (const symbol of fontElements(document, WORD_NS, "sym")) {
+      if (symbol.hasAttributeNS(WORD_NS, "font")) addFamily(symbol.getAttributeNS(WORD_NS, "font")!);
+    }
+    if (!/^word\/theme\//i.test(name)) {
+      for (const slot of ["latin", "ea", "cs", "sym"]) {
+        for (const font of fontElements(document, DRAWING_NS, slot)) {
+          const family = font.getAttribute("typeface");
+          if (!family) continue;
+          const theme = family.match(/^\+(mj|mn)-(lt|ea|cs)$/);
+          addFamily(theme
+            ? themeFonts.get(`${theme[1] === "mj" ? "major" : "minor"}:${theme[2] === "lt" ? "latin" : theme[2]}`) ||
+              themeFonts.get(`${theme[1] === "mj" ? "major" : "minor"}:latin`) || ""
+            : family);
         }
       }
     }
@@ -159,7 +211,7 @@ export function resolveFontconfigFamily(family: string): string {
       maxBuffer: 64 * 1024,
     }).trim();
   } catch {
-    return "";
+    throw new LegalFontValidationError("Font verification service (fc-match) is unavailable. Restore fontconfig before retrying the saved draft.", "service");
   }
 }
 
@@ -172,8 +224,9 @@ export function assessDocxFontReadiness(
     try {
       matchedFamily = resolveFamily(family).trim();
     } catch {
-      matchedFamily = "";
+      throw new LegalFontValidationError("Font verification service is unavailable. Restore fontconfig before retrying the saved draft.", "service");
     }
+    if (!matchedFamily) throw new LegalFontValidationError("Font verification service returned no family. Restore fontconfig before retrying the saved draft.", "service");
     const installedExactMatch = matchedFamily
       .split(",")
       .some((candidate) => candidate.trim().toLocaleLowerCase("en-US") === family.toLocaleLowerCase("en-US"));
@@ -210,7 +263,7 @@ export function assertDocxFontsAvailable(
     return `Required DOCX font family "${font.family}" is unavailable: ${match}, and the DOCX has no valid embedded font data.`;
   });
   throw new LegalFontValidationError(
-    `${details.join(" ")} Install the licensed font family in the conversion environment or provide a valid embedded font in the DOCX; font substitution is not permitted outside isolated NODE_ENV=test layout tests.`,
+    `${details.join(" ")} New working documents may use the authorized whole-document Liberation Serif 12-point fallback. Existing immutable Word files cannot be reformatted during recovery; restore their original fonts to convert them unchanged.`,
     "unavailable",
   );
 }

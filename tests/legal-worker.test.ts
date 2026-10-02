@@ -9,6 +9,8 @@ import { renderLegalTemplate, validateLegalTemplate } from "../server/legal/temp
 import { createLegalWorker } from "../server/legal/worker";
 import type { LegalJobClaim } from "../server/legal/repository";
 import type { PdfTextPosition } from "../server/legal/converter";
+import { convertDocxToPdf, prepareDocxForPdf, verifyAssigneeSignaturePosition } from "../server/legal/converter";
+import { readDocxFontRequirements } from "../server/legal/font-validation";
 
 vi.mock("../server/emailService", () => ({
   sendEmail: vi.fn(async () => true),
@@ -226,6 +228,7 @@ function createGenerationDependencies(overrides: Record<string, unknown> = {}) {
       return reference;
     }),
     renderLegalTemplate: vi.fn(renderLegalTemplate),
+    prepareDocxForPdf: vi.fn((bytes: Buffer) => prepareDocxForPdf(bytes, () => "Liberation Serif")),
     validateLegalTemplate: vi.fn(validateLegalTemplate),
     convertDocxToPdf: vi.fn(async () => validPdf),
     verifyAssigneeSignaturePosition: vi.fn(async (_pdf: Buffer, options: {
@@ -266,6 +269,7 @@ describe("legal durable job worker", () => {
       quarantined: 0,
     });
     expect(dependencies.renderLegalTemplate).toHaveBeenCalledTimes(2);
+    expect(dependencies.prepareDocxForPdf).toHaveBeenCalledTimes(2);
     const deedValues = dependencies.renderLegalTemplate.mock.calls[0][2];
     expect(deedValues.USER_FULL_NAME).toBe(fullName);
     expect(deedValues.PAYMENT_AMOUNT_NAIRA_NUMERIC).toBe("1,000,000.50");
@@ -282,6 +286,85 @@ describe("legal durable job worker", () => {
     expect(dependencies.failLegalJob).not.toHaveBeenCalled();
     expect(stored.size).toBe(4);
     expect(pairResult.documents).toHaveLength(2);
+  });
+
+  it("stores the prepared Word bytes used for real PDF conversion and reuses them on a partial retry", async () => {
+    const templates = new Map<string, Buffer>();
+    for (const [type, source] of [["deed_of_assignment", deedTemplate], ["transfer_exit_rights", transferTemplate]] as const) {
+      const zip = new PizZip(source);
+      const xml = zip.file("word/document.xml")!.asText();
+      const paragraph = (text: string) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Unavailable Original Serif"/><w:sz w:val="40"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
+      const body = paragraph("{{USER_HOME_ADDRESS}} / {{PROPERTY_AREA_SQM}} / {{DOCUMENT_DATE}}") +
+        (type === "deed_of_assignment" ? paragraph("{{PAYMENT_AMOUNT_NAIRA_NUMERIC}} / {{PAYMENT_AMOUNT_NAIRA_WORDS}}") : "") +
+        paragraph("SIGNED SEALED AND DELIVERED") + paragraph("By the within-named ASSIGNEE") +
+        paragraph("{{USER_FULL_NAME}}") + xml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)![0];
+      zip.file("word/document.xml", xml.replace(/<w:body>[\s\S]*?<\/w:body>/, `<w:body>${body}</w:body>`));
+      templates.set(`legal/templates/${type}/v1`, zip.generate({ type: "nodebuffer" }));
+    }
+    const { dependencies, stored } = createGenerationDependencies({
+      claimNextLegalJob: vi.fn().mockResolvedValueOnce(claim("generation", 10))
+        .mockResolvedValueOnce(claim("generation", 11)).mockResolvedValueOnce(null),
+      getPinnedLegalTemplate: vi.fn(async (templateId: number) => {
+        const documentType = templateId === 101 ? "deed_of_assignment" as const : "transfer_exit_rights" as const;
+        const storageKey = `legal/templates/${documentType}/v1`;
+        return { id: templateId, documentType, version: 1, storageKey, sha256: sha256(templates.get(storageKey)!) };
+      }),
+      readLegalTemplateVersion: vi.fn(async (reference: string) => templates.get(reference)!),
+      convertDocxToPdf: vi.fn(convertDocxToPdf).mockRejectedValueOnce(new Error("temporary converter outage")),
+      verifyAssigneeSignaturePosition: vi.fn(verifyAssigneeSignaturePosition),
+    });
+    const result = await createLegalWorker(dependencies).dispatchLegalJobs(2);
+    expect(result).toMatchObject({ completed: 1, failed: 1 });
+    expect(dependencies.prepareDocxForPdf).toHaveBeenCalledTimes(2);
+    const writes = dependencies.storeLegalDocument.mock.calls.filter(([options]) => options.kind === "source_docx");
+    expect(writes).toHaveLength(2);
+    const converted = dependencies.convertDocxToPdf.mock.calls;
+    expect(converted).toHaveLength(3);
+    expect(converted[0][0]).toEqual(converted[1][0]);
+    for (const [docx, options] of converted) {
+      expect(options).toEqual({ preserveTypography: true });
+      expect(readDocxFontRequirements([docx]).families).toEqual(["Liberation Serif"]);
+      expect(writes.some(([write]) => write.contents.equals(docx))).toBe(true);
+    }
+    expect(stored.size).toBe(4);
+    expect(dependencies.recordUnsignedArtifact).toHaveBeenCalledTimes(2);
+  }, 120_000);
+
+  it("never rewrites historical generated or investor-signed artifacts during recovery", async () => {
+    const { dependencies, stored, pairResult } = createGenerationDependencies();
+    // First establish deterministic keys, then replace the in-memory artifacts
+    // with a historical original-typography Word/PDF pair.
+    await createLegalWorker(dependencies).dispatchLegalJobs(1);
+    for (const key of stored.keys()) {
+      if (key.endsWith("/source_docx")) stored.set(key, Buffer.from(deedTemplate));
+    }
+    const retained = new Map(Array.from(stored, ([key, bytes]) => [key, Buffer.from(bytes)]));
+    vi.clearAllMocks();
+    pairResult.pair.status = "investor_signed";
+    pairResult.documents.forEach((document) => { (document as Record<string, unknown>).status = "investor_signed"; });
+    await createLegalWorker(dependencies).dispatchLegalJobs(1);
+    expect(dependencies.prepareDocxForPdf).not.toHaveBeenCalled();
+    expect(dependencies.renderLegalTemplate).not.toHaveBeenCalled();
+    expect(dependencies.convertDocxToPdf).not.toHaveBeenCalled();
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
+    for (const [key, bytes] of retained) expect(stored.get(key)).toEqual(bytes);
+    // A missing signed artifact is not permission to create a replacement.
+    const docxKey = Array.from(stored.keys()).find((key) => key.endsWith("/source_docx"))!;
+    stored.delete(docxKey);
+    await createLegalWorker(dependencies).dispatchLegalJobs(1);
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
+    expect(dependencies.convertDocxToPdf).not.toHaveBeenCalled();
+    expect(dependencies.failLegalJob).toHaveBeenCalled();
+  });
+
+  it("does not persist a newly rendered document if the authorized fallback cannot be verified", async () => {
+    const { dependencies } = createGenerationDependencies({
+      prepareDocxForPdf: vi.fn((bytes: Buffer) => prepareDocxForPdf(bytes, () => "Not Liberation Serif")),
+    });
+    expect((await createLegalWorker(dependencies).dispatchLegalJobs(1)).failed).toBe(1);
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
+    expect(dependencies.recordUnsignedArtifact).not.toHaveBeenCalled();
+    expect(dependencies.markPairReady).not.toHaveBeenCalled();
   });
 
   it("preserves source images for both document types through worker rendering and PDF conversion", async () => {

@@ -463,7 +463,13 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
     // Exercise real repository selection, rendering and PDF conversion for both
     // properties, using test-only template bytes and entirely in-memory files.
     const { createLegalWorker } = await import("../server/legal/worker");
+    const { prepareDocxForPdf, convertDocxToPdf } = await import("../server/legal/converter");
     const worker = createLegalWorker({
+      // This existing E2E exercises original-layout signing and crash recovery.
+      // Controlled available-font resolution retains that branch; dedicated
+      // serif tests exercise unavailable fonts under normal environment policy.
+      prepareDocxForPdf: (bytes) => prepareDocxForPdf(bytes, (family) => family),
+      convertDocxToPdf: (bytes, options) => convertDocxToPdf(bytes, { ...options, resolveFontFamily: (family) => family }),
       readLegalDocument: async (key) => {
         const bytes = storage.get(key);
         if (!bytes) throw new LegalFileNotFoundError();
@@ -825,7 +831,7 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
     ].sort()).toEqual(oldTemplateIds);
 
     const { createLegalWorker } = await import("../server/legal/worker");
-    const { convertDocxToPdf, verifyAssigneeSignaturePosition } =
+    const { convertDocxToPdf, prepareDocxForPdf, verifyAssigneeSignaturePosition } =
       await import("../server/legal/converter");
     const { renderLegalTemplate, validateLegalTemplate } =
       await import("../server/legal/templates");
@@ -845,7 +851,7 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
       if (conversionCount === 2) {
         throw new Error("simulated worker crash after persisting the first document");
       }
-      return convertDocxToPdf(docx, options);
+      return convertDocxToPdf(docx, { ...options, resolveFontFamily: (family) => family });
     };
     const readLegalDocument = async (
       reference: string,
@@ -870,6 +876,7 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
       return reference;
     };
     const worker = createLegalWorker({
+      prepareDocxForPdf: (bytes) => prepareDocxForPdf(bytes, (family) => family),
       readLegalTemplateVersion: async (key) => {
         templateReads.push(key);
         const bytes = templateBytes.get(key);
@@ -909,6 +916,7 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
       WHERE pair_id = ${pairId} AND kind = 'generation' AND status = 'retry'
     `);
     const recoveredWorker = createLegalWorker({
+      prepareDocxForPdf: (bytes) => prepareDocxForPdf(bytes, (family) => family),
       readLegalTemplateVersion: async (key) => {
         templateReads.push(key);
         const bytes = templateBytes.get(key);
@@ -917,7 +925,7 @@ describe("isolated legal approval-to-signing E2E (PGlite)", () => {
       },
       readLegalDocument,
       storeLegalDocument,
-      convertDocxToPdf,
+      convertDocxToPdf: (bytes, options) => convertDocxToPdf(bytes, { ...options, resolveFontFamily: (family) => family }),
       verifyAssigneeSignaturePosition,
       renderLegalTemplate,
       validateLegalTemplate,
