@@ -428,6 +428,19 @@ function findAssigneeSignatureAnchor(
       const lastNameWord = nameWords[nameWords.length - 1];
       if (!page || !firstNameWord || !lastNameWord) continue;
       const headingStart = words[headingIndex].word;
+      const nameTop = Math.min(...nameWords.map((word) => word.yMin));
+      const nameBottom = Math.max(...nameWords.map((word) => word.yMax));
+      // Extraction order alone does not establish a continuous printed name.
+      // Reject reversed/remote fragments, including names extracted from columns.
+      const nameIsContinuous = nameWords.every((word, index) => {
+        if (!index) return true;
+        const previous = nameWords[index - 1];
+        const sameLine = Math.abs(word.yMin - previous.yMin) <= 2;
+        return sameLine
+          ? word.xMin >= previous.xMax - 2
+          : word.yMin >= previous.yMax - 2 && word.yMin - previous.yMax <= 36;
+      });
+      if (!nameIsContinuous) continue;
       const hasInterveningBlockLabel = words.some((word) => {
         if (
           !forbiddenBlockWords.has(word.normalized) ||
@@ -436,20 +449,33 @@ function findAssigneeSignatureAnchor(
         ) {
           return false;
         }
-        if (word.pageIndex === headingPageIndex) {
-          return word.word.yMin >= headingStart.yMin - 2;
-        }
-        if (word.pageIndex === namePageIndex) {
-          return word.word.yMin <= firstNameWord.yMin + 2;
-        }
-        return true;
+        // Bound BOTH ends when the candidate is on a single page. A separate
+        // witness/assignor section below the complete name is not intervening.
+        // Check the whole page width conservatively: neighboring columns that
+        // overlap this band remain ambiguous, even if extracted out of order.
+        const afterHeading = word.pageIndex !== headingPageIndex ||
+          word.word.yMax >= headingStart.yMin - 2;
+        const beforeNameEnd = word.pageIndex !== namePageIndex ||
+          word.word.yMin <= nameBottom + 2;
+        return afterHeading && beforeNameEnd;
       });
       if (hasInterveningBlockLabel) continue;
+      // A conflicting label in the textual relationship is also unsafe, even
+      // when its coordinates fall outside the candidate's vertical band.
+      if (words.slice(headingIndex + 4, matchedName.endIndex + 1)
+        .some((word) => forbiddenBlockWords.has(word.normalized))) continue;
 
       if (namePageIndex === headingPageIndex) {
         const assigneeWord = words[assigneeEndIndex].word;
         const verticalGap = firstNameWord.yMin - assigneeWord.yMax;
         if (verticalGap < -2 || verticalGap > 80) continue;
+        const phraseStart = words[assigneeIndex];
+        const headingEnd = words[headingIndex + 3];
+        if (phraseStart.pageIndex !== headingPageIndex ||
+            words[assigneeEndIndex].pageIndex !== headingPageIndex ||
+            headingEnd.pageIndex !== headingPageIndex ||
+            phraseStart.word.yMin < headingEnd.word.yMax - 2 ||
+            phraseStart.word.yMin - headingEnd.word.yMax > 80) continue;
       } else {
         // A cross-page electronic-signature anchor is safe only when the
         // signed heading is the last text on page N and the assignee-only
@@ -493,8 +519,6 @@ function findAssigneeSignatureAnchor(
         }
       }
 
-      const nameTop = Math.min(...nameWords.map((word) => word.yMin));
-      const nameBottom = Math.max(...nameWords.map((word) => word.yMax));
       const xMin = Math.min(...nameWords.map((word) => word.xMin));
       const xMax = Math.max(...nameWords.map((word) => word.xMax));
       if (xMax <= xMin || nameBottom <= nameTop) continue;

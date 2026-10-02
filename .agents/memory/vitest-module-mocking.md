@@ -5,6 +5,6 @@ description: Test-runner behavior to account for when mocking modules across int
 
 Vitest file-level mocks can be bypassed when an earlier test file imports the real module in a shared, non-isolated worker.
 
-**Why:** The repository runs tests in a single fork with isolation disabled, so module cache state and file order affect whether a later `vi.mock` intercepts an already-loaded dependency.
+**Why:** Earlier shared-fork runs with isolation disabled allowed module cache state and file order to affect whether a later `vi.mock` intercepted an already-loaded dependency.
 
-**How to apply:** Run module-mocking unit tests independently when validating them, or reset module state and mock setup explicitly before relying on a combined-suite result.
+**How to apply:** Preserve file isolation when running combined suites. If a custom test command disables isolation, run module-mocking tests independently or reset module state and mock setup explicitly.

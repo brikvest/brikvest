@@ -242,6 +242,17 @@ Activation still requires safe investor placement; a missing/ambiguous assignee
 block or unsafe placement must be corrected in a **new** template version, never
 by stripping signatures or bypassing the placement check.
 
+Placement uses the final PDF, identically for preview and activation. Separate
+witness or assignor sections before the assignee heading or below the complete
+printed investor name are allowed; they must not interrupt the heading,
+assignee phrase and full-name relationship or overlap it in neighboring columns.
+The boundary includes every line of a wrapped name. Duplicate eligible anchors,
+missing/reordered names and unsafe page breaks still fail closed. A failed check
+does not change the saved draft or live template. After a placement-check fix is
+deployed, retry **Preview** on the exact saved draft before deciding whether a
+new Word version is needed; a successful preview never activates it. Activation
+is a separate administrator action and repeats conversion and placement checks.
+
 Embedded images do not sign for the investor, change signing status, establish
 authenticity or certify full legal execution. The investor must still review,
 explicitly consent, confirm identity and create their own new drawn/typed mark.

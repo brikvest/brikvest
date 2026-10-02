@@ -65,7 +65,7 @@ export function adminLegalFailure(error: unknown, stage: LegalFailureStage): { s
         code: "ASSIGNEE_PLACEMENT",
         message: "The assignee section is missing, ambiguous or separated from the investor name.",
         location: "Assignee signature section",
-        instruction: "Review the PDF and Word layout: keep one “SIGNED SEALED AND DELIVERED” assignee block with “By the within-named ASSIGNEE” followed immediately by {{USER_FULL_NAME}}. Keep witness and assignor blocks separate. Existing other-party signature images may remain.",
+        instruction: "Review the PDF and Word layout: keep one “SIGNED SEALED AND DELIVERED” assignee block with “By the within-named ASSIGNEE” followed immediately by the complete {{USER_FULL_NAME}}. Witness and assignor sections may remain before or after this block; do not place their labels between its heading and complete name or alongside it at the same height. Avoid duplicate assignee blocks and unsafe page breaks. Existing other-party signature images and required legal wording must remain.",
       }],
       nextAction: "Review the assignee section, upload a corrected draft if needed, then preview and activate separately. The saved draft remains; no live template was changed.",
     },

@@ -1,6 +1,9 @@
 import express, { type RequestHandler } from "express";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PgDialect } from "drizzle-orm/pg-core";
 import PizZip from "pizzip";
 import request from "supertest";
@@ -80,6 +83,14 @@ const ORIGINAL_FONT = "Task148 Original Unavailable Serif";
 const templateAsset = readFileSync(
   new URL("../server/legal/template-assets/transfer_exit_rights_v1.docx", import.meta.url),
 );
+const suppliedTemplates = {
+  deed_of_assignment: readFileSync(
+    new URL("../attached_assets/DEED_OF_ASSIGNMENT_BRIKVEST_1790828516010.docx", import.meta.url),
+  ),
+  transfer_exit_rights: readFileSync(
+    new URL("../attached_assets/TRANSFER_AND_EXIT_RIGHT_AGREEMENT_1790828516011.docx", import.meta.url),
+  ),
+} as const;
 
 function compile(query: unknown): { sql: string; params: unknown[] } {
   return new PgDialect().sqlToQuery(query as never);
@@ -129,6 +140,71 @@ function withUnavailableOriginalFonts(input: Buffer): Buffer {
     zip.file(name, xml);
   }
   return zip.generate({ type: "nodebuffer" });
+}
+
+function withSeparateSignatureSections(
+  type: keyof typeof suppliedTemplates,
+  invalidAssignee = false,
+): Buffer {
+  const zip = new PizZip(suppliedTemplates[type]);
+  const document = zip.file("word/document.xml")!.asText();
+  const body = document.match(/<w:body\b[^>]*>([\s\S]*?)<\/w:body>/);
+  if (!body) throw new Error("Supplied DOCX fixture is missing its document body");
+  const sectionProperties = body[1].match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)?.[0] ?? "";
+  const originalDrawings = Array.from(body[1].matchAll(/<w:drawing\b[\s\S]*?<\/w:drawing>/g), (match) => match[0]);
+  if (originalDrawings.length < 2) throw new Error("Supplied DOCX fixture is missing source signature/seal drawings");
+
+  const paragraph = (text: string) =>
+    `<w:p><w:pPr><w:spacing w:before="0" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="${ORIGINAL_FONT}" w:hAnsi="${ORIGINAL_FONT}" w:eastAsia="${ORIGINAL_FONT}" w:cs="${ORIGINAL_FONT}"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+  const imageParagraph = (drawing: string) => `<w:p><w:r>${drawing}</w:r></w:p>`;
+  const content = [
+    "{{USER_HOME_ADDRESS}}",
+    "{{PROPERTY_AREA_SQM}}",
+    "{{DOCUMENT_DATE}}",
+    ...(type === "deed_of_assignment"
+      ? ["{{PAYMENT_AMOUNT_NAIRA_NUMERIC}}", "{{PAYMENT_AMOUNT_NAIRA_WORDS}}"]
+      : []),
+    "SIGNED SEALED AND DELIVERED",
+    invalidAssignee ? "By the within-named BENEFICIARY" : "By the within-named ASSIGNEE",
+    "{{USER_FULL_NAME}}",
+    "WITNESS SIGNATURE",
+  ].map(paragraph).join("") +
+    imageParagraph(originalDrawings[1]) +
+    [
+      "SIGNED SEALED AND DELIVERED",
+      "By the within-named ASSIGNOR",
+      "BRIKVEST LIMITED",
+    ].map(paragraph).join("") +
+    imageParagraph(originalDrawings[0]) +
+    sectionProperties;
+  zip.file("word/document.xml", document.replace(body[0], `<w:body>${content}</w:body>`));
+  return zip.generate({ type: "nodebuffer" });
+}
+
+function useTemplateFixture(type: keyof typeof suppliedTemplates, invalidAssignee = false) {
+  originalBytes = withSeparateSignatureSections(type, invalidAssignee);
+  sourceSha = createHash("sha256").update(originalBytes).digest("hex");
+  template = {
+    ...template,
+    document_type: type,
+    sha256: sourceSha,
+  };
+  mocks.readLegalTemplateVersion.mockImplementation(async () => Buffer.from(originalBytes));
+}
+
+function expectPdfHasFallbackSerifAndImages(pdf: Buffer) {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "legal-serif-route-pdf-"));
+  try {
+    const pdfPath = path.join(directory, "preview.pdf");
+    writeFileSync(pdfPath, pdf);
+    const fonts = execFileSync("pdffonts", [pdfPath], { encoding: "utf8", timeout: 20_000 });
+    expect(fonts).toContain("LiberationSerif");
+    const imageList = execFileSync("pdfimages", ["-list", pdfPath], { encoding: "utf8", timeout: 20_000 });
+    expect(imageList.split(/\r?\n/).filter((line) => /^\s*\d+\s+\d+\s+image\s/.test(line)).length)
+      .toBeGreaterThan(0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function createApp() {
@@ -202,6 +278,91 @@ afterEach(() => {
 });
 
 describe("legal template fallback-serif routes", () => {
+  it.each(["deed_of_assignment", "transfer_exit_rights"] as const)(
+    "converts %s with separate witness and assignor images; preview is read-only and explicit activation succeeds",
+    async (type) => {
+      const previousMode = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        useTemplateFixture(type);
+        const sourceSnapshot = Buffer.from(originalBytes);
+        const sourceHash = createHash("sha256").update(sourceSnapshot).digest("hex");
+
+        const preview = await request(app)
+          .get(`/api/admin/legal/templates/${TEMPLATE_ID}/preview?propertyId=${PROPERTY_ID}`)
+          .set("x-admin-user-id", String(ADMIN_ID))
+          .buffer(true)
+          .parse(parseBinaryBody)
+          .expect(200);
+        expect(preview.headers["content-type"]).toContain("application/pdf");
+        expect(preview.body.subarray(0, 5).toString()).toBe("%PDF-");
+        expectPdfHasFallbackSerifAndImages(preview.body);
+        expect(activationUpdates).toBe(0);
+        expect(draftActive).toBe(false);
+        expect(liveActive).toBe(true);
+        expect(originalBytes).toEqual(sourceSnapshot);
+        expect(createHash("sha256").update(originalBytes).digest("hex")).toBe(sourceHash);
+
+        await request(app)
+          .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+          .set("x-admin-user-id", String(ADMIN_ID))
+          .send({ propertyId: PROPERTY_ID })
+          .expect(200);
+        expect(activationUpdates).toBe(2);
+        expect(draftActive).toBe(true);
+        expect(liveActive).toBe(false);
+        expect(originalBytes).toEqual(sourceSnapshot);
+        expect(createHash("sha256").update(originalBytes).digest("hex")).toBe(sourceHash);
+      } finally {
+        if (previousMode === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousMode;
+      }
+    },
+    120_000,
+  );
+
+  it.each(["deed_of_assignment", "transfer_exit_rights"] as const)(
+    "rejects real failed %s placement on preview and activation without changing saved or live state",
+    async (type) => {
+      const previousMode = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        useTemplateFixture(type, true);
+        const sourceSnapshot = Buffer.from(originalBytes);
+        const sourceHash = createHash("sha256").update(sourceSnapshot).digest("hex");
+
+        const preview = await request(app)
+          .get(`/api/admin/legal/templates/${TEMPLATE_ID}/preview?propertyId=${PROPERTY_ID}`)
+          .set("x-admin-user-id", String(ADMIN_ID))
+          .expect(422);
+        expect(preview.body.failure.stage).toBe("placement");
+        expect(mocks.failPlacement).toBe(false);
+        expect(activationUpdates).toBe(0);
+        expect(draftActive).toBe(false);
+        expect(liveActive).toBe(true);
+        expect(originalBytes).toEqual(sourceSnapshot);
+        expect(createHash("sha256").update(originalBytes).digest("hex")).toBe(sourceHash);
+
+        const activation = await request(app)
+          .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+          .set("x-admin-user-id", String(ADMIN_ID))
+          .send({ propertyId: PROPERTY_ID })
+          .expect(422);
+        expect(activation.body.failure.stage).toBe("placement");
+        expect(mocks.failPlacement).toBe(false);
+        expect(activationUpdates).toBe(0);
+        expect(draftActive).toBe(false);
+        expect(liveActive).toBe(true);
+        expect(originalBytes).toEqual(sourceSnapshot);
+        expect(createHash("sha256").update(originalBytes).digest("hex")).toBe(sourceHash);
+      } finally {
+        if (previousMode === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousMode;
+      }
+    },
+    120_000,
+  );
+
   it.each(["development", "production"])(
     "previews and activates a valid immutable draft with real conversion and placement in %s",
     async (mode) => {

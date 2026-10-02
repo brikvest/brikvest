@@ -5,9 +5,13 @@ description: Caution before running data-mutating scripts/queries — the dev DA
 
 # Dev DB == live user data
 
-There is no separate production Neon database / read-replica for this project.
+Do not assume the development connection is an isolated staging copy.
 The `DATABASE_URL` in the dev environment points at the **real, live** user data
 (real investors, reservations, admins).
+
+Platform-authorized production read-only access may be available for bounded
+investigation. That does not make development writes safe or authorize
+production-data tests.
 
 **Why:** A one-off data fix (e.g. reinstating a real user's lapsed reservation)
 mutates production data directly — there is no safe staging copy.

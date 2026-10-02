@@ -268,7 +268,7 @@ describe("DOCX conversion font fidelity", () => {
     expect(prepared.file("[Content_Types].xml")!.asText()).toContain('PartName="/word/styles.xml"');
   });
 
-  it("does not bypass the real signature check when whole-document fallback moves a supplied deed's blocks", async () => {
+  it("checks actual section boundaries after whole-document fallback moves a supplied deed's blocks", async () => {
     const supplied = normalizeSuppliedLegalTemplate(readFileSync(path.join(projectRoot, "attached_assets/DEED_OF_ASSIGNMENT_BRIKVEST_1790828516010.docx")));
     const source = renderLegalTemplate(supplied, "deed_of_assignment", {
       USER_FULL_NAME: "Illustrative Example — Not for Execution",
@@ -280,6 +280,28 @@ describe("DOCX conversion font fidelity", () => {
     const pdf = await convertDocxToPdf(source, { resolveFontFamily: () => "Liberation Serif" });
     await expect(verifyAssigneeSignaturePosition(pdf, {
       assigneeFullName: "Illustrative Example — Not for Execution", templateVersionId: "deed:isolated",
+    })).resolves.toMatchObject({ anchorText: "Illustrative Example — Not for Execution" });
+
+    // The supplied deed's witness section follows the complete name, so it is
+    // valid. A genuinely interfering label must still fail after real fallback
+    // conversion; never rely on pagination changes alone to imply invalidity.
+    const interrupted = new PizZip(source);
+    let inserted = 0;
+    const xml = interrupted.file("word/document.xml")!.asText()
+      .replace(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, (paragraph) => {
+        const text = Array.from(paragraph.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g),
+          (match) => match[1]).join("").toUpperCase().replace(/[^A-Z]/g, "");
+        if (!text.includes("BYTHEWITHINNAMEDASSIGNEE")) return paragraph;
+        inserted += 1;
+        return paragraph + "<w:p><w:r><w:t>WITNESS</w:t></w:r></w:p>";
+      });
+    expect(inserted).toBe(1);
+    interrupted.file("word/document.xml", xml);
+    const unsafePdf = await convertDocxToPdf(interrupted.generate({ type: "nodebuffer" }), {
+      resolveFontFamily: () => "Liberation Serif",
+    });
+    await expect(verifyAssigneeSignaturePosition(unsafePdf, {
+      assigneeFullName: "Illustrative Example — Not for Execution", templateVersionId: "deed:interrupted",
     })).rejects.toMatchObject({ kind: "layout" });
   }, 60_000);
 

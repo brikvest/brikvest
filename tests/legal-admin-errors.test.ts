@@ -3,6 +3,19 @@ import { adminLegalFailure } from "../server/legal/admin-errors";
 
 afterEach(() => vi.restoreAllMocks());
 describe("safe template service diagnostics", () => {
+  it("distinguishes interfering blocks from valid separate required sections", () => {
+    const result = adminLegalFailure(Object.assign(new Error("private layout"), {
+      name: "SignaturePositionValidationError", kind: "layout",
+    }), "placement");
+    expect(result.status).toBe(422);
+    const instruction = result.failure.issues[0].instruction;
+    expect(instruction).toContain("may remain before or after");
+    expect(instruction).toContain("complete");
+    expect(instruction).toContain("at the same height");
+    expect(instruction).toContain("required legal wording must remain");
+    expect(result.failure.nextAction).toContain("preview and activate separately");
+    expect(JSON.stringify(result)).not.toContain("private layout");
+  });
   it.each([
     ["fonts", 503, "FONT_FALLBACK_UNAVAILABLE"],
     ["recovery-fonts", 503, "RECOVERY_FONT_UNAVAILABLE"],
