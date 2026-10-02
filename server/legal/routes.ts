@@ -16,16 +16,41 @@ import { getLegalReadiness } from "../../scripts/legal-readiness";
 import { dispatchLegalJobs } from "./worker";
 import { beginLocalSigning, completeLocalSigning } from "./local-signing";
 import { assertActiveConfirmedHolding } from "./holding-state";
+import { templateUploadInsert } from "./template-query";
+import { AdminLegalInputError, adminLegalFailure } from "./admin-errors";
+import type { LegalFailureStage } from "../../shared/legal-errors";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
-  if (error) return res.status(400).json({ error: "Upload one DOCX file no larger than 20 MB." });
+  if (error) {
+    const tooLarge = error.code === "LIMIT_FILE_SIZE";
+    const result = adminLegalFailure(new AdminLegalInputError(
+      tooLarge ? "UPLOAD_TOO_LARGE" : "UPLOAD_MULTIPART_REJECTED",
+      tooLarge ? "The upload exceeds 20 MB." : "The upload could not be accepted.",
+      tooLarge ? "Reduce the file size to 20 MB or less (for example, compress images in Word), save as .docx and upload again. Do not remove required fields." : "Choose one .docx file and the property and document type, then try again.",
+      tooLarge ? 413 : 400,
+    ), "upload");
+    return res.status(result.status).json({ error: result.failure.summary, failure: result.failure });
+  }
   next();
 });
 const rows = (result: any): any[] => result.rows || [];
 const id = (value: unknown): number => {
   if ((typeof value !== "string" && typeof value !== "number") || !/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new Error("Invalid record ID");
   return Number(value);
+};
+const templateHandler = (stage: LegalFailureStage, fn: (req: any, res: any) => Promise<unknown>): RequestHandler => (req: any, res) => {
+  req.legalStage = stage;
+  Promise.resolve(fn(req, res)).catch((error) => {
+    if (res.headersSent) return;
+    const result = adminLegalFailure(error, req.legalStage);
+    res.status(result.status).json({ error: result.failure.summary, failure: result.failure });
+  });
+};
+const templateId = (value: unknown): number => {
+  try { return id(value); } catch {
+    throw new AdminLegalInputError("INVALID_TEMPLATE_CONTEXT", "Choose a valid property and template.", "Select the property again and refresh its template list.");
+  }
 };
 const handler = (fn: (req: any, res: any) => Promise<unknown>): RequestHandler => (req, res) => {
   Promise.resolve(fn(req, res)).catch((error) => {
@@ -63,20 +88,21 @@ async function audit(tx: any, adminId: number, event: string, details: any, pair
   await tx.execute(sql`INSERT INTO legal_audit_events (pair_id, actor_type, actor_id, event_type, details)
     VALUES (${pairId}, 'admin', ${adminId}, ${event}, ${JSON.stringify(details)}::jsonb)`);
 }
-async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, propertyId: number) {
+async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, propertyId: number, setStage: (stage: LegalFailureStage) => void) {
+  setStage("validation");
   const validation = validateLegalTemplate(bytes, documentType);
   // Serializes version allocation and upload; a failed DB commit can leave an
   // orphan object, never an overwritable version or active invalid template.
+  setStage("save");
   return db.transaction(async (tx) => {
-    if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new Error("Property not found");
+    if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new AdminLegalInputError("PROPERTY_NOT_FOUND", "This property is no longer available.", "Refresh the property list and choose an available property.", 404);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + documentType}))`);
     const version = rows(await tx.execute(sql`SELECT COALESCE(MAX(version), 0) + 1 AS version FROM legal_templates WHERE document_type = ${documentType}`))[0].version;
     const sha = createHash("sha256").update(bytes).digest("hex");
+    setStage("storage");
     const key = await storeLegalTemplateVersion({ documentType, version, docxBuffer: bytes, propertyId, uploadId: randomUUID() });
-    const result = rows(await tx.execute(sql`INSERT INTO legal_templates
-      (property_id, document_type, version, original_filename, storage_key, sha256, byte_size, required_placeholders, validation_status, created_by_admin_id)
-      VALUES (${propertyId}, ${documentType}, ${version}, ${filename.replace(/[^a-zA-Z0-9_. -]/g, "_").slice(0, 160)}, ${key}, ${sha}, ${bytes.length},
-      ${Object.keys(validation.placeholderCounts)}::text[], 'valid', ${adminId}) RETURNING id`))[0];
+    setStage("save");
+    const result = rows(await tx.execute(templateUploadInsert({ propertyId, documentType, version, filename, key, sha, byteSize: bytes.length, placeholders: Object.keys(validation.placeholderCounts), adminId })))[0];
     await audit(tx, adminId, "template_version_uploaded", { templateId: result.id, propertyId, documentType, version, sha256: sha });
     return { id: result.id, propertyId, version, documentType, validationStatus: "valid" };
   });
@@ -155,10 +181,11 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     if (!property) return res.status(404).json({ error: "Property not found" });
     res.json(property);
   }));
-  app.post("/api/admin/legal/templates", auth.requireAdminAuth, safeUpload, handler(async (req, res) => {
+  app.post("/api/admin/legal/templates", auth.requireAdminAuth, safeUpload, templateHandler("upload", async (req, res) => {
     const type = req.body.documentType;
-    if (!["deed_of_assignment", "transfer_exit_rights"].includes(type) || !req.file || !/\.docx$/i.test(req.file.originalname)) throw new Error("Choose a document type and a DOCX file");
-    res.status(201).json(await saveTemplate(type, req.file.buffer, req.file.originalname, req.user.userId, id(req.body.propertyId)));
+    if (!["deed_of_assignment", "transfer_exit_rights"].includes(type)) throw new AdminLegalInputError("DOCUMENT_TYPE_REQUIRED", "Choose a supported legal document type.", "Select Deed of Assignment or Transfer and Exit Rights Agreement, then upload.");
+    if (!req.file || !/\.docx$/i.test(req.file.originalname)) throw new AdminLegalInputError("WRONG_FILE_FORMAT", "A Microsoft Word .docx file is required.", "Open the source in Word and use Save As → Word Document (.docx). Renaming a PDF or .doc file is not enough.");
+    res.status(201).json(await saveTemplate(type, req.file.buffer, req.file.originalname, req.user.userId, templateId(req.body.propertyId), (stage) => { req.legalStage = stage; }));
   }));
   app.post("/api/admin/legal/templates/import-initial", auth.requireAdminAuth, (_req, res) => res.status(410).json({ error: "Upload property-specific legal forms. Bundled forms cannot be automatically assigned." }));
   app.post("/api/admin/legal/templates/:id/assign", auth.requireAdminAuth, handler(async (req, res) => {
@@ -175,39 +202,49 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     res.json({ message: "Template assigned. Review and activate it separately.", templateId, propertyId });
   }));
   for (const action of ["download", "preview", "fields"] as const) {
-    app.get(`/api/admin/legal/templates/:id/${action}`, auth.requireAdminAuth, handler(async (req, res) => {
-      const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${id(req.params.id)}
-        AND ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${id(req.query.propertyId)}`}`))[0];
-      if (!t) return res.status(404).json({ error: "Template not found" });
+    app.get(`/api/admin/legal/templates/:id/${action}`, auth.requireAdminAuth, templateHandler(action === "preview" ? "preview" : "inspection", async (req, res) => {
+      const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${templateId(req.params.id)}
+        AND ${req.query.unassigned === "true" ? sql`property_id IS NULL` : sql`property_id=${templateId(req.query.propertyId)}`}`))[0];
+      if (!t) throw new AdminLegalInputError("TEMPLATE_NOT_FOUND", "The template is not available in this property workspace.", "Refresh this property’s template list and select a version again.", 404);
+      req.legalStage = "storage";
       const bytes = await readLegalTemplateVersion(t.storage_key);
       if (createHash("sha256").update(bytes).digest("hex") !== t.sha256) throw new Error("Stored template checksum mismatch");
+      req.legalStage = "inspection";
       if (action === "fields") return res.json({
         templateId: t.id, propertyId: t.property_id, documentType: t.document_type, version: t.version,
         active: t.is_active, ...getLegalTemplateFieldMetadata(bytes, t.document_type),
       });
       if (action === "download") return privateResponse(res, bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", `template-${t.document_type}-v${t.version}.docx`, true);
+      req.legalStage = "render";
       const preview = renderIllustrativeLegalTemplate(bytes, t.document_type);
+      req.legalStage = "conversion";
       const pdf = await convertDocxToPdf(preview.renderedDocx);
+      req.legalStage = "placement";
       await verifyAssigneeSignaturePosition(pdf, { templateVersionId: String(t.id), assigneeFullName: buildIllustrativeTemplateValues(t.document_type).USER_FULL_NAME });
       privateResponse(res, pdf, "application/pdf", "illustrative-template-preview.pdf");
     }));
   }
-  app.post("/api/admin/legal/templates/:id/activate", auth.requireAdminAuth, handler(async (req, res) => {
-    const templateId = id(req.params.id);
-    const propertyId = id(String(req.body.propertyId));
-    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${templateId} AND property_id=${propertyId}`))[0];
-    if (!t) return res.status(404).json({ error: "Template not found" });
+  app.post("/api/admin/legal/templates/:id/activate", auth.requireAdminAuth, templateHandler("activation", async (req, res) => {
+    const selectedTemplateId = templateId(req.params.id);
+    const propertyId = templateId(req.body.propertyId);
+    const t = rows(await db.execute(sql`SELECT * FROM legal_templates WHERE id = ${selectedTemplateId} AND property_id=${propertyId}`))[0];
+    if (!t) throw new AdminLegalInputError("TEMPLATE_NOT_FOUND", "The template is not available in this property workspace.", "Refresh this property’s template list and select a version again.", 404);
+    req.legalStage = "storage";
     const bytes = await readLegalTemplateVersion(t.storage_key);
     if (createHash("sha256").update(bytes).digest("hex") !== t.sha256) throw new Error("Stored template checksum mismatch");
+    req.legalStage = "render";
     const preview = renderIllustrativeLegalTemplate(bytes, t.document_type);
+    req.legalStage = "conversion";
     const pdf = await convertDocxToPdf(preview.renderedDocx);
+    req.legalStage = "placement";
     await verifyAssigneeSignaturePosition(pdf, { templateVersionId: String(t.id), assigneeFullName: buildIllustrativeTemplateValues(t.document_type).USER_FULL_NAME });
+    req.legalStage = "activation";
     await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + propertyId + ":" + t.document_type}))`);
-      if (t.validation_status !== "valid") throw new Error("Only validated templates can be activated");
+      if (t.validation_status !== "valid") throw new AdminLegalInputError("TEMPLATE_NOT_VALIDATED", "This version is not validated and cannot be activated.", "Inspect its fields and upload a corrected, valid Word version.", 422);
       await tx.execute(sql`UPDATE legal_templates SET is_active = false WHERE property_id=${propertyId} AND document_type = ${t.document_type} AND is_active`);
-      await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now() WHERE id = ${templateId} AND property_id=${propertyId} AND validation_status = 'valid'`);
-      await audit(tx, req.user.userId, "template_version_activated", { templateId, propertyId, version: t.version, signaturePlacementVerified: true });
+      await tx.execute(sql`UPDATE legal_templates SET is_active = true,activated_at = now() WHERE id = ${selectedTemplateId} AND property_id=${propertyId} AND validation_status = 'valid'`);
+      await audit(tx, req.user.userId, "template_version_activated", { templateId: selectedTemplateId, propertyId, version: t.version, signaturePlacementVerified: true });
     });
     res.json({ message: "Template activated; historical documents are unchanged" });
   }));

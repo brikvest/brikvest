@@ -9,6 +9,11 @@ type Fixture = {
   templates: Template[];
   delays: Map<string, number>;
   pending: Set<string>;
+  uploadFailure?: "multi" | "unsafe" | "session" | "network" | "legacy-validation" | "success-nonjson";
+  previewFailure?: boolean;
+  activationFailure?: boolean;
+  activationNonJson?: boolean;
+  fieldMetadata?: boolean;
 };
 const properties = [{ id: 108, name: "North Estate", location: "Lagos" }, { id: 209, name: "South Estate", location: "Abuja" }];
 const template = (id: number, propertyId: number | null, documentType: string, active = false, version = 1): Template =>
@@ -18,6 +23,7 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 async function installMocks(page: Page): Promise<Fixture> {
   const fixture: Fixture = {
     requests: [], unexpected: [], delays: new Map(), pending: new Set(),
+    uploadFailure: undefined, previewFailure: false, activationFailure: false, activationNonJson: false, fieldMetadata: false,
     templates: [template(31, 108, "deed_of_assignment"), template(32, 108, "transfer_exit_rights"),
       template(41, 209, "deed_of_assignment", true), template(42, 209, "transfer_exit_rights", true),
       template(40, 209, "deed_of_assignment", false, 2), template(90, null, "deed_of_assignment", false, 9)],
@@ -65,6 +71,22 @@ async function installMocks(page: Page): Promise<Fixture> {
     if (path === "/api/admin/legal/readiness") return json(route, { ready: true, blockers: [] });
     if (path === "/api/admin/legal/templates" && method === "GET") return json(route, snapshot.filter((item) => url.searchParams.has("unassigned") ? item.propertyId === null : item.propertyId === propertyId));
     if (path === "/api/admin/legal/templates" && method === "POST" && body.propertyId === 108 && body.hasFile) {
+      if (fixture.uploadFailure === "network") return route.abort("failed");
+      if (fixture.uploadFailure === "session") return json(route, { error: "Please sign in again." }, 401);
+      if (fixture.uploadFailure === "unsafe") return json(route, { error: "Record cast failed: SELECT * FROM /workspace/server/legal.ts:44\nError: stack trace" }, 400);
+      if (fixture.uploadFailure === "legacy-validation") return json(route, { error: "Missing required placeholders: USER_FULL_NAME; unsupported placeholders: {{MISSING_FIELD}}" }, 400);
+      if (fixture.uploadFailure === "success-nonjson") return route.fulfill({ status: 200, contentType: "text/plain", body: "upload completed" });
+      if (fixture.uploadFailure === "multi") return json(route, {
+        error: "Template needs corrections",
+        failure: {
+          code: "LEGAL_TEMPLATE_INVALID", stage: "validation", summary: "The Word template needs several corrections.",
+          issues: [
+            { code: "missing_token", message: "Required field is missing", instruction: "Add the field to the document.", token: "USER_FULL_NAME", location: "Page 1" },
+            { code: "date_parts", message: "Date format is incomplete", instruction: "Use the canonical date or include all date parts.", token: "DOCUMENT_DATE_YEAR", location: "Page 2" },
+          ],
+          nextAction: "Correct each issue and upload the Word file again.", supportReference: "LEGAL-FIXTURE-145",
+        },
+      }, 422);
       const uploaded = template(33, 108, body.documentType, false, 2);
       fixture.templates.push(uploaded);
       return json(route, uploaded, 201);
@@ -85,6 +107,11 @@ async function installMocks(page: Page): Promise<Fixture> {
         return json(route, { error: "Wrong property" }, 404);
       }
       if (operation === "activate" && method === "POST") {
+        if (fixture.activationFailure) return json(route, {
+          error: "Activation was rejected.",
+          failure: { code: "activation_blocked", stage: "activation", summary: "This version cannot be activated yet.", issues: [{ code: "readiness", message: "Review required", instruction: "Inspect and correct this version before activation." }], nextAction: "Correct the version and retry." },
+        }, 422);
+        if (fixture.activationNonJson) return route.fulfill({ status: 200, contentType: "text/plain", body: "activation completed" });
         fixture.templates.filter((item) => item.propertyId === propertyId && item.documentType === current.documentType).forEach((item) => item.active = item.id === current.id);
         return json(route, { message: "Activated for future generation only." });
       }
@@ -92,7 +119,8 @@ async function installMocks(page: Page): Promise<Fixture> {
         token: inspected.propertyId === 209 ? "USER_HOME_ADDRESS" : "USER_FULL_NAME",
         label: inspected.propertyId === 209 ? "South verified address" : inspected.id === 33 ? "North draft identity" : "North verified identity",
         meaning: "Populated from verified investor records", source: "Approved KYC", format: "Verified text", count: 2,
-      }], issues: [] });
+      }], issues: fixture.fieldMetadata ? ["Old unstructured issue is superseded"] : [], ...(fixture.fieldMetadata ? { metadata: { correctionIssues: [{ code: "unsupported_token", message: "Remove the unsupported placeholder.", instruction: "Replace it with one of the supported placeholders.", token: "UNSUPPORTED_FIELD" }] } } : {}) });
+      if (operation === "preview" && fixture.previewFailure) return json(route, { error: "Could not generate preview.", failure: { code: "preview_failed", stage: "render", summary: "Preview rendering needs attention.", issues: [{ code: "font", message: "A preview issue", instruction: "Review this Word version." }], nextAction: "Correct the template or retry." } }, 422);
       if (operation === "preview" || operation === "download") return route.fulfill({ contentType: operation === "preview" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document", body: operation === "preview" ? pdfBytes : Buffer.from("isolated-word-download") });
     }
     if (path === "/api/admin/legal/documents") return json(route, propertyId === 108 ? [{
@@ -270,5 +298,152 @@ test("pending activation retains its confirmed destination until completion", as
   await chooseProperty(page, "South Estate");
   await expect(page.getByText("South verified address", { exact: true })).toHaveCount(2);
   await expect(page.getByText("North verified identity", { exact: true })).toHaveCount(0);
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test("upload validation issues persist with the selected file until a successful retry", async ({ page }) => {
+  const fixture = await installMocks(page);
+  fixture.uploadFailure = "multi";
+  await openWorkspace(page);
+  await chooseProperty(page, "North Estate");
+  const fileInput = page.getByLabel("New Word version");
+  await fileInput.setInputFiles({ name: "north-v2.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("Isolated upload fixture") });
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  const result = page.getByRole("alert");
+  await expect(result).toContainText("North Estate");
+  await expect(result).toContainText("deed of assignment");
+  await expect(result).toContainText("north-v2.docx");
+  await expect(result).toContainText("Stage: validation");
+  await expect(result).toContainText("Required field is missing");
+  await expect(result).toContainText("Date format is incomplete");
+  await expect(result).toContainText("Add the field to the document.");
+  await expect(result).toContainText("Correct each issue and upload the Word file again.");
+  await expect(result).toContainText("LEGAL-FIXTURE-145");
+  await expect(fileInput).toHaveValue(/north-v2\.docx$/);
+
+  await page.getByRole("combobox", { name: "Document type" }).click();
+  await page.getByRole("option", { name: "Transfer and Exit Rights Agreement" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(fileInput).toHaveValue(/north-v2\.docx$/);
+  await page.getByRole("combobox", { name: "Document type" }).click();
+  await page.getByRole("option", { name: "Deed of Assignment" }).click();
+
+  // Changing the type correctly clears the old result; reproduce it with the
+  // same upload context before verifying that a retry keeps it visible in-flight.
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  await expect(page.getByRole("alert")).toContainText("Date format is incomplete");
+  fixture.uploadFailure = undefined;
+  fixture.delays.set("POST /api/admin/legal/templates", 1000);
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  await expect.poll(() => fixture.pending.has("POST /api/admin/legal/templates")).toBe(true);
+  await expect(page.getByRole("alert")).toContainText("Date format is incomplete");
+  await expect(page.getByRole("alert")).toContainText("north-v2.docx");
+  await expect(page.getByText("North draft identity", { exact: true })).toBeVisible({ timeout: 2000 });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(fileInput).toHaveValue("");
+});
+
+test("unsafe legacy errors, session expiry and uncertain network outcomes are safe and actionable", async ({ page }) => {
+  const fixture = await installMocks(page);
+  fixture.uploadFailure = "unsafe";
+  await openWorkspace(page);
+  await chooseProperty(page, "North Estate");
+  const input = page.getByLabel("New Word version");
+  await input.setInputFiles({ name: "north-v2.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("Isolated upload fixture") });
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  let result = page.getByRole("alert");
+  await expect(result).toContainText("server problem");
+  await expect(result).not.toContainText("SELECT");
+  await expect(result).not.toContainText("/workspace/");
+  await expect(result).not.toContainText("stack trace");
+
+  fixture.uploadFailure = "legacy-validation";
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  result = page.getByRole("alert");
+  await expect(result).toContainText("Stage: validation");
+  await expect(result).toContainText("Required placeholder {{USER_FULL_NAME}} is missing.");
+  await expect(result).toContainText("Placeholder {{MISSING_FIELD}} is not supported.");
+  await expect(result).toContainText(/supported placeholders/i);
+
+  fixture.uploadFailure = "session";
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  result = page.getByRole("alert");
+  await expect(result).toContainText("session has expired");
+  await expect(result).toContainText("Sign in again");
+  expect(await input.inputValue()).toMatch(/north-v2\.docx$/);
+
+  fixture.uploadFailure = "network";
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  result = page.getByRole("alert");
+  await expect(result).toContainText("connection was interrupted");
+  await expect(result).toContainText("may have completed");
+  await expect(result).toContainText("Refresh this property’s drafts");
+  expect(fixture.unexpected).toEqual([]);
+
+  fixture.uploadFailure = "success-nonjson";
+  await page.getByRole("button", { name: "Upload & validate" }).click();
+  result = page.getByRole("alert");
+  await expect(result).toContainText("without confirming whether this action completed");
+  await expect(result).toContainText("Refresh this property’s drafts");
+  expect(await input.inputValue()).toMatch(/north-v2\.docx$/);
+});
+
+test("preview and activation errors stay beside their template version and clear on success or property switch", async ({ page }) => {
+  const fixture = await installMocks(page);
+  fixture.previewFailure = true;
+  fixture.activationFailure = true;
+  await openWorkspace(page);
+  await chooseProperty(page, "North Estate");
+  await page.getByRole("button", { name: "Preview PDF", exact: true }).first().click();
+  let result = page.getByRole("alert").first();
+  await expect(result).toContainText("North Estate");
+  await expect(result).toContainText("deed of assignment");
+  await expect(result).toContainText("v1");
+  await expect(result).toContainText("render");
+  fixture.previewFailure = false;
+  await page.getByRole("button", { name: "Preview PDF", exact: true }).first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await closeDialog(page);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Activate v1", exact: true }).first().click();
+  await page.getByRole("button", { name: "Confirm activation" }).click();
+  result = page.getByRole("alert").first();
+  await expect(result).toContainText("activation");
+  await expect(result).toContainText("This version cannot be activated yet.");
+  await expect(result).toContainText("Inspect and correct this version before activation.");
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Word file", exact: true }).first().click();
+  await downloaded;
+  await expect(page.getByRole("alert")).toContainText("This version cannot be activated yet.");
+  await page.getByRole("button", { name: "Activate v1", exact: true }).first().click();
+  fixture.activationFailure = false;
+  fixture.activationNonJson = true;
+  await page.getByRole("button", { name: "Confirm activation" }).click();
+  await expect(page.getByRole("alert").first()).toContainText("without confirming whether this action completed");
+  await expect(page.getByRole("alert").first()).toContainText("Refresh this property’s drafts");
+  fixture.activationNonJson = false;
+  await page.getByRole("button", { name: "Confirm activation" }).click();
+  await expect(page.getByText("Live template", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  fixture.previewFailure = true;
+  await page.getByRole("button", { name: "Preview PDF", exact: true }).first().click();
+  await expect(page.getByRole("alert")).toContainText("Preview rendering needs attention.");
+  await chooseProperty(page, "South Estate");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test("field inspection prefers metadata correction issues over legacy issue strings", async ({ page }) => {
+  const fixture = await installMocks(page);
+  fixture.fieldMetadata = true;
+  await openWorkspace(page);
+  await chooseProperty(page, "North Estate");
+  await page.getByRole("button", { name: "Inspect fields", exact: true }).first().click();
+  const correction = page.locator("li").filter({ hasText: "Remove the unsupported placeholder." });
+  await expect(correction).toContainText("Replace it with one of the supported placeholders.");
+  await expect(page.getByText("Old unstructured issue is superseded", { exact: true })).toHaveCount(0);
   expect(fixture.unexpected).toEqual([]);
 });

@@ -1,3 +1,46 @@
+# Administrator template correction and service failures
+
+Uploads validate before persistence and never activate automatically. Placeholder
+names are persisted with a parameterized PostgreSQL `ARRAY[...]::text[]`
+constructor, not by interpolating a JavaScript array as a SQL record.
+
+Template upload, inspection, PDF preview and activation errors return a safe
+`failure` object containing `code`, `stage`, `summary`, individual `issues`,
+`nextAction` and, for internal failures, a `supportReference`. The legacy `error`
+string remains a safe summary. Document validation and known signature-layout
+rejections use HTTP 422; unsupported formats use 400, oversized uploads 413 and
+unavailable services/database/storage use 503. Authentication failures may still
+come from the existing administrator session middleware.
+
+The admin workspace keeps accessible results beside the upload or affected
+template controls. Failed uploads retain the selected filename and file. Changing
+upload context or property clears unrelated errors, while retrying preserves
+correction details until success. A missing network response is an uncertain
+outcome: refresh drafts and live status before retrying rather than assuming an
+upload or activation failed. Saved-draft review failures do not mean upload
+failure; failed activation does not change the live template.
+
+Missing placeholders have no invented location. Where text is available,
+diagnostics identify the Word part and paragraph and show an excerpt, not a page
+number. Date requirements accept the canonical date or all three split-date
+fields. Supported tokens are shown in the upload controls; unknown-token
+replacement names are never guessed. Embedded other-party signature images
+remain source content and are preserved.
+
+Font availability and converter/text-extractor failures require technical
+administrator attention, not legal-clause editing. Missing or invalid font
+declarations are reported separately for document-author review. Internal logs
+contain the support reference, failed stage, bounded error/cause categories and
+recognized diagnostic codes, never raw exception messages, SQL parameters,
+document text, credentials or process output.
+
+Regression checks use in-memory PGlite and intercepted browser APIs. The
+frontend-only fixture server can be run with
+`NODE_ENV=production npx vite --config vite.legal.config.ts --host 0.0.0.0 --port 5000`.
+It does not start the backend. Do not restart the full application or connect
+tests to the development database: it contains live user data and application
+startup can perform backfills.
+
 # Property-owned legal workflow and local-signing operations runbook
 
 This feature creates an immutable Deed of Assignment and Transfer and Exit

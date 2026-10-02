@@ -5,6 +5,7 @@ import {
   buildIllustrativeTemplateValues,
   type LegalTemplateValues,
 } from "./values";
+import type { LegalCorrectionIssue } from "../../shared/legal-errors";
 
 export type LegalDocumentType = "deed_of_assignment" | "transfer_exit_rights";
 
@@ -58,6 +59,8 @@ export interface LegalTemplateFieldMetadata {
   count: number;
 }
 
+type LegalTemplateCorrectionIssue = LegalCorrectionIssue;
+
 const FIELD_DESCRIPTIONS: Record<keyof LegalTemplateValues, Omit<LegalTemplateFieldMetadata, "token" | "count">> = {
   USER_FULL_NAME: { label: "Investor full name", meaning: "The investor's verified legal name.", source: "Approved KYC full name, frozen at holding confirmation", format: "Text" },
   USER_HOME_ADDRESS: { label: "Investor home address", meaning: "The investor's verified residential address.", source: "Approved KYC address, frozen at holding confirmation", format: "Text" },
@@ -74,40 +77,118 @@ const FIELD_DESCRIPTIONS: Record<keyof LegalTemplateValues, Omit<LegalTemplateFi
 export function getLegalTemplateFieldMetadata(
   buffer: Buffer,
   documentType: LegalDocumentType,
-): { fields: LegalTemplateFieldMetadata[]; issues: string[] } {
+): {
+  fields: LegalTemplateFieldMetadata[];
+  issues: string[];
+  correctionIssues: LegalTemplateCorrectionIssue[];
+} {
   let zip: PizZip;
   try {
     zip = inspectLegalDocxArchive(buffer);
   } catch (error) {
-    if (error instanceof LegalTemplateValidationError) return { fields: [], issues: error.issues };
-    throw error;
+    if (error instanceof LegalTemplateValidationError) {
+      return { fields: [], issues: error.issues, correctionIssues: error.correctionIssues };
+    }
+    const validationError = corruptArchiveError();
+    return {
+      fields: [],
+      issues: validationError.issues,
+      correctionIssues: validationError.correctionIssues,
+    };
   }
-  const issues: string[] = [];
-  const counts = getPlaceholderCounts(zip, issues);
+  let parsed: PlaceholderScanResult;
+  try {
+    parsed = getPlaceholderCounts(zip);
+  } catch {
+    const validationError = corruptArchiveError();
+    return {
+      fields: [],
+      issues: validationError.issues,
+      correctionIssues: validationError.correctionIssues,
+    };
+  }
+  const correctionIssues = [...parsed.correctionIssues];
   try {
     validateLegalTemplate(buffer, documentType);
   } catch (error) {
-    if (error instanceof LegalTemplateValidationError) issues.push(...error.issues);
-    else throw error;
+    if (error instanceof LegalTemplateValidationError) {
+      correctionIssues.push(...error.correctionIssues);
+    } else {
+      const validationError = corruptArchiveError();
+      correctionIssues.push(...validationError.correctionIssues);
+    }
   }
+  const deduplicatedIssues = deduplicateCorrectionIssues(correctionIssues);
   return {
-    fields: Object.entries(counts).map(([token, count]) => ({
+    fields: Object.entries(parsed.counts).map(([token, count]) => ({
       token,
       ...FIELD_DESCRIPTIONS[token as keyof LegalTemplateValues],
       count,
     })),
-    issues: Array.from(new Set(issues)),
+    issues: Array.from(new Set(deduplicatedIssues.map((issue) => issue.message))),
+    correctionIssues: deduplicatedIssues,
   };
 }
 
 export class LegalTemplateValidationError extends Error {
   readonly issues: string[];
+  readonly correctionIssues: LegalTemplateCorrectionIssue[];
 
-  constructor(issues: string[]) {
-    super(`Legal template validation failed: ${issues.join("; ")}`);
+  constructor(issues: Array<string | LegalTemplateCorrectionIssue>) {
+    const correctionIssues = issues.map((issue) =>
+      typeof issue === "string" ? genericCorrectionIssue(issue) : issue,
+    );
+    super(`Legal template validation failed: ${correctionIssues.map((issue) => issue.message).join("; ")}`);
     this.name = "LegalTemplateValidationError";
-    this.issues = issues;
+    this.correctionIssues = deduplicateCorrectionIssues(correctionIssues);
+    this.issues = Array.from(new Set(this.correctionIssues.map((issue) => issue.message)));
   }
+}
+
+function genericCorrectionIssue(message: string): LegalTemplateCorrectionIssue {
+  return {
+    code: "template_validation",
+    message,
+    instruction: "Review the DOCX template and correct the reported validation issue.",
+  };
+}
+
+function deduplicateCorrectionIssues(
+  issues: LegalTemplateCorrectionIssue[],
+): LegalTemplateCorrectionIssue[] {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = JSON.stringify([
+      issue.code,
+      issue.message,
+      issue.token,
+      issue.location,
+      issue.excerpt,
+    ]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function correctionIssue(
+  code: string,
+  message: string,
+  instruction: string,
+  details: Partial<Pick<LegalTemplateCorrectionIssue, "token" | "location" | "excerpt">> = {},
+): LegalTemplateCorrectionIssue {
+  return { code, message, instruction, ...details };
+}
+
+function corruptArchiveError(): LegalTemplateValidationError {
+  return new LegalTemplateValidationError([
+    correctionIssue(
+      "corrupt_docx",
+      "File is not a readable DOCX archive",
+      "Open the original in Microsoft Word and save a fresh Word Document (.docx). If Word cannot open it, obtain an intact copy from the author. Renaming another file format does not repair it.",
+      { location: "DOCX archive" },
+    ),
+  ]);
 }
 
 export class LegalTemplateRenderError extends Error {
@@ -125,22 +206,32 @@ export class LegalTemplateRenderError extends Error {
 export function inspectLegalDocxArchive(buffer: Buffer): PizZip {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_DOCX_BYTES) {
     throw new LegalTemplateValidationError([
-      `DOCX must be between 1 byte and ${MAX_DOCX_BYTES} bytes`,
+      correctionIssue(
+        "file_size",
+        `DOCX must be between 1 byte and ${MAX_DOCX_BYTES} bytes`,
+        `Upload a DOCX file no larger than ${MAX_DOCX_BYTES / (1024 * 1024)} MB.`,
+        { location: "DOCX upload" },
+      ),
     ]);
   }
 
   let zip: PizZip;
   try {
     zip = new PizZip(buffer);
-  } catch (error) {
-    throw new LegalTemplateValidationError([
-      `File is not a readable DOCX archive${error instanceof Error ? `: ${error.message}` : ""}`,
-    ]);
+  } catch {
+    throw corruptArchiveError();
   }
 
   const entries = Object.entries(zip.files);
   if (entries.length > MAX_ARCHIVE_ENTRIES) {
-    throw new LegalTemplateValidationError(["DOCX archive contains too many entries"]);
+    throw new LegalTemplateValidationError([
+      correctionIssue(
+        "archive_size",
+        "DOCX archive contains too many entries",
+        "Remove unnecessary embedded content and save a simpler DOCX file.",
+        { location: "DOCX archive" },
+      ),
+    ]);
   }
 
   let uncompressedTotal = 0;
@@ -158,33 +249,75 @@ export function inspectLegalDocxArchive(buffer: Buffer): PizZip {
       segments.some((segment) => segment === "." || segment === "..") ||
       normalized.includes("\0")
     ) {
-      throw new LegalTemplateValidationError([`Unsafe DOCX archive entry: ${name}`]);
+      throw new LegalTemplateValidationError([
+        correctionIssue(
+          "unsafe_archive",
+          "Unsafe DOCX archive entry detected",
+          "Remove unsafe or unexpected archive content and upload a clean DOCX exported from Word.",
+          { location: "DOCX archive" },
+        ),
+      ]);
     }
 
     if (/vbaProject\.bin$/i.test(normalized) || /macroEnabled/i.test(normalized)) {
-      throw new LegalTemplateValidationError(["Macro-enabled Word files are not accepted"]);
+      throw new LegalTemplateValidationError([
+        correctionIssue(
+          "unsafe_archive",
+          "Macro-enabled Word files are not accepted",
+          "Remove macros and save the document as a standard .docx file.",
+          { location: "DOCX archive" },
+        ),
+      ]);
     }
 
     const uncompressedSize = Number(metadata?.uncompressedSize ?? 0);
     const compressedSize = Number(metadata?.compressedSize ?? 0);
     if (!Number.isFinite(uncompressedSize) || uncompressedSize < 0 || uncompressedSize > MAX_ENTRY_BYTES) {
-      throw new LegalTemplateValidationError([`DOCX archive entry is too large: ${name}`]);
+      throw new LegalTemplateValidationError([
+        correctionIssue(
+          "archive_size",
+          "DOCX archive contains an oversized part",
+          "Reduce embedded content and save a smaller DOCX file.",
+          { location: "DOCX archive" },
+        ),
+      ]);
     }
     uncompressedTotal += uncompressedSize;
     if (uncompressedTotal > MAX_UNCOMPRESSED_BYTES) {
-      throw new LegalTemplateValidationError(["DOCX archive expands beyond the allowed size"]);
+      throw new LegalTemplateValidationError([
+        correctionIssue(
+          "archive_size",
+          "DOCX archive expands beyond the allowed size",
+          "Reduce embedded content and upload a DOCX with a smaller uncompressed size.",
+          { location: "DOCX archive" },
+        ),
+      ]);
     }
     if (
       uncompressedSize > 1024 * 1024 &&
       compressedSize > 0 &&
       uncompressedSize / compressedSize > 250
     ) {
-      throw new LegalTemplateValidationError([`DOCX archive entry has a suspicious compression ratio: ${name}`]);
+      throw new LegalTemplateValidationError([
+        correctionIssue(
+          "unsafe_archive",
+          "DOCX archive entry has a suspicious compression ratio",
+          "Re-export the document from Word and upload the clean DOCX file.",
+          { location: "DOCX archive" },
+        ),
+      ]);
     }
   }
 
   if (!zip.file("[Content_Types].xml") || !zip.file("word/document.xml")) {
-    throw new LegalTemplateValidationError(["DOCX is missing required Word document parts"]);
+    throw new LegalTemplateValidationError([
+      correctionIssue(
+        "corrupt_docx",
+        "DOCX is missing required Word document parts",
+        "Upload a complete, valid Word document saved as .docx.",
+        { location: "DOCX archive" },
+      ),
+    ]);
   }
 
   return zip;
@@ -211,44 +344,117 @@ function collectParagraphText(xml: string): string[] {
 }
 
 function readWordXmlParts(zip: PizZip): Array<{ name: string; xml: string }> {
-  return Object.entries(zip.files)
-    .filter(([name, file]) => !file.dir && /^word\/.*\.xml$/i.test(name))
-    .map(([name, file]) => ({ name, xml: file.asText() }));
+  const parts: Array<{ name: string; xml: string }> = [];
+  try {
+    for (const [name, file] of Object.entries(zip.files)) {
+      if (file.dir || !/^word\/.*\.xml$/i.test(name)) continue;
+      parts.push({ name, xml: file.asText() });
+    }
+  } catch {
+    throw corruptArchiveError();
+  }
+  return parts;
 }
 
-function getPlaceholderCounts(
-  zip: PizZip,
-  issues: string[],
-): Record<string, number> {
+interface PlaceholderScanResult {
+  counts: Record<string, number>;
+  correctionIssues: LegalTemplateCorrectionIssue[];
+}
+
+function friendlyPartName(name: string): string {
+  if (/^word\/document\.xml$/i.test(name)) return "Main document";
+  const header = name.match(/^word\/header(\d*)\.xml$/i);
+  if (header) return header[1] ? `Header ${header[1]}` : "Header";
+  const footer = name.match(/^word\/footer(\d*)\.xml$/i);
+  if (footer) return footer[1] ? `Footer ${footer[1]}` : "Footer";
+  if (/^word\/footnotes\.xml$/i.test(name)) return "Footnotes";
+  if (/^word\/endnotes\.xml$/i.test(name)) return "Endnotes";
+  if (/^word\/comments\.xml$/i.test(name)) return "Comments";
+  return "Other Word document part";
+}
+
+function makeExcerpt(text: string, start: number, length: number): string {
+  const maxLength = 160;
+  if (text.length <= maxLength) return text;
+  const tokenLength = Math.min(length, maxLength - 8);
+  let excerptStart = Math.max(0, start - Math.floor((maxLength - tokenLength) / 2));
+  let excerptEnd = Math.min(text.length, excerptStart + maxLength);
+  excerptStart = Math.max(0, excerptEnd - maxLength);
+  if (start + tokenLength > excerptEnd) {
+    excerptEnd = Math.min(text.length, start + tokenLength + 24);
+    excerptStart = Math.max(0, excerptEnd - maxLength);
+  }
+  return `${excerptStart > 0 ? "…" : ""}${text.slice(excerptStart, excerptEnd)}${
+    excerptEnd < text.length ? "…" : ""
+  }`;
+}
+
+function getPlaceholderCounts(zip: PizZip): PlaceholderScanResult {
   const counts: Record<string, number> = {};
+  const correctionIssues: LegalTemplateCorrectionIssue[] = [];
 
   for (const part of readWordXmlParts(zip)) {
-    for (const paragraph of collectParagraphText(part.xml)) {
-      const found: string[] = [];
-      for (const match of Array.from(paragraph.matchAll(/\{\{([^{}]*)\}\}/g))) {
-        const name = match[1].trim();
-        found.push(name);
-        if (!/^[A-Z][A-Z0-9_]*$/.test(name)) {
-          issues.push(`Malformed placeholder in ${part.name}: {{${match[1]}}}`);
-        } else if (!ALLOWED_PLACEHOLDERS.has(name)) {
-          issues.push(`Unsupported placeholder in ${part.name}: {{${name}}}`);
-        } else {
-          counts[name] = (counts[name] || 0) + 1;
-        }
-      }
+    const paragraphs = collectParagraphText(part.xml);
+    for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
+      const paragraph = paragraphs[paragraphIndex];
+      const location = `${friendlyPartName(part.name)}, paragraph ${paragraphIndex + 1}`;
+      let cursor = 0;
+      while (cursor < paragraph.length) {
+        const open = paragraph.indexOf("{{", cursor);
+        const closeOnly = paragraph.indexOf("}}", cursor);
+        if (open < 0 && closeOnly < 0) break;
 
-      // A dangling opening or closing delimiter usually means a Word run was
-      // edited incompletely.  Counting exact tags catches this even when the
-      // malformed placeholder is split between multiple w:r / w:t nodes.
-      const opens = paragraph.match(/\{\{/g)?.length || 0;
-      const closes = paragraph.match(/\}\}/g)?.length || 0;
-      if (opens !== found.length || closes !== found.length) {
-        issues.push(`Malformed or unclosed placeholder delimiters in ${part.name}`);
+        if (closeOnly >= 0 && (open < 0 || closeOnly < open)) {
+          const rawToken = "}}";
+          correctionIssues.push(correctionIssue(
+            "malformed_placeholder",
+            `Malformed or unclosed placeholder in ${location}: ${rawToken}`,
+            "Correct or remove the unmatched closing braces so every placeholder uses the form {{TOKEN_NAME}}.",
+            {
+              token: rawToken,
+              location,
+              excerpt: makeExcerpt(paragraph, closeOnly, rawToken.length),
+            },
+          ));
+          cursor = closeOnly + 2;
+          continue;
+        }
+
+        const end = paragraph.indexOf("}}", open + 2);
+        const rawToken = end < 0 ? paragraph.slice(open) : paragraph.slice(open, end + 2);
+        const value = end < 0 ? paragraph.slice(open + 2) : paragraph.slice(open + 2, end);
+        const token = value.trim();
+        if (end < 0 || !/^[A-Z][A-Z0-9_]*$/.test(token)) {
+          correctionIssues.push(correctionIssue(
+            "malformed_placeholder",
+            `Malformed or unclosed placeholder in ${location}: ${rawToken}`,
+            "Use a complete placeholder with a supported uppercase token, for example {{USER_FULL_NAME}}.",
+            {
+              token: rawToken,
+              location,
+              excerpt: makeExcerpt(paragraph, open, rawToken.length),
+            },
+          ));
+        } else if (!ALLOWED_PLACEHOLDERS.has(token)) {
+          correctionIssues.push(correctionIssue(
+            "unsupported_placeholder",
+            `Unsupported placeholder in ${location}: ${rawToken}`,
+            "Replace this token with one of the supported legal template fields.",
+            {
+              token,
+              location,
+              excerpt: makeExcerpt(paragraph, open, rawToken.length),
+            },
+          ));
+        } else {
+          counts[token] = (counts[token] || 0) + 1;
+        }
+        cursor = end < 0 ? paragraph.length : end + 2;
       }
     }
   }
 
-  return counts;
+  return { counts, correctionIssues };
 }
 
 /**
@@ -261,18 +467,24 @@ export function validateLegalTemplate(
   documentType: LegalDocumentType,
   options: LegalTemplateValidationOptions = {},
 ): LegalTemplateValidation {
-  const issues: string[] = [];
   let zip: PizZip;
   try {
     zip = inspectLegalDocxArchive(buffer);
   } catch (error) {
     if (error instanceof LegalTemplateValidationError) throw error;
-    throw new LegalTemplateValidationError(["Could not inspect DOCX archive"]);
+    throw corruptArchiveError();
   }
 
   // Embedded third-party signatures are source content, not investor signing
   // evidence. Their presence (with or without an execution heading) is allowed.
-  const placeholderCounts = getPlaceholderCounts(zip, issues);
+  let scan: PlaceholderScanResult;
+  try {
+    scan = getPlaceholderCounts(zip);
+  } catch {
+    throw corruptArchiveError();
+  }
+  const placeholderCounts = scan.counts;
+  const correctionIssues = [...scan.correctionIssues];
   for (const required of LEGAL_TEMPLATE_PLACEHOLDERS[documentType]) {
     if (
       required === "DOCUMENT_DATE" &&
@@ -282,11 +494,20 @@ export function validateLegalTemplate(
       continue;
     }
     if (!placeholderCounts[required]) {
-      issues.push(`Required placeholder is missing: {{${required}}}`);
+      correctionIssues.push(correctionIssue(
+        "missing_required_placeholder",
+        `Required placeholder is missing: {{${required}}}`,
+        required === "DOCUMENT_DATE"
+          ? "Add {{DOCUMENT_DATE}} to the date clause, or include all three supported date fields: {{DOCUMENT_DATE_DAY}}, {{DOCUMENT_DATE_MONTH}} and {{DOCUMENT_DATE_YEAR}}."
+          : `Add {{${required}}} to the appropriate clause in the Word template.`,
+        { token: required },
+      ));
     }
   }
 
-  if (issues.length > 0) throw new LegalTemplateValidationError(issues);
+  if (correctionIssues.length > 0) {
+    throw new LegalTemplateValidationError(deduplicateCorrectionIssues(correctionIssues));
+  }
   return {
     documentType,
     placeholderCounts,

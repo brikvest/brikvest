@@ -380,7 +380,7 @@ describe("legal document routes", () => {
     expect(response.body.fields.length).toBeGreaterThan(0);
     activeTemplate.sha256 = "invalid";
     await request(app).get(`/api/admin/legal/templates/${TEMPLATE_ID}/fields?propertyId=12`)
-      .set("x-admin-user-id", String(ADMIN_ID)).expect(400);
+      .set("x-admin-user-id", String(ADMIN_ID)).expect(503);
   });
 
   it("scopes activation updates to the selected property without changing other properties", async () => {
@@ -813,8 +813,10 @@ describe("legal document routes", () => {
       .field("documentType", "transfer_exit_rights")
       .field("propertyId", "12")
       .attach("file", malformedTransfer, "missing-address.docx")
-      .expect(400);
-    expect(invalid.body.error).toContain("Required placeholder is missing: {{USER_HOME_ADDRESS}}");
+      .expect(422);
+    expect(invalid.body.failure.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ token: "USER_HOME_ADDRESS" }),
+    ]));
     expect(mocks.storeLegalTemplateVersion).toHaveBeenCalledTimes(1);
   });
 
@@ -876,13 +878,13 @@ describe("legal document routes", () => {
       await request(app)
         .get(`/api/admin/legal/templates/${TEMPLATE_ID}/${action}?propertyId=12`)
         .set("x-admin-user-id", String(ADMIN_ID))
-        .expect(400, { error: "Stored template checksum mismatch" });
+        .expect(503);
     }
     await request(app)
       .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
       .set("x-admin-user-id", String(ADMIN_ID))
       .send({ propertyId: 12 })
-      .expect(400, { error: "Stored template checksum mismatch" });
+      .expect(503);
     expect(mocks.convertDocxToPdf).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
@@ -915,9 +917,73 @@ describe("legal document routes", () => {
       .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
       .send({ propertyId: 12 })
       .set("x-admin-user-id", String(ADMIN_ID));
-    expect(response.status, JSON.stringify(response.body)).toBe(400);
-    expect(response.body.error).toContain("Required placeholder is missing: {{PROPERTY_AREA_SQM}}");
+    expect(response.status, JSON.stringify(response.body)).toBe(422);
+    expect(response.body.failure.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ token: "PROPERTY_AREA_SQM" }),
+    ]));
     expect(mocks.convertDocxToPdf).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+  it("reports the database record-array error safely after validation without activating anything", async () => {
+    const original = mocks.execute.getMockImplementation()!;
+    mocks.execute.mockImplementation(async (query) => {
+      if (compile(query).sql.includes("INSERT INTO legal_templates")) {
+        throw Object.assign(new Error("cannot cast type record to text[]; INSERT INTO legal_templates secret/path"), { code: "42846" });
+      }
+      return original(query);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await request(app).post("/api/admin/legal/templates")
+      .set("x-admin-user-id", String(ADMIN_ID)).field("documentType", "transfer_exit_rights")
+      .field("propertyId", "12").attach("file", transferTemplateV1, "draft.docx").expect(503);
+    expect(response.body.failure).toMatchObject({ code: "TEMPLATE_DATABASE_FAILURE", stage: "save", issues: [], supportReference: expect.stringMatching(/^LEGAL-/) });
+    expect(response.body.failure.nextAction).toContain("Editing the Word document will not fix");
+    expect(response.text).not.toMatch(/cannot cast|INSERT|secret\/path/);
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/cannot cast|INSERT|secret\/path/);
+    expect(mocks.execute.mock.calls.map(([query]) => compile(query).sql).some((text) => /UPDATE legal_templates|template_version_uploaded/.test(text))).toBe(false);
+  });
+
+  it("separates storage failure from validation rejection", async () => {
+    mocks.storeLegalTemplateVersion.mockRejectedValueOnce(new Error("/private/bucket credential failure"));
+    const response = await request(app).post("/api/admin/legal/templates")
+      .set("x-admin-user-id", String(ADMIN_ID)).field("documentType", "transfer_exit_rights")
+      .field("propertyId", "12").attach("file", transferTemplateV1, "draft.docx").expect(503);
+    expect(response.body.failure).toMatchObject({ code: "TEMPLATE_STORAGE_FAILURE", stage: "storage" });
+    expect(response.text).not.toContain("/private/bucket");
+    expect(mocks.execute.mock.calls.map(([query]) => compile(query).sql).some((text) => text.includes("INSERT INTO legal_templates"))).toBe(false);
+  });
+
+  it.each(["preview", "activate"] as const)("keeps %s conversion service failures distinct from document layout", async (operation) => {
+    mocks.convertDocxToPdf.mockRejectedValueOnce(Object.assign(new Error("missing /bin/soffice"), { name: "LegalPdfConversionError", kind: "service" }));
+    const call = operation === "preview"
+      ? request(app).get(`/api/admin/legal/templates/${TEMPLATE_ID}/preview?propertyId=12`)
+      : request(app).post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`).send({ propertyId: 12 });
+    const response = await call.set("x-admin-user-id", String(ADMIN_ID)).expect(503);
+    expect(response.body.failure).toMatchObject({ code: "PDF_CONVERSION_UNAVAILABLE", stage: "conversion", issues: [] });
+    expect(response.text).not.toContain("/bin/soffice");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it.each(["layout", "service"] as const)("classifies placement %s failures without changing live templates", async (kind) => {
+    mocks.verifyAssigneeSignaturePosition.mockRejectedValueOnce(Object.assign(new Error("raw extractor detail"), { name: "SignaturePositionValidationError", kind }));
+    const response = await request(app).post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .send({ propertyId: 12 }).set("x-admin-user-id", String(ADMIN_ID)).expect(kind === "layout" ? 422 : 503);
+    expect(response.body.failure.code).toBe(kind === "layout" ? "SIGNATURE_LAYOUT_REJECTED" : "PLACEMENT_CHECK_UNAVAILABLE");
+    expect(response.text).not.toContain("raw extractor detail");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("returns distinct wrong format, corrupt Word and oversized instructions", async () => {
+    const uploadFile = (bytes: Buffer, filename: string) => request(app).post("/api/admin/legal/templates")
+      .set("x-admin-user-id", String(ADMIN_ID)).field("documentType", "transfer_exit_rights")
+      .field("propertyId", "12").attach("file", bytes, filename);
+    const wrong = await uploadFile(Buffer.from("pdf"), "source.pdf").expect(400);
+    expect(wrong.body.failure.code).toBe("WRONG_FILE_FORMAT");
+    expect(wrong.body.failure.nextAction).toContain("Renaming");
+    const corrupt = await uploadFile(Buffer.from("not a zip"), "source.docx").expect(422);
+    expect(corrupt.body.failure.code).toBe("DOCUMENT_VALIDATION_REJECTED");
+    const large = await uploadFile(Buffer.alloc(20 * 1024 * 1024 + 1), "large.docx").expect(413);
+    expect(large.body.failure.code).toBe("UPLOAD_TOO_LARGE");
+    expect(mocks.storeLegalTemplateVersion).not.toHaveBeenCalled();
   });
 });

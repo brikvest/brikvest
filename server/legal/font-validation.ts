@@ -6,6 +6,13 @@ import { inspectLegalDocxArchive } from "./templates";
 const MAX_FONT_FAMILIES = 64;
 const MAX_FONT_FAMILY_LENGTH = 128;
 
+export class LegalFontValidationError extends Error {
+  constructor(message: string, public kind: "metadata" | "unavailable") {
+    super(message);
+    this.name = "LegalFontValidationError";
+  }
+}
+
 export interface DocxFontRequirements {
   families: string[];
   embeddedFamilies: Set<string>;
@@ -63,7 +70,7 @@ function collectDocxFontRequirements(buffer: Buffer): DocxFontRequirements {
         const family = decodeXmlAttribute(familyMatch[1]).trim();
         if (family) families.add(family);
         if (families.size > MAX_FONT_FAMILIES) {
-          throw new Error("DOCX declares too many font families to verify safely.");
+          throw new LegalFontValidationError("DOCX declares too many font families to verify safely.", "metadata");
         }
       }
     }
@@ -118,7 +125,7 @@ function collectDocxFontRequirements(buffer: Buffer): DocxFontRequirements {
       family.length > MAX_FONT_FAMILY_LENGTH ||
       /[\u0000-\u001f\u007f]/.test(family)
     ) {
-      throw new Error("DOCX contains invalid font-family metadata that cannot be verified safely.");
+      throw new LegalFontValidationError("DOCX contains invalid font-family metadata that cannot be verified safely.", "metadata");
     }
   }
 
@@ -137,7 +144,7 @@ export function readDocxFontRequirements(
       embeddedFamilies.add(family);
     }
     if (families.size > MAX_FONT_FAMILIES) {
-      throw new Error("DOCX declares too many font families to verify safely.");
+      throw new LegalFontValidationError("DOCX declares too many font families to verify safely.", "metadata");
     }
   }
   return { families: Array.from(families).sort(), embeddedFamilies };
@@ -187,8 +194,9 @@ export function assertDocxFontsAvailable(
 ): void {
   const requirements = collectDocxFontRequirements(buffer);
   if (requirements.families.length === 0) {
-    throw new Error(
+    throw new LegalFontValidationError(
       "The DOCX declares no font families, so exact legal-document font rendering cannot be verified. Add explicit fonts or valid embedded font data.",
+      "metadata",
     );
   }
   const unavailable = assessDocxFontReadiness(requirements, resolveFamily)
@@ -201,7 +209,8 @@ export function assertDocxFontsAvailable(
       : `fontconfig resolved "${font.matchedFamily}" instead of an exact family match`;
     return `Required DOCX font family "${font.family}" is unavailable: ${match}, and the DOCX has no valid embedded font data.`;
   });
-  throw new Error(
+  throw new LegalFontValidationError(
     `${details.join(" ")} Install the licensed font family in the conversion environment or provide a valid embedded font in the DOCX; font substitution is not permitted outside isolated NODE_ENV=test layout tests.`,
+    "unavailable",
   );
 }

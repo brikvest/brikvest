@@ -4,20 +4,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertLegalTemplateIsRendered } from "./templates";
-import { assertDocxFontsAvailable } from "./font-validation";
+import { assertDocxFontsAvailable, LegalFontValidationError } from "./font-validation";
 
 const PDF_MAGIC = Buffer.from("%PDF-");
 const PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024;
 
 export class LegalPdfConversionError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(message: string, options?: ErrorOptions, public kind: "service" | "fonts" | "font-metadata" = "service") {
     super(message, options);
     this.name = "LegalPdfConversionError";
   }
 }
 
 export class SignaturePositionValidationError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(message: string, options?: ErrorOptions, public kind: "service" | "layout" = "service") {
     super(message, options);
     this.name = "SignaturePositionValidationError";
   }
@@ -129,6 +129,7 @@ export async function convertDocxToPdf(
       throw new LegalPdfConversionError(
         `DOCX-to-PDF conversion blocked by font fidelity requirements: ${error instanceof Error ? error.message : "font requirements could not be verified"}`,
         { cause: error },
+        error instanceof LegalFontValidationError && error.kind === "metadata" ? "font-metadata" : "fonts",
       );
     }
   }
@@ -502,6 +503,8 @@ function findAssigneeSignatureAnchor(
       matches.length === 0
         ? "Could not verify a distinct assignee signature position in the generated PDF"
         : "Generated PDF contains ambiguous assignee signature positions",
+      undefined,
+      "layout",
     );
   }
   return matches[0];
