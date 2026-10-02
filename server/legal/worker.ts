@@ -501,6 +501,13 @@ async function generateOrRecoverDocument(
 
   if (!storedPdf) {
     const newlyConverted = await dependencies.convertDocxToPdf(storedDocx, { preserveTypography: true });
+    // Recovery may clean a disposable DOCX, but cannot publish different bytes
+    // under an already recorded unsigned-PDF digest.
+    if (document.unsigned_pdf_sha256 != null &&
+        (typeof document.unsigned_pdf_sha256 !== "string" ||
+         document.unsigned_pdf_sha256.toLowerCase() !== sha256(newlyConverted))) {
+      throw new Error("Recovered unsigned PDF differs from the immutable recorded SHA-256; historical artifacts require investigation, not replacement");
+    }
     await dependencies.verifyAssigneeSignaturePosition(newlyConverted, {
       assigneeFullName: pair.fullNameSnapshot,
       templateVersionId,

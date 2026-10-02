@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerLegalRoutes } from "../server/legal/routes";
 import { prepareDocxForPdf } from "../server/legal/converter";
 import { LIBERATION_SERIF_STYLES, readDocxFontRequirements } from "../server/legal/font-validation";
+import { expectWhiteTextBackgrounds } from "./helpers/legal-highlight-pdf";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -155,7 +156,7 @@ function withSeparateSignatureSections(
   if (originalDrawings.length < 2) throw new Error("Supplied DOCX fixture is missing source signature/seal drawings");
 
   const paragraph = (text: string) =>
-    `<w:p><w:pPr><w:spacing w:before="0" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="${ORIGINAL_FONT}" w:hAnsi="${ORIGINAL_FONT}" w:eastAsia="${ORIGINAL_FONT}" w:cs="${ORIGINAL_FONT}"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+    `<w:p><w:pPr><w:spacing w:before="0" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="${ORIGINAL_FONT}" w:hAnsi="${ORIGINAL_FONT}" w:eastAsia="${ORIGINAL_FONT}" w:cs="${ORIGINAL_FONT}"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:highlight w:val="magenta"/><w:shd w:fill="00FF00"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
   const imageParagraph = (drawing: string) => `<w:p><w:r>${drawing}</w:r></w:p>`;
   const content = [
     "{{USER_HOME_ADDRESS}}",
@@ -193,6 +194,7 @@ function useTemplateFixture(type: keyof typeof suppliedTemplates, invalidAssigne
 }
 
 function expectPdfHasFallbackSerifAndImages(pdf: Buffer) {
+  expectWhiteTextBackgrounds(pdf, ["SIGNED", "SEALED", "DELIVERED", "ASSIGNEE"]);
   const directory = mkdtempSync(path.join(os.tmpdir(), "legal-serif-route-pdf-"));
   try {
     const pdfPath = path.join(directory, "preview.pdf");

@@ -1,5 +1,6 @@
 import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
+import { removeLegalDocxHighlights } from "./highlights";
 import {
   amountToWordsNairaBeforeCurrencySuffix,
   buildIllustrativeTemplateValues,
@@ -583,7 +584,7 @@ export function renderLegalTemplate(
     });
 
     assertLegalTemplateIsRendered(rendered);
-    return rendered;
+    return removeLegalDocxHighlights(rendered);
   } catch (error) {
     if (error instanceof LegalTemplateRenderError) throw error;
     throw new LegalTemplateRenderError(

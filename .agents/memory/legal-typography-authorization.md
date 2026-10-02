@@ -8,3 +8,14 @@ Missing original document fonts are authorized grounds for formatting the entire
 **Why:** The user explicitly replaced the former exact-font-only policy with Liberation Serif at 12 points. This permission applies to new working documents only, while uploaded originals, historical generated files, investor-signed documents and signing evidence remain immutable.
 
 **How to apply:** Keep legal wording and supplied signature images unchanged. Pagination changes are permitted, but signature placement must still validate against the final PDF; never loosen that check merely to make a reformatted template activate. Tests of the original-layout branch need controlled font readiness rather than the former test-environment bypass.
+
+Authoring highlights are intentionally absent from newly issued documents and
+illustrative previews, but historical PDFs may still show them. That difference
+is not permission to regenerate or replace historical evidence.
+
+**Why:** On 2026-10-02 the user explicitly authorized output-only highlight
+removal and excluded previously issued or signed artifacts from the change.
+
+**How to apply:** Keep source downloads highlighted and byte-identical. If a
+missing historical PDF cannot be recreated with its recorded digest, stop for
+investigation rather than saving a visually corrected replacement.

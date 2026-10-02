@@ -11,6 +11,8 @@ import type { LegalJobClaim } from "../server/legal/repository";
 import type { PdfTextPosition } from "../server/legal/converter";
 import { convertDocxToPdf, prepareDocxForPdf, verifyAssigneeSignaturePosition } from "../server/legal/converter";
 import { readDocxFontRequirements } from "../server/legal/font-validation";
+import { removeLegalDocxHighlights } from "../server/legal/highlights";
+import { expectWhiteTextBackgrounds } from "./helpers/legal-highlight-pdf";
 
 vi.mock("../server/emailService", () => ({
   sendEmail: vi.fn(async () => true),
@@ -293,7 +295,7 @@ describe("legal durable job worker", () => {
     for (const [type, source] of [["deed_of_assignment", deedTemplate], ["transfer_exit_rights", transferTemplate]] as const) {
       const zip = new PizZip(source);
       const xml = zip.file("word/document.xml")!.asText();
-      const paragraph = (text: string) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Unavailable Original Serif"/><w:sz w:val="40"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
+      const paragraph = (text: string) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Unavailable Original Serif"/><w:sz w:val="40"/><w:highlight w:val="yellow"/><w:shd w:fill="00FF00"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
       const body = paragraph("{{USER_HOME_ADDRESS}} / {{PROPERTY_AREA_SQM}} / {{DOCUMENT_DATE}}") +
         (type === "deed_of_assignment" ? paragraph("{{PAYMENT_AMOUNT_NAIRA_NUMERIC}} / {{PAYMENT_AMOUNT_NAIRA_WORDS}}") : "") +
         paragraph("SIGNED SEALED AND DELIVERED") + paragraph("By the within-named ASSIGNEE") +
@@ -325,10 +327,58 @@ describe("legal durable job worker", () => {
       expect(options).toEqual({ preserveTypography: true });
       expect(readDocxFontRequirements([docx]).families).toEqual(["Liberation Serif"]);
       expect(writes.some(([write]) => write.contents.equals(docx))).toBe(true);
+      expect(removeLegalDocxHighlights(docx)).toBe(docx);
+    }
+    for (const [key, pdf] of stored) if (key.endsWith("/unsigned_pdf")) {
+      expectWhiteTextBackgrounds(pdf, ["SIGNED", "SEALED", "DELIVERED", "ASSIGNEE"]);
     }
     expect(stored.size).toBe(4);
     expect(dependencies.recordUnsignedArtifact).toHaveBeenCalledTimes(2);
   }, 120_000);
+
+  it("cleans only the disposable conversion copy when recovering a missing PDF from retained highlighted DOCX", async () => {
+    const { dependencies, stored } = createGenerationDependencies();
+    await createLegalWorker(dependencies).dispatchLegalJobs(1);
+    for (const [key, contents] of stored) {
+      if (key.endsWith("/unsigned_pdf")) stored.delete(key);
+      else {
+        const zip = new PizZip(contents);
+        const paragraph = (text: string) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Liberation Serif"/><w:sz w:val="24"/><w:highlight w:val="cyan"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
+        const xml = zip.file("word/document.xml")!.asText();
+        const section = xml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)![0];
+        const body = ["RecoveryProbe", "SIGNED SEALED AND DELIVERED", "By the within-named ASSIGNEE", "Ada &lt;Lovelace&gt; &amp; Friends"].map(paragraph).join("") + section;
+        zip.file("word/document.xml", xml.replace(/<w:body>[\s\S]*?<\/w:body>/, `<w:body>${body}</w:body>`));
+        stored.set(key, zip.generate({ type: "nodebuffer" }));
+      }
+    }
+    const retained = new Map(Array.from(stored, ([key, bytes]) => [key, Buffer.from(bytes)]));
+    vi.clearAllMocks();
+    dependencies.convertDocxToPdf.mockImplementation(convertDocxToPdf);
+    dependencies.verifyAssigneeSignaturePosition.mockImplementation(verifyAssigneeSignaturePosition);
+    expect(await createLegalWorker(dependencies).dispatchLegalJobs(1)).toMatchObject({ completed: 1, failed: 0 });
+    expect(dependencies.renderLegalTemplate).not.toHaveBeenCalled();
+    expect(dependencies.prepareDocxForPdf).not.toHaveBeenCalled();
+    expect(dependencies.storeLegalDocument.mock.calls.every(([write]) => write.kind === "unsigned_pdf")).toBe(true);
+    for (const [key, bytes] of retained) expect(stored.get(key)).toEqual(bytes);
+    for (const [key, bytes] of stored) if (key.endsWith("/unsigned_pdf")) expectWhiteTextBackgrounds(bytes, ["RecoveryProbe", "SIGNED", "ASSIGNEE"]);
+  }, 120_000);
+
+  it("does not store a different recovered PDF under an existing historical hash", async () => {
+    const { dependencies, stored, pairResult } = createGenerationDependencies();
+    await createLegalWorker(dependencies).dispatchLegalJobs(1);
+    const pdfKey = Array.from(stored.keys()).find((key) => key.endsWith("/unsigned_pdf"))!;
+    stored.delete(pdfKey);
+    pairResult.documents[0].unsigned_pdf_sha256 = sha256(validPdf);
+    const retained = new Map(Array.from(stored, ([key, bytes]) => [key, Buffer.from(bytes)]));
+    vi.clearAllMocks();
+    dependencies.convertDocxToPdf.mockResolvedValue(Buffer.concat([validPdf, Buffer.from("different output")]));
+    expect(await createLegalWorker(dependencies).dispatchLegalJobs(1)).toMatchObject({ completed: 0, failed: 1 });
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
+    expect(dependencies.recordUnsignedArtifact).not.toHaveBeenCalled();
+    expect(pairResult.documents[0].unsigned_pdf_sha256).toBe(sha256(validPdf));
+    expect(stored.has(pdfKey)).toBe(false);
+    for (const [key, bytes] of retained) expect(stored.get(key)).toEqual(bytes);
+  });
 
   it("never rewrites historical generated or investor-signed artifacts during recovery", async () => {
     const { dependencies, stored, pairResult } = createGenerationDependencies();

@@ -7,6 +7,7 @@ import { assertLegalTemplateIsRendered } from "./templates";
 import { assertDocxFontsAvailable, LegalFontValidationError } from "./font-validation";
 import { prepareLegalDocxTypography } from "./typography";
 import type { FontFamilyResolver } from "./font-validation";
+import { removeLegalDocxHighlights } from "./highlights";
 
 const PDF_MAGIC = Buffer.from("%PDF-");
 const PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024;
@@ -42,7 +43,7 @@ export function resolveLibreOfficeExecutable(
 
 export function prepareDocxForPdf(buffer: Buffer, resolveFamily?: FontFamilyResolver): Buffer {
   try {
-    return prepareLegalDocxTypography(buffer, resolveFamily);
+    return prepareLegalDocxTypography(removeLegalDocxHighlights(buffer), resolveFamily);
   } catch (error) {
     if (!(error instanceof LegalFontValidationError)) throw error;
     throw new LegalPdfConversionError(
@@ -143,6 +144,9 @@ export async function convertDocxToPdf(
   options: ConvertDocxToPdfOptions = {},
 ): Promise<Buffer> {
   assertLegalTemplateIsRendered(docxBuffer);
+  // Always clean a disposable conversion copy, including immutable-DOCX
+  // recovery. Typography preservation must not preserve authoring highlights.
+  docxBuffer = removeLegalDocxHighlights(docxBuffer);
   // Identical policy in development, production and tests; no font bypass.
   if (options.preserveTypography) {
     try {
