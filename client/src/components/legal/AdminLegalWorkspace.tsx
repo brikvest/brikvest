@@ -234,6 +234,7 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
             <div className="space-y-2"><Label htmlFor="legal-template-file">New Word version</Label><Input ref={fileInput} id="legal-template-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={!!busy} onChange={(event) => setFile(event.target.files?.[0] || null)} /></div>
             <Button onClick={() => void upload()} disabled={!file || !!busy}><Upload className="mr-2 h-4 w-4" />{busy === "upload" ? "Uploading…" : "Upload & validate"}</Button>
           </div><p className="mt-2 text-xs text-slate-500">Uploading does not activate the template or change retained signing evidence.</p>
+          <p className="mt-2 text-xs text-slate-600">Pre-existing director, witness or other-party signature images are preserved. Review their layout in the PDF and leave a clear area for the investor’s own signature. These images do not sign for the investor, verify authenticity or prove full legal execution.</p>
         </div>
       </CardContent>
     </Card>

@@ -60,6 +60,27 @@ async function createUnsignedPdf(dense = false): Promise<Buffer> {
   }));
 }
 
+async function createImageBlockedUnsignedPdf(): Promise<Buffer> {
+  const document = await PDFDocument.create({ updateMetadata: false });
+  const page = document.addPage([612, 792]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const opaqueImage = new PNG({ width: 40, height: 12 });
+  for (let index = 0; index < opaqueImage.data.length; index += 4) {
+    opaqueImage.data[index] = 198;
+    opaqueImage.data[index + 1] = 47;
+    opaqueImage.data[index + 2] = 56;
+    opaqueImage.data[index + 3] = 255;
+  }
+  const image = await document.embedPng(PNG.sync.write(opaqueImage));
+  page.drawImage(image, { x: 0, y: 350, width: 612, height: 100 });
+  page.drawText("Verified Investor", { x: 60, y: 400, size: 12, font });
+  return Buffer.from(await document.save({
+    useObjectStreams: false,
+    addDefaultPage: false,
+    updateFieldAppearances: false,
+  }));
+}
+
 function extractPdfText(pdfPath: string): string {
   const result = spawnSync(
     process.env.PDFTOTEXT_PATH || "pdftotext",
@@ -181,6 +202,34 @@ describe("deterministic local PDF signature rendering", () => {
       signatureMethod: "drawn",
       documentType: "deed_of_assignment",
       operationId: 13,
+      unsignedPdfSha256: sha256Hex(unsignedPdf),
+      signaturePngSha256: sha256Hex(signaturePng),
+      signedAt: new Date("2025-03-08T11:15:30.000Z"),
+    })).rejects.toThrow(/no clear signature area|unsafe/i);
+  });
+
+  it("does not place a signature over image ink occupying every candidate box", async () => {
+    const unsignedPdf = await createImageBlockedUnsignedPdf();
+    const signaturePng = createInkPng();
+    await expect(renderLocallySignedPdf({
+      unsignedPdf,
+      signaturePng,
+      placement: {
+        templateVersionId: "1",
+        pageNumber: 1,
+        x: 60,
+        y: 380,
+        width: 120,
+        height: 20,
+        pageWidth: 612,
+        pageHeight: 792,
+        coordinateSystem: "pdf-points-top-left",
+        anchorText: "Verified Investor",
+      },
+      signerName: approvedName,
+      signatureMethod: "drawn",
+      documentType: "deed_of_assignment",
+      operationId: 14,
       unsignedPdfSha256: sha256Hex(unsignedPdf),
       signaturePngSha256: sha256Hex(signaturePng),
       signedAt: new Date("2025-03-08T11:15:30.000Z"),

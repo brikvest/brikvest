@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -153,12 +155,22 @@ describe("legal Word template rendering", () => {
       const generated = normalizeSuppliedLegalTemplate(source);
       expect(source.equals(untouchedSource)).toBe(true);
       const originalXml = new PizZip(source).file("word/document.xml")!.asText();
-      const normalizedXml = new PizZip(normalized).file("word/document.xml")!.asText();
+      const normalizedXml = new PizZip(generated).file("word/document.xml")!.asText();
       expect(maskDynamicFields(getVisibleText(generated))).toBe(
         maskDynamicFields(getVisibleText(source)),
       );
       expect(getExecutionGraphicsCount(source)).toBeGreaterThan(0);
-      expect(getExecutionGraphicsCount(generated)).toBe(0);
+      expect(getExecutionGraphicsCount(generated)).toBe(getExecutionGraphicsCount(source));
+      // Every archive part other than technically normalized text is exact.
+      const originalZip = new PizZip(source);
+      const generatedZip = new PizZip(generated);
+      expect(Object.keys(generatedZip.files).sort()).toEqual(Object.keys(originalZip.files).sort());
+      for (const [name, file] of Object.entries(originalZip.files)) {
+        if (file.dir || name === "word/document.xml") continue;
+        expect(generatedZip.file(name)!.asBinary(), name).toBe(file.asBinary());
+      }
+      expect(getDocumentParagraphs(generated).filter((p) => /<w:drawing|<w:pict/.test(p)))
+        .toEqual(getDocumentParagraphs(source).filter((p) => /<w:drawing|<w:pict/.test(p)));
       expect(getEmbeddedFontAssets(generated)).toEqual(getEmbeddedFontAssets(source));
       expect(validateLegalTemplate(generated, type).placeholderCounts).toEqual(
         validateLegalTemplate(normalized, type).placeholderCounts,
@@ -184,26 +196,17 @@ describe("legal Word template rendering", () => {
     const originalSignatureParagraph = getDocumentParagraphs(deedSource).find((paragraph) =>
       visibleParagraphText(paragraph).includes("SIGNATURE:"),
     )!;
-    const normalizedSignatureParagraph = getDocumentParagraphs(deedV1).find((paragraph) =>
+    const normalizedSignatureParagraph = getDocumentParagraphs(normalizeSuppliedLegalTemplate(deedSource)).find((paragraph) =>
       visibleParagraphText(paragraph).includes("SIGNATURE:"),
     )!;
-    const originalImageHeight = Number(
-      originalSignatureParagraph.match(/<wp:extent\b[^>]*\bcy="(\d+)"/)?.[1],
-    );
-    const preservedLineHeight = Number(
-      normalizedSignatureParagraph.match(/<w:spacing\b[^>]*\bw:line="(\d+)"/)?.[1],
-    );
-    expect(preservedLineHeight).toBeGreaterThanOrEqual(Math.ceil(originalImageHeight / 635));
-    expect(normalizedSignatureParagraph).toContain('w:lineRule="atLeast"');
-    expect(normalizedSignatureParagraph).toContain('w:pStyle w:val="Heading4"');
-    expect(normalizedSignatureParagraph).not.toContain("<w:drawing");
+    expect(normalizedSignatureParagraph).toBe(originalSignatureParagraph);
     expect(getVisibleText(deedV1)).toContain("COMMISSIONER FOR OATHS/NOTARY PUBLIC");
 
     const sourceZip = new PizZip(deedSource);
-    const normalizedZip = new PizZip(deedV1);
+    const normalizedZip = new PizZip(normalizeSuppliedLegalTemplate(deedSource));
     const sourceRelationships = sourceZip.file("word/_rels/document.xml.rels")!.asText();
     const normalizedRelationships = normalizedZip.file("word/_rels/document.xml.rels")!.asText();
-    const removedRelationshipIds = new Set(
+    const retainedRelationshipIds = new Set(
       Array.from(
         sourceZip.file("word/document.xml")!.asText().matchAll(
           /<w:drawing\b[\s\S]*?<\/w:drawing\s*>/g,
@@ -212,23 +215,40 @@ describe("legal Word template rendering", () => {
         .flatMap((match) => Array.from(match[0].matchAll(/(?:r:embed|r:id)="([^"]+)"/g)))
         .map((match) => match[1]),
     );
-    for (const id of Array.from(removedRelationshipIds)) {
+    expect(normalizedRelationships).toBe(sourceRelationships);
+    for (const id of Array.from(retainedRelationshipIds)) {
       const relation = sourceRelationships.match(
         new RegExp(`<Relationship\\b[^>]*\\bId="${id}"[^>]*>`),
       )?.[0];
       const target = relation?.match(/\bTarget="([^"]+)"/)?.[1];
-      expect(normalizedRelationships).not.toContain(`Id="${id}"`);
-      if (target) expect(normalizedZip.file(`word/${target}`)).toBeNull();
+      expect(normalizedRelationships).toContain(`Id="${id}"`);
+      if (target) expect(normalizedZip.file(`word/${target}`)!.asBinary())
+        .toBe(sourceZip.file(`word/${target}`)!.asBinary());
     }
   });
 
-  it("rejects execution-region graphics while preserving graphics outside that region", () => {
-    expect(() => validateLegalTemplate(deedSource, "deed_of_assignment")).toThrow(
-      "Execution-section images/drawings, including signatures, seals, and stamps, are not allowed",
-    );
-    expect(() => renderTestDocument("deed_of_assignment", deedSource)).toThrow(
-      "Execution-section images/drawings, including signatures, seals, and stamps, are not allowed",
-    );
+  it("accepts execution-region signatures while preserving body logos and header graphics", () => {
+    for (const [type, source] of [
+      ["deed_of_assignment", deedSource],
+      ["transfer_exit_rights", transferSource],
+    ] as const) {
+      const normalized = normalizeSuppliedLegalTemplate(source);
+      expect(validateLegalTemplate(normalized, type).totalPlaceholders).toBeGreaterThan(0);
+      for (const rendered of [
+        renderTestDocument(type, normalized),
+        renderIllustrativeLegalTemplate(normalized, type).renderedDocx,
+      ]) {
+        expect(getExecutionGraphicsCount(rendered)).toBe(getExecutionGraphicsCount(source));
+        expect(getExecutionDrawing(rendered)).toBe(getExecutionDrawing(source));
+        const sourceZip = new PizZip(source);
+        const renderedZip = new PizZip(rendered);
+        for (const [name, file] of Object.entries(sourceZip.files)) {
+          if (!file.dir && (name.startsWith("word/media/") || name.endsWith(".rels"))) {
+            expect(renderedZip.file(name)!.asBinary(), name).toBe(file.asBinary());
+          }
+        }
+      }
+    }
 
     const sourceZip = new PizZip(deedSource);
     const sourceXml = sourceZip.file("word/document.xml")!.asText();
@@ -249,7 +269,7 @@ describe("legal Word template rendering", () => {
     const normalizedWithBodyGraphic = normalizeSuppliedLegalTemplate(
       sourceZip.generate({ type: "nodebuffer" }),
     );
-    expect(getExecutionGraphicsCount(normalizedWithBodyGraphic)).toBe(0);
+    expect(getExecutionGraphicsCount(normalizedWithBodyGraphic)).toBe(getExecutionGraphicsCount(deedSource));
     expect(validateLegalTemplate(normalizedWithBodyGraphic, "deed_of_assignment").totalPlaceholders)
       .toBeGreaterThan(0);
 
@@ -266,6 +286,73 @@ describe("legal Word template rendering", () => {
     );
     for (const name of sourceHeaderNames) {
       expect(normalizedZip.file(name)?.asBinary()).toEqual(sourceZip.file(name)?.asBinary());
+    }
+  });
+
+  it("preserves inline and anchored images even without a recognized execution heading", () => {
+    for (const [type, source] of [
+      ["deed_of_assignment", deedSource],
+      ["transfer_exit_rights", transferSource],
+    ] as const) {
+      for (const anchored of [false, true]) {
+        const zip = new PizZip(normalizeSuppliedLegalTemplate(source));
+        let xml = zip.file("word/document.xml")!.asText();
+        // Replace every heading text without changing any drawing markup.
+        xml = xml.replace(/SIGNED/gi, "EXECUTED");
+        if (anchored) {
+          xml = xml.replace(/<wp:inline\b([^>]*)>/g,
+            '<wp:anchor$1 simplePos="0" relativeHeight="0" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:wrapNone/>')
+            .replace(/<\/wp:inline>/g, "</wp:anchor>");
+        }
+        zip.file("word/document.xml", xml);
+        const input = zip.generate({ type: "nodebuffer" });
+        const normalized = normalizeSuppliedLegalTemplate(input);
+        expect(validateLegalTemplate(normalized, type).totalPlaceholders).toBeGreaterThan(0);
+        expect(new PizZip(normalized).file("word/document.xml")!.asText()).toBe(xml);
+        const rendered = new PizZip(renderTestDocument(type, normalized));
+        const graphics = (value: string) => Array.from(
+          value.matchAll(/<w:drawing\b[\s\S]*?<\/w:drawing>/g), (match) => match[0],
+        );
+        expect(graphics(xml).length).toBeGreaterThan(0);
+        expect(graphics(rendered.file("word/document.xml")!.asText())).toEqual(graphics(xml));
+        for (const [name, file] of Object.entries(zip.files)) {
+          if (!file.dir && (name.startsWith("word/media/") || name.endsWith(".rels"))) {
+            expect(rendered.file(name)!.asBinary()).toBe(file.asBinary());
+          }
+        }
+      }
+    }
+  });
+
+  it("still rejects invalid placeholders and unsafe archives with embedded signatures", () => {
+    for (const [type, source] of [
+      ["deed_of_assignment", deedSource],
+      ["transfer_exit_rights", transferSource],
+    ] as const) {
+      const template = normalizeSuppliedLegalTemplate(source);
+      for (const [token, issue] of [
+        ["{{UNKNOWN_FIELD}}", "Unsupported placeholder"],
+        ["", "Required placeholder is missing"],
+        ["{{USER_FULL_NAME", "Malformed"],
+      ]) {
+        const zip = new PizZip(template);
+        zip.file("word/document.xml", zip.file("word/document.xml")!.asText()
+          .replaceAll("{{USER_FULL_NAME}}", token));
+        const invalid = zip.generate({ type: "nodebuffer" });
+        expect(() => validateLegalTemplate(invalid, type)).toThrow(issue);
+        expect(() => renderTestDocument(type, invalid)).toThrow(issue);
+      }
+      for (const [name, content, issue] of [
+        ["word/vbaProject.bin", "macro", "Macro-enabled"],
+        ["../escape.xml", "unsafe", "Unsafe DOCX archive entry"],
+        ["word/bomb.xml", "A".repeat(2 * 1024 * 1024), "suspicious compression ratio"],
+      ]) {
+        const zip = new PizZip(template);
+        zip.file(name, content);
+        const invalid = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+        expect(() => validateLegalTemplate(invalid, type)).toThrow(issue);
+        expect(() => normalizeSuppliedLegalTemplate(invalid)).toThrow(issue);
+      }
     }
   });
 
@@ -461,6 +548,32 @@ describe("legal Word template rendering", () => {
 });
 
 describe("legal PDF conversion and assignee position verification", () => {
+  it("keeps source signatures visible in both real illustrative preview PDFs", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "legal-presigned-preview-"));
+    try {
+      for (const [type, source] of [
+        ["deed_of_assignment", deedSource],
+        ["transfer_exit_rights", transferSource],
+      ] as const) {
+        const preview = renderIllustrativeLegalTemplate(normalizeSuppliedLegalTemplate(source), type);
+        const pdf = await convertDocxToPdf(preview.renderedDocx);
+        const pdfPath = path.join(directory, `${type}.pdf`);
+        writeFileSync(pdfPath, pdf);
+        const images = execFileSync("pdfimages", ["-list", pdfPath], { encoding: "utf8", timeout: 20_000 });
+        expect(images.split(/\r?\n/).filter((line) => /^\s*\d+\s+\d+\s+image\s/.test(line)).length)
+          .toBeGreaterThan(0);
+        const text = execFileSync("pdftotext", [pdfPath, "-"], { encoding: "utf8", timeout: 20_000 });
+        expect(text).toContain("Not for Execution");
+        await expect(verifyAssigneeSignaturePosition(pdf, {
+          assigneeFullName: buildIllustrativeTemplateValues(type).USER_FULL_NAME,
+          templateVersionId: `preview:${type}`,
+        })).resolves.toMatchObject({ anchorText: buildIllustrativeTemplateValues(type).USER_FULL_NAME });
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("fails closed if the LibreOffice executable is missing", async () => {
     const rendered = renderTestDocument("deed_of_assignment", deedV1);
     await expect(convertDocxToPdf(deedV1)).rejects.toThrow("Unresolved template delimiters");

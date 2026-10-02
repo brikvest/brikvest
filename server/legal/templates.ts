@@ -1,6 +1,5 @@
 import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
-import path from "node:path";
 import {
   amountToWordsNairaBeforeCurrencySuffix,
   buildIllustrativeTemplateValues,
@@ -211,247 +210,6 @@ function collectParagraphText(xml: string): string[] {
   return paragraphs;
 }
 
-const EXECUTION_GRAPHIC_PATTERN =
-  /<w:drawing\b[\s\S]*?<\/w:drawing\s*>|<w:pict\b[\s\S]*?<\/w:pict\s*>|<w:object\b[\s\S]*?<\/w:object\s*>|<w:objectLink\b[^>]*(?:\/>|>[\s\S]*?<\/w:objectLink\s*>)|<w:altChunk\b[^>]*\/?>|<v:shape\b[\s\S]*?<\/v:shape\s*>|<a:blip\b[^>]*\/?>|<v:imagedata\b[^>]*\/?>/gi;
-const EXECUTION_HEADING = /SIGNED\s+SEALED\s+AND\s+DELIVERED/;
-
-function isExecutionHeadingParagraph(paragraphXml: string): boolean {
-  const text = (collectParagraphText(paragraphXml)[0] ?? "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleUpperCase("en-US")
-    .replace(/[^A-Z0-9]+/g, " ")
-    .trim();
-  return EXECUTION_HEADING.test(text);
-}
-
-function executionSectionStart(documentXml: string): number {
-  const paragraphPattern = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g;
-  for (const match of Array.from(documentXml.matchAll(paragraphPattern))) {
-    if (isExecutionHeadingParagraph(match[0])) return match.index ?? 0;
-  }
-  return -1;
-}
-
-function xmlAttribute(element: string, attribute: string): string | undefined {
-  const escaped = attribute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return element.match(new RegExp(`(?:^|\\s)${escaped}="([^"]*)"`, "i"))?.[1];
-}
-
-function relationshipIdsInXml(xml: string): Set<string> {
-  return new Set(
-    Array.from(
-      xml.matchAll(/\b(?:r:(?:id|embed|link|dm|lo)|o:relid)="([^"]+)"/g),
-      (match) => match[1],
-    ),
-  );
-}
-
-function inlineGraphicHeightTwips(graphicXml: string): number {
-  if (/<wp:anchor\b/i.test(graphicXml)) return 0;
-
-  const extents = Array.from(
-    graphicXml.matchAll(/<(?:wp|w):extent\b[^>]*\bcy="(\d+)"/gi),
-    (match) => Number(match[1]),
-  ).filter((height) => Number.isSafeInteger(height) && height > 0);
-  if (extents.length > 0) return Math.ceil(Math.max(...extents) / 635);
-
-  const shapeStyle = graphicXml.match(/<v:shape\b[^>]*\bstyle="([^"]*)"/i)?.[1] ?? "";
-  const heightMatch = shapeStyle.match(/(?:^|;)\s*height\s*:\s*([\d.]+)\s*(pt|px|in|cm|mm)\b/i);
-  if (heightMatch) {
-    const value = Number(heightMatch[1]);
-    const emuPerUnit: Record<string, number> = {
-      pt: 12_700,
-      px: 9_525,
-      in: 914_400,
-      cm: 360_000,
-      mm: 36_000,
-    };
-    const emu = value * emuPerUnit[heightMatch[2].toLowerCase()];
-    if (Number.isFinite(emu) && emu > 0) return Math.ceil(emu / 635);
-  }
-
-  if (/<wp:inline\b|<w:pict\b|<w:object\b|<w:objectLink\b|<v:shape\b/i.test(graphicXml)) {
-    throw new LegalTemplateValidationError([
-      "An inline execution-section image has no measurable height; remove it manually so its reserved signature spacing can be preserved.",
-    ]);
-  }
-  return 0;
-}
-
-function preserveParagraphHeight(paragraphXml: string, minimumLineTwips: number): string {
-  if (minimumLineTwips < 1) return paragraphXml;
-
-  const pPr = paragraphXml.match(/<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>/);
-  if (!pPr) {
-    return paragraphXml.replace(
-      /(<w:p(?:\s[^>]*)?>)/,
-      `$1<w:pPr><w:spacing w:line="${minimumLineTwips}" w:lineRule="atLeast"/></w:pPr>`,
-    );
-  }
-
-  const spacing = pPr[0].match(/<w:spacing\b[^>]*\/?>/);
-  if (!spacing) {
-    const updated = pPr[0].replace(
-      /<\/w:pPr>$/,
-      `<w:spacing w:line="${minimumLineTwips}" w:lineRule="atLeast"/></w:pPr>`,
-    );
-    return paragraphXml.replace(pPr[0], updated);
-  }
-
-  const previousLine = Number(xmlAttribute(spacing[0], "w:line") ?? 0);
-  const previousRule = xmlAttribute(spacing[0], "w:lineRule");
-  const line = Math.max(Number.isSafeInteger(previousLine) ? previousLine : 0, minimumLineTwips);
-  const rule = previousRule === "exact" && previousLine >= minimumLineTwips
-    ? "exact"
-    : "atLeast";
-  const firstAttribute = spacing[0].search(/\s/);
-  const attributes = (firstAttribute < 0 ? "" : spacing[0].slice(firstAttribute + 1))
-    .replace(/\/?>$/, "")
-    .replace(/\s+w:line="[^"]*"/g, "")
-    .replace(/\s+w:lineRule="[^"]*"/g, "");
-  const ending = spacing[0].endsWith("/>") ? "/>" : ">";
-  const updatedSpacing = `<w:spacing${attributes ? ` ${attributes}` : ""} w:line="${line}" w:lineRule="${rule}"${ending}`;
-  const updatedProperties = pPr[0].replace(spacing[0], updatedSpacing);
-  return paragraphXml.replace(pPr[0], updatedProperties);
-}
-
-function relationshipPartSourcePath(relationshipPath: string): string {
-  if (relationshipPath.toLowerCase() === "_rels/.rels") return "";
-  return relationshipPath.replace(/\/_rels\/([^/]+)\.rels$/i, "/$1");
-}
-
-function resolveRelationshipTarget(
-  relationshipPath: string,
-  target: string,
-): string {
-  if (target.startsWith("/")) return path.posix.normalize(target.slice(1));
-  const sourcePath = relationshipPartSourcePath(relationshipPath);
-  return path.posix.normalize(path.posix.join(path.posix.dirname(sourcePath), target));
-}
-
-function relationshipElements(xml: string): string[] {
-  return Array.from(
-    xml.matchAll(/<Relationship\b[^>]*(?:\/>|>[\s\S]*?<\/Relationship\s*>)/g),
-    (match) => match[0],
-  );
-}
-
-function removeUnusedExecutionImageRelationships(
-  zip: PizZip,
-  documentXml: string,
-  removedRelationshipIds: Set<string>,
-): void {
-  const relationshipsPath = "word/_rels/document.xml.rels";
-  const relationshipsFile = zip.file(relationshipsPath);
-  if (!relationshipsFile || removedRelationshipIds.size === 0) return;
-
-  const removedTargets = new Set<string>();
-  const originalRelationshipsXml = relationshipsFile.asText();
-  const relationshipsXml = originalRelationshipsXml.replace(
-    /<Relationship\b[^>]*(?:\/>|>[\s\S]*?<\/Relationship\s*>)/g,
-    (relationship) => {
-      const id = xmlAttribute(relationship, "Id");
-      if (!id || !removedRelationshipIds.has(id)) return relationship;
-      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const stillReferenced = new RegExp(
-        `\\b(?:r:(?:id|embed|link|dm|lo)|o:relid)="${escapedId}"`,
-      ).test(documentXml);
-      if (stillReferenced) return relationship;
-
-      const target = xmlAttribute(relationship, "Target");
-      if (
-        target &&
-        xmlAttribute(relationship, "TargetMode")?.toLowerCase() !== "external"
-      ) {
-        removedTargets.add(resolveRelationshipTarget(relationshipsPath, target));
-      }
-      return "";
-    },
-  );
-  if (relationshipsXml !== originalRelationshipsXml) {
-    zip.file(relationshipsPath, relationshipsXml);
-  }
-
-  if (removedTargets.size === 0) return;
-  const remainingTargets = new Set<string>();
-  for (const [name, file] of Object.entries(zip.files)) {
-    if (file.dir || !name.endsWith(".rels")) continue;
-    for (const relationship of relationshipElements(file.asText())) {
-      if (xmlAttribute(relationship, "TargetMode")?.toLowerCase() === "external") continue;
-      const target = xmlAttribute(relationship, "Target");
-      if (target) remainingTargets.add(resolveRelationshipTarget(name, target));
-    }
-  }
-
-  for (const target of Array.from(removedTargets)) {
-    if (target.startsWith("word/media/") && !remainingTargets.has(target)) {
-      zip.remove(target);
-    }
-  }
-}
-
-function sanitizeExecutionSectionGraphics(zip: PizZip): void {
-  const documentPath = "word/document.xml";
-  const documentFile = zip.file(documentPath);
-  if (!documentFile) return;
-
-  const removedRelationshipIds = new Set<string>();
-  let inExecutionSection = false;
-  let changed = false;
-  const originalXml = documentFile.asText();
-  const normalizedXml = originalXml.replace(
-    /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g,
-    (paragraphXml) => {
-      if (!inExecutionSection && isExecutionHeadingParagraph(paragraphXml)) {
-        inExecutionSection = true;
-      }
-      if (!inExecutionSection) return paragraphXml;
-
-      const graphics = Array.from(paragraphXml.matchAll(EXECUTION_GRAPHIC_PATTERN));
-      if (graphics.length === 0) return paragraphXml;
-      changed = true;
-
-      let minimumLineTwips = 0;
-      for (const graphic of graphics) {
-        const graphicXml = graphic[0];
-        for (const relationshipId of Array.from(relationshipIdsInXml(graphicXml))) {
-          removedRelationshipIds.add(relationshipId);
-        }
-        minimumLineTwips = Math.max(
-          minimumLineTwips,
-          inlineGraphicHeightTwips(graphicXml),
-        );
-      }
-
-      const withoutGraphics = paragraphXml.replace(EXECUTION_GRAPHIC_PATTERN, "");
-      return preserveParagraphHeight(withoutGraphics, minimumLineTwips);
-    },
-  );
-
-  if (!changed) return;
-  zip.file(documentPath, normalizedXml);
-  removeUnusedExecutionImageRelationships(zip, normalizedXml, removedRelationshipIds);
-}
-
-function validateExecutionSectionGraphics(documentXml: string, issues: string[]): void {
-  const start = executionSectionStart(documentXml);
-  if (start < 0) {
-    if (new RegExp(EXECUTION_GRAPHIC_PATTERN.source, "i").test(documentXml)) {
-      issues.push(
-        "Document graphics cannot be safely classified without a SIGNED, SEALED AND DELIVERED execution heading; remove the graphics or restore the execution heading.",
-      );
-    }
-    return;
-  }
-
-  if (new RegExp(EXECUTION_GRAPHIC_PATTERN.source, "i").test(documentXml.slice(start))) {
-    issues.push(
-      "Execution-section images/drawings, including signatures, seals, and stamps, are not allowed. Remove them from the director/witness/notary execution section before saving or activating the template; logos outside that section are permitted.",
-    );
-  }
-}
-
 function readWordXmlParts(zip: PizZip): Array<{ name: string; xml: string }> {
   return Object.entries(zip.files)
     .filter(([name, file]) => !file.dir && /^word\/.*\.xml$/i.test(name))
@@ -512,7 +270,8 @@ export function validateLegalTemplate(
     throw new LegalTemplateValidationError(["Could not inspect DOCX archive"]);
   }
 
-  validateExecutionSectionGraphics(zip.file("word/document.xml")!.asText(), issues);
+  // Embedded third-party signatures are source content, not investor signing
+  // evidence. Their presence (with or without an execution heading) is allowed.
   const placeholderCounts = getPlaceholderCounts(zip, issues);
   for (const required of LEGAL_TEMPLATE_PLACEHOLDERS[documentType]) {
     if (
@@ -741,13 +500,13 @@ function specializeLiteralCurrencySuffix(zip: PizZip): boolean {
 
 /**
  * Convert only the legacy arithmetic/date fields in the supplied source files.
- * Static legal wording—including the literal Naira suffix—is left unchanged.
+ * Static legal wording—including the literal Naira suffix—and source graphics,
+ * media, relationships and layout are left unchanged.
  * Date parts remain distinct to preserve the literal "DAY OF" construction
  * and are derived with the canonical date from one UTC timestamp.
  */
 export function normalizeSuppliedLegalTemplate(buffer: Buffer): Buffer {
   const zip = inspectLegalDocxArchive(buffer);
-  sanitizeExecutionSectionGraphics(zip);
   const replacements = [
     { source: "{{NUM_UNITS_OWNED*5}}", target: "{{PROPERTY_AREA_SQM}}" },
     { source: "{{CURRENT_DAY}}", target: "{{DOCUMENT_DATE_DAY}}" },

@@ -17,6 +17,7 @@ describe("legal workflow readiness", () => {
         return "LibreOffice 24.2";
       }
       if (command === "fc-match" && args.join(" ") === "--version") return "fontconfig version 2.15";
+      if (command === "pdftohtml" && args[0] === "-v") return "";
       throw new Error("unexpected local command");
     });
 
@@ -73,6 +74,7 @@ describe("legal workflow readiness", () => {
     expect(commands).toEqual([
       ["libreoffice", ["--version"]],
       ["fc-match", ["--version"]],
+      ["pdftohtml", ["-v"]],
     ]);
     expect(result.checks.find((check) => check.id === "document-fonts")?.detail)
       .toContain("readiness does not certify any template's fonts");
@@ -86,5 +88,16 @@ describe("legal workflow readiness", () => {
       .toMatchObject({ ready: false, detail: expect.stringContaining("fc-match") });
     expect(result.checks.find((check) => check.id === "fractional-unit-inventory-accounting")?.ready)
       .toBe(true);
+  });
+
+  it("reports missing image-placement tooling without exposing errors or configuration", () => {
+    const result = getLegalReadiness(completeEnvironment, (command) => {
+      if (command === "pdftohtml") throw new Error("private executable error");
+      return "available";
+    });
+    expect(result.ready).toBe(false);
+    expect(result.checks.find((check) => check.id === "pdf-image-position"))
+      .toMatchObject({ ready: false, detail: expect.stringContaining("pdftohtml") });
+    expect(JSON.stringify(result)).not.toContain("private executable error");
   });
 });

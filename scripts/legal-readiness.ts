@@ -80,6 +80,14 @@ export function getLegalReadiness(
   }
 
   const fontReadiness = getFontReadiness(run);
+  let pdfImagePositionAvailable = false;
+  try {
+    // Poppler writes its version to stderr; successful execution is sufficient.
+    run(env.PDFTOHTML_PATH || "pdftohtml", ["-v"]);
+    pdfImagePositionAvailable = true;
+  } catch {
+    // Fail closed during signing if image bounds cannot be verified.
+  }
 
   const checks: LegalReadinessCheck[] = [
     {
@@ -142,6 +150,13 @@ export function getLegalReadiness(
       id: "document-fonts",
       ready: fontReadiness.available,
       detail: fontReadiness.detail,
+    },
+    {
+      id: "pdf-image-position",
+      ready: pdfImagePositionAvailable,
+      detail: pdfImagePositionAvailable
+        ? "Poppler image-position extraction is available to keep investor signatures clear of existing images."
+        : "Poppler pdftohtml is unavailable; investor signing cannot verify a clear area around existing images.",
     },
   ];
 

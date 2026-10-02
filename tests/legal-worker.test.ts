@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import PizZip from "pizzip";
 import { LegalFileNotFoundError, type LegalStorageReference } from "../server/legal/files";
 import { renderLegalTemplate, validateLegalTemplate } from "../server/legal/templates";
 import { createLegalWorker } from "../server/legal/worker";
@@ -24,9 +25,58 @@ const validPdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(128, 65)
 const approvedAt = new Date("2026-09-30T17:41:00.000Z");
 const fullName = "Ada <Lovelace> & Friends";
 const address = "1 Example Street, Abuja";
+const embeddedImage = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082",
+  "hex",
+);
 
 function sha256(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function addBodyImage(template: Buffer): Buffer {
+  const zip = new PizZip(template);
+  let documentXml = zip.file("word/document.xml")!.asText();
+  const namespaces: Record<string, string> = {
+    r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    wp: "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    a: "http://schemas.openxmlformats.org/drawingml/2006/main",
+    pic: "http://schemas.openxmlformats.org/drawingml/2006/picture",
+  };
+  documentXml = documentXml.replace(/<w:document\b[^>]*>/, (root) => {
+    const missing = Object.entries(namespaces)
+      .filter(([prefix]) => !new RegExp(`\\bxmlns:${prefix}=`).test(root))
+      .map(([prefix, uri]) => ` xmlns:${prefix}="${uri}"`)
+      .join("");
+    return root.slice(0, -1) + missing + ">";
+  });
+  const drawing = '<w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="457200"/><wp:docPr id="143" name="Task143 body image"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdTask143Image"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  documentXml = documentXml.replace(/<\/w:p>/, `${drawing}</w:p>`);
+  zip.file("word/document.xml", documentXml);
+  const relationships = zip.file("word/_rels/document.xml.rels")!.asText();
+  zip.file(
+    "word/_rels/document.xml.rels",
+    relationships.replace(
+      "</Relationships>",
+      '<Relationship Id="rIdTask143Image" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/task143.png"/></Relationships>',
+    ),
+  );
+  const contentTypes = zip.file("[Content_Types].xml")!.asText();
+  if (!/Extension="png"/i.test(contentTypes)) {
+    zip.file(
+      "[Content_Types].xml",
+      contentTypes.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>'),
+    );
+  }
+  zip.file("word/media/task143.png", embeddedImage);
+  return zip.generate({ type: "nodebuffer" });
+}
+
+function expectImageParts(docx: Buffer): void {
+  const zip = new PizZip(docx);
+  expect(zip.file("word/media/task143.png")?.asNodeBuffer()).toEqual(embeddedImage);
+  expect(zip.file("word/_rels/document.xml.rels")!.asText()).toContain('Id="rIdTask143Image"');
+  expect(zip.file("word/document.xml")!.asText()).toContain('r:embed="rIdTask143Image"');
 }
 
 function createPairResult(options?: {
@@ -232,6 +282,52 @@ describe("legal durable job worker", () => {
     expect(dependencies.failLegalJob).not.toHaveBeenCalled();
     expect(stored.size).toBe(4);
     expect(pairResult.documents).toHaveLength(2);
+  });
+
+  it("preserves source images for both document types through worker rendering and PDF conversion", async () => {
+    const imageTemplates = new Map([
+      ["legal/templates/deed_of_assignment/v1", addBodyImage(deedTemplate)],
+      ["legal/templates/transfer_exit_rights/v1", addBodyImage(transferTemplate)],
+    ]);
+    const dependencies = createGenerationDependencies({
+      claimNextLegalJob: vi.fn()
+        .mockResolvedValueOnce(claim("generation"))
+        .mockResolvedValue(null),
+      getPinnedLegalTemplate: vi.fn(async (templateId: number) => {
+        const documentType = templateId === 101 ? "deed_of_assignment" as const : "transfer_exit_rights" as const;
+        const storageKey = `legal/templates/${documentType}/v1`;
+        return {
+          id: templateId,
+          documentType,
+          version: 1,
+          storageKey,
+          sha256: sha256(imageTemplates.get(storageKey)!),
+        };
+      }),
+      readLegalTemplateVersion: vi.fn(async (reference: string) => {
+        const contents = imageTemplates.get(reference);
+        if (!contents) throw new Error(`Missing image fixture: ${reference}`);
+        return contents;
+      }),
+    }).dependencies;
+
+    const result = await createLegalWorker(dependencies).dispatchLegalJobs(1);
+
+    expect(result).toEqual({ claimed: 1, completed: 1, failed: 0, quarantined: 0 });
+    expect(dependencies.renderLegalTemplate).toHaveBeenCalledTimes(2);
+    expect(dependencies.renderLegalTemplate.mock.calls.map(([template]) => template)).toEqual(
+      expect.arrayContaining([imageTemplates.get("legal/templates/deed_of_assignment/v1"), imageTemplates.get("legal/templates/transfer_exit_rights/v1")]),
+    );
+    expect(dependencies.convertDocxToPdf).toHaveBeenCalledTimes(2);
+    for (const [docx] of dependencies.convertDocxToPdf.mock.calls) {
+      expectImageParts(docx as Buffer);
+    }
+    const sourceDocxWrites = dependencies.storeLegalDocument.mock.calls
+      .filter(([options]) => options.kind === "source_docx");
+    expect(sourceDocxWrites).toHaveLength(2);
+    for (const [options] of sourceDocxWrites) {
+      expectImageParts(options.contents);
+    }
   });
 
   it("fails closed on a frozen area mismatch without writing artifacts", async () => {

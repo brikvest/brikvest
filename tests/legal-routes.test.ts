@@ -62,6 +62,11 @@ const PAIR_ID = 71;
 const DOCUMENT_ID = 51;
 const TEMPLATE_ID = 99;
 const unsignedPdf = Buffer.from(`%PDF-1.7\n${"legal preview content\n".repeat(12)}`);
+const parseBinaryBody = (response: NodeJS.ReadableStream, callback: (error: Error | null, body?: Buffer) => void) => {
+  const chunks: Buffer[] = [];
+  response.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+  response.on("end", () => callback(null, Buffer.concat(chunks)));
+};
 const transferTemplateV1 = readFileSync(
   new URL("../server/legal/template-assets/transfer_exit_rights_v1.docx", import.meta.url),
 );
@@ -112,6 +117,60 @@ function useCanonicalDate(template: Buffer): Buffer {
     .replaceAll("{{DOCUMENT_DATE_YEAR}}", "");
   zip.file("word/document.xml", documentXml);
   return zip.generate({ type: "nodebuffer" });
+}
+
+const embeddedImage = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082",
+  "hex",
+);
+
+function addBodyImage(template: Buffer): Buffer {
+  const zip = new PizZip(template);
+  let documentXml = zip.file("word/document.xml")!.asText();
+  const namespaces: Record<string, string> = {
+    r: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    wp: "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    a: "http://schemas.openxmlformats.org/drawingml/2006/main",
+    pic: "http://schemas.openxmlformats.org/drawingml/2006/picture",
+  };
+  documentXml = documentXml.replace(/<w:document\b[^>]*>/, (root) => {
+    const missing = Object.entries(namespaces)
+      .filter(([prefix]) => !new RegExp(`\\bxmlns:${prefix}=`).test(root))
+      .map(([prefix, uri]) => ` xmlns:${prefix}="${uri}"`)
+      .join("");
+    return root.slice(0, -1) + missing + ">";
+  });
+  const drawing = '<w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="457200"/><wp:docPr id="143" name="Task143 body image"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdTask143Image"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  documentXml = documentXml.replace(/<\/w:p>/, `${drawing}</w:p>`);
+  zip.file("word/document.xml", documentXml);
+  const relationships = zip.file("word/_rels/document.xml.rels")!.asText();
+  zip.file(
+    "word/_rels/document.xml.rels",
+    relationships.replace(
+      "</Relationships>",
+      '<Relationship Id="rIdTask143Image" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/task143.png"/></Relationships>',
+    ),
+  );
+  const contentTypes = zip.file("[Content_Types].xml")!.asText();
+  if (!/Extension="png"/i.test(contentTypes)) {
+    zip.file(
+      "[Content_Types].xml",
+      contentTypes.replace("</Types>", '<Default Extension="png" ContentType="image/png"/></Types>'),
+    );
+  }
+  zip.file("word/media/task143.png", embeddedImage);
+  return zip.generate({ type: "nodebuffer" });
+}
+
+function expectImagePreserved(docx: Buffer): void {
+  const zip = new PizZip(docx);
+  expect(zip.file("word/media/task143.png")?.asNodeBuffer()).toEqual(embeddedImage);
+  expect(zip.file("word/_rels/document.xml.rels")!.asText()).toContain(
+    'Id="rIdTask143Image"',
+  );
+  expect(zip.file("word/document.xml")!.asText()).toContain(
+    'r:embed="rIdTask143Image"',
+  );
 }
 
 function compile(query: unknown): { sql: string; params: unknown[] } {
@@ -759,6 +818,75 @@ describe("legal document routes", () => {
     expect(mocks.storeLegalTemplateVersion).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["deed_of_assignment", readFileSync(new URL("../server/legal/template-assets/deed_of_assignment_v1.docx", import.meta.url))],
+    ["transfer_exit_rights", transferTemplateV1],
+  ] as const)("preserves uploaded %s media through private download, preview, and activation", async (documentType, baseTemplate) => {
+    templateBytes = addBodyImage(baseTemplate);
+    activeTemplate = {
+      ...activeTemplate,
+      document_type: documentType,
+      storage_key: `legal/templates/${documentType}/v1`,
+      sha256: createHash("sha256").update(templateBytes).digest("hex"),
+    };
+
+    const uploaded = await request(app)
+      .post("/api/admin/legal/templates")
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .field("documentType", documentType)
+      .field("propertyId", "12")
+      .attach("file", templateBytes, `${documentType}.docx`)
+      .expect(201);
+    expect(uploaded.body).toMatchObject({ documentType, validationStatus: "valid" });
+    expect(mocks.storeLegalTemplateVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ documentType, docxBuffer: templateBytes }),
+    );
+
+    const download = await request(app)
+      .get(`/api/admin/legal/templates/${TEMPLATE_ID}/download?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .buffer(true)
+      .parse(parseBinaryBody)
+      .expect(200);
+    expect(download.body).toEqual(templateBytes);
+    expectImagePreserved(download.body);
+
+    const preview = await request(app)
+      .get(`/api/admin/legal/templates/${TEMPLATE_ID}/preview?propertyId=12`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .expect(200);
+    expect(preview.headers["content-type"]).toContain("application/pdf");
+    expect(mocks.convertDocxToPdf).toHaveBeenCalledTimes(1);
+    const previewDocx = mocks.convertDocxToPdf.mock.calls[0][0] as Buffer;
+    expectImagePreserved(previewDocx);
+
+    await request(app)
+      .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12 })
+      .expect(200);
+    expect(mocks.convertDocxToPdf).toHaveBeenCalledTimes(2);
+    expectImagePreserved(mocks.convertDocxToPdf.mock.calls[1][0] as Buffer);
+    expect(mocks.verifyAssigneeSignaturePosition).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects corrupt template bytes on admin download, preview, and activation without conversion", async () => {
+    activeTemplate.sha256 = "0".repeat(64);
+    for (const action of ["download", "preview"] as const) {
+      await request(app)
+        .get(`/api/admin/legal/templates/${TEMPLATE_ID}/${action}?propertyId=12`)
+        .set("x-admin-user-id", String(ADMIN_ID))
+        .expect(400, { error: "Stored template checksum mismatch" });
+    }
+    await request(app)
+      .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
+      .set("x-admin-user-id", String(ADMIN_ID))
+      .send({ propertyId: 12 })
+      .expect(400, { error: "Stored template checksum mismatch" });
+    expect(mocks.convertDocxToPdf).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
   it("activates a validated template only after rendered PDF conversion and signature-position checks", async () => {
     const response = await request(app)
       .post(`/api/admin/legal/templates/${TEMPLATE_ID}/activate`)
@@ -769,6 +897,10 @@ describe("legal document routes", () => {
     expect(mocks.convertDocxToPdf).toHaveBeenCalledTimes(1);
     expect(mocks.verifyAssigneeSignaturePosition).toHaveBeenCalledTimes(1);
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    const writesToHistoricalDocuments = mocks.execute.mock.calls
+      .map(([query]) => compile(query).sql)
+      .filter((query) => /UPDATE\s+legal_documents/i.test(query));
+    expect(writesToHistoricalDocuments).toEqual([]);
   });
 
   it("refuses to activate a template whose required fields are invalid", async () => {

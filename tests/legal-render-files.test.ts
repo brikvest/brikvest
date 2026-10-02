@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import PizZip from "pizzip";
+import { normalizeSuppliedLegalTemplate } from "../server/legal/templates";
 
 const mocks = vi.hoisted(() => ({
   bucket: vi.fn(),
@@ -32,10 +33,38 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const deedTemplate = readFileSync(
   path.join(projectRoot, "server/legal/template-assets/deed_of_assignment_v1.docx"),
 );
+const transferTemplate = readFileSync(
+  path.join(projectRoot, "server/legal/template-assets/transfer_exit_rights_v1.docx"),
+);
+const deedSource = readFileSync(
+  path.join(projectRoot, "attached_assets/DEED_OF_ASSIGNMENT_BRIKVEST_1790828516010.docx"),
+);
+const transferSource = readFileSync(
+  path.join(projectRoot, "attached_assets/TRANSFER_AND_EXIT_RIGHT_AGREEMENT_1790828516011.docx"),
+);
 const validPdf = Buffer.concat([
   Buffer.from("%PDF-1.7\n"),
   Buffer.alloc(128, 65),
 ]);
+
+function archiveParts(docx: Buffer, pattern: RegExp): Map<string, Buffer> {
+  const zip = new PizZip(docx);
+  return new Map(
+    Object.entries(zip.files)
+      .filter(([name, file]) => !file.dir && pattern.test(name))
+      .map(([name, file]) => [name, file.asNodeBuffer()]),
+  );
+}
+
+function expectSourceMediaAndRelationshipsPreserved(source: Buffer, normalized: Buffer): void {
+  const originalMedia = archiveParts(source, /^word\/media\//i);
+  const normalizedMedia = archiveParts(normalized, /^word\/media\//i);
+  expect(originalMedia.size).toBeGreaterThan(0);
+  expect(normalizedMedia).toEqual(originalMedia);
+  expect(archiveParts(normalized, /(?:^|\/)_rels\/.*\.rels$/i)).toEqual(
+    archiveParts(source, /(?:^|\/)_rels\/.*\.rels$/i),
+  );
+}
 
 function createResponse() {
   const response = new PassThrough() as PassThrough & {
@@ -140,6 +169,41 @@ describe("private legal document storage", () => {
     expect(mocks.save).toHaveBeenCalledTimes(1);
     expect(mocks.save.mock.calls[0][0]).toEqual(deedTemplate);
     await expect(readLegalTemplateVersion("legal/templates/deed_of_assignment/v2")).resolves.toEqual(deedTemplate);
+  });
+
+  it.each([
+    ["deed_of_assignment", deedSource],
+    ["transfer_exit_rights", transferSource],
+  ] as const)("round-trips the normalized original %s source with its media and relationships", async (documentType, originalSource) => {
+    const normalizedSource = normalizeSuppliedLegalTemplate(originalSource);
+    expectSourceMediaAndRelationshipsPreserved(originalSource, normalizedSource);
+    const uploadId = "a2b2a2b2-a2b2-42b2-82b2-a2b2a2b2a2b2";
+    const reference = `legal/templates/properties/19/${documentType}/v2/${uploadId}`;
+    mocks.download.mockResolvedValueOnce([normalizedSource]);
+
+    await expect(storeLegalTemplateVersion({
+      documentType,
+      version: 2,
+      propertyId: 19,
+      uploadId,
+      docxBuffer: normalizedSource,
+    })).resolves.toBe(reference);
+    expect(mocks.save).toHaveBeenCalledWith(
+      normalizedSource,
+      expect.objectContaining({
+        preconditionOpts: { ifGenerationMatch: 0 },
+        metadata: expect.objectContaining({
+          contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          cacheControl: "private, no-store",
+        }),
+      }),
+    );
+    const savedBytes = mocks.save.mock.calls[0][0] as Buffer;
+    expect(savedBytes).toEqual(normalizedSource);
+    expectSourceMediaAndRelationshipsPreserved(originalSource, savedBytes);
+    const downloadedBytes = await readLegalTemplateVersion(reference);
+    expect(downloadedBytes).toEqual(normalizedSource);
+    expectSourceMediaAndRelationshipsPreserved(originalSource, downloadedBytes);
   });
 
   it("stores collision-safe scoped uploads immutably and reads scoped and legacy keys", async () => {

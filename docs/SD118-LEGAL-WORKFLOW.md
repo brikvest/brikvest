@@ -108,13 +108,36 @@ activation do not scan old holdings or manufacture approval events.
    The original DOCX/PDF and final locally signed PDF/completion evidence remain
    separate private, write-once artifacts.
 
-The legacy supplied deed contains a pre-inserted witness-signature image. The original
-upload is retained unchanged. Its normalized copy removes execution-region
-graphics and their unused media while retaining legal text, fields, paragraph
-formatting and reserved inline height. New templates containing pre-inserted
-director, witness, notary or other execution-region graphics are rejected;
-logos outside the execution region remain allowed. This workflow must never
-copy a third party's signature into a newly generated investor document.
+Both document types accept otherwise-valid property-specific DOCX templates with
+pre-existing director, witness or other-party signature images, including in the
+execution section. Logos and inline or anchored graphics are preserved as source
+content, with their media, relationships, positioning and layout. A missing
+recognized execution heading does not itself make images invalid. Required and
+unsupported placeholder checks, macro rejection and archive limits still apply;
+there is no validation override.
+
+Normalization changes only supported legacy arithmetic/date placeholders. Upload
+and Word download retain exact uploaded bytes; illustrative previews and newly
+generated DOCX/PDF retain the source graphics. Review the PDF before activation,
+including the third-party marks and a clear area near the verified assignee name.
+Activation still requires safe investor placement; a missing/ambiguous assignee
+block or unsafe placement must be corrected in a **new** template version, never
+by stripping signatures or bypassing the placement check.
+
+Embedded images do not sign for the investor, change signing status, establish
+authenticity or certify full legal execution. The investor must still review,
+explicitly consent, confirm identity and create their own new drawn/typed mark.
+Final investor signing adds that mark to the retained unsigned PDF without
+replacing other-party content. Witnessing, attestation, notarization and other
+external legal requirements remain separate.
+
+Do not regenerate bundled historical template assets or backfill signatures into
+versions that already had them removed. Upload a new property-owned version;
+historical pins and generated/signed evidence remain immutable. The offline
+normalization script requires an explicit fresh output directory and refuses
+overwrites: `npx tsx scripts/normalize-legal-templates.ts --output-dir /tmp/legal-template-review`.
+Its output is for review and explicit property-specific upload, not automatic
+assignment or historical artifact replacement.
 
 ## Implemented routes and approval payloads
 
@@ -331,12 +354,29 @@ passwords to secrets, logs, test output, or audit rows.
 
 ## Isolated checks
 
+Investor stamping uses Poppler `pdftotext` for text bounds and `pdftohtml` for
+existing image bounds, in PDF-point coordinates. Keep `poppler_utils` installed
+(or configure `PDFTOTEXT_PATH` / `PDFTOHTML_PATH` to those executables). Signing
+fails closed if extraction is unavailable or no candidate area near the verified
+investor name is clear of text and images; it never covers a source signature to
+make room. Readiness reports missing image-position tooling.
+
 `vitest.legal.config.ts` intentionally omits the repository-wide
 `tests/global-setup.ts` and uses an isolated process context. Run legal-only
 unit tests with `npm run test:legal` (or the direct command below). The
 first-party signing UI also has mocked native-browser coverage for drawn and
 typed signatures, consent/password gates, request headers, local processing,
 and external-request blocking:
+
+Pre-signed-template regressions use repository DOCX fixtures, mocked admin and
+worker persistence, and an isolated in-memory PGlite signing database. Real
+LibreOffice and Poppler checks cover illustrative previews and final signing for
+both types, including their source inline/anchored drawings; raster comparisons
+require existing image pages to remain unchanged outside the investor stamp.
+These checks neither restart the application nor access the live development
+database. Test-mode conversion allows host-font substitution, so it does not
+certify production font fidelity; the normal per-template font gate remains in
+place outside tests.
 
 ```sh
 npx vitest run --config vitest.legal.config.ts

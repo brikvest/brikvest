@@ -401,6 +401,58 @@ function runPdfTextBounds(pdfPath: string, timeoutMs = 20_000): Promise<string> 
   });
 }
 
+function runPdfImageBounds(pdfPath: string, pageNumber: number, timeoutMs = 20_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.env.PDFTOHTML_PATH || "pdftohtml",
+      [
+        "-xml", "-stdout", "-f", String(pageNumber), "-l", String(pageNumber),
+        "-zoom", "1", "-noroundcoord", pdfPath,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve(stdout);
+    };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > PDF_TEXT_OUTPUT_LIMIT) {
+        child.kill("SIGKILL");
+        finish(new Error("PDF image-position extraction produced excessive output."));
+      }
+    });
+    child.stderr.on("data", (chunk: string) => {
+      if (stderr.length < 2_000) stderr += chunk;
+    });
+    child.on("error", (error) => finish(
+      new Error(`Unable to check for image ink near the investor signature area: ${error.message}`, { cause: error }),
+    ));
+    child.on("close", (code) => {
+      if (code !== 0) {
+        finish(new Error(
+          `Unable to check for image ink near the investor signature area${stderr.trim() ? `: ${stderr.trim().slice(0, 400)}` : ""}.`,
+        ));
+      } else {
+        finish();
+      }
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(new Error("PDF image-position extraction timed out."));
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+}
+
 function parsePdfPageBounds(output: string): PdfPageBounds[] {
   const pages: PdfPageBounds[] = [];
   const pagePattern = /<page\b([^>]*)>([\s\S]*?)<\/page>/gi;
@@ -443,6 +495,53 @@ function parsePdfPageBounds(output: string): PdfPageBounds[] {
   return pages;
 }
 
+function parsePdfImageBounds(
+  output: string,
+  expectedPageNumber: number,
+  expectedPage: PdfPageBounds,
+): PdfWordBounds[] {
+  const pageMatch = Array.from(output.matchAll(/<page\b([^>]*)>([\s\S]*?)<\/page>/gi))
+    .find((match) => Number(match[1].match(/\bnumber="(\d+)"/i)?.[1]) === expectedPageNumber);
+  if (!pageMatch) throw new Error("PDF image-position extraction did not return the signature page.");
+  const read = (attributes: string, name: string): number => {
+    const value = attributes.match(new RegExp(`\\b${name}="([^"]+)"`, "i"))?.[1];
+    return value === undefined ? Number.NaN : Number(value);
+  };
+  const width = read(pageMatch[1], "width");
+  const height = read(pageMatch[1], "height");
+  if (
+    !Number.isFinite(width) || !Number.isFinite(height) ||
+    Math.abs(width - expectedPage.width) > 2 ||
+    Math.abs(height - expectedPage.height) > 2
+  ) {
+    throw new Error("PDF image-position extraction returned mismatched page geometry.");
+  }
+
+  const images: PdfWordBounds[] = [];
+  for (const match of Array.from(pageMatch[2].matchAll(/<image\b([^>]*)\/?>/gi))) {
+    const attributes = match[1] || "";
+    const left = read(attributes, "left");
+    const top = read(attributes, "top");
+    const imageWidth = read(attributes, "width");
+    const imageHeight = read(attributes, "height");
+    const bounds = {
+      xMin: left,
+      yMin: top,
+      xMax: left + imageWidth,
+      yMax: top + imageHeight,
+    };
+    if (
+      ![left, top, imageWidth, imageHeight].every(Number.isFinite) ||
+      left < -2 || top < -2 || imageWidth <= 0 || imageHeight <= 0 ||
+      bounds.xMax > width + 2 || bounds.yMax > height + 2
+    ) {
+      throw new Error("PDF image-position extraction returned invalid image bounds.");
+    }
+    images.push(bounds);
+  }
+  return images;
+}
+
 async function safeSignatureStampBox(
   pdfBytes: Buffer,
   anchor: LocalSignaturePlacement,
@@ -460,6 +559,8 @@ async function safeSignatureStampBox(
     ) {
       throw new Error("The verified assignee name page does not match the stored PDF geometry.");
     }
+    const imageXml = await runPdfImageBounds(pdfPath, anchor.pageNumber);
+    const images = parsePdfImageBounds(imageXml, anchor.pageNumber, page);
 
     const boxWidth = Math.min(180, Math.max(100, anchor.width), page.width - 24);
     const boxHeight = 28;
@@ -474,13 +575,13 @@ async function safeSignatureStampBox(
       const height = candidate.height || boxHeight;
       const y = candidate.y;
       if (y < 8 || y + height > page.height - 8) continue;
-      const overlapsText = page.words.some((word) =>
+      const overlapsVisibleContent = [...page.words, ...images].some((word) =>
         boxX < word.xMax &&
         boxX + boxWidth > word.xMin &&
         y < word.yMax &&
         y + height > word.yMin,
       );
-      if (!overlapsText) {
+      if (!overlapsVisibleContent) {
         return {
           ...anchor,
           x: boxX,
@@ -491,7 +592,7 @@ async function safeSignatureStampBox(
       }
     }
     throw new Error(
-      "There is no clear signature area above or near the verified investor name without covering document text.",
+      "There is no clear signature area above or near the verified investor name without covering document text or image content.",
     );
   } finally {
     await rm(workDir, { recursive: true, force: true });

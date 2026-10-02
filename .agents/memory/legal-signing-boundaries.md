@@ -17,6 +17,12 @@ Investor-only signing completion must never be represented as full legal executi
 
 **How to apply:** Preserve these limits when extending approval paths, the first-party signing flow, dashboard labels or document correction processes. Ordinary financial cancellation suspends only unsigned legal work; it must not act as a backdoor void of accepted or permanently retained investor-signed evidence. Do not infer permission to sign for the company or replace signed artifacts.
 
+Pre-existing other-party signature images in property-owned templates are intentional source content and must be preserved, including in execution sections. This is not permission to create signatures for other parties, verify their authenticity, or mark the investor signed.
+
+**Why:** The user explicitly requested preserving supplied pre-signed document images while keeping investor consent and completion separate; restoring removed images to historical versions or evidence is out of scope.
+
+**How to apply:** Allow new template versions to retain these images without a blanket graphics rejection or stripping. Never backfill historical assets, reuse KYC marks, or change legal-status claims based on embedded images.
+
 Use LilyCrest Garden Estate as the outward-facing estate name outside the deed and transfer rights agreement. Preserve the SD118 plot references inside those legal documents and the stable internal scope identifiers.
 
 **Why:** The user explicitly requested a display-name change, with an exception for the deed and transfer rights agreement; this is not permission to rewrite legal terms or migrate existing legal records.

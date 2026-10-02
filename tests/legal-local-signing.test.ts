@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
@@ -15,6 +18,20 @@ import {
 import { LegalFileAlreadyExistsError, type LegalStorageReference } from "../server/legal/files";
 import { recordUnsignedLegalCancellation } from "../server/legal/holding-state";
 import { PNG } from "pngjs";
+import {
+  convertDocxToPdf,
+  verifyAssigneeSignaturePosition,
+} from "../server/legal/converter";
+import {
+  normalizeSuppliedLegalTemplate,
+  renderLegalTemplate,
+  type LegalDocumentType,
+} from "../server/legal/templates";
+import { buildLegalTemplateValues } from "../server/legal/values";
+import {
+  renderLocallySignedPdf as renderActualLocallySignedPdf,
+  sha256Hex,
+} from "../server/legal/local-pdf-signature";
 
 const databaseRef = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("../server/db", () => ({
@@ -70,8 +87,114 @@ function createInkPng(width = 320, height = 100): Buffer {
 }
 
 const signaturePng = createInkPng();
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const visualFixtureDirectory = path.join(
+  process.env.TMPDIR || "/tmp",
+  "legal-task-143-image-regression",
+);
+const sourceFixtures: Record<LegalDocumentType, string> = {
+  deed_of_assignment: "attached_assets/DEED_OF_ASSIGNMENT_BRIKVEST_1790828516010.docx",
+  transfer_exit_rights: "attached_assets/TRANSFER_AND_EXIT_RIGHT_AGREEMENT_1790828516011.docx",
+};
 
-async function seedLegalPair(includeLegacyProviderSchema = false): Promise<void> {
+function commandOutput(command: string, args: string[]): string {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `${command} failed`);
+  }
+  return result.stdout;
+}
+
+function imageCountInPdf(pdfPath: string): number {
+  const listing = commandOutput(process.env.PDFIMAGES_PATH || "pdfimages", ["-list", pdfPath]);
+  return listing.split(/\r?\n/).filter((line) => /^\s*\d+\s+\d+\s+image\s/.test(line)).length;
+}
+
+function imagePageNumbers(pdfPath: string): number[] {
+  const listing = commandOutput(process.env.PDFIMAGES_PATH || "pdfimages", ["-list", pdfPath]);
+  return Array.from(new Set(
+    listing.split(/\r?\n/)
+      .filter((line) => /^\s*\d+\s+\d+\s+image\s/.test(line))
+      .map((line) => Number(line.trim().split(/\s+/)[0])),
+  )).sort((left, right) => left - right);
+}
+
+function rasterizePage(pdfPath: string, pageNumber: number, pngPath: string): void {
+  commandOutput(process.env.PDFTOPPM_PATH || "pdftoppm", [
+    "-f", String(pageNumber), "-l", String(pageNumber), "-singlefile", "-png", "-r", "36", pdfPath,
+    pngPath.replace(/\.png$/i, ""),
+  ]);
+}
+
+async function assertRasterPreservedOutsideSignature(
+  unsignedPath: string,
+  signedPath: string,
+  placement: {
+    pageNumber: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    pageWidth: number;
+    pageHeight: number;
+  },
+  outputDirectory: string,
+): void {
+  const pagesToCompare = Array.from(new Set([
+    placement.pageNumber,
+    ...imagePageNumbers(unsignedPath),
+  ])).sort((left, right) => left - right);
+  for (const pageNumber of pagesToCompare) {
+    const label = pageNumber === placement.pageNumber ? "page" : `image-page-${pageNumber}`;
+    const unsignedPngPath = path.join(outputDirectory, `unsigned-${label}.png`);
+    const signedPngPath = path.join(outputDirectory, `signed-${label}.png`);
+    rasterizePage(unsignedPath, pageNumber, unsignedPngPath);
+    rasterizePage(signedPath, pageNumber, signedPngPath);
+    const unsigned = PNG.sync.read(await fs.readFile(unsignedPngPath));
+    const signed = PNG.sync.read(await fs.readFile(signedPngPath));
+    expect(signed.width).toBe(unsigned.width);
+    expect(signed.height).toBe(unsigned.height);
+
+    const scaleX = unsigned.width / placement.pageWidth;
+    const scaleY = unsigned.height / placement.pageHeight;
+    const protectedBox = pageNumber === placement.pageNumber ? {
+      left: Math.floor((placement.x - 200) * scaleX),
+      right: Math.ceil((placement.x + 200) * scaleX),
+      top: Math.floor((placement.y - 38) * scaleY),
+      bottom: Math.ceil((placement.y + placement.height + 38) * scaleY),
+    } : null;
+    let compared = 0;
+    let changed = 0;
+    for (let y = 0; y < unsigned.height; y += 1) {
+      for (let x = 0; x < unsigned.width; x += 1) {
+        if (
+          protectedBox &&
+          x >= protectedBox.left && x <= protectedBox.right &&
+          y >= protectedBox.top && y <= protectedBox.bottom
+        ) continue;
+        const pixel = (y * unsigned.width + x) * 4;
+        compared += 1;
+        if (!unsigned.data.subarray(pixel, pixel + 4).equals(signed.data.subarray(pixel, pixel + 4))) {
+          changed += 1;
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(100_000);
+    expect(changed).toBe(0);
+  }
+}
+
+async function seedLegalPair(
+  includeLegacyProviderSchema = false,
+  sourceDocuments: Partial<Record<LegalDocumentType, {
+    pdf: Buffer;
+    placement: Awaited<ReturnType<typeof verifyAssigneeSignaturePosition>>;
+  }>> = {},
+): Promise<void> {
   await pglite.exec(`
     CREATE TABLE admin_users (id serial PRIMARY KEY);
     CREATE TABLE users (id serial PRIMARY KEY, email text NOT NULL, password text NOT NULL);
@@ -142,17 +265,27 @@ async function seedLegalPair(includeLegacyProviderSchema = false): Promise<void>
     ) RETURNING id
   `);
   pairId = pair.rows[0].id;
+  const documentValues = ([
+    "deed_of_assignment",
+    "transfer_exit_rights",
+  ] as const).map((documentType, index) => {
+    const source = sourceDocuments[documentType];
+    const key = `legal/documents/00000000-0000-4000-8000-00000000000${index + 1}/unsigned_pdf`;
+    const hash = source ? sha256Hex(source.pdf) : unsignedPdfSha256;
+    const placement = source?.placement ?? {
+      ...verifiedPosition,
+      templateVersionId: `${documentType}:v1`,
+      anchorText: ownerName,
+    };
+    const encodedPlacement = JSON.stringify(placement).replace(/'/g, "''");
+    return `(${pairId},'${documentType}',${templates.rows[index].id},'awaiting_signature',
+      '${key}','${hash}','${encodedPlacement}'::jsonb)`;
+  });
   const docs = await pglite.query<{ id: number }>(`
     INSERT INTO legal_documents (
       pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,
       signature_placement
-    ) VALUES
-      (${pairId},'deed_of_assignment',${templates.rows[0].id},'awaiting_signature',
-       'legal/documents/00000000-0000-4000-8000-000000000001/unsigned_pdf',
-       '${unsignedPdfSha256}','${JSON.stringify(verifiedPosition)}'::jsonb),
-      (${pairId},'transfer_exit_rights',${templates.rows[1].id},'awaiting_signature',
-       'legal/documents/00000000-0000-4000-8000-000000000002/unsigned_pdf',
-        '${unsignedPdfSha256}','${JSON.stringify({ ...verifiedPosition, templateVersionId: "transfer_exit_rights:v1" })}'::jsonb)
+    ) VALUES ${documentValues.join(",")}
     RETURNING id
   `);
   documentIds = docs.rows.map((row) => row.id);
@@ -218,9 +351,13 @@ function createDependencies(options?: {
     comparePasswords,
     storeLegalDocument,
     readLegalDocument: readLegalDocument as never,
-    verifyAssigneeSignaturePosition: vi.fn(async (_pdf: Buffer, input: { templateVersionId: string }) => ({
+    verifyAssigneeSignaturePosition: vi.fn(async (
+      _pdf: Buffer,
+      input: { templateVersionId: string; assigneeFullName: string },
+    ) => ({
       ...verifiedPosition,
       templateVersionId: input.templateVersionId,
+      anchorText: input.assigneeFullName,
     })),
     renderLocallySignedPdf,
     renderLocalSigningEvidencePdf,
@@ -401,6 +538,98 @@ describe("local legal signing (isolated PGlite)", () => {
     expect(dependencies.renderLocallySignedPdf).toHaveBeenCalledTimes(rendererCount);
     await expect(beginLocalSigning(documentIds[1], ownerId, dependencies))
       .rejects.toThrow(/already signed|must be ready/i);
+  });
+
+  it("preserves converter-rendered source images through both investor-signed PDFs", async () => {
+    await fs.mkdir(visualFixtureDirectory, { recursive: true });
+    const sourceDocuments: Partial<Record<LegalDocumentType, {
+      pdf: Buffer;
+      placement: Awaited<ReturnType<typeof verifyAssigneeSignaturePosition>>;
+    }>> = {};
+    for (const documentType of ["deed_of_assignment", "transfer_exit_rights"] as const) {
+      const outputDirectory = path.join(visualFixtureDirectory, documentType);
+      await fs.mkdir(outputDirectory, { recursive: true });
+      const source = await fs.readFile(path.join(projectRoot, sourceFixtures[documentType]));
+      const normalized = normalizeSuppliedLegalTemplate(source);
+      const rendered = renderLegalTemplate(
+        normalized,
+        documentType,
+        buildLegalTemplateValues(documentType, {
+          verifiedFullName: ownerName,
+          verifiedHomeAddress: "1 Verified Street, Lagos",
+          propertyAreaSqm: 10,
+          approvedPaymentAmountNaira: "1,000,000",
+          documentDate: new Date("2026-09-30T12:00:00.000Z"),
+        }),
+      );
+      const unsignedPdf = await convertDocxToPdf(rendered);
+      const unsignedPath = path.join(outputDirectory, "unsigned-source.pdf");
+      await fs.writeFile(unsignedPath, unsignedPdf, { mode: 0o600 });
+      expect(imageCountInPdf(unsignedPath)).toBeGreaterThan(0);
+      const placement = await verifyAssigneeSignaturePosition(unsignedPdf, {
+        templateVersionId: `${documentType}:v1`,
+        assigneeFullName: ownerName,
+      });
+      sourceDocuments[documentType] = { pdf: unsignedPdf, placement };
+    }
+
+    // Seed these as brand-new immutable fixture records: no stored PDF/hash/asset
+    // is ever rewritten to stage the integration test.
+    await pglite.close();
+    pglite = new PGlite();
+    testDb = drizzle(pglite);
+    databaseRef.current = testDb;
+    storage = new Map();
+    await seedLegalPair(false, sourceDocuments);
+    const documents = await query<{
+      id: number;
+      document_type: LegalDocumentType;
+      unsigned_pdf_key: string;
+    }>(`
+      SELECT id,document_type,unsigned_pdf_key FROM legal_documents
+      WHERE pair_id=${pairId} ORDER BY document_type
+    `);
+    for (const document of documents) {
+      storage.set(document.unsigned_pdf_key, Buffer.from(sourceDocuments[document.document_type]!.pdf));
+    }
+    const dependencies = createDependencies();
+    dependencies.verifyAssigneeSignaturePosition = (pdf, input) =>
+      verifyAssigneeSignaturePosition(pdf, input);
+    dependencies.renderLocallySignedPdf = renderActualLocallySignedPdf;
+
+    for (const document of documents) {
+      const outputDirectory = path.join(visualFixtureDirectory, document.document_type);
+      const unsignedPath = path.join(outputDirectory, "unsigned-source.pdf");
+      const placement = sourceDocuments[document.document_type]!.placement;
+      const session = await beginLocalSigning(document.id, ownerId, dependencies);
+      const result = await completeLocalSigning(
+        document.id,
+        ownerId,
+        signingBody(session),
+        { ip: "192.0.2.143", userAgent: "Task 143 PDF preservation regression" },
+        dependencies,
+      );
+      expect(result.status).toBe("investor_signed");
+
+      const finalDocument = (await query<{ signed_pdf_key: string }>(`
+        SELECT signed_pdf_key FROM legal_documents WHERE id=${document.id}
+      `))[0];
+      const finalPdf = storage.get(finalDocument.signed_pdf_key);
+      expect(finalPdf).toBeDefined();
+      const signedPath = path.join(outputDirectory, "investor-signed.pdf");
+      await fs.writeFile(signedPath, finalPdf!, { mode: 0o600 });
+      expect(imageCountInPdf(signedPath)).toBeGreaterThanOrEqual(imageCountInPdf(unsignedPath));
+      for (const sourcePage of imagePageNumbers(unsignedPath)) {
+        expect(imagePageNumbers(signedPath)).toContain(sourcePage);
+      }
+      await assertRasterPreservedOutsideSignature(
+        unsignedPath,
+        signedPath,
+        placement,
+        outputDirectory,
+      );
+      await fs.writeFile(path.join(outputDirectory, "signature.png"), signaturePng, { mode: 0o600 });
+    }
   });
 
   it("recovers immutable storage conflicts only when existing bytes match, and rejects conflicting bytes", async () => {
