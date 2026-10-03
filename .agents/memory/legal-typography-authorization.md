@@ -19,3 +19,16 @@ removal and excluded previously issued or signed artifacts from the change.
 **How to apply:** Keep source downloads highlighted and byte-identical. If a
 missing historical PDF cannot be recreated with its recorded digest, stop for
 investigation rather than saving a visually corrected replacement.
+
+Explicit administrator authoring is separate from automatic typography changes:
+admins may change template wording within the app, saving a new inactive version.
+This does not authorize automatic clause changes during conversion or replacement
+of previously issued investor documents.
+
+**Why:** The user requested in-app deed/agreement editing instead of the required
+Word download, while the existing immutable-evidence boundaries remain in force.
+
+**How to apply:** Preserve the original Word structures and signature assets when
+authoring wording; do not reconstruct legal forms from generic HTML. Keep automatic
+investor fields protected. Preview and activation remain explicit separate steps;
+existing investor pairs retain their pinned versions.

@@ -40,3 +40,14 @@ Frontend-only verification still needs to allow the proxied development host.
 **Why:** A healthy fixture server can return a host-rejection response through the HTTPS preview, causing browser tests to time out before the application loads.
 
 **How to apply:** Distinguish proxy/host rejection from UI failures when configuring isolated browser verification; do not start the full backend as a workaround.
+
+A startup-repair skip is not a general worker pause, and development run-command
+flags do not automatically protect a published release.
+
+**Why:** A guarded backend reload still started a separately registered
+marketplace alert worker. Suppressing wrapped business-record repairs does not
+establish that all background activity is stopped or has its database prerequisites.
+
+**How to apply:** Review worker startup hooks and schema prerequisites independently
+before reloading the backend. Do not treat a development maintenance flag as a
+production notification lock or as authorization to apply live migrations.

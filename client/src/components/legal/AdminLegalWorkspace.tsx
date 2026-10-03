@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Download, Eye, FileText, ShieldCheck, Upload } from "lucide-react";
+import { Building2, Download, Eye, FileText, Pencil, ShieldCheck, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { LEGAL_REQUIRED_TOKENS, LEGAL_SUPPORTED_TOKENS, type LegalCorrectionIssue } from "../../../../shared/legal-errors";
 import { LegalActionError, LegalActionNotice, legalNetworkError, readLegalResponse, type LegalActionResult } from "./legalActionErrors";
+import { LegalTemplateEditor } from "./LegalTemplateEditor";
 import { HistoricalLegalHoldings } from "./HistoricalLegalHoldings";
 
 type Request = (url: string, options?: any) => Promise<any>;
@@ -129,6 +130,7 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
   const [templateResults, setTemplateResults] = useState<Record<string, LegalActionResult>>({});
   const fileInput = useRef<HTMLInputElement>(null);
   const [draftId, setDraftId] = useState<string>("");
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
   const [activation, setActivation] = useState<Template | null>(null);
   const [assignment, setAssignment] = useState<Template | null>(null);
@@ -258,6 +260,7 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
         window.requestAnimationFrame(() => window.document.getElementById("legal-template-fields")?.scrollIntoView({ behavior: "smooth", block: "start" }));
       }
     }}>Inspect fields</Button>
+     {!unassigned && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setEditingTemplate(template)}><Pencil className="mr-1.5 h-4 w-4" />Edit wording</Button>}
     {unassigned ? <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setAssignment(template)}>Assign to {property.name}</Button> : !template.active && <Button size="sm" disabled={!!busy || template.validationStatus !== "valid"} onClick={() => setActivation(template)}>Activate v{template.version}</Button>}
      {!unassigned && <><Button size="sm" variant="outline" disabled={!!busy || template.active || !!template.deletionBlockedReason} aria-describedby={template.active || template.deletionBlockedReason ? `delete-restriction-${template.id}` : undefined} onClick={() => { setTemplateResults((previous) => { const next = { ...previous }; delete next[`${template.id}:deletion`]; return next; }); setDeletion(template); }}>Delete</Button>{(template.active || template.deletionBlockedReason) && <p id={`delete-restriction-${template.id}`} className="w-full text-xs text-slate-600">{template.active || template.deletionBlockedReason === "active" ? "Live versions cannot be deleted. Activate another version first; referenced versions remain protected." : "This version is pinned to an investor document or document pair, including historical records, and cannot be deleted."}</p>}</>}
      {(["preview", "download", "activation"] as const).map((operation) => templateResults[`${template.id}:${operation}`] && <div key={operation} className="w-full basis-full"><LegalActionNotice result={templateResults[`${template.id}:${operation}`]} /></div>)}
@@ -316,6 +319,12 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
     </section>
     <section role="tabpanel" id="legal-panel-investors" aria-labelledby="legal-tab-investors" hidden={tab !== "investors"}><HistoricalLegalHoldings key={`historical-${propertyId}`} propertyId={propertyId} propertyName={property.name} authenticatedRequest={authenticatedRequest} active={tab === "investors"} /></section>
     <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}><DialogContent className="max-w-5xl h-[90dvh] flex flex-col"><DialogHeader><DialogTitle>{preview?.title}</DialogTitle><DialogDescription>Read-only preview. Templates are review samples; signed investor evidence remains unchanged.</DialogDescription></DialogHeader>{preview && <iframe title={preview.title} src={preview.url} className="min-h-0 w-full flex-1 rounded border bg-slate-100" />}</DialogContent></Dialog>
+    {editingTemplate && <LegalTemplateEditor key={`${propertyId}:${editingTemplate.id}`} template={editingTemplate} propertyId={propertyId} propertyName={property.name} onClose={() => setEditingTemplate(null)} onSaved={(saved) => {
+      setDraftId(String(saved.id));
+      setEditingTemplate(null);
+      refresh();
+      toast({ title: "Wording saved as a draft", description: `${property.name} · ${name(saved.documentType)} · v${saved.version}. The draft is inactive; preview and activate it from template controls when ready.` });
+    }} />}
     <Dialog open={!!activation} onOpenChange={(open) => { if (!open && !busy) setActivation(null); }}><DialogContent><DialogHeader><DialogTitle>Activate for {property.name}?</DialogTitle><DialogDescription>{activation ? `${name(activation.documentType)} · Version ${activation.version}. Future generation for this property will use this version. Existing document pairs keep their original template pins.` : ""}</DialogDescription></DialogHeader>
       {activation && templateResults[`${activation.id}:activation`] && <LegalActionNotice result={templateResults[`${activation.id}:activation`]} />}
       <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={!!busy} onClick={() => setActivation(null)}>Cancel</Button><Button disabled={!!busy} onClick={() => { if (activation) void action(`activate-${activation.id}`, async () => {

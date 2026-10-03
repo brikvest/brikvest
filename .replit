@@ -49,7 +49,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "SKIP_STARTUP_DATA_MAINTENANCE=true npm run dev"
 waitForPort = 5000
 
 [[workflows.workflow]]

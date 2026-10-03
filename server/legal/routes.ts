@@ -25,6 +25,7 @@ import { searchHistoricalHoldings, prepareHistoricalHoldings } from "./historica
 import { hasExactPdfApproval, recordPdfApproval, reviewedDocuments, reviewSchemaInstalled } from "./pdf-review";
 import { hasOutstandingLegalSignature } from "./invitation-state";
 import { LEGAL_DISPATCH_PROTOCOL } from "./dispatch-maintenance";
+import { readTemplateEditor, editTemplateWording } from "./template-editor";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -54,6 +55,9 @@ const templateHandler = (stage: LegalFailureStage, fn: (req: any, res: any) => P
   Promise.resolve(fn(req, res)).catch((error) => {
     if (res.headersSent) return;
     const result = adminLegalFailure(error, req.legalStage);
+    if (req.legalInAppEditor && result.failure.code === "DOCUMENT_VALIDATION_REJECTED") {
+      result.failure.nextAction = "Correct the listed wording issues in the editor and save again. No draft was saved or activated; existing investor documents are unchanged.";
+    }
     res.status(result.status).json({ error: result.failure.summary, failure: result.failure });
   });
 };
@@ -98,7 +102,7 @@ async function audit(tx: any, adminId: number, event: string, details: any, pair
   await tx.execute(sql`INSERT INTO legal_audit_events (pair_id, actor_type, actor_id, event_type, details)
     VALUES (${pairId}, 'admin', ${adminId}, ${event}, ${JSON.stringify(details)}::jsonb)`);
 }
-async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, propertyId: number, setStage: (stage: LegalFailureStage) => void) {
+async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, filename: string, adminId: number, propertyId: number, setStage: (stage: LegalFailureStage) => void, editSource?: { id: number; sha256: string; changedParagraphs: number }) {
   setStage("validation");
   const validation = validateLegalTemplate(bytes, documentType);
   // Serializes version allocation and upload; a failed DB commit can leave an
@@ -107,6 +111,11 @@ async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, file
   return db.transaction(async (tx) => {
     if (!rows(await tx.execute(sql`SELECT id FROM properties WHERE id=${propertyId}`)).length) throw new AdminLegalInputError("PROPERTY_NOT_FOUND", "This property is no longer available.", "Refresh the property list and choose an available property.", 404);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"legal-template:" + documentType}))`);
+    if (editSource && !rows(await tx.execute(sql`SELECT id FROM legal_templates
+      WHERE id=${editSource.id} AND property_id=${propertyId} AND document_type=${documentType}
+        AND sha256=${editSource.sha256} AND deleted_at IS NULL FOR SHARE`)).length) {
+      throw new AdminLegalInputError("EDITOR_SOURCE_UNAVAILABLE", "The source version is no longer available.", "Reload the template list and reopen the editor. No draft was saved.", 409);
+    }
     const version = rows(await tx.execute(sql`SELECT COALESCE(MAX(version), 0) + 1 AS version FROM legal_templates WHERE document_type = ${documentType}`))[0].version;
     const sha = createHash("sha256").update(bytes).digest("hex");
     setStage("storage");
@@ -114,6 +123,10 @@ async function saveTemplate(documentType: LegalDocumentType, bytes: Buffer, file
     setStage("save");
     const result = rows(await tx.execute(templateUploadInsert({ propertyId, documentType, version, filename, key, sha, byteSize: bytes.length, placeholders: Object.keys(validation.placeholderCounts), adminId })))[0];
     await audit(tx, adminId, "template_version_uploaded", { templateId: result.id, propertyId, documentType, version, sha256: sha });
+    if (editSource) await audit(tx, adminId, "template_version_edited", {
+      templateId: result.id, propertyId, documentType, version, sha256: sha,
+      sourceTemplateId: editSource.id, sourceSha256: editSource.sha256, changedParagraphs: editSource.changedParagraphs,
+    });
     return { id: result.id, propertyId, version, documentType, validationStatus: "valid" };
   });
 }
@@ -296,6 +309,39 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
       privateResponse(res, pdf, "application/pdf", "illustrative-template-preview.pdf");
     }));
   }
+  const editorSource = async (req: any, propertyId: number) => {
+    const template = rows(await db.execute(sql`SELECT * FROM legal_templates
+      WHERE id=${templateId(req.params.id)} AND property_id=${propertyId} AND deleted_at IS NULL`))[0];
+    if (!template) throw new AdminLegalInputError("TEMPLATE_NOT_FOUND", "The template is not available in this property workspace.", "Refresh the property’s template list and select a version again.", 404);
+    req.legalStage = "storage";
+    const bytes = await readLegalTemplateVersion(template.storage_key);
+    if (createHash("sha256").update(bytes).digest("hex") !== template.sha256) throw new Error("Stored template checksum mismatch");
+    req.legalStage = "inspection";
+    return { template, bytes };
+  };
+  app.get("/api/admin/legal/templates/:id/editor", auth.requireAdminAuth, templateHandler("inspection", async (req, res) => {
+    const { template, bytes } = await editorSource(req, templateId(req.query.propertyId));
+    res.set("Cache-Control", "private, no-store").json({
+      templateId: template.id, propertyId: template.property_id, documentType: template.document_type,
+      version: template.version, sourceSha256: template.sha256, sections: readTemplateEditor(bytes),
+    });
+  }));
+  app.post("/api/admin/legal/templates/:id/editor", auth.requireAdminAuth, templateHandler("save", async (req, res) => {
+    req.legalInAppEditor = true;
+    if (!req.is("application/json")) throw new AdminLegalInputError("EDITOR_JSON_REQUIRED", "Save wording changes from the in-app editor.", "Reopen Edit wording and try again.", 415);
+    const propertyId = templateId(req.body.propertyId);
+    const { template, bytes } = await editorSource(req, propertyId);
+    if (req.body.sourceSha256 !== template.sha256) throw new AdminLegalInputError(
+      "EDITOR_SOURCE_CHANGED", "The editor’s source does not match this template version.", "Reload the source version before saving. No template was changed.", 409,
+    );
+    req.legalStage = "validation";
+    const edited = editTemplateWording(bytes, req.body.changes);
+    const saved = await saveTemplate(template.document_type, edited.bytes,
+      `edited-${template.document_type}-from-v${template.version}.docx`, req.user.userId, propertyId,
+      (stage) => { req.legalStage = stage; },
+      { id: template.id, sha256: template.sha256, changedParagraphs: edited.changedParagraphs });
+    res.status(201).json(saved);
+  }));
   app.post("/api/admin/legal/templates/:id/activate", auth.requireAdminAuth, templateHandler("activation", async (req, res) => {
     const selectedTemplateId = templateId(req.params.id);
     const propertyId = templateId(req.body.propertyId);
