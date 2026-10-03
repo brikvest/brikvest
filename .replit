@@ -43,6 +43,10 @@ args = "legal-workflow"
 task = "workflow.run"
 args = "production-build"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "email-recovery-tests"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -70,6 +74,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run build"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "email-recovery-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx vitest run --config vitest.email.config.ts"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -13,7 +13,6 @@ import { convertDocxToPdf, verifyAssigneeSignaturePosition } from "./converter";
 import { buildIllustrativeTemplateValues } from "./values";
 import { storeLegalTemplateVersion, readLegalTemplateVersion, streamAuthorizedLegalDocument } from "./files";
 import { getLegalReadiness } from "../../scripts/legal-readiness";
-import { dispatchLegalJobs } from "./worker";
 import { correctUnsignedConsideration } from "./consideration-correction";
 import { beginLocalSigning, completeLocalSigning } from "./local-signing";
 import { assertActiveConfirmedHolding } from "./holding-state";
@@ -26,6 +25,8 @@ import { hasExactPdfApproval, recordPdfApproval, reviewedDocuments, reviewSchema
 import { hasOutstandingLegalSignature } from "./invitation-state";
 import { LEGAL_DISPATCH_PROTOCOL } from "./dispatch-maintenance";
 import { readTemplateEditor, editTemplateWording } from "./template-editor";
+import { dispatchLegalJobs, recoverLegalNotification } from "./worker";
+import { legalApplicationOrigin } from "./application-origin";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -166,11 +167,18 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   app.use("/api/admin/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   // Read-only, non-personal rollout verification; never claims a job or sends
   // mail. The protocol identifies the release that guards every dispatch path.
-  app.get("/api/legal/rollout-status", handler(async (_req, res) => res.json({
-    dispatchProtocol: LEGAL_DISPATCH_PROTOCOL,
-    pdfReviewSchemaInstalled: await reviewSchemaInstalled(db),
-    startupDataMaintenanceSkipped: process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true",
-  })));
+  app.get("/api/legal/rollout-status", handler(async (_req, res) => {
+    let applicationOrigin: string | null = null;
+    try { applicationOrigin = legalApplicationOrigin(process.env.APP_BASE_URL).origin; } catch { /* No configuration values on failure. */ }
+    res.json({
+      dispatchProtocol: LEGAL_DISPATCH_PROTOCOL,
+      notificationRecoveryProtocol: "exact-existing-notification-v1",
+      applicationOrigin,
+      notificationEmailConfigured: Boolean(process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()),
+      pdfReviewSchemaInstalled: await reviewSchemaInstalled(db),
+      startupDataMaintenanceSkipped: process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true",
+    });
+  }));
   app.get("/api/legal/holdings", auth.requireAuth, handler(async (req, res) => res.json(await listPairs(req.user.id))));
   app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (req, res) => res.json(await listPairs(undefined, id(req.query.propertyId)))));
   app.get("/api/admin/legal/historical-holdings", auth.requireAdminAuth, handler(async (req, res) => res.json(await searchHistoricalHoldings({
@@ -501,6 +509,14 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     res.json({ message: "Request queued; the existing pair and in-app signing evidence are retained" });
   }));
   app.post("/api/admin/legal/dispatch", auth.requireAdminAuth, handler(async (_req, res) => res.json(await dispatchLegalJobs(5))));
+  app.post("/api/admin/legal/pairs/:id/recover-notification", auth.requireAdminAuth, handler(async (req, res) => {
+    if (req.body.confirmed !== true) throw new Error("Confirm recovery of only this existing notification.");
+    // No wakeLegalWorker: this action must never dispatch any other legal job.
+    res.json(await recoverLegalNotification({
+      pairId: id(req.params.id), propertyId: id(req.body.propertyId),
+      jobId: id(req.body.jobId), cycleId: id(req.body.cycleId), adminId: req.user.userId,
+    }));
+  }));
   app.post("/api/legal/dispatch", handler(async (req, res) => {
     const expected = process.env.LEGAL_DISPATCH_SECRET;
     const supplied = String(req.headers.authorization || "").replace(/^Bearer /, "");

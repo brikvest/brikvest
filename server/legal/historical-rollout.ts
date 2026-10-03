@@ -115,7 +115,9 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
   for (const h of holdings) {
     const docs = h.pairId ? rows(await db.execute(sql`SELECT d.*,t.version AS template_version FROM legal_documents d
       JOIN legal_templates t ON t.id=d.template_id WHERE d.pair_id=${h.pairId} AND d.superseded_at IS NULL`)) : [];
-    const jobs = h.pairId ? rows(await db.execute(sql`SELECT kind,status,last_error AS "lastError" FROM legal_jobs WHERE pair_id=${h.pairId}`)) : [];
+    const jobs = h.pairId ? rows(await db.execute(sql`SELECT id,kind,status,notification_cycle_id AS "cycleId",
+      available_at AS "availableAt",available_at<=now() AS "retryEligible",last_error AS "lastError"
+      FROM legal_jobs WHERE pair_id=${h.pairId}`)) : [];
     const history = h.pairId ? rows(await db.execute(sql`SELECT c.id,c.cycle_number AS "cycleNumber",c.status,j.last_error AS "lastError",c.created_at AS "createdAt",c.sent_at AS "sentAt"
       FROM legal_notification_cycles c LEFT JOIN legal_jobs j ON j.notification_cycle_id=c.id AND j.kind='notify'
       WHERE c.pair_id=${h.pairId} ORDER BY c.cycle_number DESC LIMIT 20`)) : [];

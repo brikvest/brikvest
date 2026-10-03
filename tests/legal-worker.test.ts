@@ -255,6 +255,119 @@ describe("legal durable job worker", () => {
     process.env.APP_BASE_URL = "https://brikvest.example";
   });
 
+  it("recovers exactly one existing notification with the canonical holding link, without generation or global claims", async () => {
+    process.env.APP_BASE_URL = "https://brikvest.net";
+    const selected = { pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1 };
+    const pairResult = createPairResult({ ready: true, pdfKeys: [
+      "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",
+      "legal/documents/00000000-0000-5000-8000-000000000002/unsigned_pdf",
+    ] });
+    const { dependencies } = createGenerationDependencies({
+      claimExistingLegalNotification: vi.fn(async () => ({ state: "claimed" as const, claim: { ...claim("notify"), notificationCycleId: 99 } })),
+      getNotificationRecoveryStatus: vi.fn(async () => ({ state: "accepted" as const, message: "Provider accepted; inbox delivery not confirmed." })),
+      getPairWithDocuments: vi.fn(async () => pairResult),
+      readLegalDocument: vi.fn(async () => validPdf),
+    });
+    expect(await createLegalWorker(dependencies).recoverLegalNotification(selected)).toMatchObject({ state: "accepted" });
+    expect((dependencies.claimExistingLegalNotification as any)).toHaveBeenCalledWith(selected);
+    expect(dependencies.claimNextLegalJob).not.toHaveBeenCalled();
+    expect(dependencies.sendEmail).toHaveBeenCalledOnce();
+    expect(dependencies.sendEmail.mock.calls[0][0].html).toContain("https://brikvest.net/dashboard?holding=12");
+    expect(dependencies.storeLegalDocument).not.toHaveBeenCalled();
+    expect(dependencies.convertDocxToPdf).not.toHaveBeenCalled();
+    expect(dependencies.renderLegalTemplate).not.toHaveBeenCalled();
+    expect(dependencies.markPairReady).not.toHaveBeenCalled();
+  });
+
+  it.each(["waiting_retry", "accepted", "blocked_uncertain", "in_progress", "blocked"] as const)(
+    "bounded recovery does not send or globally dispatch when the selected job is %s", async state => {
+      const claimSelected = vi.fn(async () => ({ state, message: "No send." }));
+      const { dependencies } = createGenerationDependencies({ claimExistingLegalNotification: claimSelected });
+      expect(await createLegalWorker(dependencies).recoverLegalNotification({ pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1 })).toMatchObject({ state });
+      expect(dependencies.claimNextLegalJob).not.toHaveBeenCalled();
+      expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    },
+  );
+
+  it("validates origin and maintenance permit before claiming a recovery retry", async () => {
+    const claimSelected = vi.fn();
+    const { dependencies } = createGenerationDependencies({ claimExistingLegalNotification: claimSelected });
+    const worker = createLegalWorker(dependencies);
+    const selected = { pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1 };
+    process.env.APP_BASE_URL = "";
+    await expect(worker.recoverLegalNotification(selected)).rejects.toThrow("APP_BASE_URL");
+    process.env.APP_BASE_URL = "https://brikvest.net";
+    await expect(worker.recoverLegalNotification(selected, () => false)).rejects.toThrow("maintenance permit");
+    expect(claimSelected).not.toHaveBeenCalled();
+    expect(dependencies.beginLegalNotificationAttempt).not.toHaveBeenCalled();
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it.each(["definitive_failure", "uncertain"] as const)(
+    "bounded recovery retains %s outcomes instead of reporting provider acceptance", async mode => {
+      const selected = { pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1 };
+      const pairResult = createPairResult({ ready: true, pdfKeys: [
+        "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",
+        "legal/documents/00000000-0000-5000-8000-000000000002/unsigned_pdf",
+      ] });
+      const getStatus = vi.fn(async () => ({
+        state: mode === "uncertain" ? "blocked_uncertain" as const : "waiting_retry" as const,
+        message: "No provider acceptance is confirmed.",
+      }));
+      const { dependencies } = createGenerationDependencies({
+        claimExistingLegalNotification: vi.fn(async () => ({ state: "claimed" as const, claim: claim("notify") })),
+        getNotificationRecoveryStatus: getStatus,
+        getPairWithDocuments: vi.fn(async () => pairResult),
+        readLegalDocument: vi.fn(async () => validPdf),
+        sendEmail: vi.fn(async () => {
+          if (mode === "uncertain") throw new Error("Transport result unknown");
+          return false;
+        }),
+      });
+      expect(await createLegalWorker(dependencies).recoverLegalNotification(selected)).toMatchObject({
+        state: mode === "uncertain" ? "blocked_uncertain" : "waiting_retry",
+      });
+      expect(dependencies.recordLegalNotificationSent).not.toHaveBeenCalled();
+      expect(dependencies.completeLegalJob).not.toHaveBeenCalled();
+      expect(mode === "uncertain" ? dependencies.markLegalNotificationUncertain : dependencies.recordLegalNotificationFailed).toHaveBeenCalledOnce();
+      expect(getStatus).toHaveBeenCalledWith(selected);
+      expect(dependencies.claimNextLegalJob).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains the bounded recovery maintenance permit until a timed-out SMTP operation settles", async () => {
+    vi.useFakeTimers();
+    let finish!: (accepted: boolean) => void;
+    const underlying = new Promise<boolean>(resolve => { finish = resolve; });
+    const pairResult = createPairResult({ ready: true, pdfKeys: [
+      "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",
+      "legal/documents/00000000-0000-5000-8000-000000000002/unsigned_pdf",
+    ] });
+    const getStatus = vi.fn(async () => ({ state: "blocked_uncertain" as const, message: "Inspect the recorded outcome." }));
+    const { dependencies } = createGenerationDependencies({
+      claimExistingLegalNotification: vi.fn(async () => ({ state: "claimed" as const, claim: claim("notify") })),
+      getNotificationRecoveryStatus: getStatus,
+      getPairWithDocuments: vi.fn(async () => pairResult),
+      readLegalDocument: vi.fn(async () => validPdf),
+      sendEmail: vi.fn(() => underlying),
+    });
+    let settled = false;
+    const recovery = createLegalWorker(dependencies).recoverLegalNotification({
+      pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1,
+    }).then(result => { settled = true; return result; });
+    try {
+      await vi.advanceTimersByTimeAsync(4 * 60_000 + 1);
+      expect(dependencies.failLegalJob).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+      expect(getStatus).not.toHaveBeenCalled();
+      finish(false);
+      expect(await recovery).toMatchObject({ state: "blocked_uncertain" });
+    } finally {
+      finish(false);
+      vi.useRealTimers();
+    }
+  });
+
   it("generates and stores the pinned pair using frozen values and recovers artifacts on retry", async () => {
     const { dependencies, pairResult, stored } = createGenerationDependencies();
     dependencies.claimNextLegalJob

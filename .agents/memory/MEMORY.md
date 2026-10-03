@@ -15,3 +15,4 @@
 - [PDF review release boundary](pdf-review-release-boundary.md) — payment/template approval never releases signing mail; both exact investor PDFs require explicit admin approval.
 - [Playwright output isolation](playwright-output-isolation.md) — concurrent browser commands need separate output directories to avoid false trace/cleanup failures.
 - [Land-only consideration](land-only-consideration.md) — portfolio principal and deeds exclude acquisition fees; preserve payments and signed evidence, and re-review replacement drafts.
+- [Task release boundary](task-release-boundary.md) — merge prepared task changes into main before publishing; saved configuration does not prove live activation.

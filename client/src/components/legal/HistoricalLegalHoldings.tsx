@@ -22,7 +22,7 @@ type HistoricalHolding = {
   auditHistory?: { id: number; eventType: string; actorId?: number; createdAt: string; details: unknown }[];
   blockers: string[]; lastError?: string;
   notificationHistory: { id: number; cycleNumber: number; status: string; lastError?: string; createdAt: string; sentAt?: string }[];
-  jobs: { kind: string; status: string; lastError?: string }[];
+  jobs: { id?: number; cycleId?: number; kind: string; status: string; lastError?: string; availableAt?: string; retryEligible?: boolean }[];
 };
 type Template = { id: number; documentType: string; version: number };
 type HoldingResponse = { items: HistoricalHolding[]; total: number; page: number; pageSize: number; templates: Template[]; propertyName: string };
@@ -188,7 +188,7 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     detailSession.current += 1;
     activePair.current = holding.pairId;
     reviewRequestSignature.current = "";
-    setDetail(holding); setError(""); setReview(null); setChecked({});
+    setDetail(holding); setError(""); setResult(""); setReview(null); setChecked({});
   }
   async function fileAction(doc: LegalDocument, mode: "preview" | "download", version: "unsigned" | "signed" | "certificate" = "unsigned") {
     const holdingId = detail?.reservationId;
@@ -226,16 +226,19 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     } catch (cause) { if (mounted.current && activePair.current === pairId && detailSession.current === session) setError(getApiErrorMessage(cause, "Approval was not confirmed. Refresh review details before retrying.")); }
     finally { if (mounted.current) setWorking(null); }
   }
-  async function pairAction(kind: "retry" | "resend" | "audit" | "correct-consideration") {
+  async function pairAction(kind: "retry" | "resend" | "audit" | "correct-consideration" | "recover-notification") {
     if (!detail?.pairId || working) return;
     if (kind === "correct-consideration" && !window.confirm(
       "Create new land-only legal drafts? Original documents and full payment history will be retained. Both new PDFs must be reviewed again before email is released."
     )) return;
     const pairId = detail.pairId;
     const session = detailSession.current;
-    setWorking(kind); setError("");
+    setWorking(kind); setError(""); setResult("");
     try {
-      const response = await authenticatedRequest(`/api/admin/legal/pairs/${pairId}/${kind}?propertyId=${propertyId}`, { method: kind === "audit" ? "GET" : "POST", ...(kind === "audit" ? {} : { body: JSON.stringify({ propertyId, ...(kind === "correct-consideration" ? { confirmed: true } : {}) }) }) });
+      const job = detail.jobs.find(job => job.kind === "notify");
+      const response = await authenticatedRequest(`/api/admin/legal/pairs/${pairId}/${kind}?propertyId=${propertyId}`, { method: kind === "audit" ? "GET" : "POST", ...(kind === "audit" ? {} : { body: JSON.stringify({ propertyId,
+        ...(kind === "correct-consideration" ? { confirmed: true } : {}),
+        ...(kind === "recover-notification" ? { confirmed: true, jobId: job?.id, cycleId: job?.cycleId } : {}) }) }) });
       if (!mounted.current || activePair.current !== pairId || detailSession.current !== session) return;
       if (kind === "audit") setResult(JSON.stringify(response, null, 2));
       else {
@@ -253,6 +256,7 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     finally { if (mounted.current) setWorking(null); }
   }
   const allDocs = review?.documents || [];
+  const existingNotification = detail?.jobs.find(job => job.kind === "notify" && ["queued", "retry"].includes(job.status));
   const reviewGateHeld = !!detail && ["awaiting_review", "held_for_review"].includes(detail.notificationState.toLowerCase().replace(/^notification_/, ""));
   const reviewReady = !!detail?.canReview && !!review && ["deed_of_assignment", "transfer_exit_rights"].every((type) => {
     const doc = allDocs.find((item) => item.type === type);
@@ -352,7 +356,9 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
             {detail.canReview && !review?.approved && !detail.reviewApproved && <div className="rounded-lg border border-[#cfd9cb] bg-[#f2f5ef] p-4"><p className="text-sm text-[#445546]">Review both current PDFs above. Approval is recorded against these exact document IDs and content hashes.</p><Button className="mt-3" disabled={!reviewReady || !!working} onClick={() => void approveAndSend()}><ShieldCheck className="mr-2 h-4 w-4" />{working === "approve" ? "Recording approval…" : "Approve and send notification"}</Button>{!reviewReady && <p className="mt-2 text-xs text-[#687568]">Preview and confirm review of both the Deed and Transfer PDF.</p>}</div>}
             {!!detail.pairId && <div className="flex flex-wrap gap-2">
               {!reviewGateHeld && (["failed", "blocked"].includes(detail.preparationState) || detail.jobs?.some((job) => /generation|pdf|prepare|document/i.test(job.kind) && (["failed", "blocked", "dead"].includes(job.status.toLowerCase()) || (job.status.toLowerCase() === "retry" && !!job.lastError)))) && <Button size="sm" variant="outline" disabled={!!working} onClick={() => void pairAction("retry")}><RefreshCw className="mr-1.5 h-4 w-4" />Retry processing</Button>}
-              {detail.reviewApproved && detail.canNotify && !fullySigned(detail.signingState) && <Button size="sm" variant="outline" disabled={!!working} onClick={() => void pairAction("resend")}><Send className="mr-1.5 h-4 w-4" />Resend notification</Button>}
+              {detail.reviewApproved && detail.canNotify && !fullySigned(detail.signingState) && (existingNotification
+                ? <div className="space-y-2"><Button size="sm" variant="outline" disabled={!!working || !existingNotification.id || !existingNotification.cycleId || existingNotification.retryEligible === false} onClick={() => void pairAction("recover-notification")}><Send className="mr-1.5 h-4 w-4" />Recover existing notification</Button><p className="text-xs text-slate-600">Only the existing request is processed. No new cycle or other investor notification is created.{existingNotification.retryEligible === false && existingNotification.availableAt && ` Retry becomes eligible ${new Date(existingNotification.availableAt).toLocaleString()}.`}</p>{existingNotification.lastError && <p className="text-xs text-rose-700">Last failure: {existingNotification.lastError}</p>}</div>
+                : <Button size="sm" variant="outline" disabled={!!working} onClick={() => void pairAction("resend")}><Send className="mr-1.5 h-4 w-4" />Resend notification</Button>)}
               {detail.notificationState === "uncertain" && <p className="w-full text-sm text-amber-900">The previous delivery outcome is uncertain. Do not send another invitation until the recorded attempt is reconciled.</p>}
             </div>}
             <details className="rounded-md border border-[#e0e4dc] p-3"><summary className="cursor-pointer text-sm font-medium">Notification history ({detail.notificationHistory?.length || 0})</summary><div className="mt-3 space-y-2">{detail.notificationHistory?.length ? detail.notificationHistory.map((entry) => <div key={entry.id} className="rounded bg-[#f4f5f1] p-2 text-xs"><strong>Cycle {entry.cycleNumber} · {entry.status.replace(/_/g, " ")}</strong> · {new Date(entry.createdAt).toLocaleString()}{entry.sentAt && <p>Accepted by mail service {new Date(entry.sentAt).toLocaleString()} · inbox delivery not confirmed</p>}{entry.lastError && <p className="text-rose-700">{entry.lastError}</p>}</div>) : <p className="text-sm text-[#69746a]">No notification attempts.</p>}</div></details>
@@ -362,7 +368,7 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
           </div>}
         {error && <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</div>}
         {error && detail?.pairId && !review && (detail.canReview || detail.reviewApproved) && <Button variant="outline" disabled={!!working} onClick={() => { reviewRequestSignature.current = ""; setError(""); void requestReview(detail); }}>Retry review details</Button>}
-        {result && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#f1f3ee] p-3 text-xs">{result}</pre>}
+        {result && <pre aria-live="polite" className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#f1f3ee] p-3 text-xs">{result}</pre>}
       </DialogContent>
     </Dialog>
     <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}><DialogContent className="flex h-[90dvh] max-w-5xl flex-col"><DialogHeader><DialogTitle>{preview?.title}</DialogTitle><DialogDescription>Private investor-specific PDF · {propertyName} · Holding #{detail?.reservationId}</DialogDescription></DialogHeader>{preview && <iframe title={preview.title} src={preview.url} className="min-h-0 w-full flex-1 rounded border bg-[#f2f4ef]" />}</DialogContent></Dialog>

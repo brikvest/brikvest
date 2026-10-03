@@ -24,6 +24,13 @@ async function fixture(page: Page, mobile = false) {
       jobs: [{ kind: "notify", status: "blocked", lastError: "Review approval required" }] }),
     row(910, { pairId: 1210, canPrepare: false, preparationState: "queued", notificationState: "not_queued", lastError: "Renderer could not load the saved template.",
       jobs: [{ kind: "generation", status: "retry", lastError: "Renderer could not load the saved template." }] }),
+    row(911, { pairId: 1211, canPrepare: false, canNotify: true, reviewApproved: true, canReview: true,
+      preparationState: "documents_ready", notificationState: "queued",
+      documents: [{ id: 9111, type: "deed_of_assignment", status: "awaiting_signature", hasUnsignedPdf: true },
+        { id: 9112, type: "transfer_exit_rights", status: "awaiting_signature", hasUnsignedPdf: true }],
+      jobs: [{ id: 9911, kind: "notify", status: "retry", cycleId: 991, retryEligible: true,
+        availableAt: "2026-10-01T10:00:00Z", lastError: "APP_BASE_URL must be configured as an HTTPS application origin" }],
+      notificationHistory: [{ id: 991, cycleNumber: 1, status: "queued", createdAt: "2026-10-01T10:00:00Z" }] }),
   ];
   const activeTemplates = [{ id: 31, documentType: "deed_of_assignment", version: 2 }, { id: 32, documentType: "transfer_exit_rights", version: 4 }];
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -58,6 +65,12 @@ async function fixture(page: Page, mobile = false) {
     }
     if (/^\/api\/admin\/legal\/documents\/704\/(preview|download)$/.test(path)) return route.fulfill({ contentType: "application/pdf", body: Buffer.from("fixture signed document") });
     if (path === "/api/admin/legal/pairs/1204/resend") return json({ state: "cooldown", queued: false, message: "The prior notification ended recently. No new cycle was queued; wait one minute." });
+    if (path === "/api/admin/legal/pairs/1211/recover-notification" && method === "POST") {
+      Object.assign(holdings.find(h => h.reservationId === 911)!, { notificationState: "sent",
+        jobs: [{ id: 9911, kind: "notify", status: "complete", cycleId: 991 }],
+        notificationHistory: [{ id: 991, cycleNumber: 1, status: "sent", createdAt: "2026-10-01T10:00:00Z", sentAt: "2026-10-01T11:00:00Z" }] });
+      return json({ state: "accepted", message: "The mail provider accepted this notification. No additional invitation was sent. Inbox delivery is not confirmed." });
+    }
     if (path.startsWith("/api/admin/legal")) return json({ error: "Unexpected API blocked in isolated fixture" }, 500);
     return json([]);
   });
@@ -73,6 +86,24 @@ async function fixture(page: Page, mobile = false) {
 }
 
 for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} recovers only the existing approved notification and reports provider acceptance`, async ({ page }) => {
+    const f = await fixture(page, mobile);
+    await page.locator("[data-holding-id='911']").getByRole("button", { name: "Review PDFs" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("APP_BASE_URL");
+    await expect(dialog.getByRole("button", { name: "Resend notification", exact: true })).toHaveCount(0);
+    const recover = dialog.getByRole("button", { name: "Recover existing notification", exact: true });
+    await expect(recover).toBeEnabled();
+    await recover.click();
+    await expect(dialog.locator("[aria-live='polite']")).toContainText("mail provider accepted");
+    await expect(dialog.locator("[aria-live='polite']")).toContainText("Inbox delivery is not confirmed");
+    const posts = f.requests.filter(r => r.method === "POST");
+    expect(posts).toEqual([{ path: "/api/admin/legal/pairs/1211/recover-notification", method: "POST",
+      body: { propertyId: 108, confirmed: true, jobId: 9911, cycleId: 991 } }]);
+    await expect(page.locator("[data-holding-id='911']")).toContainText("Notification accepted");
+    expect(f.holdings.find(h => h.reservationId === 911)!.notificationHistory).toHaveLength(1);
+  });
+
   test(`${mobile ? "mobile" : "desktop"} historical selection is explicit, attested, property-isolated and reports mixed outcomes`, async ({ page }) => {
     const f = await fixture(page, mobile);
     const posts = () => f.requests.filter((r) => r.method === "POST");

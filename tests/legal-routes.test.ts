@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   readLegalTemplateVersion: vi.fn(),
   streamAuthorizedLegalDocument: vi.fn(),
   dispatchLegalJobs: vi.fn(),
+  recoverLegalNotification: vi.fn(),
   beginLocalSigning: vi.fn(),
   completeLocalSigning: vi.fn(),
 }));
@@ -49,6 +50,7 @@ vi.mock("../server/legal/files", () => ({
 }));
 vi.mock("../server/legal/worker", () => ({
   dispatchLegalJobs: mocks.dispatchLegalJobs,
+  recoverLegalNotification: mocks.recoverLegalNotification,
 }));
 vi.mock("../server/legal/local-signing", () => ({
   beginLocalSigning: mocks.beginLocalSigning,
@@ -317,6 +319,7 @@ beforeEach(() => {
     message: "A new notification cycle (#1) was queued.",
   });
   mocks.dispatchLegalJobs.mockResolvedValue({ processed: 0 });
+  mocks.recoverLegalNotification.mockResolvedValue({ state: "waiting_retry", message: "Retry becomes eligible later; no mail sent." });
   mocks.beginLocalSigning.mockImplementation(async (_documentId, userId) => {
     if (userId !== OWNER_ID) {
       throw Object.assign(new Error("Legal document not found"), { statusCode: 404 });
@@ -357,6 +360,25 @@ afterEach(() => {
 });
 
 describe("legal document routes", () => {
+  it("requires admin authentication and explicit exact-job confirmation for bounded notification recovery", async () => {
+    const { app } = createApp();
+    const path = `/api/admin/legal/pairs/${PAIR_ID}/recover-notification`;
+    const selected = { propertyId: 12, jobId: 9, cycleId: 5, confirmed: true };
+    await request(app).post(path).send(selected).expect(401);
+    await request(app).post(path).set("x-user-id", String(OWNER_ID)).send(selected).expect(401);
+    await request(app).post(path).set("x-admin-user-id", String(ADMIN_ID)).send({ ...selected, confirmed: false }).expect(400);
+    await request(app).post(path).set("x-admin-user-id", String(ADMIN_ID)).send({ ...selected, jobId: 0 }).expect(400);
+    expect(mocks.recoverLegalNotification).not.toHaveBeenCalled();
+    const result = await request(app).post(path).set("x-admin-user-id", String(ADMIN_ID)).send(selected).expect(200);
+    expect(result.body.state).toBe("waiting_retry");
+    expect(mocks.recoverLegalNotification).toHaveBeenCalledExactlyOnceWith({
+      pairId: PAIR_ID, propertyId: 12, jobId: 9, cycleId: 5, adminId: ADMIN_ID,
+    });
+    expect(mocks.dispatchLegalJobs).not.toHaveBeenCalled();
+    expect(mocks.requestLegalNotificationResend).not.toHaveBeenCalled();
+    expect(mocks.pinActiveTemplatesAndQueue).not.toHaveBeenCalled();
+  });
+
   it("requires a selected property for administrator lists and artifact actions", async () => {
     for (const path of ["templates", "documents", "failures", `templates/${TEMPLATE_ID}/fields`, `documents/${DOCUMENT_ID}/preview`]) {
       await request(app).get(`/api/admin/legal/${path}`).set("x-admin-user-id", String(ADMIN_ID)).expect(400);

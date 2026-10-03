@@ -1764,6 +1764,11 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
     }
   });
 
+  // Publication recovery can intentionally hold background data maintenance.
+  // Register authenticated routes, but do not release unrelated queued alerts
+  // or mutate expired offers when the existing maintenance skip is enabled.
+  if (process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true") return;
+
   let expiryIntervalStarted = false;
   if (!expiryIntervalStarted) {
     expiryIntervalStarted = true;

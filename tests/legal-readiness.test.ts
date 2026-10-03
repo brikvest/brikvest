@@ -16,6 +16,15 @@ const completeEnvironment = {
 };
 
 describe("legal workflow readiness", () => {
+  it.each([
+    "", "http://brikvest.net", "https://brikvest.net/dashboard",
+    "https://user:private@brikvest.net", "https://brikvest.net/?q=1", "https://brikvest.net/#fragment",
+  ])("fails readiness for an invalid email origin without exposing its value", origin => {
+    const result = getLegalReadiness({ ...completeEnvironment, APP_BASE_URL: origin }, () => "available");
+    expect(result.checks.find(check => check.id === "application-base-url")).toMatchObject({ ready: false, detail: expect.stringContaining("clean HTTPS") });
+    expect(JSON.stringify(result)).not.toContain("user:private");
+  });
+
   it("reports configuration presence without emitting environment values", () => {
     const result = getLegalReadiness(completeEnvironment, (command, args) => {
       if (command === "soffice" && args[0] === "--version") {

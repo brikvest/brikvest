@@ -6,6 +6,7 @@ import {
   type LegalFontReadiness,
 } from "../server/legal/font-validation";
 import { resolveLibreOfficeExecutable } from "../server/legal/converter";
+import { legalApplicationOrigin } from "../server/legal/application-origin";
 export type { LegalFontReadiness } from "../server/legal/font-validation";
 
 export type LegalReadinessCheck = {
@@ -95,6 +96,8 @@ export function getLegalReadiness(
   const missingEnvironmentVariables: string[] = SECRET_NAMES.filter(
     (name) => !env[name]?.trim(),
   );
+  let originReady = false;
+  try { legalApplicationOrigin(env.APP_BASE_URL); originReady = true; } catch { /* Names and safe guidance only. */ }
   let libreOfficeVersion = "";
   try {
     libreOfficeVersion = run(
@@ -161,10 +164,10 @@ export function getLegalReadiness(
     },
     {
       id: "application-base-url",
-      ready: Boolean(env.APP_BASE_URL?.trim()),
-      detail: env.APP_BASE_URL?.trim()
+      ready: originReady,
+      detail: originReady
         ? "Application origin is configured for email deep links; local signing does not use a provider callback."
-        : "APP_BASE_URL is not configured.",
+        : "APP_BASE_URL must be configured as a clean HTTPS application origin without credentials, path, query or fragment.",
     },
     {
       id: "libreoffice",

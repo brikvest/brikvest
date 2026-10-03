@@ -21,6 +21,7 @@ import {
   requestLegalNotificationResend,
 } from "../server/legal/repository";
 import { recordUnsignedLegalCancellation } from "../server/legal/holding-state";
+import { claimExistingLegalNotification, getNotificationRecoveryStatus } from "../server/legal/notification-recovery";
 
 let database: PGlite;
 let baseMigration: string;
@@ -50,7 +51,7 @@ function installDatabase(): void {
   );
 }
 
-async function addPair(): Promise<number> {
+async function addPair(hasFrozenLandConsideration = true): Promise<number> {
   const reservation = await database.query<{ id: number }>(
     `INSERT INTO investment_reservations
        (user_id,property_id,status,funnel_stage)
@@ -69,7 +70,7 @@ async function addPair(): Promise<number> {
       ${reservation.rows[0].id}, 1, 1, 'admin_full_confirmation',
       ${reservation.rows[0].id}, ${adminId}, now(), now(), 'approved for testing',
       'Ada Lovelace', '1 Example Street', 5, 1, 5, 100000, 'NGN',
-      '{}'::jsonb, 'documents_ready', now(), 1, 2
+      '${hasFrozenLandConsideration ? '{"landConsiderationNaira":"100000"}' : '{}'}'::jsonb, 'documents_ready', now(), 1, 2
     )
     RETURNING id
   `);
@@ -170,6 +171,101 @@ afterEach(async () => {
 });
 
 describe("durable legal notification cycles (isolated PGlite)", () => {
+  const recoveryInput = () => ({ pairId, propertyId: 1, jobId, cycleId, adminId });
+
+  it("reports missing historical consideration without consuming a retry or changing reviewed PDFs", async () => {
+    pairId = await addPair(false);
+    await database.exec(`INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
+      VALUES (${pairId},'deed_of_assignment',1,'awaiting_signature','legal/documents/historical-deed/unsigned_pdf',repeat('a',64),'{}'),
+        (${pairId},'transfer_exit_rights',2,'awaiting_signature','legal/documents/historical-transfer/unsigned_pdf',repeat('b',64),'{}');
+      INSERT INTO legal_pdf_review_approvals(pair_id,approved_by_admin_id,deed_document_id,deed_sha256,transfer_document_id,transfer_sha256)
+      SELECT ${pairId},${adminId},d.id,d.unsigned_pdf_sha256,t.id,t.unsigned_pdf_sha256 FROM legal_documents d
+      JOIN legal_documents t ON t.pair_id=d.pair_id AND t.document_type='transfer_exit_rights'
+      WHERE d.pair_id=${pairId} AND d.document_type='deed_of_assignment';`);
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry", attempts: 3 });
+    const before = (await database.query(`SELECT row_to_json(d) AS document FROM legal_documents d WHERE pair_id=${pairId} ORDER BY id`)).rows;
+    expect(await claimExistingLegalNotification(recoveryInput())).toMatchObject({
+      state: "blocked", message: expect.stringContaining("historical purchase costs"),
+    });
+    expect((await database.query(`SELECT status,attempts FROM legal_jobs WHERE id=${jobId}`)).rows[0]).toEqual({ status: "retry", attempts: 3 });
+    expect((await database.query(`SELECT row_to_json(d) AS document FROM legal_documents d WHERE pair_id=${pairId} ORDER BY id`)).rows).toEqual(before);
+  });
+
+  it("recovers only the selected eligible notification, preserving its cycle and evidence", async () => {
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry", attempts: 3 });
+    const before = (await database.query(`SELECT row_to_json(d) AS document FROM legal_documents d ORDER BY id`)).rows;
+    const otherPair = await addPair();
+    await database.exec(`INSERT INTO legal_jobs(pair_id,kind,status) VALUES (${otherPair},'generation','queued')`);
+    const recovered = await claimExistingLegalNotification(recoveryInput());
+    expect(recovered).toMatchObject({ state: "claimed", claim: { id: jobId, pairId, kind: "notify", notificationCycleId: cycleId, attempts: 4 } });
+    expect((await database.query(`SELECT status,attempts FROM legal_jobs WHERE pair_id=${otherPair}`)).rows[0]).toEqual({ status: "queued", attempts: 0 });
+    expect((await database.query(`SELECT count(*)::int AS n FROM legal_notification_cycles WHERE pair_id=${pairId}`)).rows[0]).toEqual({ n: 1 });
+    expect((await database.query(`SELECT row_to_json(d) AS document FROM legal_documents d ORDER BY id`)).rows).toEqual(before);
+    expect((await database.query(`SELECT event_type FROM legal_audit_events WHERE event_type='notification_bounded_recovery_requested'`)).rows).toHaveLength(1);
+    expect(await claimExistingLegalNotification(recoveryInput())).toMatchObject({ state: "in_progress" });
+  });
+
+  it("reports retry eligibility without changing backoff or attempts", async () => {
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry", attempts: 3 });
+    await database.exec(`UPDATE legal_jobs SET available_at=now()+interval '4 minutes',last_error='APP_BASE_URL must be configured as an HTTPS application origin' WHERE id=${jobId}`);
+    const before = (await database.query(`SELECT status,attempts,available_at FROM legal_jobs WHERE id=${jobId}`)).rows;
+    expect(await claimExistingLegalNotification(recoveryInput())).toMatchObject({
+      state: "waiting_retry", availableAt: expect.any(String), message: expect.stringContaining("APP_BASE_URL"),
+    });
+    expect((await database.query(`SELECT status,attempts,available_at FROM legal_jobs WHERE id=${jobId}`)).rows).toEqual(before);
+    expect((await database.query(`SELECT count(*)::int AS n FROM legal_audit_events WHERE event_type='notification_bounded_recovery_requested'`)).rows[0]).toEqual({ n: 0 });
+  });
+
+  it("coalesces competing recovery claims without another lease or cycle", async () => {
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry" });
+    const results = await Promise.all([
+      claimExistingLegalNotification(recoveryInput()), claimExistingLegalNotification(recoveryInput()),
+    ]);
+    expect(results.map(result => result.state).sort()).toEqual(["claimed", "in_progress"]);
+    expect((await database.query(`SELECT attempts FROM legal_jobs WHERE id=${jobId}`)).rows[0]).toEqual({ attempts: 1 });
+    expect((await database.query(`SELECT count(*)::int AS n FROM legal_notification_cycles WHERE pair_id=${pairId}`)).rows[0]).toEqual({ n: 1 });
+  });
+
+  it("does not claim recovery after both signatures are recorded", async () => {
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry" });
+    await database.exec(`UPDATE legal_documents SET status='investor_signed',investor_signed_at=now() WHERE pair_id=${pairId}`);
+    await expect(claimExistingLegalNotification(recoveryInput())).rejects.toThrow("outstanding investor signature");
+    expect((await database.query(`SELECT status,attempts FROM legal_jobs WHERE id=${jobId}`)).rows[0]).toEqual({ status: "retry", attempts: 0 });
+  });
+
+  it.each([
+    ["sent", "complete", "accepted"],
+    ["sending", "leased", "blocked_uncertain"],
+    ["uncertain", "dead", "blocked_uncertain"],
+    ["exhausted", "dead", "blocked"],
+    ["queued", "leased", "in_progress"],
+    ["queued", "dead", "blocked"],
+  ] as const)("does not reclaim or resend %s/%s work", async (cycleStatus, jobStatus, state) => {
+    await addNotificationJob({ cycleStatus, jobStatus });
+    if (jobStatus === "leased") await database.exec(`UPDATE legal_jobs SET leased_until=now()-interval '1 minute' WHERE id=${jobId}`);
+    const before = (await database.query(`SELECT row_to_json(j) AS job FROM legal_jobs j WHERE id=${jobId}`)).rows;
+    expect(await claimExistingLegalNotification(recoveryInput())).toMatchObject({ state });
+    expect((await database.query(`SELECT row_to_json(j) AS job FROM legal_jobs j WHERE id=${jobId}`)).rows).toEqual(before);
+  });
+
+  it("rejects stale cycles, other properties, inactive holdings and missing exact PDF approval", async () => {
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry" });
+    await expect(claimExistingLegalNotification({ ...recoveryInput(), cycleId: cycleId + 100 })).rejects.toThrow("no longer matches");
+    await expect(claimExistingLegalNotification({ ...recoveryInput(), propertyId: 999 })).rejects.toThrow("not found");
+    await expect(claimExistingLegalNotification({ ...recoveryInput(), jobId: 0 })).rejects.toThrow("IDs are required");
+    // Append-only approval evidence is never deleted. Use a fresh, unreviewed pair.
+    const approvedInput = recoveryInput();
+    pairId = await addPair();
+    await database.exec(`INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
+      VALUES (${pairId},'deed_of_assignment',1,'awaiting_signature','legal/documents/new/unsigned_pdf',repeat('a',64),'{}'),
+        (${pairId},'transfer_exit_rights',2,'awaiting_signature','legal/documents/new2/unsigned_pdf',repeat('b',64),'{}');`);
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "retry" });
+    await expect(claimExistingLegalNotification(recoveryInput())).rejects.toThrow("Administrator review");
+    await cancelHolding();
+    await expect(claimExistingLegalNotification(recoveryInput())).rejects.toThrow("confirmed");
+    expect(await getNotificationRecoveryStatus(approvedInput)).toMatchObject({ state: "retry" });
+  });
+
   it("fences pre-existing unsent work without fabricating approval or sending intent", async () => {
     pairId = await addPair();
     await database.exec(`INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)

@@ -41,6 +41,11 @@ import {
 } from "./repository";
 import { reconcileLocalPairSigning as reconcilePairSigning } from "./local-signing";
 import { withLegalDispatchPermit } from "./dispatch-maintenance";
+import { legalApplicationOrigin, legalHoldingDashboardUrl } from "./application-origin";
+import {
+  claimExistingLegalNotification, getNotificationRecoveryStatus,
+  type NotificationRecoveryInput, type NotificationRecoveryResult,
+} from "./notification-recovery";
 
 const MAX_DISPATCH_LIMIT = 10;
 const MAX_JOB_RUNTIME_MS = 4 * 60_000;
@@ -54,6 +59,8 @@ type SendEmail = (input: {
 }) => Promise<boolean>;
 
 export interface LegalWorkerDependencies {
+  claimExistingLegalNotification: typeof claimExistingLegalNotification;
+  getNotificationRecoveryStatus: typeof getNotificationRecoveryStatus;
   claimNextLegalJob: typeof claimNextLegalJob;
   completeLegalJob: typeof completeLegalJob;
   failLegalJob: typeof failLegalJob;
@@ -599,31 +606,11 @@ async function processGeneration(
 }
 
 function validateAppBaseUrl(): URL {
-  const configured = process.env.APP_BASE_URL;
-  let base: URL;
-  try {
-    base = new URL(configured || "");
-  } catch {
-    throw new Error("APP_BASE_URL must be configured as an HTTPS application origin");
-  }
-  if (
-    base.protocol !== "https:" ||
-    base.username ||
-    base.password ||
-    base.pathname !== "/" ||
-    base.search ||
-    base.hash
-  ) {
-    throw new Error("APP_BASE_URL must be a clean HTTPS origin without credentials or path");
-  }
-  return base;
+  return legalApplicationOrigin(process.env.APP_BASE_URL);
 }
 
 function buildHoldingDashboardUrl(reservationId: number): string {
-  const base = validateAppBaseUrl();
-  const url = new URL("/dashboard", base.origin);
-  url.searchParams.set("holding", String(reservationId));
-  return url.toString();
+  return legalHoldingDashboardUrl(process.env.APP_BASE_URL, reservationId);
 }
 
 function assertReadyPairForNotification(
@@ -748,6 +735,8 @@ export function createLegalWorker(
   overrides: Partial<LegalWorkerDependencies> = {},
 ) {
   const dependencies: LegalWorkerDependencies = {
+    claimExistingLegalNotification,
+    getNotificationRecoveryStatus,
     claimNextLegalJob,
     completeLegalJob,
     failLegalJob,
@@ -862,7 +851,27 @@ export function createLegalWorker(
     }
   }
 
-  return { dispatchLegalJobs };
+  async function recoverLegalNotification(
+    input: NotificationRecoveryInput,
+    isPermitLive: () => boolean = () => true,
+  ): Promise<NotificationRecoveryResult> {
+    // A missing/invalid origin must not consume another retry or create send intent.
+    validateAppBaseUrl();
+    if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");
+    const selected = await dependencies.claimExistingLegalNotification(input);
+    if (selected.state !== "claimed") return selected;
+    const pending = new Set<Promise<unknown>>();
+    try {
+      if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");
+      await processClaim(selected.claim, pending);
+    } finally {
+      // The shared maintenance permit must outlive the underlying SMTP promise.
+      await Promise.allSettled(Array.from(pending));
+    }
+    return dependencies.getNotificationRecoveryStatus(input);
+  }
+
+  return { dispatchLegalJobs, recoverLegalNotification };
 }
 
 const defaultWorker = createLegalWorker();
@@ -875,4 +884,12 @@ export async function dispatchLegalJobs(
   }
   return await withLegalDispatchPermit((isPermitLive) => defaultWorker.dispatchLegalJobs(limit, true, isPermitLive))
     ?? { claimed: 0, completed: 0, failed: 0, quarantined: 0 };
+}
+
+export async function recoverLegalNotification(input: NotificationRecoveryInput): Promise<NotificationRecoveryResult> {
+  if (!process.env.SMTP_USER?.trim() || !process.env.SMTP_PASS?.trim()) {
+    throw new Error("SMTP_USER and SMTP_PASS must both be configured in the active published environment. No recovery job was claimed.");
+  }
+  return await withLegalDispatchPermit(isPermitLive => defaultWorker.recoverLegalNotification(input, isPermitLive))
+    ?? { state: "maintenance", message: "Legal dispatch is paused for maintenance. No notification was claimed; retry after maintenance ends." };
 }

@@ -74,11 +74,14 @@ describe("exact PDF review gate (isolated PostgreSQL and mocked storage)", () =>
     const before = (await pg.query<any>("SELECT count(*)::int AS n FROM legal_audit_events")).rows[0].n;
     const result = await request(app).get("/api/legal/rollout-status").expect(200);
     expect(result.headers["cache-control"]).toBe("private, no-store");
-    expect(result.body).toEqual({
+    expect(result.body).toMatchObject({
       dispatchProtocol: "exact-pdf-review-dispatch-maintenance-v1",
+      notificationRecoveryProtocol: "exact-existing-notification-v1",
       pdfReviewSchemaInstalled: true,
       startupDataMaintenanceSkipped: process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true",
     });
+    expect(typeof result.body.notificationEmailConfigured).toBe("boolean");
+    expect(result.body.applicationOrigin === null || new URL(result.body.applicationOrigin).protocol === "https:").toBe(true);
     expect((await pg.query<any>("SELECT count(*)::int AS n FROM legal_audit_events")).rows[0].n).toBe(before);
     expect(mocks.dispatch).not.toHaveBeenCalled();
   });

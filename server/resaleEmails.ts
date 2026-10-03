@@ -99,7 +99,7 @@ export async function sendMarketplaceOfferEmail(params: {
   offerId: number;
   rows?: Array<[string, string]>;
 }) {
-  await sendEmail({
+  const accepted = await sendEmail({
     to: params.to,
     subject: params.subject,
     html: emailWrapper(`
@@ -115,6 +115,9 @@ export async function sendMarketplaceOfferEmail(params: {
       <p style="color: #64748b; font-size: 13px;">Sign in to Brikvest to review and respond. Your personal contact details are not shared with the other party.</p>
     `),
   });
+  if (!accepted) {
+    throw new Error("Marketplace offer email was not accepted by the mail provider");
+  }
 }
 
 // 1. Listing approved (to seller)
