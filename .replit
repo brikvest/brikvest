@@ -88,6 +88,7 @@ timeoutMs = 90000
 
 [userenv.production]
 SKIP_STARTUP_DATA_MAINTENANCE = "true"
+APP_BASE_URL = "https://brikvest.net"
 
 [userenv.development]
 SKIP_POST_MERGE_DATABASE_MUTATIONS = "true"

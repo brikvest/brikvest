@@ -21,3 +21,9 @@ mutates production data directly — there is no safe staging copy.
 target rows first, and never alter real admins' credentials. Admin auth uses a
 custom `adminSessions` map via `POST /api/admin/login` (not passport); admin
 identities live in a separate `admin_users` table, distinct from `users.role='admin'`.
+
+Keep production invitation-link configuration production-only when fixing mail delivery; do not enable it in shared or development settings merely to test a fix.
+
+**Why:** Development workers can access real holdings too. Applying production mail configuration to development can enable investor notifications outside the intended published workflow.
+
+**How to apply:** Set the verified published origin in the production environment, verify configuration without sending test investor mail, and apply it through publishing rather than restarting development as a delivery test.
