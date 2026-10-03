@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS legal_documents (
   source_docx_key text,
   unsigned_pdf_key text,
   unsigned_pdf_sha256 text,
+  consideration_amount_naira numeric(20,2),
+  supersedes_document_id integer REFERENCES legal_documents(id) ON DELETE RESTRICT,
+  superseded_at timestamptz,
   signature_placement jsonb,
   signing_provider text,
   signing_envelope_id text,
@@ -110,7 +113,6 @@ CREATE TABLE IF NOT EXISTS legal_documents (
   sent_for_signature_at timestamptz,
   investor_signed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT legal_documents_pair_type_uq UNIQUE(pair_id, document_type),
   CONSTRAINT legal_documents_final_metadata CHECK (
     (signed_pdf_key IS NULL AND signed_pdf_sha256 IS NULL AND signing_certificate_key IS NULL)
     OR
@@ -119,6 +121,11 @@ CREATE TABLE IF NOT EXISTS legal_documents (
 );
 CREATE INDEX IF NOT EXISTS legal_documents_envelope_idx
   ON legal_documents(signing_provider, signing_envelope_id);
+ALTER TABLE legal_documents ADD COLUMN IF NOT EXISTS consideration_amount_naira numeric(20,2);
+ALTER TABLE legal_documents ADD COLUMN IF NOT EXISTS supersedes_document_id integer REFERENCES legal_documents(id) ON DELETE RESTRICT;
+ALTER TABLE legal_documents ADD COLUMN IF NOT EXISTS superseded_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS legal_documents_current_pair_type_uq
+  ON legal_documents(pair_id, document_type) WHERE superseded_at IS NULL;
 
 -- Pin writers take a share lock on each referenced template. The logical
 -- deletion update takes a conflicting row lock, so the reference check and

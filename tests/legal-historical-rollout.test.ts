@@ -39,6 +39,9 @@ beforeAll(async () => {
     INSERT INTO users VALUES (1,'ada@example.test','Ada','Investor','approved','Ada Verified','1 Test Road'),
       (2,'bea@example.test','Bea','Investor','pending','Bea Verified','2 Test Road');
     INSERT INTO properties VALUES (1,'North Estate','Lagos',12,7),(2,'South Estate','Abuja',4,3);`);
+  await pg.exec(`ALTER TABLE properties ADD COLUMN currency text DEFAULT 'NGN',
+    ADD COLUMN unit_land_cost numeric DEFAULT 50000, ADD COLUMN unit_agent_fees numeric DEFAULT 0,
+    ADD COLUMN unit_due_diligence_cost numeric DEFAULT 0, ADD COLUMN unit_service_charge numeric DEFAULT 0;`);
   for (const migration of migrations) await pg.exec(await fs.readFile(`scripts/ensure-legal-${migration}.sql`, "utf8"));
   database = drizzle(pg);
   reference.current = database;

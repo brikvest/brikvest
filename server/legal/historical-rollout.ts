@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { calculateHoldingCosts } from "../../shared/holding-costs";
 import { db } from "../db";
 import { enqueueLegalApproval, type LegalTransaction } from "./repository";
 import { assertActiveConfirmedHolding } from "./holding-state";
@@ -86,8 +87,11 @@ const holdingQuery = (propertyId: number) => sql`SELECT r.id AS "reservationId",
   r.currency,r.unit_price_snapshot::numeric::text AS "unitPrice",
   COALESCE(NULLIF(trim(u.kyc_full_name),''),r.full_name) AS "userName",u.email AS "userEmail",
   u.kyc_status AS "kycStatus",u.kyc_full_name AS "verifiedName",u.kyc_address AS "verifiedAddress",
-  pr.name AS "propertyName",pr.location AS "propertyLocation",p.id AS "pairId",p.status AS "pairStatus",
-  p.documents_ready_at AS "readyAt",p.last_error AS "lastError"
+  pr.name AS "propertyName",pr.location AS "propertyLocation",
+  pr.currency AS "propertyCurrency",pr.unit_land_cost AS "unitLandCost",
+  pr.unit_agent_fees AS "unitAgentFees",pr.unit_due_diligence_cost AS "unitDueDiligenceCost",
+  pr.unit_service_charge AS "unitServiceCharge",p.id AS "pairId",p.status AS "pairStatus",
+  p.documents_ready_at AS "readyAt",p.last_error AS "lastError",p.data_snapshot AS "legalSnapshot"
   FROM investment_reservations r JOIN properties pr ON pr.id=r.property_id
   LEFT JOIN users u ON u.id=r.user_id LEFT JOIN legal_document_pairs p ON p.reservation_id=r.id
   WHERE r.property_id=${propertyId}`;
@@ -110,7 +114,7 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
   const items = [];
   for (const h of holdings) {
     const docs = h.pairId ? rows(await db.execute(sql`SELECT d.*,t.version AS template_version FROM legal_documents d
-      JOIN legal_templates t ON t.id=d.template_id WHERE d.pair_id=${h.pairId}`)) : [];
+      JOIN legal_templates t ON t.id=d.template_id WHERE d.pair_id=${h.pairId} AND d.superseded_at IS NULL`)) : [];
     const jobs = h.pairId ? rows(await db.execute(sql`SELECT kind,status,last_error AS "lastError" FROM legal_jobs WHERE pair_id=${h.pairId}`)) : [];
     const history = h.pairId ? rows(await db.execute(sql`SELECT c.id,c.cycle_number AS "cycleNumber",c.status,j.last_error AS "lastError",c.created_at AS "createdAt",c.sent_at AS "sentAt"
       FROM legal_notification_cycles c LEFT JOIN legal_jobs j ON j.notification_cycle_id=c.id AND j.kind='notify'
@@ -121,6 +125,9 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
     const ready = !!h.readyAt && docs.length === 2 && new Set(docs.map((d) => d.document_type)).size === 2 &&
       docs.every((d) => d.unsigned_pdf_key && /^[a-f0-9]{64}$/i.test(d.unsigned_pdf_sha256 || "") && d.signature_placement);
     const signed = docs.filter((d) => d.status === "investor_signed").length;
+    const landCosts = calculateHoldingCosts({ units: h.units, amount: h.amount, currency: h.currency,
+      property: { currency: h.propertyCurrency, unitLandCost: h.unitLandCost, unitAgentFees: h.unitAgentFees,
+        unitDueDiligenceCost: h.unitDueDiligenceCost, unitServiceCharge: h.unitServiceCharge } });
     const check = h.pairId ? { blockers: [] as string[], requiresAttestation: false } : await eligibility(db as Executor, h, templates);
     const active = h.status === "converted_to_investment" && h.funnelStage === "confirmed";
     const safe = docs.every((d) => ["awaiting_signature", "signing_in_progress", "investor_signed"].includes(d.status));
@@ -131,6 +138,9 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
       ? "awaiting_review" : latestNotification;
     items.push({
       reservationId: h.reservationId, userName: h.userName, userEmail: h.userEmail, units: h.units, amount: h.amount, currency: h.currency,
+      landConsiderationNaira: landCosts?.landAmount ?? null,
+      needsConsiderationCorrection: !!landCosts && !!h.pairId && signed === 0 && docs.some(d =>
+        Number(d.consideration_amount_naira ?? h.legalSnapshot?.landConsiderationNaira ?? 0) !== Number(landCosts.landAmount)),
       reviewToken: reviewToken(h), auditHistory,
       pairId: h.pairId, preparationState: h.pairStatus || "unprepared", signingState: signed === 2 ? "investor_signed" : signed ? "partially_signed" : "unsigned",
       notificationState, notificationHistory: history, jobs, lastError: h.lastError,

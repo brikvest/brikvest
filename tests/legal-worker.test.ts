@@ -140,6 +140,7 @@ function createPairResult(options?: {
         userHomeAddress: address,
         propertyAreaSqm: "1.25",
         paymentAmountNaira: "1000000.50",
+        landConsiderationNaira: "1000000.50",
         paymentCurrency: "NGN",
         effectiveAt: approvedAt.toISOString(),
         units: "0.25",

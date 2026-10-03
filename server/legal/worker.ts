@@ -119,6 +119,7 @@ interface PairForWorker {
   paymentAmountNaira: string;
   paymentCurrency: string;
   effectiveAt: Date;
+  considerationAmountNaira?: string;
   dataSnapshot: ParsedPairSnapshot;
   deedTemplateId: number;
   transferTemplateId: number;
@@ -229,6 +230,19 @@ function readPairForWorker(pairValue: Record<string, unknown>, documents: unknow
     throw new Error("Legal pair effective date does not match its frozen snapshot");
   }
 
+  const currentDocuments = rowsAsArray(documents) as Array<Record<string, unknown>>;
+  const revisionAmounts = currentDocuments.map(d => d.consideration_amount_naira).filter(v => v != null);
+  if (revisionAmounts.length && (revisionAmounts.length !== 2 ||
+      normalizeDecimal(revisionAmounts[0], "corrected consideration") !== normalizeDecimal(revisionAmounts[1], "corrected consideration"))) {
+    throw new Error("Both corrected documents must pin the same land consideration.");
+  }
+  const considerationSource = revisionAmounts[0] ?? snapshot.landConsiderationNaira;
+  const considerationAmountNaira = considerationSource == null ? undefined
+    : normalizeDecimal(considerationSource, "land consideration");
+  if (considerationAmountNaira && (new Decimal(considerationAmountNaira).lte(0) ||
+      new Decimal(considerationAmountNaira).gt(paymentSnapshot))) {
+    throw new Error("Land consideration must be positive and cannot exceed the full acquisition payment.");
+  }
   return {
     id: requiredPositiveInteger(pairValue.id, "pair ID"),
     propertyId: requiredPositiveInteger(pairValue.property_id, "property ID"),
@@ -241,6 +255,7 @@ function readPairForWorker(pairValue: Record<string, unknown>, documents: unknow
     unitsSnapshot,
     squareMetersPerUnit: sqmPerUnit,
     paymentAmountNaira: paymentSnapshot,
+    considerationAmountNaira,
     paymentCurrency: "NGN",
     effectiveAt,
     dataSnapshot: frozen,
@@ -540,6 +555,9 @@ async function processGeneration(
   const pairResult = await dependencies.getPairWithDocuments(pairId);
   if (!pairResult) throw new Error("Legal document pair was not found");
   const pair = readPairForWorker(pairResult.pair, pairResult.documents);
+  if (!pair.considerationAmountNaira && pairResult.documents.some(d => !d.source_docx_key)) {
+    throw new Error("A verified land-only consideration is required before generating new legal drafts.");
+  }
   const documents = pair.documents;
   if (documents.length !== 2) {
     throw new Error("Generation requires exactly the pinned deed and transfer documents");
@@ -549,7 +567,7 @@ async function processGeneration(
     verifiedFullName: pair.dataSnapshot.userFullName,
     verifiedHomeAddress: pair.dataSnapshot.userHomeAddress,
     propertyAreaSqm: pair.dataSnapshot.propertyAreaSqm,
-    approvedPaymentAmountNaira: pair.dataSnapshot.paymentAmountNaira,
+    approvedPaymentAmountNaira: pair.considerationAmountNaira || pair.dataSnapshot.paymentAmountNaira,
     documentDate: new Date(pair.dataSnapshot.effectiveAt),
   });
   const types = documents.map((document) => parseDocumentType(document.document_type));
@@ -639,6 +657,8 @@ async function processNotification(
     pairResult.documents,
   );
   if (pairResult.pair.status === "investor_signed" || pairResult.documents.every((d) => d.status === "investor_signed")) return "ready";
+  const consideration = readPairForWorker(pairResult.pair, pairResult.documents).considerationAmountNaira;
+  if (!consideration) throw new Error("Legacy draft consideration must be corrected to land-only cost before a signing email can be sent.");
   const pdfs: Buffer[] = [];
   for (const document of pairResult.documents) {
     const pdfKey = requiredString(document.unsigned_pdf_key, "stored unsigned PDF key");

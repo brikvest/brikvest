@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { portfolioLandAmount } from "@shared/holding-costs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1683,6 +1684,7 @@ function UserPortfolioTab({
     reservations: any[];
     summary: {
       totalPortfolioValue: number;
+      unclassifiedInvestments?: number;
       propertiesOwned: number;
       activeReservations: number;
       confirmedInvestments: number;
@@ -1848,6 +1850,10 @@ function UserPortfolioTab({
                 <p className="text-2xl font-bold text-white mt-1">
                   {getCurrencySymbol('NGN')}{portfolioData.summary.totalPortfolioValue.toLocaleString()}
                 </p>
+                <p className="text-xs text-blue-100 mt-1">Land stake only · acquisition fees excluded</p>
+                {!!portfolioData.summary.unclassifiedInvestments && <p className="text-xs text-blue-100 mt-1">
+                  Land value unavailable for {portfolioData.summary.unclassifiedInvestments} holding(s); excluded from this total.
+                </p>}
               </CardContent>
             </Card>
             <Card>
@@ -1897,7 +1903,8 @@ function UserPortfolioTab({
                       <TableRow>
                         <TableHead>Property</TableHead>
                         <TableHead>Units</TableHead>
-                        <TableHead>Amount</TableHead>
+                        <TableHead>Land stake</TableHead>
+                        <TableHead>Acquisition amount</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
                         <TableHead>Certificate</TableHead>
@@ -1912,6 +1919,11 @@ function UserPortfolioTab({
                             <div className="text-sm text-slate-500">{reservation.property?.location || ''}</div>
                           </TableCell>
                           <TableCell>{parseFloat(reservation.units).toLocaleString()}</TableCell>
+                          <TableCell>
+                            {reservation.status !== "converted_to_investment" ? "—" :
+                              portfolioLandAmount(reservation) === null ? "Not recorded" :
+                                `${getCurrencySymbol(reservation.currency || "NGN")}${portfolioLandAmount(reservation)!.toLocaleString()}`}
+                          </TableCell>
                           <TableCell>
                             {getCurrencySymbol(reservation.currency || 'NGN')}
                             {parseFloat(reservation.amount || 0).toLocaleString()}

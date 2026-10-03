@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import type { LegalDocumentType } from "./templates";
 import { assertActiveConfirmedHolding } from "./holding-state";
+import { calculateHoldingCosts } from "../../shared/holding-costs";
 import { hasOutstandingLegalSignature } from "./invitation-state";
 import { requireExactPdfApproval } from "./pdf-review";
 
@@ -306,6 +307,9 @@ export async function enqueueLegalApproval(
       NULLIF(trim(u.kyc_address), '') AS "verifiedHomeAddress",
       p.name AS "propertyName",
       p.location AS "propertyLocation",
+      p.currency AS "propertyCurrency",
+      p.unit_land_cost AS "unitLandCost", p.unit_agent_fees AS "unitAgentFees",
+      p.unit_due_diligence_cost AS "unitDueDiligenceCost", p.unit_service_charge AS "unitServiceCharge",
       '5'::text AS "squareMetersPerUnit",
       ps.id AS "paymentSubmissionId",
       ps.amount::numeric::text AS "paymentSubmissionAmount",
@@ -363,6 +367,14 @@ export async function enqueueLegalApproval(
     }
   }
 
+  const costs = calculateHoldingCosts({
+    units: purchase.units, amount: paymentAmountNaira, currency: purchase.reservationCurrency,
+    property: { currency: purchase.propertyCurrency, unitLandCost: purchase.unitLandCost,
+      unitAgentFees: purchase.unitAgentFees, unitDueDiligenceCost: purchase.unitDueDiligenceCost,
+      unitServiceCharge: purchase.unitServiceCharge },
+  });
+  if (!costs) return { eligible: false, reason: "verified_land_cost_breakdown_required" };
+
   const activeTemplateResult = await tx.execute(sql`
     SELECT id, document_type AS "documentType", version
     FROM legal_templates
@@ -401,6 +413,8 @@ export async function enqueueLegalApproval(
     squareMetersPerUnit: purchase.squareMetersPerUnit,
     propertyAreaSqm: purchase.areaSqm,
     paymentAmountNaira,
+    landConsiderationNaira: costs.landAmount,
+    acquisitionCosts: costs,
     paymentCurrency: "NGN",
     approvalSource: input.source,
     approvalSourceId: input.sourceId,
@@ -447,7 +461,7 @@ export async function enqueueLegalApproval(
       VALUES
         (${pair.id}, 'deed_of_assignment', ${deedTemplate.id}),
         (${pair.id}, 'transfer_exit_rights', ${transferTemplate.id})
-      ON CONFLICT (pair_id, document_type) DO NOTHING
+      ON CONFLICT (pair_id, document_type) WHERE superseded_at IS NULL DO NOTHING
     `);
     await tx.execute(sql`
       INSERT INTO legal_jobs (pair_id, kind, status)
@@ -551,7 +565,7 @@ export async function pinActiveTemplatesAndQueue(
     VALUES
       (${pairId}, 'deed_of_assignment', ${deedTemplate.id}),
       (${pairId}, 'transfer_exit_rights', ${transferTemplate.id})
-    ON CONFLICT (pair_id, document_type) DO NOTHING
+    ON CONFLICT (pair_id, document_type) WHERE superseded_at IS NULL DO NOTHING
   `);
   await executor.execute(sql`
     UPDATE legal_jobs SET status = 'queued',
@@ -579,7 +593,7 @@ export async function getPairWithDocuments(pairId: number): Promise<LegalPairWit
   const pair = resultRows<Record<string, unknown>>(pairResult)[0];
   if (!pair) return undefined;
   const documentsResult = await db.execute(sql`
-    SELECT * FROM legal_documents WHERE pair_id = ${pairId} ORDER BY document_type
+    SELECT * FROM legal_documents WHERE pair_id = ${pairId} AND superseded_at IS NULL ORDER BY document_type
   `);
   return { pair, documents: resultRows<Record<string, unknown>>(documentsResult) };
 }
@@ -1292,7 +1306,7 @@ export async function recordUnsignedArtifact(
       SELECT p.id AS pair_id, p.reservation_id, p.user_id, p.property_id
       FROM legal_documents d
       JOIN legal_document_pairs p ON p.id = d.pair_id
-      WHERE d.id = ${docId}
+      WHERE d.id = ${docId} AND d.superseded_at IS NULL
     `))[0];
     if (!reference) throw new Error("Legal document not found while recording its unsigned artifact");
     await assertActiveConfirmedHolding(tx, {
@@ -1358,7 +1372,7 @@ export async function markPairReady(pairId: number): Promise<void> {
     }
     const documents = resultRows<{ id: number }>(await tx.execute(sql`
       SELECT id FROM legal_documents
-      WHERE pair_id = ${pairId} AND unsigned_pdf_key IS NOT NULL
+      WHERE pair_id = ${pairId} AND superseded_at IS NULL AND unsigned_pdf_key IS NOT NULL
         AND unsigned_pdf_sha256 IS NOT NULL AND source_docx_key IS NOT NULL
     `));
     if (documents.length !== 2) {
@@ -1375,7 +1389,7 @@ export async function markPairReady(pairId: number): Promise<void> {
     await tx.execute(sql`
       UPDATE legal_documents
       SET status = 'awaiting_signature'
-      WHERE pair_id = ${pairId} AND status = 'generated'
+      WHERE pair_id = ${pairId} AND superseded_at IS NULL AND status = 'generated'
     `);
     // Automatic preparation ends here. Only explicit exact-PDF review releases mail.
     await tx.execute(sql`
@@ -1527,7 +1541,7 @@ export async function getLegalDocumentsByUser(userId: number): Promise<Record<st
       p.investor_signed_at AS "investorSignedAt", d.id AS "documentId",
       d.document_type AS "documentType", d.status AS "documentStatus"
     FROM legal_document_pairs p
-    LEFT JOIN legal_documents d ON d.pair_id = p.id
+    LEFT JOIN legal_documents d ON d.pair_id = p.id AND d.superseded_at IS NULL
     WHERE p.user_id = ${userId}
     ORDER BY p.created_at DESC, d.document_type
   `);

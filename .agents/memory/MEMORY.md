@@ -14,3 +14,4 @@
 - [Production legal schema verification](production-legal-schema-verification.md) — workspace may differ from production; verify target identity and trigger/function guards before operational changes.
 - [PDF review release boundary](pdf-review-release-boundary.md) — payment/template approval never releases signing mail; both exact investor PDFs require explicit admin approval.
 - [Playwright output isolation](playwright-output-isolation.md) — concurrent browser commands need separate output directories to avoid false trace/cleanup failures.
+- [Land-only consideration](land-only-consideration.md) — portfolio principal and deeds exclude acquisition fees; preserve payments and signed evidence, and re-review replacement drafts.

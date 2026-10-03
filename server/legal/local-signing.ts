@@ -347,7 +347,7 @@ async function loadOwnedDocument(
     JOIN legal_document_pairs p ON p.id = d.pair_id
     JOIN users u ON u.id = p.user_id
     JOIN properties pr ON pr.id = p.property_id
-    WHERE d.id = ${documentId} AND p.user_id = ${userId}
+    WHERE d.id = ${documentId} AND d.superseded_at IS NULL AND p.user_id = ${userId}
     ${lock ? sql`FOR UPDATE OF p, d` : sql``}
   `;
   const document = resultRows<SigningDocumentContext>(await executor.execute(query))[0];
@@ -369,7 +369,7 @@ async function assertPairReady(
     SELECT id, status, unsigned_pdf_key, unsigned_pdf_sha256, signature_placement,
       signing_provider, signed_pdf_key, signed_pdf_sha256, signing_certificate_key
     FROM legal_documents
-    WHERE pair_id = ${document.pair_id}
+    WHERE pair_id = ${document.pair_id} AND superseded_at IS NULL
     ORDER BY id
     ${sql`FOR UPDATE`}
   `));
@@ -1340,7 +1340,7 @@ async function completeClaimedOperation(
     const signedDocuments = Number(resultRows<{ count: number | string }>(await tx.execute(sql`
       SELECT COUNT(*)::integer AS count
       FROM legal_documents
-      WHERE pair_id = ${document.pair_id}
+      WHERE pair_id = ${document.pair_id} AND superseded_at IS NULL
         AND status = 'investor_signed'
         AND signed_pdf_key IS NOT NULL
         AND signed_pdf_sha256 IS NOT NULL

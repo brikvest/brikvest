@@ -18,6 +18,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM legal_documents d JOIN legal_documents t ON t.pair_id=d.pair_id
     JOIN legal_document_pairs p ON p.id=d.pair_id
     WHERE p.id=NEW.pair_id AND p.documents_ready_at IS NOT NULL
+      AND d.superseded_at IS NULL AND t.superseded_at IS NULL
       AND d.id=NEW.deed_document_id AND t.id=NEW.transfer_document_id
       AND d.document_type='deed_of_assignment' AND t.document_type='transfer_exit_rights'
       AND d.template_id=p.deed_template_id AND t.template_id=p.transfer_template_id

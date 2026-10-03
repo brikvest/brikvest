@@ -16,7 +16,7 @@ export async function reviewedDocuments(executor: Executor, pairId: number) {
   const documents = rows(await executor.execute(sql`
     SELECT d.*,t.version AS template_version FROM legal_documents d
     JOIN legal_templates t ON t.id=d.template_id JOIN legal_document_pairs p ON p.id=d.pair_id
-    WHERE d.pair_id=${pairId} AND p.documents_ready_at IS NOT NULL
+    WHERE d.pair_id=${pairId} AND d.superseded_at IS NULL AND p.documents_ready_at IS NOT NULL
       AND d.template_id=CASE WHEN d.document_type='deed_of_assignment' THEN p.deed_template_id ELSE p.transfer_template_id END
     ORDER BY d.id FOR UPDATE OF d`));
   if (documents.length !== 2 || new Set(documents.map(d => d.document_type)).size !== 2 ||
@@ -37,6 +37,7 @@ export async function hasExactPdfApproval(executor: Executor, pairId: number): P
       JOIN legal_documents t ON t.id=a.transfer_document_id AND t.pair_id=a.pair_id
       JOIN legal_document_pairs p ON p.id=a.pair_id
       WHERE a.pair_id=${pairId}
+        AND d.superseded_at IS NULL AND t.superseded_at IS NULL
         AND p.documents_ready_at IS NOT NULL
         AND d.template_id=p.deed_template_id AND t.template_id=p.transfer_template_id
         AND d.document_type='deed_of_assignment' AND t.document_type='transfer_exit_rights'

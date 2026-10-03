@@ -131,7 +131,7 @@ export const properties = pgTable("properties", {
   risksDelays: text("risks_delays"), // Free-form risks/delays notes
   latestUpdateText: text("latest_update_text"), // Short headline for the most recent project status
   currency: text("currency").notNull().default("NGN"), // Currency for property values (NGN = Nigerian Naira - platform default)
-  // Optional informational per-unit cost transparency. These values never drive pricing or payments.
+  // Cost classification for land principal and acquisition fees. Does not change pricing or payment totals.
   unitLandCost: bigint("unit_land_cost", { mode: "number" }).notNull().default(0),
   unitDueDiligenceCost: bigint("unit_due_diligence_cost", { mode: "number" }).notNull().default(0),
   unitAgentFees: bigint("unit_agent_fees", { mode: "number" }).notNull().default(0),

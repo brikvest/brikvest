@@ -14,6 +14,7 @@ import { buildIllustrativeTemplateValues } from "./values";
 import { storeLegalTemplateVersion, readLegalTemplateVersion, streamAuthorizedLegalDocument } from "./files";
 import { getLegalReadiness } from "../../scripts/legal-readiness";
 import { dispatchLegalJobs } from "./worker";
+import { correctUnsignedConsideration } from "./consideration-correction";
 import { beginLocalSigning, completeLocalSigning } from "./local-signing";
 import { assertActiveConfirmedHolding } from "./holding-state";
 import { templateUploadInsert } from "./template-query";
@@ -127,7 +128,7 @@ async function listPairs(userId?: number, propertyId?: number) {
   if (!result.length) return [];
   const documents = rows(await db.execute(sql`SELECT id,pair_id,document_type,status,unsigned_pdf_key IS NOT NULL AS has_unsigned,
     signed_pdf_key IS NOT NULL AS has_signed,signing_certificate_key IS NOT NULL AS has_certificate
-    FROM legal_documents WHERE pair_id IN (${sql.join(result.map((p) => sql`${p.id}`), sql`,`)}) ORDER BY document_type`));
+    FROM legal_documents WHERE pair_id IN (${sql.join(result.map((p) => sql`${p.id}`), sql`,`)}) AND superseded_at IS NULL ORDER BY document_type`));
   const signingSchema = rows(await db.execute(sql`SELECT to_regclass('public.local_legal_signing_operations') IS NOT NULL AS installed`))[0];
   const operations = signingSchema?.installed ? rows(await db.execute(sql`SELECT document_id,pair_id,status,last_error
     FROM local_legal_signing_operations WHERE pair_id IN (${sql.join(result.map((p) => sql`${p.id}`), sql`,`)})`)) : [];
@@ -330,7 +331,7 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   for (const action of ["preview", "download"] as const) {
     const serve = (isAdmin: boolean) => handler(async (req, res) => {
       const doc = rows(await db.execute(sql`SELECT d.*,p.user_id FROM legal_documents d JOIN legal_document_pairs p ON p.id=d.pair_id
-         WHERE d.id=${id(req.params.id)} AND ${isAdmin ? sql`p.property_id=${id(req.query.propertyId)}` : sql`p.user_id=${req.user.id}`}`))[0];
+          WHERE d.id=${id(req.params.id)} AND ${isAdmin ? sql`p.property_id=${id(req.query.propertyId)}` : sql`p.user_id=${req.user.id} AND d.superseded_at IS NULL`}`))[0];
       if (!doc) return res.status(404).json({ error: "Legal document not found" });
       const version = req.query.version || "unsigned";
       const key = version === "signed" ? doc.signed_pdf_key : version === "certificate" ? doc.signing_certificate_key : version === "docx" ? doc.source_docx_key : version === "unsigned" ? doc.unsigned_pdf_key : null;
@@ -371,6 +372,17 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
           templateId: d.template_id, templateVersion: d.template_version })) };
     });
     res.json(result);
+  }));
+  app.post("/api/admin/legal/pairs/:id/correct-consideration", auth.requireAdminAuth, handler(async (req, res) => {
+    if (req.body.confirmed !== true) throw new Error("Explicit confirmation of unsigned draft correction is required.");
+    const pairId = id(req.params.id), propertyId = id(req.body.propertyId);
+    const result = await correctUnsignedConsideration(pairId, propertyId, req.user.userId);
+    if (result.changed && process.env.NODE_ENV !== "test") {
+      void dispatchLegalJobs(3).catch(() => console.error("[LEGAL] Corrected draft generation remains queued."));
+    }
+    res.json({ ...result, message: result.changed
+      ? "Corrected land-only drafts queued. Originals and payment history are retained. Review both new PDFs before approving any email."
+      : "These drafts already use the corrected land-only consideration." });
   }));
   app.post("/api/admin/legal/pairs/:id/approve-send", auth.requireAdminAuth, handler(async (req, res) => {
     const pairId = id(req.params.id), propertyId = id(req.body.propertyId);

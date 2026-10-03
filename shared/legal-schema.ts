@@ -85,6 +85,9 @@ export const legalDocuments = pgTable("legal_documents", {
   sourceDocxKey: text("source_docx_key"),
   unsignedPdfKey: text("unsigned_pdf_key"),
   unsignedPdfSha256: text("unsigned_pdf_sha256"),
+  considerationAmountNaira: numeric("consideration_amount_naira", { precision: 20, scale: 2 }),
+  supersedesDocumentId: integer("supersedes_document_id"),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
   signaturePlacement: jsonb("signature_placement"),
   signingProvider: text("signing_provider"),
   signingEnvelopeId: text("signing_envelope_id"),
@@ -96,7 +99,7 @@ export const legalDocuments = pgTable("legal_documents", {
   investorSignedAt: timestamp("investor_signed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("legal_documents_pair_type_uq").on(table.pairId, table.documentType),
+  uniqueIndex("legal_documents_current_pair_type_uq").on(table.pairId, table.documentType).where(sql`${table.supersededAt} IS NULL`),
   index("legal_documents_envelope_idx").on(table.signingProvider, table.signingEnvelopeId),
 ]);
 

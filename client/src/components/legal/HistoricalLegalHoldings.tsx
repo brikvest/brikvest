@@ -15,6 +15,7 @@ type Request = (url: string, options?: any) => Promise<any>;
 type LegalDocument = { id: number; type: string; status: string; hasUnsignedPdf: boolean; hasSignedPdf: boolean; hasCertificate: boolean; sha256?: string; templateId?: number; templateVersion?: number };
 type HistoricalHolding = {
   reservationId: number; userName: string; userEmail: string; units: string; amount: string; currency: string;
+  landConsiderationNaira?: string | null; needsConsiderationCorrection?: boolean;
   pairId: number | null; preparationState: string; signingState: string; notificationState: string;
   canPrepare: boolean; requiresAttestation: boolean; canNotify: boolean; reviewToken: string;
   canReview?: boolean; reviewApproved?: boolean; documents?: LegalDocument[];
@@ -225,16 +226,29 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     } catch (cause) { if (mounted.current && activePair.current === pairId && detailSession.current === session) setError(getApiErrorMessage(cause, "Approval was not confirmed. Refresh review details before retrying.")); }
     finally { if (mounted.current) setWorking(null); }
   }
-  async function pairAction(kind: "retry" | "resend" | "audit") {
+  async function pairAction(kind: "retry" | "resend" | "audit" | "correct-consideration") {
     if (!detail?.pairId || working) return;
+    if (kind === "correct-consideration" && !window.confirm(
+      "Create new land-only legal drafts? Original documents and full payment history will be retained. Both new PDFs must be reviewed again before email is released."
+    )) return;
     const pairId = detail.pairId;
     const session = detailSession.current;
     setWorking(kind); setError("");
     try {
-      const response = await authenticatedRequest(`/api/admin/legal/pairs/${pairId}/${kind}?propertyId=${propertyId}`, { method: kind === "audit" ? "GET" : "POST", ...(kind === "audit" ? {} : { body: JSON.stringify({ propertyId }) }) });
+      const response = await authenticatedRequest(`/api/admin/legal/pairs/${pairId}/${kind}?propertyId=${propertyId}`, { method: kind === "audit" ? "GET" : "POST", ...(kind === "audit" ? {} : { body: JSON.stringify({ propertyId, ...(kind === "correct-consideration" ? { confirmed: true } : {}) }) }) });
       if (!mounted.current || activePair.current !== pairId || detailSession.current !== session) return;
       if (kind === "audit") setResult(JSON.stringify(response, null, 2));
-      else { await refresh(); if (mounted.current && activePair.current === pairId && detailSession.current === session) setResult(response?.message || (kind === "retry" ? "Retry queued." : "Notification request queued; inbox delivery is not confirmed.")); }
+      else {
+        await refresh();
+        if (mounted.current && activePair.current === pairId && detailSession.current === session) {
+          setResult(response?.message || (kind === "retry" ? "Retry queued." : "Notification request queued; inbox delivery is not confirmed."));
+          if (kind === "correct-consideration") {
+            setReview(null); setChecked({});
+            const fresh = queryClient.getQueryData<HoldingResponse>(["/api/admin/legal/historical-holdings", propertyId, search, page, pageSize])?.items.find(h => h.pairId === pairId);
+            if (fresh) setDetail(fresh);
+          }
+        }
+      }
     } catch (cause) { if (mounted.current && activePair.current === pairId && detailSession.current === session) setError(getApiErrorMessage(cause, "Action could not be confirmed. Check the recorded history before retrying.")); }
     finally { if (mounted.current) setWorking(null); }
   }
@@ -304,6 +318,17 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
         <DialogHeader><DialogTitle>{detail?.userName || "Investor"} · Holding #{detail?.reservationId}</DialogTitle><DialogDescription>{propertyName} · {detail?.userEmail} · {detail ? `${detail.units} units · ${detail.currency} ${detail.amount}` : ""}</DialogDescription></DialogHeader>
         {!detail?.pairId ? <div className="space-y-3"><p className="rounded-md border border-[#dce4d8] bg-[#f3f6f0] p-3 text-sm text-[#4c5d4d]">No document pair exists for this confirmed holding. Preparation uses the current live template versions.</p>{detail?.blockers?.length ? <ul className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">{detail.blockers.map((item) => <li key={item}>• {item}</li>)}</ul> : null}<Button disabled={!detail?.canPrepare || !!working || !deed || !transfer} onClick={() => { if (detail) { beginPreparation([detail]); setDetail(null); activePair.current = null; detailSession.current += 1; } }}><FileCheck2 className="mr-2 h-4 w-4" />Prepare this holding</Button></div> :
           <div className="space-y-4">
+            <div className="rounded-md border p-3 text-sm">
+              <p>Land consideration: <strong>{detail.landConsiderationNaira
+                ? `${detail.currency} ${Number(detail.landConsiderationNaira).toLocaleString()}`
+                : "Cost breakdown requires verification"}</strong></p>
+              <p className="mt-1 text-slate-600">Total paid including fees: {detail.currency} {Number(detail.amount).toLocaleString()}</p>
+              {detail.needsConsiderationCorrection && !fullySigned(detail.signingState) && <Button
+                className="mt-3" size="sm" variant="outline" disabled={!!working}
+                onClick={() => void pairAction("correct-consideration")}>
+                Correct unsigned consideration
+              </Button>}
+            </div>
             <div className="grid gap-2 sm:grid-cols-2"><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Preparation</p><p className="mt-1 font-medium">{detail.preparationState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Signing</p><p className="mt-1 font-medium">{detail.signingState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Notification</p><p className="mt-1 font-medium">{detail.notificationState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Review approval</p><p className="mt-1 font-medium">{review?.approved || detail.reviewApproved ? "Approved for these document hashes" : "Not approved"}</p></div></div>
             <Button size="sm" variant="outline" disabled={query.isFetching || !!working} onClick={() => void refresh()}><RefreshCw className={`mr-1.5 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />Refresh holding</Button>
             {detail.blockers?.length > 0 && <ul className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{detail.blockers.map((item) => <li key={item} className="flex gap-2"><AlertCircle className="h-4 w-4 shrink-0" />{item}</li>)}</ul>}

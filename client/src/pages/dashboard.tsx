@@ -23,6 +23,7 @@ import { PropertyBrowsingContent } from "@/pages/home";
 import { MarketInsightsContent } from "@/pages/insights";
 import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type DashboardSection } from "@/lib/investorNavigation";
 import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
+import { portfolioLandAmount } from "@shared/holding-costs";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -114,7 +115,9 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         const invDate = new Date(inv.createdAt).toISOString().split('T')[0];
         if (invDate > dateStr) return;
 
-        const invAmount = typeof inv.amount === 'string' ? parseFloat(inv.amount) : (inv.amount || 0);
+        const landAmount = portfolioLandAmount(inv);
+        if (landAmount === null) return;
+        const invAmount = convertAmount(landAmount, inv.currency || "NGN");
         totalInitial += invAmount;
 
         const vals = valuationsByProperty[inv.propertyId] || [];
@@ -307,10 +310,10 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `₦${(v / 1000).toFixed(0)}k`} />
+                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `${formatCurrency(v / 1000)}k`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: any, name: string) => [`₦${Number(value).toLocaleString()}`, name === 'initialValue' ? 'Amount Invested' : 'Current Value']}
+                    formatter={(value: any, name: string) => [formatCurrency(Number(value)), name === 'initialValue' ? 'Land principal' : 'Current Value']}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
                   <Area type="monotone" dataKey="initialValue" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#colorInitial)" />
@@ -321,13 +324,13 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
             {latestPerformance && (
               <div className="mt-4 grid grid-cols-3 gap-4 pt-4 border-t border-slate-200">
                 <div>
-                  <p className="text-xs text-slate-600">Initial Investment</p>
-                  <p className="text-lg font-bold text-slate-900">₦{latestPerformance.initial.toLocaleString()}</p>
+                  <p className="text-xs text-slate-600">Land principal</p>
+                  <p className="text-lg font-bold text-slate-900">{formatCurrency(latestPerformance.initial)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-600">Current Value</p>
                   <p className={`text-lg font-bold ${Number(latestPerformance.returnPct) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                    ₦{latestPerformance.current.toLocaleString()}
+                    {formatCurrency(latestPerformance.current)}
                   </p>
                 </div>
                 <div>
@@ -944,12 +947,15 @@ export default function Portfolio() {
   const totalInvested = reservations
     .filter(res => res.status === 'converted_to_investment')
     .reduce((sum, res) => {
-      // Use the reservation's stored amount and currency, then convert to user's selected currency
-      const reservationAmount = typeof res.amount === 'string' ? parseFloat(res.amount) : (res.amount || 0);
+      // Portfolio principal is land only; recorded payment totals remain unchanged.
+      const reservationAmount = portfolioLandAmount(res);
+      if (reservationAmount === null) return sum;
       const reservationCurrency = res.currency || 'NGN';
       const convertedAmount = convertAmount(reservationAmount, reservationCurrency);
       return sum + convertedAmount;
     }, 0);
+  const unclassifiedInvestments = reservations.filter(res =>
+    res.status === "converted_to_investment" && portfolioLandAmount(res) === null).length;
   
   // Active reservations are those awaiting payment proof submission
   const activeReservations = reservations.filter(r => 
@@ -1233,6 +1239,10 @@ export default function Portfolio() {
                     <p className={`text-xl sm:text-2xl lg:text-3xl font-bold truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
                       {formatCurrency(totalInvested)}
                     </p>
+                    <p className="text-xs text-blue-100 mt-1">Land cost only · acquisition fees excluded</p>
+                    {unclassifiedInvestments > 0 && <p className="text-xs text-blue-100 mt-1">
+                      Land value unavailable for {unclassifiedInvestments} holding(s); excluded from this total.
+                    </p>}
                   </div>
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-2 backdrop-blur-sm">
                     <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
@@ -1565,12 +1575,15 @@ export default function Portfolio() {
                                   <p className="text-lg font-bold text-slate-900">{reservation.units}</p>
                                 </div>
                                 <div className="bg-slate-50 rounded-lg p-3">
-                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Investment</p>
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Land cost</p>
                                   <p className="text-lg font-bold text-blue-600">
-                                    {formatCurrency(convertAmount(
-                                      typeof reservation.amount === 'string' ? parseFloat(reservation.amount) : (reservation.amount || 0),
+                                    {portfolioLandAmount(reservation) === null ? "Not recorded" : formatCurrency(convertAmount(
+                                      portfolioLandAmount(reservation)!,
                                       reservation.currency || 'NGN'
                                     ))}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    Total paid including fees: {formatCurrency(convertAmount(Number(reservation.amount), reservation.currency || "NGN"))}
                                   </p>
                                 </div>
                                 <div className="bg-slate-50 rounded-lg p-3 col-span-2 sm:col-span-1">

@@ -13,6 +13,7 @@ import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { registerLegalRoutes } from "./legal/routes";
 import { runStartupDataMaintenance } from "./startup-maintenance";
+import { summarizeLandPortfolio } from "@shared/holding-costs";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -1208,10 +1209,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         r.status === 'converted_to_investment'
       );
       
-      const totalPortfolioValue = confirmedAndReceived.reduce((sum: number, r: any) => {
-        const amount = typeof r.amount === 'string' ? parseFloat(r.amount) : (r.amount || 0);
-        return sum + amount;
-      }, 0);
+      const rates = confirmedAndReceived.some((r: any) => (r.currency || "NGN") !== "NGN")
+        ? await getExchangeRates() : null;
+      const { totalPortfolioValue, unclassifiedInvestments } = summarizeLandPortfolio(
+        reservations, (landAmount, currency) => currency === "NGN"
+          ? landAmount : convertCurrency(landAmount, currency, "NGN", rates!),
+      );
 
       const propertiesOwned = new Set(
         reservations
@@ -1241,6 +1244,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reservations: reservationsWithCertificates,
         summary: {
           totalPortfolioValue,
+          portfolioBasis: "land_only",
+          portfolioCurrency: "NGN",
+          unclassifiedInvestments,
           propertiesOwned,
           activeReservations,
           confirmedInvestments,
