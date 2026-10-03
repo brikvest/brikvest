@@ -673,7 +673,7 @@ async function processNotification(
     claim.leaseToken,
   );
   if (attemptState.state === "already_sent") return "ready";
-  if (attemptState.state === "uncertain" || attemptState.state === "exhausted") {
+  if (attemptState.state === "uncertain" || attemptState.state === "exhausted" || attemptState.state === "review_required") {
     return "quarantined";
   }
 

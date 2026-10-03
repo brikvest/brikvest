@@ -5,6 +5,7 @@ import { db } from "../db";
 import { enqueueLegalApproval, type LegalTransaction } from "./repository";
 import { assertActiveConfirmedHolding } from "./holding-state";
 import type { ManualFullPaymentAttestation } from "./approval";
+import { hasExactPdfApproval } from "./pdf-review";
 
 const rows = (result: any): any[] => result.rows || [];
 type Executor = Pick<LegalTransaction, "execute">;
@@ -99,7 +100,8 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
   const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
   const filter = sql`AND r.status='converted_to_investment'
     AND (${search === ""} OR u.email ILIKE ${pattern} OR r.full_name ILIKE ${pattern}
-      OR u.kyc_full_name ILIKE ${pattern} OR concat_ws(' ',u.first_name,u.last_name) ILIKE ${pattern})`;
+      OR u.kyc_full_name ILIKE ${pattern} OR concat_ws(' ',u.first_name,u.last_name) ILIKE ${pattern}
+      OR r.id::text ILIKE ${pattern})`;
   const templates = await activeTemplates(db as Executor, input.propertyId);
   const property = rows(await db.execute(sql`SELECT name FROM properties WHERE id=${input.propertyId}`))[0];
   if (!property) throw Object.assign(new Error("Property not found"), { statusCode: 404 });
@@ -107,7 +109,8 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
   const holdings = rows(await db.execute(sql`${holdingQuery(input.propertyId)} ${filter} ORDER BY r.id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`));
   const items = [];
   for (const h of holdings) {
-    const docs = h.pairId ? rows(await db.execute(sql`SELECT document_type,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement FROM legal_documents WHERE pair_id=${h.pairId}`)) : [];
+    const docs = h.pairId ? rows(await db.execute(sql`SELECT d.*,t.version AS template_version FROM legal_documents d
+      JOIN legal_templates t ON t.id=d.template_id WHERE d.pair_id=${h.pairId}`)) : [];
     const jobs = h.pairId ? rows(await db.execute(sql`SELECT kind,status,last_error AS "lastError" FROM legal_jobs WHERE pair_id=${h.pairId}`)) : [];
     const history = h.pairId ? rows(await db.execute(sql`SELECT c.id,c.cycle_number AS "cycleNumber",c.status,j.last_error AS "lastError",c.created_at AS "createdAt",c.sent_at AS "sentAt"
       FROM legal_notification_cycles c LEFT JOIN legal_jobs j ON j.notification_cycle_id=c.id AND j.kind='notify'
@@ -121,14 +124,23 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
     const check = h.pairId ? { blockers: [] as string[], requiresAttestation: false } : await eligibility(db as Executor, h, templates);
     const active = h.status === "converted_to_investment" && h.funnelStage === "confirmed";
     const safe = docs.every((d) => ["awaiting_signature", "signing_in_progress", "investor_signed"].includes(d.status));
+    const reviewApproved = h.pairId ? await hasExactPdfApproval(db, h.pairId) : false;
+    const latestNotification = history[0]?.status || "not_queued";
+    const notificationState = h.pairId && ready && !reviewApproved && signed < 2 &&
+      !["sent", "uncertain", "sending"].includes(latestNotification)
+      ? "awaiting_review" : latestNotification;
     items.push({
       reservationId: h.reservationId, userName: h.userName, userEmail: h.userEmail, units: h.units, amount: h.amount, currency: h.currency,
       reviewToken: reviewToken(h), auditHistory,
       pairId: h.pairId, preparationState: h.pairStatus || "unprepared", signingState: signed === 2 ? "investor_signed" : signed ? "partially_signed" : "unsigned",
-      notificationState: history[0]?.status || "not_queued", notificationHistory: history, jobs, lastError: h.lastError,
+      notificationState, notificationHistory: history, jobs, lastError: h.lastError,
       blockers: !active ? ["Signing and notification are suspended: holding is not confirmed and active."] : check.blockers,
       requiresAttestation: check.requiresAttestation, canPrepare: !h.pairId && !check.blockers.length,
-      canNotify: active && ready && safe && signed < 2 && h.pairStatus !== "investor_signed",
+      reviewApproved, canReview: active && ready && safe && signed < 2 && h.pairStatus !== "investor_signed",
+      documents: docs.map(d => ({ id: d.id, type: d.document_type, status: d.status, sha256: d.unsigned_pdf_sha256,
+        templateId: d.template_id, templateVersion: d.template_version,
+        hasUnsignedPdf: !!d.unsigned_pdf_key, hasSignedPdf: !!d.signed_pdf_key, hasCertificate: !!d.signing_certificate_key })),
+      canNotify: reviewApproved && active && ready && safe && signed < 2 && h.pairStatus !== "investor_signed" && latestNotification !== "uncertain",
     });
   }
   return { items, total, page, pageSize, propertyName: property.name, templates: templates.map(({ id, documentType, version }) => ({ id, documentType, version })) };

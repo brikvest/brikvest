@@ -584,6 +584,23 @@ describe("legal durable job worker", () => {
     expect(uncertainDependencies.failLegalJob).not.toHaveBeenCalled();
   });
 
+  it("does not call mail or complete a pre-existing job held at the PDF review gate", async () => {
+    const pairResult = createPairResult({ ready: true, pdfKeys: [
+      "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",
+      "legal/documents/00000000-0000-5000-8000-000000000002/unsigned_pdf",
+    ] });
+    const dependencies = createGenerationDependencies({
+      claimNextLegalJob: vi.fn(async () => claim("notify")),
+      getPairWithDocuments: vi.fn(async () => pairResult),
+      readLegalDocument: vi.fn(async () => validPdf),
+      beginLegalNotificationAttempt: vi.fn(async () => ({ state: "review_required" as const })),
+    }).dependencies;
+    expect((await createLegalWorker(dependencies).dispatchLegalJobs(1)).quarantined).toBe(1);
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    expect(dependencies.completeLegalJob).not.toHaveBeenCalled();
+    expect(dependencies.failLegalJob).not.toHaveBeenCalled();
+  });
+
   it("marks a thrown SMTP result uncertain and does not automatically retry the ambiguous delivery", async () => {
     const pdfKeys = [
       "legal/documents/00000000-0000-5000-8000-000000000001/unsigned_pdf",

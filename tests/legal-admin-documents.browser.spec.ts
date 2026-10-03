@@ -15,6 +15,7 @@ type Fixture = {
   activationNonJson?: boolean;
   fieldMetadata?: boolean;
   deletionFailure?: boolean;
+  holdings?: Record<number, any[]>;
 };
 const properties = [{ id: 108, name: "North Estate", location: "Lagos" }, { id: 209, name: "South Estate", location: "Abuja" }];
 const template = (id: number, propertyId: number | null, documentType: string, active = false, version = 1): Template =>
@@ -33,6 +34,14 @@ async function installMocks(page: Page): Promise<Fixture> {
   const pdf = await PDFDocument.create();
   pdf.addPage().drawText("Isolated legal review fixture - not for execution");
   const pdfBytes = Buffer.from(await pdf.save());
+  const holdingRows: Record<number, any[]> = {
+    108: [{ reservationId: 450, userName: "North Investor", userEmail: "north@example.test", units: "1.00", amount: "150000.00", currency: "NGN", pairId: null, preparationState: "unprepared", signingState: "unsigned", notificationState: "not_queued", canPrepare: true, requiresAttestation: false, canNotify: false, canReview: false, reviewApproved: false, reviewToken: "north-review", blockers: [], jobs: [], notificationHistory: [], documents: [] }],
+    209: [{ reservationId: 550, userName: "South Investor", userEmail: "south@example.test", units: "2.00", amount: "240000.00", currency: "NGN", pairId: 2200, preparationState: "documents_ready", signingState: "unsigned", notificationState: "not_queued", canPrepare: false, requiresAttestation: false, canNotify: false, canReview: true, reviewApproved: false, reviewToken: "south-review", blockers: [], jobs: [], notificationHistory: [], documents: [
+      { id: 501, type: "deed_of_assignment", status: "pdf_ready", hasUnsignedPdf: true, hasSignedPdf: false, hasCertificate: false, sha256: "deed-hash", templateId: 41, templateVersion: 1 },
+      { id: 502, type: "transfer_exit_rights", status: "pdf_ready", hasUnsignedPdf: true, hasSignedPdf: false, hasCertificate: false, sha256: "transfer-hash", templateId: 42, templateVersion: 1 },
+    ] }],
+  };
+  fixture.holdings = holdingRows;
   // No API request can fall through to the application, even unexpected calls.
   // External origins are blocked too; no live database, mail or provider access.
   await page.route("**/*", async (route) => {
@@ -70,7 +79,10 @@ async function installMocks(page: Page): Promise<Fixture> {
     if (path === "/api/admin/properties") return json(route, properties);
     if (path === "/api/exchange-rates") return json(route, { rates: { NGN: 1500, USD: 1 }, currencies: { NGN: { symbol: "₦", name: "Nigerian Naira" }, USD: { symbol: "$", name: "US Dollar" } } });
     if (path === "/api/admin/legal/readiness") return json(route, { ready: true, blockers: [] });
-    if (path === "/api/admin/legal/historical-holdings" && method === "GET") return json(route, { items: [], total: 0, page: 1, pageSize: 20, templates: [], propertyName: properties.find((p) => p.id === propertyId)?.name });
+    if (path === "/api/admin/legal/historical-holdings" && method === "GET") return json(route, { items: holdingRows[propertyId] || [], total: (holdingRows[propertyId] || []).length, page: Number(url.searchParams.get("page") || 1), pageSize: 20, templates: snapshot.filter((item) => item.propertyId === propertyId).map((item) => ({ id: item.id, documentType: item.documentType, version: item.version })), propertyName: properties.find((p) => p.id === propertyId)?.name });
+    const reviewMatch = path.match(/^\/api\/admin\/legal\/pairs\/(\d+)\/review$/);
+    if (reviewMatch && method === "GET" && propertyId === 209 && Number(reviewMatch[1]) === 2200) return json(route, { pairId: 2200, propertyId: 209, reservationId: 550, investorName: "South Investor", propertyName: "South Estate", approved: holdingRows[209][0].reviewApproved, documents: holdingRows[209][0].documents.map((doc: any) => ({ id: doc.id, type: doc.type, sha256: doc.sha256, templateId: doc.templateId, templateVersion: doc.templateVersion })) });
+    if (path === "/api/admin/legal/pairs/2200/approve-send" && method === "POST" && propertyId === 209) { holdingRows[209][0].reviewApproved = true; return json(route, { queued: true, message: "Review recorded and notification queued." }); }
     if (path === "/api/admin/legal/templates" && method === "GET") return json(route, snapshot.filter((item) => url.searchParams.has("unassigned") ? item.propertyId === null : item.propertyId === propertyId));
     if (path === "/api/admin/legal/templates" && method === "POST" && body.propertyId === 108 && body.hasFile) {
       if (fixture.uploadFailure === "network") return route.abort("failed");
@@ -145,7 +157,7 @@ async function installMocks(page: Page): Promise<Fixture> {
     if (path === "/api/admin/legal/failures") return json(route, []);
     const pair = path.match(/^\/api\/admin\/legal\/pairs\/(1200|2200)\/(retry|resend|audit)$/);
     if (pair && propertyId === (pair[1] === "1200" ? 108 : 209)) return json(route, pair[2] === "audit" ? [{ eventType: "local_signing_completed", evidence: "retained-fixture-hash" }] : { message: "Background processing queued; delivery is not confirmed." });
-    if (/^\/api\/admin\/legal\/documents\/501\/(preview|download)$/.test(path) && propertyId === 209) return route.fulfill({ contentType: url.searchParams.get("version") === "docx" ? "application/octet-stream" : "application/pdf", body: pdfBytes });
+    if (/^\/api\/admin\/legal\/documents\/(501|502)\/(preview|download)$/.test(path) && propertyId === 209) return route.fulfill({ contentType: "application/pdf", body: pdfBytes });
     if (path.startsWith("/api/admin/legal")) {
       fixture.unexpected.push(`${method} ${path} ${url.search}`);
       return json(route, { error: "Unexpected legal request blocked" }, 500);
@@ -166,10 +178,11 @@ async function openWorkspace(page: Page, mobile = false) {
 async function chooseProperty(page: Page, name: string) {
   await page.getByRole("combobox", { name: "Choose property" }).click();
   await page.getByRole("option", { name: new RegExp(name) }).click();
+  await page.getByRole("tab", { name: "Templates", exact: true }).click();
   await expect(page.getByRole("heading", { name: `Upload to ${name}`, exact: true })).toBeVisible();
 }
 async function closeDialog(page: Page) {
-  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("dialog").last().getByRole("button", { name: "Close", exact: true }).click();
 }
 
 for (const mobile of [false, true]) {
@@ -222,8 +235,8 @@ test("active and historically referenced versions explain blocked deletion; a co
   expect(fixture.unexpected).toEqual([]);
 });
 
-test("readiness retains font infrastructure failures regardless of template wording", async ({ page }) => {
-  await installMocks(page);
+test("infrastructure details are absent from the normal workspace", async ({ page }) => {
+  const fixture = await installMocks(page);
   const detail = "Fontconfig unavailable; per-template font verification cannot run.";
   await page.route("**/api/admin/legal/readiness", (route) => json(route, {
     ready: false,
@@ -231,72 +244,76 @@ test("readiness retains font infrastructure failures regardless of template word
     blockers: [detail],
   }));
   await openWorkspace(page);
-  await page.getByText("Infrastructure readiness", { exact: false }).first().click();
-  await expect(page.getByText(detail, { exact: true })).toBeVisible();
-  await expect(page.getByText("No infrastructure blockers reported.", { exact: true })).toHaveCount(0);
+  await chooseProperty(page, "North Estate");
+  await expect(page.getByText("Infrastructure readiness", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Advanced operations", { exact: true })).toHaveCount(0);
+  expect(fixture.requests.some((item) => item.path === "/api/admin/legal/readiness")).toBe(false);
 });
 
 for (const mobile of [false, true]) {
-  test(`${mobile ? "mobile" : "desktop"} property templates, draft/live fields, retry, legacy ownership and retained evidence`, async ({ page }) => {
+  test(`${mobile ? "mobile" : "desktop"} unified investor queue requires review of both actual PDFs before approval and send`, async ({ page }) => {
     if (mobile) await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installMocks(page);
     await openWorkspace(page, mobile);
     await expect(page.getByText("Choose a property to begin", { exact: true })).toBeVisible();
     await chooseProperty(page, "North Estate");
-    const north = page.getByRole("article").filter({ hasText: "North Investor" });
-    await expect(north.getByRole("button", { name: "Retry after activation" })).toBeDisabled();
-    await page.getByRole("button", { name: "Inspect fields", exact: true }).first().click();
-    await expect(page.getByText("Draft · not live", { exact: true })).toBeVisible();
-    await expect(page.getByText("North verified identity", { exact: true })).toBeVisible();
-    await page.getByLabel("New Word version").setInputFiles({ name: "north-v2.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("Mock-only upload; never sent to server") });
-    await page.getByRole("button", { name: "Upload & validate" }).click();
-    await expect(page.getByText("North draft identity", { exact: true })).toBeVisible();
-    const upload = fixture.requests.find((item) => item.path === "/api/admin/legal/templates" && item.method === "POST");
-    expect(upload?.body).toMatchObject({ propertyId: 108, documentType: "deed_of_assignment", hasFile: true });
-    await page.getByRole("button", { name: "Preview PDF", exact: true }).first().click();
-    await expect(page.getByRole("dialog")).toContainText("North Estate");
-    await expect(page.getByRole("dialog").locator("iframe")).toHaveAttribute("src", /^blob:/);
+    await expect(page.getByRole("tab", { name: "Investor documents" })).toHaveAttribute("aria-selected", "false");
+    await page.getByRole("tab", { name: "Investor documents" }).click();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "Templates" })).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByRole("tab", { name: "Investor documents" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-holding-id='450']")).toContainText("North Investor");
+    await expect(page.locator("[data-holding-id='450']")).toContainText("Ready to prepare");
+    expect(fixture.requests.some((item) => item.path === "/api/admin/legal/historical-holdings")).toBe(true);
+    if (!mobile) await page.screenshot({ path: "screenshots/legal-workspace.jpg", fullPage: false });
+    await page.getByRole("textbox", { name: "Search historical holdings" }).fill("north@example.test");
+    await expect(page.locator("[data-holding-id='450']")).toBeVisible();
+    await page.getByRole("tab", { name: "Templates" }).click();
+    await page.getByRole("tab", { name: "Investor documents" }).click();
+    await expect(page.getByRole("textbox", { name: "Search historical holdings" })).toHaveValue("north@example.test");
+    await expect(page.locator("[data-holding-id='450']")).toBeVisible();
+    await page.getByRole("textbox", { name: "Search historical holdings" }).fill("");
+    await expect(page.getByRole("button", { name: "Prepare", exact: true })).toBeVisible();
+    await page.locator("[data-holding-id='450']").getByRole("button", { name: "Prepare" }).click();
+    await expect(page.getByRole("dialog")).toContainText("No document pair exists");
+    expect(fixture.requests.some((item) => /\/review(?:\?|$)/.test(item.path))).toBe(false);
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+    await page.getByRole("combobox", { name: "Choose property" }).click();
+    await page.getByRole("option", { name: /South Estate/ }).click();
+    await page.getByRole("tab", { name: "Investor documents" }).click();
+    const south = page.locator("[data-holding-id='550']");
+    await expect(south).toContainText("South Investor");
+    await south.getByRole("button", { name: "Review PDFs" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("South Estate");
+    await expect(dialog).toContainText("Template #41 · v1");
+    await expect(dialog.getByRole("button", { name: "Approve and send notification" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Preview PDF" }).first().click();
+    await expect(page.getByRole("dialog").last().locator("iframe")).toHaveAttribute("src", /^blob:/);
     await closeDialog(page);
-    await page.getByRole("button", { name: "Activate v2", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("Existing document pairs keep their original template pins");
-    await page.getByRole("button", { name: "Confirm activation" }).click();
-    await expect(page.getByText("Live template", { exact: true })).toHaveCount(1);
-    await page.getByRole("button", { name: "Activate v1", exact: true }).first().click();
-    await page.getByRole("button", { name: "Confirm activation" }).click();
-    await expect(north.getByRole("button", { name: "Retry after activation" })).toBeEnabled();
-    await north.getByRole("button", { name: "Retry after activation" }).click();
-    await expect.poll(() => fixture.requests.some((item) => item.path.endsWith("/1200/retry") && item.body.propertyId === 108)).toBe(true);
-    await expect(page.getByText("Retry queued", { exact: true }).first()).toBeVisible();
-    await page.getByText("Advanced operations", { exact: true }).click();
-    await page.getByText("Unassigned legacy templates · explicit destination required", { exact: true }).click();
-    await page.getByRole("button", { name: "Assign to North Estate", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("Destination: North Estate");
-    await page.getByRole("button", { name: "Confirm this destination" }).click();
-    await expect.poll(() => fixture.templates.find((item) => item.id === 90)?.propertyId).toBe(108);
-    expect(fixture.templates.find((item) => item.id === 90)?.active).toBe(false);
-    await chooseProperty(page, "South Estate");
-    await expect(page.getByText("South verified address", { exact: true })).toHaveCount(2);
-    await expect(page.getByText("North verified identity", { exact: true })).toHaveCount(0);
-    await expect(page.getByLabel("New Word version")).toHaveValue("");
-    await page.screenshot({ path: test.info().outputPath(`${mobile ? "mobile" : "desktop"}-property-workspace.png`), fullPage: true });
-    const south = page.getByRole("article").filter({ hasText: "South Investor" });
-    await south.getByRole("button", { name: "Resend email" }).click();
-    await expect(page.getByText("Email queued", { exact: true }).first()).toBeVisible();
-    await south.getByRole("button", { name: "Signed PDF", exact: true }).click();
-    await expect(page.getByRole("dialog")).toContainText("South Estate");
-    await closeDialog(page);
-    for (const label of ["Signed", "DOCX", "Signing audit record"]) {
-      const downloaded = page.waitForEvent("download");
-      await south.getByRole("button", { name: label, exact: true }).click();
-      await downloaded;
-    }
-    await south.getByText("Approval, pinned versions & audit", { exact: true }).click();
-    await south.getByRole("button", { name: "View audit trail" }).click();
-    await expect(page.getByRole("dialog")).toContainText("retained-fixture-hash");
-    await closeDialog(page);
+    await dialog.getByText("I reviewed this PDF").first().click();
+    const reviewBoxes = dialog.getByRole("checkbox", { name: "I reviewed this PDF" });
+    await expect(reviewBoxes.first()).toBeChecked();
+    await dialog.getByRole("button", { name: "Refresh holding" }).click();
+    await expect(reviewBoxes.first()).toBeChecked();
+    fixture.holdings![209][0].documents[0].sha256 = "deed-hash-updated";
+    await dialog.getByRole("button", { name: "Refresh holding" }).click();
+    await expect(reviewBoxes.first()).not.toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Approve and send notification" })).toBeDisabled();
+    fixture.holdings![209][0].documents[0].sha256 = "deed-hash";
+    await dialog.getByRole("button", { name: "Refresh holding" }).click();
+    await expect(reviewBoxes.first()).not.toBeChecked();
+    await dialog.getByText("I reviewed this PDF").first().click();
+    await dialog.getByText("I reviewed this PDF").nth(1).click();
+    await dialog.getByRole("button", { name: "Approve and send notification" }).click();
+    await expect.poll(() => fixture.requests.some((item) => item.path.endsWith("/2200/approve-send"))).toBe(true);
+    const approval = fixture.requests.find((item) => item.path.endsWith("/2200/approve-send"));
+    expect(approval).toMatchObject({ propertyId: 209, body: { propertyId: 209, confirmed: true, documents: [{ id: 501, sha256: "deed-hash" }, { id: 502, sha256: "transfer-hash" }] } });
+    await expect(dialog).toContainText("Review recorded and notification queued.");
+    expect(fixture.requests.some((item) => item.path.includes("/api/admin/legal/dispatch"))).toBe(false);
     expect(fixture.unexpected).toEqual([]);
-    expect(fixture.requests.filter((item) => item.path.includes("/501/")).every((item) => item.propertyId === 209)).toBe(true);
-    expect(fixture.requests.filter((item) => item.path.endsWith("/activate")).every((item) => item.body.propertyId === 108)).toBe(true);
+    expect(fixture.requests.filter((item) => item.path.includes("/documents/501/")).every((item) => item.propertyId === 209)).toBe(true);
     if (mobile) expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
@@ -308,7 +325,8 @@ test("switching properties fences delayed list, field, preview and upload result
   await chooseProperty(page, "North Estate");
   await chooseProperty(page, "South Estate");
   expect(fixture.pending.has("GET /api/admin/legal/templates")).toBe(true);
-  await expect(page.getByText("South verified address", { exact: true })).toHaveCount(2);
+    await page.getByRole("button", { name: "Inspect fields", exact: true }).first().click();
+    await expect(page.getByText("South verified address", { exact: true })).toHaveCount(2);
   await expect(page.getByText("North Investor", { exact: true })).toHaveCount(0);
   fixture.delays.clear();
   await chooseProperty(page, "North Estate");
@@ -359,6 +377,7 @@ test("pending activation retains its confirmed destination until completion", as
   expect(fixture.templates.find((item) => item.id === 31)?.active).toBe(true);
   expect(fixture.requests.find((item) => item.path.endsWith("/31/activate"))?.body).toEqual({ propertyId: 108 });
   await chooseProperty(page, "South Estate");
+  await page.getByRole("button", { name: "Inspect fields", exact: true }).first().click();
   await expect(page.getByText("South verified address", { exact: true })).toHaveCount(2);
   await expect(page.getByText("North verified identity", { exact: true })).toHaveCount(0);
   expect(fixture.unexpected).toEqual([]);
@@ -401,7 +420,7 @@ test("upload validation issues persist with the selected file until a successful
   await expect.poll(() => fixture.pending.has("POST /api/admin/legal/templates")).toBe(true);
   await expect(page.getByRole("alert")).toContainText("Date format is incomplete");
   await expect(page.getByRole("alert")).toContainText("north-v2.docx");
-  await expect(page.getByText("North draft identity", { exact: true })).toBeVisible({ timeout: 2000 });
+  await expect(page.getByText("Uploaded · not active · Version 2", { exact: true })).toBeVisible({ timeout: 2000 });
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(fileInput).toHaveValue("");
 });
@@ -488,7 +507,7 @@ test("preview and activation errors stay beside their template version and clear
   await expect(page.getByRole("alert").first()).toContainText("Refresh this property’s drafts");
   fixture.activationNonJson = false;
   await page.getByRole("button", { name: "Confirm activation" }).click();
-  await expect(page.getByText("Live template", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Live · Version 1", { exact: true })).toHaveCount(1);
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   fixture.previewFailure = true;
@@ -504,7 +523,9 @@ test("field inspection prefers metadata correction issues over legacy issue stri
   fixture.fieldMetadata = true;
   await openWorkspace(page);
   await chooseProperty(page, "North Estate");
+  expect(fixture.requests.some((item) => item.path.endsWith("/fields"))).toBe(false);
   await page.getByRole("button", { name: "Inspect fields", exact: true }).first().click();
+  await expect.poll(() => fixture.requests.some((item) => item.path.endsWith("/fields"))).toBe(true);
   const correction = page.locator("li").filter({ hasText: "Remove the unsupported placeholder." });
   await expect(correction).toContainText("Replace it with one of the supported placeholders.");
   await expect(page.getByText("Old unstructured issue is superseded", { exact: true })).toHaveCount(0);

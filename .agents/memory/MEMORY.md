@@ -12,3 +12,5 @@
 - [Converter font provisioning](converter-font-provisioning.md) — ship licensed fallback faces; workspace font resolution does not establish converter deployment readiness.
 - [Historical rollout authorization](historical-rollout-authorization.md) — explicit admin selection only; legal preparation does not authorize financial corrections or automatic backfill.
 - [Production legal schema verification](production-legal-schema-verification.md) — workspace may differ from production; verify target identity and trigger/function guards before operational changes.
+- [PDF review release boundary](pdf-review-release-boundary.md) — payment/template approval never releases signing mail; both exact investor PDFs require explicit admin approval.
+- [Playwright output isolation](playwright-output-isolation.md) — concurrent browser commands need separate output directories to avoid false trace/cleanup failures.

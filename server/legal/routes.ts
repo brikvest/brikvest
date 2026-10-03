@@ -21,6 +21,8 @@ import { AdminLegalInputError, adminLegalFailure } from "./admin-errors";
 import type { LegalFailureStage } from "../../shared/legal-errors";
 import { deleteLegalTemplateVersion, LegalTemplateDeletionError } from "./template-deletion";
 import { searchHistoricalHoldings, prepareHistoricalHoldings } from "./historical-rollout";
+import { hasExactPdfApproval, recordPdfApproval, reviewedDocuments, reviewSchemaInstalled } from "./pdf-review";
+import { hasOutstandingLegalSignature } from "./invitation-state";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -37,6 +39,10 @@ const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req
   next();
 });
 const rows = (result: any): any[] => result.rows || [];
+function wakeLegalWorker() {
+  if (process.env.NODE_ENV !== "test") void dispatchLegalJobs(3)
+    .catch(() => console.error("[LEGAL] Work remains queued for the durable scheduler."));
+}
 const id = (value: unknown): number => {
   if ((typeof value !== "string" && typeof value !== "number") || !/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new Error("Invalid record ID");
   return Number(value);
@@ -149,9 +155,11 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     propertyId: id(req.query.propertyId), search: String(req.query.search || ""),
     page: req.query.page === undefined ? 1 : Number(req.query.page), pageSize: req.query.pageSize === undefined ? 20 : Number(req.query.pageSize),
   }))));
-  app.post("/api/admin/legal/historical-holdings/prepare", auth.requireAdminAuth, handler(async (req, res) => res.json(await prepareHistoricalHoldings({
-    ...req.body, propertyId: id(req.body.propertyId), adminId: req.user.userId,
-  }))));
+  app.post("/api/admin/legal/historical-holdings/prepare", auth.requireAdminAuth, handler(async (req, res) => {
+    const result = await prepareHistoricalHoldings({ ...req.body, propertyId: id(req.body.propertyId), adminId: req.user.userId });
+    if (result.results.some(r => r.state === "queued")) wakeLegalWorker();
+    res.json(result);
+  }));
   app.get("/api/admin/legal/failures", auth.requireAdminAuth, handler(async (req, res) => res.json(rows(await db.execute(sql`
     SELECT a.id,a.reservation_id AS "reservationId",a.event_type AS "eventType",a.details,a.created_at AS "createdAt"
      FROM legal_audit_events a
@@ -181,6 +189,8 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     } catch { checks.push({ id: "legal-schema", ready: false, detail: "Legal-document database migrations have not been applied." }); }
     const localSchema = rows(await db.execute(sql`SELECT to_regclass('public.local_legal_signing_operations') IS NOT NULL AS installed`))[0];
     checks.push({ id: "local-signing-schema", ready: !!localSchema?.installed, detail: localSchema?.installed ? "In-app signing schema installed." : "The additive in-app signing migration must be installed." });
+    const reviewReady = await reviewSchemaInstalled(db);
+    checks.push({ id: "pdf-review-schema", ready: reviewReady, detail: reviewReady ? "PDF review approvals installed." : "Apply the additive PDF review migration before approving or sending invitations." });
     const blockers = checks.filter((check) => !check.ready).map((check) => check.detail);
     res.json({ ready: blockers.length === 0, configured: config.ready, signingMode: "brikvest_local", checks, blockers });
   }));
@@ -340,6 +350,44 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
      FROM legal_audit_events WHERE pair_id=${id(req.params.id)}
        AND EXISTS (SELECT 1 FROM legal_document_pairs p WHERE p.id=pair_id AND p.property_id=${id(req.query.propertyId)})
      ORDER BY id`)))));
+  app.get("/api/admin/legal/pairs/:id/review", auth.requireAdminAuth, handler(async (req, res) => {
+    const pairId = id(req.params.id), propertyId = id(req.query.propertyId);
+    const result = await db.transaction(async tx => {
+      const pair = rows(await tx.execute(sql`SELECT p.*,pr.name AS property_name FROM legal_document_pairs p
+        JOIN properties pr ON pr.id=p.property_id WHERE p.id=${pairId} AND p.property_id=${propertyId}`))[0];
+      if (!pair) throw Object.assign(new Error("Legal document pair not found"), { statusCode: 404 });
+      const documents = await reviewedDocuments(tx, pairId);
+      return { pairId, propertyId, reservationId: pair.reservation_id, investorName: pair.full_name_snapshot,
+        propertyName: pair.property_name, approved: await hasExactPdfApproval(tx, pairId),
+        documents: documents.map(d => ({ id: d.id, type: d.document_type, sha256: d.unsigned_pdf_sha256,
+          templateId: d.template_id, templateVersion: d.template_version })) };
+    });
+    res.json(result);
+  }));
+  app.post("/api/admin/legal/pairs/:id/approve-send", auth.requireAdminAuth, handler(async (req, res) => {
+    const pairId = id(req.params.id), propertyId = id(req.body.propertyId);
+    const result = await db.transaction(async tx => {
+      const reference = rows(await tx.execute(sql`SELECT reservation_id,user_id,property_id FROM legal_document_pairs
+        WHERE id=${pairId} AND property_id=${propertyId}`))[0];
+      if (!reference) throw Object.assign(new Error("Legal document pair not found"), { statusCode: 404 });
+      await assertActiveConfirmedHolding(tx, { reservationId: Number(reference.reservation_id), userId: Number(reference.user_id), propertyId });
+      const pair = rows(await tx.execute(sql`SELECT * FROM legal_document_pairs WHERE id=${pairId} AND property_id=${propertyId} FOR UPDATE`))[0];
+      if (!pair || Number(pair.user_id) !== Number(reference.user_id) || Number(pair.reservation_id) !== Number(reference.reservation_id)) throw new Error("Holding identity changed. Refresh and review again.");
+      if (!pair.documents_ready_at || !await hasOutstandingLegalSignature(tx, pairId)) throw new Error("No outstanding signing invitation is permitted for this pair.");
+      const created = await recordPdfApproval(tx, pairId, req.user.userId, req.body);
+      if (!created) {
+        const cycle = rows(await tx.execute(sql`SELECT c.*,j.status AS job_status FROM legal_notification_cycles c
+          LEFT JOIN legal_jobs j ON j.notification_cycle_id=c.id AND j.kind='notify'
+          WHERE c.pair_id=${pairId} ORDER BY c.cycle_number DESC LIMIT 1`))[0];
+        if (cycle) return { queued: ["queued","retry"].includes(cycle.job_status), coalesced: true,
+          state: cycle.status === "uncertain" ? "blocked_uncertain" : cycle.status, cycleId: cycle.id,
+          cycleNumber: cycle.cycle_number, message: "This PDF review was already approved. No additional invitation was created; use the separate resend action if needed." };
+      }
+      return requestLegalNotificationResend(tx, pairId, req.user.userId);
+    });
+    if (result.queued) wakeLegalWorker();
+    res.status(result.state === "blocked_uncertain" ? 409 : 200).json(result);
+  }));
   for (const action of ["retry", "resend"] as const) app.post(`/api/admin/legal/pairs/:id/${action}`, auth.requireAdminAuth, handler(async (req, res) => {
     const pairId = id(req.params.id);
     const propertyId = id(req.body.propertyId);
@@ -379,9 +427,11 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     });
     if (action === "resend") {
       if (!resendResult) throw new Error("The notification resend request was not recorded");
+      if (resendResult.queued) wakeLegalWorker();
       res.status(resendResult.state === "blocked_uncertain" ? 409 : 200).json(resendResult);
       return;
     }
+    wakeLegalWorker();
     res.json({ message: "Request queued; the existing pair and in-app signing evidence are retained" });
   }));
   app.post("/api/admin/legal/dispatch", auth.requireAdminAuth, handler(async (_req, res) => res.json(await dispatchLegalJobs(5))));

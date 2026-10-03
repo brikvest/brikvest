@@ -6,7 +6,7 @@ import express from "express";
 import request from "supertest";
 import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from "vitest";
 
-const reference = vi.hoisted(() => ({ current: null as any }));
+const reference = vi.hoisted(() => ({ current: null as any, dispatch: vi.fn(async () => ({})) }));
 vi.mock("../server/db", () => ({ get db() { return reference.current; } }));
 vi.mock("../server/emailService", () => ({ sendEmail: vi.fn(() => { throw new Error("No live mail allowed"); }) }));
 vi.mock("../server/legal/files", () => ({
@@ -14,7 +14,7 @@ vi.mock("../server/legal/files", () => ({
   readLegalTemplateVersion: vi.fn(() => { throw new Error("No storage reads during preparation"); }),
   streamAuthorizedLegalDocument: vi.fn(),
 }));
-vi.mock("../server/legal/worker", () => ({ dispatchLegalJobs: vi.fn() }));
+vi.mock("../server/legal/worker", () => ({ dispatchLegalJobs: reference.dispatch }));
 vi.mock("../server/legal/local-signing", () => ({ beginLocalSigning: vi.fn(), completeLocalSigning: vi.fn() }));
 
 import { prepareHistoricalHoldings, searchHistoricalHoldings } from "../server/legal/historical-rollout";
@@ -23,7 +23,7 @@ import { registerLegalRoutes } from "../server/legal/routes";
 
 let pg: PGlite;
 let database: ReturnType<typeof drizzle>;
-const migrations = ["documents", "local-signing", "notification-cycles", "property-templates", "template-deletion", "historical-rollout"];
+const migrations = ["documents", "local-signing", "notification-cycles", "property-templates", "template-deletion", "historical-rollout", "pdf-review"];
 beforeAll(async () => {
   pg = new PGlite();
   await pg.exec(`
@@ -72,6 +72,10 @@ async function ready(pairId: number, signed = 0) {
   await database.execute(sql`UPDATE legal_document_pairs SET status='documents_ready',documents_ready_at=now() WHERE id=${pairId}`);
   await database.execute(sql`UPDATE legal_documents SET status='awaiting_signature',source_docx_key='legal/documents/test/source_docx',
     unsigned_pdf_key='legal/documents/test/unsigned_pdf',unsigned_pdf_sha256=repeat('a',64),signature_placement='{}'::jsonb WHERE pair_id=${pairId}`);
+  await database.execute(sql`INSERT INTO legal_pdf_review_approvals(pair_id,approved_by_admin_id,deed_document_id,deed_sha256,transfer_document_id,transfer_sha256)
+    SELECT ${pairId},1,d.id,d.unsigned_pdf_sha256,t.id,t.unsigned_pdf_sha256 FROM legal_documents d
+    JOIN legal_documents t ON t.pair_id=d.pair_id WHERE d.pair_id=${pairId}
+      AND d.document_type='deed_of_assignment' AND t.document_type='transfer_exit_rights'`);
   if (signed) await database.execute(sql`UPDATE legal_documents SET status='investor_signed',investor_signed_at=now() WHERE pair_id=${pairId}
     AND ${signed === 1 ? sql`document_type='deed_of_assignment'` : sql`true`}`);
   await database.execute(sql`INSERT INTO legal_notification_cycles(pair_id,cycle_number,request_kind,status,updated_at,sent_at)
@@ -226,6 +230,27 @@ describe("explicit historical rollout (disposable PostgreSQL, no network)", () =
     const result = await database.transaction((tx) => enqueueLegalApproval(tx as any, { reservationId: id, source: "payment_submission", sourceId: submission, adminId: 1 }));
     expect(result).toMatchObject({ eligible: true, status: "queued" });
     expect((await pg.query<any>(`SELECT approval_source FROM legal_document_pairs WHERE id=${result.pairId}`)).rows[0].approval_source).toBe("payment_submission");
+  });
+  it("wakes preparation after the property-scoped transaction commits, without dispatching live work", async () => {
+    const id = await latest();
+    const holding = (await searchHistoricalHoldings({ propertyId: 1, pageSize: 50 })).items.find(h => h.reservationId === id)!;
+    const app = express(); app.use(express.json());
+    registerLegalRoutes(app, { requireAuth: (_req, res) => { res.sendStatus(401); },
+      requireAdminAuth: (req: any, _res, next) => { req.user = { userId: 1 }; next(); } });
+    reference.dispatch.mockReset().mockImplementation(async () => {
+      expect((await pg.query<any>(`SELECT count(*)::int AS n FROM legal_document_pairs WHERE reservation_id=${id}`)).rows[0].n).toBe(1);
+      return {};
+    });
+    const environment = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "development";
+      const response = await request(app).post("/api/admin/legal/historical-holdings/prepare").send({
+        propertyId: 1, confirmed: true, templateIds: { deed: 1, transfer: 2 },
+        holdings: [{ reservationId: id, reviewToken: holding.reviewToken, attestation }],
+      });
+      expect(response.body.results[0].state).toBe("queued");
+      expect(reference.dispatch).toHaveBeenCalledWith(3);
+    } finally { process.env.NODE_ENV = environment; }
   });
   it("authorizes admin-only property-scoped search/preparation, never investor-accessible", async () => {
     const app = express(); app.use(express.json());

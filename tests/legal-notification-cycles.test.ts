@@ -64,12 +64,12 @@ async function addPair(): Promise<number> {
       approved_by_admin_id, approved_at, effective_at, approval_note,
       full_name_snapshot, home_address_snapshot, property_area_sqm, units_snapshot,
       square_meters_per_unit, payment_amount_naira, payment_currency,
-      data_snapshot, status, documents_ready_at
+      data_snapshot, status, documents_ready_at, deed_template_id, transfer_template_id
     ) VALUES (
       ${reservation.rows[0].id}, 1, 1, 'admin_full_confirmation',
       ${reservation.rows[0].id}, ${adminId}, now(), now(), 'approved for testing',
       'Ada Lovelace', '1 Example Street', 5, 1, 5, 100000, 'NGN',
-      '{}'::jsonb, 'documents_ready', now()
+      '{}'::jsonb, 'documents_ready', now(), 1, 2
     )
     RETURNING id
   `);
@@ -150,14 +150,19 @@ beforeEach(async () => {
   adminId = 1;
   await database.exec(baseMigration);
   await database.exec(cycleMigration);
+  await database.exec(await fs.readFile("scripts/ensure-legal-pdf-review.sql", "utf8"));
   installDatabase();
-  pairId = await addPair();
   await database.exec(`INSERT INTO legal_templates(document_type,version,original_filename,storage_key,sha256,byte_size,validation_status,created_by_admin_id)
     VALUES ('deed_of_assignment',1,'d.docx','legal/templates/deed/v1',repeat('a',64),10,'valid',1),
-      ('transfer_exit_rights',1,'t.docx','legal/templates/transfer/v1',repeat('b',64),10,'valid',1);
-    INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
+      ('transfer_exit_rights',1,'t.docx','legal/templates/transfer/v1',repeat('b',64),10,'valid',1);`);
+  pairId = await addPair();
+  await database.exec(`INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
     VALUES (${pairId},'deed_of_assignment',1,'awaiting_signature','legal/documents/test/unsigned_pdf',repeat('a',64),'{}'),
       (${pairId},'transfer_exit_rights',2,'awaiting_signature','legal/documents/test2/unsigned_pdf',repeat('b',64),'{}');`);
+  await database.exec(`INSERT INTO legal_pdf_review_approvals(pair_id,approved_by_admin_id,deed_document_id,deed_sha256,transfer_document_id,transfer_sha256)
+    SELECT ${pairId},1,d.id,d.unsigned_pdf_sha256,t.id,t.unsigned_pdf_sha256 FROM legal_documents d
+    JOIN legal_documents t ON t.pair_id=d.pair_id WHERE d.pair_id=${pairId}
+      AND d.document_type='deed_of_assignment' AND t.document_type='transfer_exit_rights';`);
 });
 
 afterEach(async () => {
@@ -165,6 +170,26 @@ afterEach(async () => {
 });
 
 describe("durable legal notification cycles (isolated PGlite)", () => {
+  it("fences pre-existing unsent work without fabricating approval or sending intent", async () => {
+    pairId = await addPair();
+    await database.exec(`INSERT INTO legal_documents(pair_id,document_type,template_id,status,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
+      VALUES (${pairId},'deed_of_assignment',1,'awaiting_signature','legal/documents/test/unsigned_pdf',repeat('a',64),'{}'),
+        (${pairId},'transfer_exit_rights',2,'awaiting_signature','legal/documents/test2/unsigned_pdf',repeat('b',64),'{}');`);
+    await addNotificationJob({ cycleStatus: "queued", jobStatus: "leased" });
+    expect(await beginLegalNotificationAttempt(jobId, "initial-lease")).toEqual({ state: "review_required" });
+    expect((await database.query(`SELECT status FROM legal_jobs WHERE id=${jobId}`)).rows[0]).toEqual({ status: "blocked" });
+    await expect(requestResend()).rejects.toThrow("Administrator review");
+    expect((await database.query(`SELECT count(*)::int AS n FROM legal_audit_events
+      WHERE pair_id=${pairId} AND event_type='legal_documents_ready_email_attempt_started'`)).rows[0]).toEqual({ n: 0 });
+    await database.exec(`INSERT INTO legal_pdf_review_approvals(pair_id,approved_by_admin_id,deed_document_id,deed_sha256,transfer_document_id,transfer_sha256)
+      SELECT ${pairId},1,d.id,d.unsigned_pdf_sha256,t.id,t.unsigned_pdf_sha256 FROM legal_documents d
+      JOIN legal_documents t ON t.pair_id=d.pair_id WHERE d.pair_id=${pairId}
+        AND d.document_type='deed_of_assignment' AND t.document_type='transfer_exit_rights';`);
+    expect(await requestResend()).toMatchObject({ state: "queued", cycleId });
+    const claim = await claimNextLegalJob();
+    expect(await beginLegalNotificationAttempt(claim!.id, claim!.leaseToken)).toEqual({ state: "send", attempt: 1 });
+  });
+
   it("creates one new cycle after a successful delivery and coalesces concurrent admin requests", async () => {
     await addNotificationJob({
       cycleStatus: "sent",

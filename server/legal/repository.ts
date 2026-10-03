@@ -4,6 +4,7 @@ import { db } from "../db";
 import type { LegalDocumentType } from "./templates";
 import { assertActiveConfirmedHolding } from "./holding-state";
 import { hasOutstandingLegalSignature } from "./invitation-state";
+import { requireExactPdfApproval } from "./pdf-review";
 
 export type LegalApprovalSource =
   | "payment_submission"
@@ -80,7 +81,8 @@ export type LegalNotificationAttemptStart =
   | { state: "send"; attempt: number }
   | { state: "already_sent" }
   | { state: "uncertain" }
-  | { state: "exhausted" };
+  | { state: "exhausted" }
+  | { state: "review_required" };
 
 export type LegalNotificationResendResult = {
   state: "queued" | "in_progress" | "cooldown" | "blocked_uncertain";
@@ -687,6 +689,21 @@ export async function requestLegalNotificationResend(
   if (!pair) throw new Error("Legal document pair not found");
   if (!pair.documentsReadyAt) throw new Error("Both unsigned PDFs must be ready before notification");
   if (!await hasOutstandingLegalSignature(tx, pairId)) throw new Error("Both documents are already investor-signed. No signing invitation was queued.");
+  await requireExactPdfApproval(tx, pairId);
+  const initial = resultRows<{ id: number }>(await tx.execute(sql`
+    INSERT INTO legal_notification_cycles(pair_id,cycle_number,request_kind,status)
+    VALUES (${pairId},1,'initial','queued') ON CONFLICT (pair_id,cycle_number) DO NOTHING RETURNING id`))[0];
+  const initialId = initial?.id ?? resultRows<{ id: number }>(await tx.execute(sql`
+    SELECT id FROM legal_notification_cycles WHERE pair_id=${pairId} AND cycle_number=1`))[0]?.id;
+  if (initialId) {
+    await tx.execute(sql`INSERT INTO legal_jobs(pair_id,kind,status,notification_cycle_id)
+      VALUES (${pairId},'notify','queued',${initialId}) ON CONFLICT (pair_id,kind) DO NOTHING`);
+    // Release only a gate-blocked unsent cycle, never an uncertain send intent.
+    await tx.execute(sql`UPDATE legal_jobs SET status='queued',available_at=now(),last_error=NULL,updated_at=now()
+      WHERE pair_id=${pairId} AND kind='notify' AND status='blocked'
+        AND last_error='Administrator review of both exact investor PDFs is required'
+        AND EXISTS (SELECT 1 FROM legal_notification_cycles c WHERE c.id=notification_cycle_id AND c.status='queued')`);
+  }
 
   const job = resultRows<{
     id: number;
@@ -1022,6 +1039,17 @@ export async function beginLegalNotificationAttempt(
       return { state: "exhausted" };
     }
 
+    // Last durable boundary before SMTP, including old queued work and retries.
+    // Preserve sent/uncertain history above rather than retroactively approving it.
+    try {
+      await requireExactPdfApproval(tx, job.pairId);
+    } catch {
+      await tx.execute(sql`UPDATE legal_jobs SET status='blocked',lease_token=NULL,leased_until=NULL,
+        last_error='Administrator review of both exact investor PDFs is required',updated_at=now()
+        WHERE id=${jobId} AND status='leased' AND lease_token=${leaseToken}`);
+      await recordLegalNotificationEvent(tx, job.pairId, "worker", "notification_blocked_pdf_review", { jobId, notificationCycleId: cycle.id });
+      return { state: "review_required" };
+    }
     const attempt = starts.length + 1;
     await tx.execute(sql`
       UPDATE legal_notification_cycles
@@ -1349,29 +1377,7 @@ export async function markPairReady(pairId: number): Promise<void> {
       SET status = 'awaiting_signature'
       WHERE pair_id = ${pairId} AND status = 'generated'
     `);
-    const insertedCycle = resultRows<{ id: number }>(await tx.execute(sql`
-      INSERT INTO legal_notification_cycles
-        (pair_id, cycle_number, request_kind, status)
-      VALUES (${pairId}, 1, 'initial', 'queued')
-      ON CONFLICT (pair_id, cycle_number) DO NOTHING
-      RETURNING id
-    `))[0];
-    const initialCycleId = insertedCycle?.id ?? resultRows<{ id: number }>(await tx.execute(sql`
-      SELECT id FROM legal_notification_cycles
-      WHERE pair_id = ${pairId} AND cycle_number = 1
-      FOR UPDATE
-    `))[0]?.id;
-    if (!initialCycleId) throw new Error("Initial legal notification cycle could not be initialized");
-    await tx.execute(sql`
-      INSERT INTO legal_jobs (pair_id, kind, status, notification_cycle_id)
-      VALUES (${pairId}, 'notify', 'queued', ${initialCycleId})
-      ON CONFLICT (pair_id, kind) DO NOTHING
-    `);
-    await tx.execute(sql`
-      UPDATE legal_jobs
-      SET notification_cycle_id = ${initialCycleId}
-      WHERE pair_id = ${pairId} AND kind = 'notify' AND notification_cycle_id IS NULL
-    `);
+    // Automatic preparation ends here. Only explicit exact-PDF review releases mail.
     await tx.execute(sql`
       INSERT INTO legal_audit_events (pair_id, actor_type, event_type, details)
       VALUES (${pairId}, 'worker', 'both_unsigned_documents_ready',
