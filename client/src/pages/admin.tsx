@@ -29,6 +29,7 @@ import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceO
 import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
 
 // Helper function to get currency symbol
+import { SellerAlertRecoveryTab } from "@/components/marketplace/SellerAlertRecoveryTab";
 const getCurrencySymbol = (currency: string) => {
   switch (currency) {
     case 'NGN': return '₦';
@@ -2830,7 +2831,7 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
       <Tabs defaultValue="listings" className="w-full">
         <div className="overflow-x-auto pb-1">
           <TabsList
-            className="grid h-auto min-w-[520px] w-full grid-cols-4 sm:min-w-0 sm:w-fit"
+            className="grid h-auto min-w-[620px] w-full grid-cols-5 sm:min-w-0 sm:w-fit"
             aria-label="Resale management sections"
           >
             <TabsTrigger value="listings" className="gap-2">
@@ -2844,6 +2845,10 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
             <TabsTrigger value="offers" className="gap-2">
               <DollarSign className="h-4 w-4" />
               Direct Offers
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              Seller Alerts
             </TabsTrigger>
             <TabsTrigger value="audit" className="gap-2">
               <FileText className="h-4 w-4" />
@@ -2860,6 +2865,9 @@ function ResaleTab({ authenticatedRequest }: { authenticatedRequest: (url: strin
         </TabsContent>
         <TabsContent value="offers" forceMount className="mt-6 data-[state=inactive]:hidden">
           <MarketplaceOffersAdminTab authenticatedRequest={authenticatedRequest} />
+        </TabsContent>
+        <TabsContent value="alerts" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <SellerAlertRecoveryTab authenticatedRequest={authenticatedRequest} />
         </TabsContent>
         <TabsContent value="audit" forceMount className="mt-6 data-[state=inactive]:hidden">
           <ResaleAuditTab authenticatedRequest={authenticatedRequest} />

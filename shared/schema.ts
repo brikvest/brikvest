@@ -865,7 +865,7 @@ export const resaleMarketplaceAlertRetries = pgTable("resale_marketplace_alert_r
   channel: text("channel").notNull(), // 'in_app' | 'email'
   title: text("title").notNull(),
   message: text("message").notNull(),
-  status: text("status").notNull().default("pending"), // 'pending' | 'completed'
+  status: text("status").notNull().default("pending"), // 'pending' | 'processing' | 'exhausted' | 'completed'
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),

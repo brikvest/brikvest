@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
-import { and, desc, eq, gt, inArray, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lte, or, sql } from "drizzle-orm";
 import {
   adminUsers,
   investmentReservations,
@@ -43,6 +43,8 @@ const RESERVED_OFFER_STATUSES = new Set([
   "transfer_pending",
 ]);
 const RESERVED_LISTING_STATUSES = new Set(["pending_review", "approved", "awaiting_payment"]);
+const MAX_SELLER_ALERT_ATTEMPTS = 5;
+const SELLER_ALERT_RETRY_LEASE_MS = 10 * 60 * 1000;
 
 type AuthOptions = {
   requireApprovedUser: any;
@@ -190,6 +192,70 @@ async function queueMarketplaceAlertRetry(params: {
   }).onConflictDoNothing();
 }
 
+function sellerAlertFailureMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+}
+
+function parseSellerAlertQueueFailure(details: string | null) {
+  if (!details) return null;
+  try {
+    const parsed = JSON.parse(details);
+    if (
+      (parsed.channel !== "in_app" && parsed.channel !== "email") ||
+      typeof parsed.title !== "string" ||
+      typeof parsed.message !== "string" ||
+      typeof parsed.lastFailure !== "string"
+    ) return null;
+    return parsed as {
+      channel: "in_app" | "email";
+      title: string;
+      message: string;
+      lastFailure: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function deliverSellerAlertRetry(retry: typeof resaleMarketplaceAlertRetries.$inferSelect) {
+  if (retry.channel === "in_app") {
+    const [existing] = await db.select({ id: resaleMarketplaceNotifications.id })
+      .from(resaleMarketplaceNotifications)
+      .where(and(
+        eq(resaleMarketplaceNotifications.userId, retry.sellerId),
+        eq(resaleMarketplaceNotifications.offerId, retry.offerId),
+        eq(resaleMarketplaceNotifications.title, retry.title),
+        eq(resaleMarketplaceNotifications.message, retry.message),
+      ))
+      .limit(1);
+    if (!existing) {
+      await notifyMarketplaceUser(retry.sellerId, retry.offerId, retry.title, retry.message);
+    }
+    return;
+  }
+
+  if (retry.channel !== "email") throw new Error("Unsupported seller alert channel");
+  const [offer] = await db.select().from(resaleMarketplaceOffers)
+    .where(eq(resaleMarketplaceOffers.id, retry.offerId))
+    .limit(1);
+  if (!offer || offer.sellerId !== retry.sellerId) throw new Error("Seller offer is no longer available");
+  const [seller, property] = await Promise.all([
+    storage.getUser(retry.sellerId),
+    storage.getProperty(offer.propertyId),
+  ]);
+  if (!seller?.email) throw new Error("Seller email address is unavailable");
+  await sendMarketplaceOfferEmail({
+    to: seller.email,
+    recipientName: userDisplayName(seller),
+    subject: `${retry.title} — ${offer.reference}`,
+    heading: retry.title,
+    message: retry.message,
+    propertyName: property?.name || "Land holding",
+    reference: offer.reference,
+    offerId: offer.id,
+  });
+}
+
 async function notifyAdmins(offer: any, propertyName: string, title: string, message: string) {
   const admins = await db
     .select({ email: adminUsers.email })
@@ -286,7 +352,7 @@ function visibleOffer(offer: any, currentUserId: number, property?: any, events:
     paymentSubmittedAt: offer.paymentSubmittedAt,
     createdAt: offer.createdAt,
     updatedAt: offer.updatedAt,
-    events: events.map((event) => ({
+    events: events.filter((event) => event.action !== "seller_alert_queue_failed").map((event) => ({
       id: event.id,
       action: event.action,
       actor: event.actorId === currentUserId ? "You" : event.actorType === "system" ? "Brikvest" : "Brikvest Member",
@@ -885,6 +951,26 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
               `[MARKETPLACE-OFFER] Could not queue ${failure.channel} retry for ${created.reference}:`,
               queueError,
             );
+            try {
+              await recordOfferEvent(
+                db,
+                created,
+                "seller_alert_queue_failed",
+                "system",
+                null,
+                JSON.stringify({
+                  channel: failure.channel,
+                  title,
+                  message,
+                  lastFailure: sellerAlertFailureMessage(queueError),
+                }),
+              );
+            } catch (recoveryRecordError) {
+              console.error(
+                `[MARKETPLACE-OFFER] Could not record seller alert queue failure for ${created.reference}:`,
+                recoveryRecordError,
+              );
+            }
           }
         }
         return { queuedForRetry, recoveryFailures };
@@ -1197,6 +1283,159 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
     } catch (error: any) {
       console.error("[MARKETPLACE-OFFER] Failed to submit payment proof:", error);
       res.status(500).json({ message: "Failed to submit payment proof" });
+    }
+  });
+
+  app.get("/api/admin/marketplace-alert-retries", auth.requireAdminAuth, async (_req: any, res) => {
+    try {
+      const queueFailureEvents = await db.select().from(resaleMarketplaceOfferEvents)
+        .where(eq(resaleMarketplaceOfferEvents.action, "seller_alert_queue_failed"))
+        .orderBy(desc(resaleMarketplaceOfferEvents.createdAt));
+      const queueFailureOfferIds = Array.from(new Set(queueFailureEvents.map(({ offerId }) => offerId)));
+      if (queueFailureOfferIds.length) {
+        const [sourceOffers, existingRetries] = await Promise.all([
+          db.select().from(resaleMarketplaceOffers)
+            .where(inArray(resaleMarketplaceOffers.id, queueFailureOfferIds)),
+          db.select().from(resaleMarketplaceAlertRetries)
+            .where(inArray(resaleMarketplaceAlertRetries.offerId, queueFailureOfferIds)),
+        ]);
+        const sourceOfferById = new Map(sourceOffers.map((offer) => [offer.id, offer]));
+        const knownRetries = new Set(existingRetries.map(({ offerId, channel }) => `${offerId}:${channel}`));
+        for (const event of queueFailureEvents) {
+          const failure = parseSellerAlertQueueFailure(event.details);
+          const offer = sourceOfferById.get(event.offerId);
+          if (!failure || !offer) continue;
+          const key = `${event.offerId}:${failure.channel}`;
+          if (knownRetries.has(key)) continue;
+          await db.insert(resaleMarketplaceAlertRetries).values({
+            offerId: offer.id,
+            sellerId: offer.sellerId,
+            channel: failure.channel,
+            title: failure.title,
+            message: failure.message,
+            lastError: failure.lastFailure,
+          }).onConflictDoNothing();
+          knownRetries.add(key);
+        }
+      }
+
+      const now = new Date();
+      const staleProcessingBefore = new Date(now.getTime() - SELLER_ALERT_RETRY_LEASE_MS);
+      const retries = await db.select().from(resaleMarketplaceAlertRetries)
+        .where(or(
+          inArray(resaleMarketplaceAlertRetries.status, ["pending", "exhausted"]),
+          and(
+            eq(resaleMarketplaceAlertRetries.status, "processing"),
+            lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+          ),
+        ))
+        .orderBy(desc(resaleMarketplaceAlertRetries.updatedAt));
+      if (!retries.length) return res.json([]);
+
+      const offerIds = Array.from(new Set(retries.map(({ offerId }) => offerId)));
+      const [offers, allProperties] = await Promise.all([
+        db.select().from(resaleMarketplaceOffers)
+          .where(inArray(resaleMarketplaceOffers.id, offerIds)),
+        storage.getProperties(),
+      ]);
+      const offerById = new Map(offers.map((offer) => [offer.id, offer]));
+      const propertyById = new Map(allProperties.map((property) => [property.id, property]));
+      res.json(retries.map((retry) => {
+        const offer = offerById.get(retry.offerId);
+        return {
+          id: retry.id,
+          offerId: retry.offerId,
+          reference: offer?.reference || `Offer #${retry.offerId}`,
+          propertyName: offer ? propertyById.get(offer.propertyId)?.name || "Unknown property" : "Unknown property",
+          channel: retry.channel,
+          status: retry.status,
+          attempts: retry.attempts,
+          lastFailure: retry.lastError || "No failure detail recorded",
+          createdAt: retry.createdAt,
+          updatedAt: retry.updatedAt,
+        };
+      }));
+    } catch (error) {
+      console.error("[MARKETPLACE-OFFER] Admin seller alert query failed:", error);
+      res.status(500).json({ message: "Failed to load seller alert retries" });
+    }
+  });
+
+  app.post("/api/admin/marketplace-alert-retries/:id/retry", auth.requireAdminAuth, async (req: any, res) => {
+    try {
+      const retryId = Number(req.params.id);
+      if (!Number.isSafeInteger(retryId) || retryId <= 0) {
+        return res.status(400).json({ message: "Invalid seller alert" });
+      }
+
+      const [existing] = await db.select().from(resaleMarketplaceAlertRetries)
+        .where(eq(resaleMarketplaceAlertRetries.id, retryId))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "Seller alert not found" });
+
+      const now = new Date();
+      const staleProcessingBefore = new Date(now.getTime() - SELLER_ALERT_RETRY_LEASE_MS);
+      const [claimed] = await db.update(resaleMarketplaceAlertRetries)
+        .set({
+          status: "processing",
+          attempts: sql`${resaleMarketplaceAlertRetries.attempts} + 1`,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(resaleMarketplaceAlertRetries.id, retryId),
+          or(
+            inArray(resaleMarketplaceAlertRetries.status, ["pending", "exhausted"]),
+            and(
+              eq(resaleMarketplaceAlertRetries.status, "processing"),
+              lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+            ),
+          ),
+        ))
+        .returning();
+      if (!claimed) {
+        return res.status(409).json({ message: "This seller alert is already being retried or has been delivered" });
+      }
+
+      try {
+        await deliverSellerAlertRetry(claimed);
+        await db.update(resaleMarketplaceAlertRetries)
+          .set({ status: "completed", lastError: null, updatedAt: new Date() })
+          .where(and(
+            eq(resaleMarketplaceAlertRetries.id, retryId),
+            eq(resaleMarketplaceAlertRetries.status, "processing"),
+          ));
+        return res.json({
+          delivered: true,
+          status: "completed",
+          attempts: claimed.attempts,
+          message: "Seller alert delivered successfully.",
+        });
+      } catch (deliveryError) {
+        console.error(`[MARKETPLACE-OFFER] Admin retry failed for seller alert ${retryId}:`, deliveryError);
+        const lastFailure = sellerAlertFailureMessage(deliveryError);
+        const status = claimed.attempts >= MAX_SELLER_ALERT_ATTEMPTS ? "exhausted" : "pending";
+        await db.update(resaleMarketplaceAlertRetries)
+          .set({
+            status,
+            lastError: lastFailure,
+            nextAttemptAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(resaleMarketplaceAlertRetries.id, retryId),
+            eq(resaleMarketplaceAlertRetries.status, "processing"),
+          ));
+        return res.json({
+          delivered: false,
+          status,
+          attempts: claimed.attempts,
+          lastFailure,
+          message: "Seller alert could not be delivered.",
+        });
+      }
+    } catch (error) {
+      console.error("[MARKETPLACE-OFFER] Admin seller alert retry failed:", error);
+      res.status(500).json({ message: "Failed to retry seller alert" });
     }
   });
 
