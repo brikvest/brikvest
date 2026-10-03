@@ -30,6 +30,7 @@ import {
   getAvailableResaleUnits,
   parseMoneyMinor,
   resaleUnitsToSquareMeters,
+  RESALE_ACTIVE_BROADCAST_OFFER_STATUSES,
   RESALE_SQUARE_METERS_PER_UNIT,
 } from "./resaleMarketplacePolicy";
 
@@ -857,6 +858,16 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
           ) {
             continue;
           }
+
+          const [existingActiveOffer] = await tx.select({ id: resaleMarketplaceOffers.id })
+            .from(resaleMarketplaceOffers)
+            .where(and(
+              eq(resaleMarketplaceOffers.sellerReservationId, lockedReservation.id),
+              eq(resaleMarketplaceOffers.buyerId, buyerId),
+              inArray(resaleMarketplaceOffers.status, [...RESALE_ACTIVE_BROADCAST_OFFER_STATUSES]),
+            ))
+            .limit(1);
+          if (existingActiveOffer) continue;
 
           const current = await getAvailableUnitsInTransaction(tx, lockedReservation.id, new Date());
           if (

@@ -18,6 +18,16 @@ type ResaleBroadcastOffer = {
   status: string;
 };
 
+export const RESALE_ACTIVE_BROADCAST_OFFER_STATUSES = [
+  "awaiting_seller_response",
+  "awaiting_buyer_response",
+  "payment_pending",
+  "payment_rejected",
+  "payment_under_review",
+  "payment_verified",
+  "transfer_pending",
+] as const;
+
 export function getEligibleResaleBroadcastPositions<T extends ResaleBroadcastPosition>(
   positions: T[],
   offers: ResaleBroadcastOffer[],
@@ -26,15 +36,7 @@ export function getEligibleResaleBroadcastPositions<T extends ResaleBroadcastPos
   requestedUnits: number,
   currency: string,
 ): T[] {
-  const activeStatuses = new Set([
-    "awaiting_seller_response",
-    "awaiting_buyer_response",
-    "payment_pending",
-    "payment_rejected",
-    "payment_under_review",
-    "payment_verified",
-    "transfer_pending",
-  ]);
+  const activeStatuses = new Set<string>(RESALE_ACTIVE_BROADCAST_OFFER_STATUSES);
   const alreadyOfferedReservations = new Set(
     offers
       .filter((offer) => offer.buyerId === buyerId && activeStatuses.has(offer.status))

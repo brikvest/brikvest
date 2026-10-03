@@ -14,6 +14,8 @@ import {
 } from "@shared/schema";
 import { db } from "../server/db";
 import { registerMarketplaceOfferRoutes } from "../server/marketplaceOffers";
+import { RESALE_ACTIVE_BROADCAST_OFFER_STATUSES } from "../server/resaleMarketplacePolicy";
+import { storage } from "../server/storage";
 import { createTestInvestor, uniqueProjectName } from "./test-helpers";
 
 const { sendMarketplaceOfferEmail } = vi.hoisted(() => ({
@@ -60,7 +62,7 @@ describeWithIsolatedDatabase("marketplace offer broadcast integration", () => {
     }
   });
 
-  it("commits offers only for eligible positions and notifies only committed sellers", async () => {
+  it("broadcasts only eligible offers and prevents concurrent duplicates", async () => {
     const propertyName = uniqueProjectName("broadcast");
     const [property] = await db.insert(properties).values({
       name: propertyName,
@@ -328,5 +330,58 @@ describeWithIsolatedDatabase("marketplace offer broadcast integration", () => {
       .where(inArray(resaleMarketplaceOfferEvents.offerId, committedOfferIds));
     expect(events).toHaveLength(2);
     expect(events.every((event) => event.action === "offer_submitted")).toBe(true);
+
+    const concurrentOwner = await createTestInvestor("broadcast-concurrent");
+    fixtureUserIds.push(concurrentOwner.id);
+    const concurrentReservation = await reservationFor(
+      concurrentOwner,
+      "8.00",
+      "NGN",
+      new Date(timestamp - 1_000),
+    );
+
+    const originalGetAllReservations = storage.getAllReservations.bind(storage);
+    let snapshotReads = 0;
+    let releaseSnapshotBarrier!: () => void;
+    const bothRequestsStarted = new Promise<void>((resolve) => {
+      releaseSnapshotBarrier = resolve;
+    });
+    const snapshotBarrier = vi.spyOn(storage, "getAllReservations").mockImplementation(async () => {
+      snapshotReads += 1;
+      if (snapshotReads === 2) releaseSnapshotBarrier();
+      await bothRequestsStarted;
+      return originalGetAllReservations();
+    });
+    try {
+      const simultaneousBroadcasts = await Promise.all([
+        request(app)
+          .post("/api/marketplace/offers/broadcast")
+          .send({ propertyId: property.id, units: "2", purchasePrice: "500.00" }),
+        request(app)
+          .post("/api/marketplace/offers/broadcast")
+          .send({ propertyId: property.id, units: "2", purchasePrice: "500.00" }),
+      ]);
+
+      expect(simultaneousBroadcasts.map(({ status }) => status).sort())
+        .toEqual([201, 409]);
+
+      const activeOffers = await db.select()
+        .from(resaleMarketplaceOffers)
+        .where(and(
+          eq(resaleMarketplaceOffers.sellerReservationId, concurrentReservation.id),
+          eq(resaleMarketplaceOffers.buyerId, buyer.id),
+          inArray(resaleMarketplaceOffers.status, [...RESALE_ACTIVE_BROADCAST_OFFER_STATUSES]),
+        ));
+      expect(activeOffers).toHaveLength(1);
+
+      const concurrentNotifications = await db.select()
+        .from(resaleMarketplaceNotifications)
+        .where(eq(resaleMarketplaceNotifications.offerId, activeOffers[0].id));
+      expect(concurrentNotifications).toHaveLength(1);
+      expect(concurrentNotifications[0].userId).toBe(concurrentOwner.id);
+      expect(sendMarketplaceOfferEmail).toHaveBeenCalledTimes(3);
+    } finally {
+      snapshotBarrier.mockRestore();
+    }
   });
 });
