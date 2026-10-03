@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
-import { and, desc, eq, gt, inArray, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   adminUsers,
   investmentReservations,
@@ -44,14 +44,25 @@ const RESERVED_OFFER_STATUSES = new Set([
   "transfer_pending",
 ]);
 const RESERVED_LISTING_STATUSES = new Set(["pending_review", "approved", "awaiting_payment"]);
-const MAX_SELLER_ALERT_ATTEMPTS = 5;
-const SELLER_ALERT_RETRY_LEASE_MS = 10 * 60 * 1000;
+const MARKETPLACE_ALERT_RETRY_DELAYS_MS = [
+  60_000,
+  5 * 60_000,
+  30 * 60_000,
+  2 * 60 * 60_000,
+  6 * 60 * 60_000,
+] as const;
+const MAX_SELLER_ALERT_ATTEMPTS = MARKETPLACE_ALERT_RETRY_DELAYS_MS.length;
+export const MARKETPLACE_ALERT_MAX_ATTEMPTS = MAX_SELLER_ALERT_ATTEMPTS;
+const MARKETPLACE_ALERT_CLAIM_LEASE_MS = 15 * 60_000;
+const SELLER_ALERT_RETRY_LEASE_MS = MARKETPLACE_ALERT_CLAIM_LEASE_MS;
+const MARKETPLACE_ALERT_RETRY_BATCH_SIZE = 25;
 
 type AuthOptions = {
   requireApprovedUser: any;
   requireAdminAuth: any;
 };
 
+let marketplaceAlertRetryIntervalStarted = false;
 function userDisplayName(user: any): string {
   return [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || user?.email || "Brikvest user";
 }
@@ -218,7 +229,9 @@ function parseSellerAlertQueueFailure(details: string | null) {
   }
 }
 
-async function deliverSellerAlertRetry(retry: typeof resaleMarketplaceAlertRetries.$inferSelect) {
+async function deliverSellerAlertRetry(
+  retry: Pick<typeof resaleMarketplaceAlertRetries.$inferSelect, "offerId" | "sellerId" | "channel" | "title" | "message">,
+) {
   if (retry.channel === "in_app") {
     const [existing] = await db.select({ id: resaleMarketplaceNotifications.id })
       .from(resaleMarketplaceNotifications)
@@ -1337,7 +1350,13 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
           inArray(resaleMarketplaceAlertRetries.status, ["pending", "exhausted"]),
           and(
             eq(resaleMarketplaceAlertRetries.status, "processing"),
-            lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+            or(
+              lte(resaleMarketplaceAlertRetries.claimedUntil, now),
+              and(
+                isNull(resaleMarketplaceAlertRetries.claimedUntil),
+                lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+              ),
+            ),
           ),
         ))
         .orderBy(desc(resaleMarketplaceAlertRetries.updatedAt));
@@ -1386,10 +1405,13 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
 
       const now = new Date();
       const staleProcessingBefore = new Date(now.getTime() - SELLER_ALERT_RETRY_LEASE_MS);
+      const claimToken = randomUUID();
       const [claimed] = await db.update(resaleMarketplaceAlertRetries)
         .set({
           status: "processing",
           attempts: sql`${resaleMarketplaceAlertRetries.attempts} + 1`,
+          claimedUntil: new Date(now.getTime() + SELLER_ALERT_RETRY_LEASE_MS),
+          claimToken,
           updatedAt: now,
         })
         .where(and(
@@ -1398,7 +1420,13 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
             inArray(resaleMarketplaceAlertRetries.status, ["pending", "exhausted"]),
             and(
               eq(resaleMarketplaceAlertRetries.status, "processing"),
-              lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+              or(
+                lte(resaleMarketplaceAlertRetries.claimedUntil, now),
+                and(
+                  isNull(resaleMarketplaceAlertRetries.claimedUntil),
+                  lte(resaleMarketplaceAlertRetries.updatedAt, staleProcessingBefore),
+                ),
+              ),
             ),
           ),
         ))
@@ -1410,10 +1438,17 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       try {
         await deliverSellerAlertRetry(claimed);
         await db.update(resaleMarketplaceAlertRetries)
-          .set({ status: "completed", lastError: null, updatedAt: new Date() })
+          .set({
+            status: "completed",
+            lastError: null,
+            claimedUntil: null,
+            claimToken: null,
+            updatedAt: new Date(),
+          })
           .where(and(
             eq(resaleMarketplaceAlertRetries.id, retryId),
             eq(resaleMarketplaceAlertRetries.status, "processing"),
+            eq(resaleMarketplaceAlertRetries.claimToken, claimToken),
           ));
         return res.json({
           delivered: true,
@@ -1430,11 +1465,14 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
             status,
             lastError: lastFailure,
             nextAttemptAt: new Date(),
+            claimedUntil: null,
+            claimToken: null,
             updatedAt: new Date(),
           })
           .where(and(
             eq(resaleMarketplaceAlertRetries.id, retryId),
             eq(resaleMarketplaceAlertRetries.status, "processing"),
+            eq(resaleMarketplaceAlertRetries.claimToken, claimToken),
           ));
         return res.json({
           delivered: false,
@@ -1732,4 +1770,199 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
     void processExpiredMarketplaceOffers();
     setInterval(() => void processExpiredMarketplaceOffers(), 30 * 1000);
   }
+
+  if (!marketplaceAlertRetryIntervalStarted) {
+    marketplaceAlertRetryIntervalStarted = true;
+    const runMarketplaceAlertRetries = () => {
+      void processMarketplaceAlertRetries().catch((error) => {
+        console.error("[MARKETPLACE-OFFER] Alert retry worker failed:", error);
+      });
+    };
+    runMarketplaceAlertRetries();
+    setInterval(runMarketplaceAlertRetries, 60 * 1000);
+  }
 }
+
+type MarketplaceAlertRetryResult = "pending" | "exhausted" | null;
+
+export type MarketplaceAlertRetryDependencies = {
+  claimNext: () => Promise<MarketplaceAlertRetry | null>;
+  deliverInApp: (alert: MarketplaceAlertRetry) => Promise<void>;
+  deliverEmail: (alert: MarketplaceAlertRetry) => Promise<void>;
+  markCompleted: (alert: MarketplaceAlertRetry) => Promise<boolean>;
+  markFailed: (alert: MarketplaceAlertRetry, error: unknown) => Promise<MarketplaceAlertRetryResult>;
+};
+
+async function markMarketplaceAlertRetryCompleted(alert: MarketplaceAlertRetry): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE resale_marketplace_alert_retries
+    SET
+      status = 'completed',
+      attempts = attempts + 1,
+      last_error = NULL,
+      claimed_until = NULL,
+      claim_token = NULL,
+      updated_at = now()
+    WHERE id = ${alert.id}
+      AND status = 'processing'
+      AND claim_token = ${alert.claimToken}
+    RETURNING id
+  `);
+  return !!(result as any).rows?.length;
+}
+
+export function getMarketplaceAlertRetryFailure(attempts: number, error: unknown) {
+  const nextAttemptCount = attempts + 1;
+  return {
+    attempts: nextAttemptCount,
+    status: nextAttemptCount >= MARKETPLACE_ALERT_MAX_ATTEMPTS ? "exhausted" as const : "pending" as const,
+    delayMs: getMarketplaceAlertRetryDelayMs(nextAttemptCount),
+    lastError: String(error).slice(0, 2000),
+  };
+}
+
+export async function processMarketplaceAlertRetries(
+  dependencies: MarketplaceAlertRetryDependencies = marketplaceAlertRetryDependencies,
+  batchSize = MARKETPLACE_ALERT_RETRY_BATCH_SIZE,
+) {
+  const processed = { completed: 0, retrying: 0, exhausted: 0, lostClaim: 0 };
+  for (let index = 0; index < batchSize; index += 1) {
+    const alert = await dependencies.claimNext();
+    if (!alert) break;
+
+    let deliveryError: unknown;
+    let deliveryFailed = false;
+    try {
+      if (alert.channel === "in_app") {
+        await dependencies.deliverInApp(alert);
+      } else if (alert.channel === "email") {
+        await dependencies.deliverEmail(alert);
+      } else {
+        throw new Error(`Unsupported marketplace alert channel: ${String(alert.channel)}`);
+      }
+    } catch (error) {
+      deliveryFailed = true;
+      deliveryError = error;
+    }
+
+    if (!deliveryFailed) {
+      if (await dependencies.markCompleted(alert)) processed.completed += 1;
+      else processed.lostClaim += 1;
+      continue;
+    }
+
+    const status = await dependencies.markFailed(alert, deliveryError);
+    if (status === "pending") processed.retrying += 1;
+    else if (status === "exhausted") processed.exhausted += 1;
+    else processed.lostClaim += 1;
+  }
+  return processed;
+}
+
+export function getMarketplaceAlertRetryDelayMs(failedAttemptCount: number): number {
+  const attemptIndex = Math.max(0, Math.floor(failedAttemptCount) - 1);
+  return MARKETPLACE_ALERT_RETRY_DELAYS_MS[
+    Math.min(attemptIndex, MARKETPLACE_ALERT_RETRY_DELAYS_MS.length - 1)
+  ];
+}
+
+async function markMarketplaceAlertRetryFailed(
+  alert: MarketplaceAlertRetry,
+  error: unknown,
+): Promise<MarketplaceAlertRetryResult> {
+  const failure = getMarketplaceAlertRetryFailure(alert.attempts, error);
+  const result = await db.execute(sql`
+    UPDATE resale_marketplace_alert_retries
+    SET
+      attempts = attempts + 1,
+      status = ${failure.status},
+      last_error = ${failure.lastError},
+      next_attempt_at = now() + (${failure.delayMs} * interval '1 millisecond'),
+      claimed_until = NULL,
+      claim_token = NULL,
+      updated_at = now()
+    WHERE id = ${alert.id}
+      AND status = 'processing'
+      AND claim_token = ${alert.claimToken}
+    RETURNING status
+  `);
+  return (result as any).rows?.[0]?.status || null;
+}
+
+async function claimMarketplaceAlertRetry(): Promise<MarketplaceAlertRetry | null> {
+  const claimToken = randomUUID();
+  const result = await db.execute(sql`
+    WITH due_alert AS (
+      SELECT id
+      FROM resale_marketplace_alert_retries
+      WHERE (
+        status = 'pending'
+        AND next_attempt_at <= now()
+      ) OR (
+        status = 'processing'
+        AND (
+          claimed_until <= now()
+          OR (
+            claimed_until IS NULL
+            AND updated_at <= now() - (${MARKETPLACE_ALERT_CLAIM_LEASE_MS} * interval '1 millisecond')
+          )
+        )
+      )
+      ORDER BY next_attempt_at, id
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    ),
+    claimed_alert AS (
+      UPDATE resale_marketplace_alert_retries AS retry
+      SET
+        status = 'processing',
+        claimed_until = now() + (${MARKETPLACE_ALERT_CLAIM_LEASE_MS} * interval '1 millisecond'),
+        claim_token = ${claimToken},
+        updated_at = now()
+      FROM due_alert
+      WHERE retry.id = due_alert.id
+      RETURNING retry.*
+    )
+    SELECT
+      claimed_alert.id,
+      claimed_alert.offer_id AS "offerId",
+      claimed_alert.seller_id AS "sellerId",
+      claimed_alert.channel,
+      claimed_alert.title,
+      claimed_alert.message,
+      claimed_alert.attempts,
+      claimed_alert.claim_token AS "claimToken",
+      offer.reference AS "offerReference",
+      offer.currency,
+      offer.purchase_price AS "purchasePrice",
+      offer.units,
+      COALESCE(property.name, 'Land holding') AS "propertyName"
+    FROM claimed_alert
+    JOIN resale_marketplace_offers AS offer ON offer.id = claimed_alert.offer_id
+    LEFT JOIN properties AS property ON property.id = offer.property_id
+  `);
+  return (result as any).rows?.[0] || null;
+}
+
+const marketplaceAlertRetryDependencies: MarketplaceAlertRetryDependencies = {
+  claimNext: claimMarketplaceAlertRetry,
+  deliverInApp: deliverSellerAlertRetry,
+  deliverEmail: deliverSellerAlertRetry,
+  markCompleted: markMarketplaceAlertRetryCompleted,
+  markFailed: markMarketplaceAlertRetryFailed,
+};
+type MarketplaceAlertRetry = {
+  id: number;
+  offerId: number;
+  sellerId: number;
+  channel: "in_app" | "email";
+  title: string;
+  message: string;
+  attempts: number;
+  claimToken: string;
+  offerReference: string;
+  currency: string;
+  purchasePrice: string;
+  units: string;
+  propertyName: string;
+};

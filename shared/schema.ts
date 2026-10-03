@@ -869,6 +869,8 @@ export const resaleMarketplaceAlertRetries = pgTable("resale_marketplace_alert_r
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until"),
+  claimToken: text("claim_token"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [

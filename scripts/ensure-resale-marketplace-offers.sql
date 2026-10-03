@@ -85,9 +85,15 @@ CREATE TABLE IF NOT EXISTS resale_marketplace_alert_retries (
   attempts integer NOT NULL DEFAULT 0,
   last_error text,
   next_attempt_at timestamp NOT NULL DEFAULT now(),
+  claimed_until timestamp,
+  claim_token text,
   created_at timestamp NOT NULL DEFAULT now(),
   updated_at timestamp NOT NULL DEFAULT now()
 );
+
+ALTER TABLE resale_marketplace_alert_retries
+  ADD COLUMN IF NOT EXISTS claimed_until timestamp,
+  ADD COLUMN IF NOT EXISTS claim_token text;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "IDX_resale_marketplace_alert_retry_offer_channel"
   ON resale_marketplace_alert_retries (offer_id, channel);
