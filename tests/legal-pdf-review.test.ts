@@ -70,6 +70,18 @@ async function approve(body?: any) {
 }
 
 describe("exact PDF review gate (isolated PostgreSQL and mocked storage)", () => {
+  it("exposes a read-only rollout check without investor data or dispatch", async () => {
+    const before = (await pg.query<any>("SELECT count(*)::int AS n FROM legal_audit_events")).rows[0].n;
+    const result = await request(app).get("/api/legal/rollout-status").expect(200);
+    expect(result.headers["cache-control"]).toBe("private, no-store");
+    expect(result.body).toEqual({
+      dispatchProtocol: "exact-pdf-review-dispatch-maintenance-v1",
+      pdfReviewSchemaInstalled: true,
+      startupDataMaintenanceSkipped: process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true",
+    });
+    expect((await pg.query<any>("SELECT count(*)::int AS n FROM legal_audit_events")).rows[0].n).toBe(before);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
   it("fails closed when the additive review schema is not installed", async () => {
     const missingSchema = { execute: vi.fn(async () => ({ rows: [{ installed: false }] })) };
     expect(await hasExactPdfApproval(missingSchema, pairId)).toBe(false);

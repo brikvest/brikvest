@@ -18,3 +18,16 @@ Approval must identify both immutable document IDs and PDF hashes. Deployment
 must pause/drain old workers before enabling the new gate; mixed old/new workers
 can otherwise send unreviewed invitations. Schema rollout does not authorize
 review approval, live preparation or investor mail.
+
+A release-status response proves which code answered that request, not that
+every older autoscale instance or independently deployed worker has stopped.
+Database maintenance locks coordinate only workers that participate in their
+protocol; lock acquisition alone cannot establish deployment-wide quiescence.
+
+**Why:** Online PDF-review rollout requires keeping the site available without
+letting an old, nonparticipating mail worker bypass the review gate or the pause.
+
+**How to apply:** Verify the completed deployment rollout and every notification
+worker before relying on a coordinated database pause. Check retained leases
+and unresolved send intents as well; a processing timeout does not cancel an
+external mail operation or prove that it has drained.

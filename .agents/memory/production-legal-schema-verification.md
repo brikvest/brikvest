@@ -32,3 +32,15 @@ an otherwise correct schema operation.
 **How to apply:** Normalize catalog types before comparing trigger column lists
 or other name-valued arrays; keep fail-closed verification and transaction
 rollback rather than suppressing a mismatch.
+
+Compare disposable-reference and production catalogs with PostgreSQL version
+differences accounted for, while preserving semantic checks.
+
+**Why:** Current PGlite exposes not-null constraints as catalog rows that
+PostgreSQL 16 represents through column nullability, and equivalent empty-array
+defaults can deparse differently. Raw catalog-text equality can falsely reject
+a compatible schema.
+
+**How to apply:** Verify nullability independently of constraint-row counts and
+normalize only specifically understood equivalent expressions. Never broadly
+ignore constraint, trigger or function differences to make rollout pass.

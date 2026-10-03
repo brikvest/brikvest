@@ -53,11 +53,12 @@ app.use((req, res, next) => {
   // rows that haven't been assigned one yet. Idempotent, so it's safe to run
   // on every boot.
   try {
-    const { storage } = await import("./storage");
-    const n = await storage.backfillReservationFunnelStages();
-    if (n > 0) {
-      log(`[startup] Backfilled funnel_stage on ${n} reservation(s).`);
-    }
+    const { runStartupDataMaintenance } = await import("./startup-maintenance");
+    await runStartupDataMaintenance(async () => {
+      const { storage } = await import("./storage");
+      const n = await storage.backfillReservationFunnelStages();
+      if (n > 0) log(`[startup] Backfilled funnel_stage on ${n} reservation(s).`);
+    });
   } catch (err) {
     console.error("[startup] funnel_stage backfill failed:", err);
   }

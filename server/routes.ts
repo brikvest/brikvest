@@ -12,6 +12,7 @@ import {
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { registerLegalRoutes } from "./legal/routes";
+import { runStartupDataMaintenance } from "./startup-maintenance";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -8548,8 +8549,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Run initial cleanup of expired reservations on startup
-  storage.cleanupExpiredReservations()
-    .then(result => {
+  void runStartupDataMaintenance(async () => {
+      const result = await storage.cleanupExpiredReservations();
       if (result.cancelled > 0) {
         console.log(`[STARTUP] Cleaned up ${result.cancelled} expired reservation(s), released ${result.unitsReleased} units`);
       }
@@ -8607,7 +8608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  processExpiredResalePayments();
+  void runStartupDataMaintenance(processExpiredResalePayments);
   setInterval(processExpiredResalePayments, 30 * 60 * 1000); // Every 30 minutes
 
   // ----------------------------------------------------------------------------

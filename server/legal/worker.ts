@@ -40,6 +40,7 @@ import {
   type LegalJobClaim,
 } from "./repository";
 import { reconcileLocalPairSigning as reconcilePairSigning } from "./local-signing";
+import { withLegalDispatchPermit } from "./dispatch-maintenance";
 
 const MAX_DISPATCH_LIMIT = 10;
 const MAX_JOB_RUNTIME_MS = 4 * 60_000;
@@ -752,7 +753,13 @@ export function createLegalWorker(
     ...overrides,
   };
 
-  async function processClaim(claim: LegalJobClaim): Promise<"completed" | "failed" | "quarantined"> {
+  function trackOperation<T>(pending: Set<Promise<unknown>>, operation: Promise<T>): Promise<T> {
+    pending.add(operation);
+    void operation.then(() => pending.delete(operation), () => pending.delete(operation));
+    return operation;
+  }
+
+  async function processClaim(claim: LegalJobClaim, pending: Set<Promise<unknown>>): Promise<"completed" | "failed" | "quarantined"> {
     try {
       const operation = async () => {
         if (claim.kind === "generation") {
@@ -778,17 +785,17 @@ export function createLegalWorker(
         }
         return result;
       };
-      const result = await timeoutAfter(completeOperation(), MAX_JOB_RUNTIME_MS);
+      const result = await timeoutAfter(trackOperation(pending, completeOperation()), MAX_JOB_RUNTIME_MS);
       if (result === "quarantined") return result;
       return "completed";
     } catch (error) {
       try {
         await timeoutAfter(
-          dependencies.failLegalJob(
+          trackOperation(pending, dependencies.failLegalJob(
             claim.id,
             claim.leaseToken,
             safeErrorMessage(error),
-          ),
+          )),
           MAX_FAILURE_RECORD_RUNTIME_MS,
         );
       } catch {
@@ -799,7 +806,11 @@ export function createLegalWorker(
     }
   }
 
-  async function dispatchLegalJobs(limit = MAX_DISPATCH_LIMIT): Promise<DispatchLegalJobsResult> {
+  async function dispatchLegalJobs(
+    limit = MAX_DISPATCH_LIMIT,
+    drainBeforeReturning = false,
+    isPermitLive: () => boolean = () => true,
+  ): Promise<DispatchLegalJobsResult> {
     if (!Number.isSafeInteger(limit) || limit < 0) {
       throw new Error("Legal job dispatch limit must be a non-negative integer");
     }
@@ -810,16 +821,25 @@ export function createLegalWorker(
       failed: 0,
       quarantined: 0,
     };
-    for (let index = 0; index < boundedLimit; index += 1) {
-      const claim = await dependencies.claimNextLegalJob();
-      if (!claim) break;
-      result.claimed += 1;
-      const state = await processClaim(claim);
-      if (state === "completed") result.completed += 1;
-      else if (state === "quarantined") result.quarantined += 1;
-      else result.failed += 1;
+    const pending = new Set<Promise<unknown>>();
+    try {
+      for (let index = 0; index < boundedLimit; index += 1) {
+        if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");
+        const claim = await dependencies.claimNextLegalJob();
+        if (!claim) break;
+        if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");
+        result.claimed += 1;
+        const state = await processClaim(claim, pending);
+        if (state === "completed") result.completed += 1;
+        else if (state === "quarantined") result.quarantined += 1;
+        else result.failed += 1;
+      }
+      return result;
+    } finally {
+      // A Promise.race timeout does not cancel SMTP/conversion work. Retain the
+      // production maintenance permit until that underlying work truly settles.
+      if (drainBeforeReturning) await Promise.allSettled(Array.from(pending));
     }
-    return result;
   }
 
   return { dispatchLegalJobs };
@@ -830,5 +850,9 @@ const defaultWorker = createLegalWorker();
 export async function dispatchLegalJobs(
   limit = MAX_DISPATCH_LIMIT,
 ): Promise<DispatchLegalJobsResult> {
-  return defaultWorker.dispatchLegalJobs(limit);
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new Error("Legal job dispatch limit must be a non-negative integer");
+  }
+  return await withLegalDispatchPermit((isPermitLive) => defaultWorker.dispatchLegalJobs(limit, true, isPermitLive))
+    ?? { claimed: 0, completed: 0, failed: 0, quarantined: 0 };
 }

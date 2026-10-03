@@ -700,4 +700,40 @@ describe("legal durable job worker", () => {
     expect(dependencies.failLegalJob).toHaveBeenCalledTimes(10);
     expect(dependencies.completeLegalJob).not.toHaveBeenCalled();
   });
+
+  it("drains a timed-out underlying operation before releasing a maintenance permit", async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const underlying = new Promise<void>((resolve) => { finish = resolve; });
+    const { dependencies } = createGenerationDependencies({
+      claimNextLegalJob: vi.fn(async () => claim("reconcile")),
+      reconcilePairSigning: vi.fn(async (pairId: number) => {
+        await underlying;
+        return { pairId, checked: 1, completedDocumentIds: [], pending: false };
+      }),
+    });
+    let settled = false;
+    const dispatch = createLegalWorker(dependencies).dispatchLegalJobs(1, true)
+      .then((result) => { settled = true; return result; });
+    try {
+      await vi.advanceTimersByTimeAsync(4 * 60_000 + 1);
+      expect(dependencies.failLegalJob).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+      finish();
+      expect(await dispatch).toMatchObject({ failed: 1 });
+      expect(settled).toBe(true);
+      expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    } finally {
+      finish();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not start another claim after its maintenance connection is lost", async () => {
+    const { dependencies } = createGenerationDependencies();
+    await expect(createLegalWorker(dependencies).dispatchLegalJobs(1, true, () => false))
+      .rejects.toThrow("maintenance permit was lost");
+    expect(dependencies.claimNextLegalJob).not.toHaveBeenCalled();
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+  });
 });

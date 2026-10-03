@@ -23,6 +23,7 @@ import { deleteLegalTemplateVersion, LegalTemplateDeletionError } from "./templa
 import { searchHistoricalHoldings, prepareHistoricalHoldings } from "./historical-rollout";
 import { hasExactPdfApproval, recordPdfApproval, reviewedDocuments, reviewSchemaInstalled } from "./pdf-review";
 import { hasOutstandingLegalSignature } from "./invitation-state";
+import { LEGAL_DISPATCH_PROTOCOL } from "./dispatch-maintenance";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -149,6 +150,13 @@ async function listPairs(userId?: number, propertyId?: number) {
 export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHandler; requireAdminAuth: RequestHandler }) {
   app.use("/api/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
   app.use("/api/admin/legal", (_req, res, next) => { res.set("Cache-Control", "private, no-store"); next(); });
+  // Read-only, non-personal rollout verification; never claims a job or sends
+  // mail. The protocol identifies the release that guards every dispatch path.
+  app.get("/api/legal/rollout-status", handler(async (_req, res) => res.json({
+    dispatchProtocol: LEGAL_DISPATCH_PROTOCOL,
+    pdfReviewSchemaInstalled: await reviewSchemaInstalled(db),
+    startupDataMaintenanceSkipped: process.env.SKIP_STARTUP_DATA_MAINTENANCE === "true",
+  })));
   app.get("/api/legal/holdings", auth.requireAuth, handler(async (req, res) => res.json(await listPairs(req.user.id))));
   app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (req, res) => res.json(await listPairs(undefined, id(req.query.propertyId)))));
   app.get("/api/admin/legal/historical-holdings", auth.requireAdminAuth, handler(async (req, res) => res.json(await searchHistoricalHoldings({

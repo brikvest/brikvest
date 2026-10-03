@@ -9,6 +9,20 @@ Treat application startup and restart as potentially data-mutating; use a fronte
 
 **How to apply:** Check startup side effects before starting the full backend for tests. Keep any future backfill rollout explicit and audited rather than assuming a server restart is read-only.
 
+Do not ask the user to publish startup safeguards from an in-progress isolated
+task as if they were already part of the main project. Publication can start
+the older main backend and its data repairs before the safeguards are applied.
+
+**Why:** A production publication during controlled schema work ran an older
+startup backfill because the prepared skip code remained task-isolated. A
+successful publication did not establish that the safety release was deployed.
+
+**How to apply:** Apply safety code to the main project before relying on
+publication, then verify the running release. When staging is blocked, prefer
+independently verified database-side controls for a narrow schema operation,
+or report the blocker instead of promising that publication will activate
+unmerged safeguards.
+
 Adding an auto-started fixture workflow can also start the existing grouped
 workflows; a frontend-only command does not make workflow configuration safe.
 
