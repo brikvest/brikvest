@@ -4,6 +4,8 @@ export interface HoldingCostInput {
   units: string | number;
   amount: string | number;
   currency?: string;
+  /** Server-computed principal for owned holdings, independent of fee visibility. */
+  landPrincipalAmount?: string | number | null;
   property?: {
     currency?: string;
     unitLandCost?: string | number;
@@ -43,6 +45,16 @@ export function calculateHoldingCosts(input: HoldingCostInput) {
 }
 
 export function portfolioLandAmount(input: HoldingCostInput): number | null {
+  if (Object.prototype.hasOwnProperty.call(input, "landPrincipalAmount")) {
+    // A present null is an explicit unverified basis; never substitute payment.
+    if (input.landPrincipalAmount == null) return null;
+    try {
+      const land = new Decimal(input.landPrincipalAmount);
+      const paid = new Decimal(input.amount);
+      return land.isFinite() && land.gt(0) && paid.isFinite() && land.lte(paid)
+        ? land.toNumber() : null;
+    } catch { return null; }
+  }
   const costs = calculateHoldingCosts(input);
   return costs ? Number(costs.landAmount) : null;
 }

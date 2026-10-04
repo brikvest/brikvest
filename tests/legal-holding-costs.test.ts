@@ -25,6 +25,16 @@ describe("land principal excludes acquisition fees", () => {
     expect(portfolioLandAmount({ units: "3.2", amount: "1008000", property })).toBe(888000);
     expect(portfolioLandAmount({ units: 2, amount: 220, property: { unitLandCost: 100, unitAgentFees: 10 } })).toBe(200);
   });
+  it("uses explicit land consideration even when the full payment is also supplied", () => {
+    const values = buildLegalTemplateValues("deed_of_assignment", {
+      verifiedFullName: "Sample Investor", verifiedHomeAddress: "Verified address",
+      propertyAreaSqm: "80", approvedPaymentAmountNaira: "5040000.00",
+      approvedLandConsiderationNaira: "4440000.00",
+      documentDate: new Date("2026-10-03T00:00:00Z"),
+    });
+    expect(values.PAYMENT_AMOUNT_NAIRA_NUMERIC).toBe("4,440,000");
+    expect(values.PAYMENT_AMOUNT_NAIRA_WORDS).toBe("Four Million Four Hundred Forty Thousand Naira");
+  });
   it("does not silently fall back to acquisition cost", () => {
     expect(portfolioLandAmount({ units: 16, amount: 5040000 })).toBeNull();
     expect(portfolioLandAmount({ units: 16, amount: 5000000, property })).toBeNull();

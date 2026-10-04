@@ -13,7 +13,7 @@ import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { registerLegalRoutes } from "./legal/routes";
 import { runStartupDataMaintenance } from "./startup-maintenance";
-import { summarizeLandPortfolio } from "@shared/holding-costs";
+import { summarizeLandPortfolio, calculateHoldingCosts as calculateHoldingCostsForPortfolio } from "@shared/holding-costs";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -364,6 +364,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { redactHiddenUnitCostBreakdown } = await import("@shared/property-cost-breakdown");
           return {
             ...reservation,
+            // Calculate from unredacted, trusted records. Owned land principal
+            // must remain available even when the public fee breakdown is hidden.
+            landPrincipalAmount: calculateHoldingCostsForPortfolio({ ...reservation, property })?.landAmount ?? null,
             property: property ? redactHiddenUnitCostBreakdown(property) : property,
           };
         })
@@ -381,12 +384,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const investments = await storage.getReservationsByUserId(userId);
       
-      const totalInvested = investments.reduce((sum: number, inv: any) => sum + (inv.units * 32353), 0);
-      const activeInvestments = investments.length;
+      const holdings = await Promise.all(investments.map(async investment => ({
+        ...investment,
+        property: await storage.getProperty(investment.propertyId),
+      })));
+      const rates = holdings.some(holding => holding.status === "converted_to_investment" && (holding.currency || "NGN") !== "NGN")
+        ? await getExchangeRates() : null;
+      const { totalPortfolioValue: totalInvested, unclassifiedInvestments } = summarizeLandPortfolio(
+        holdings, (landAmount, currency) => currency === "NGN"
+          ? landAmount : convertCurrency(landAmount, currency, "NGN", rates!),
+      );
+      const activeInvestments = investments.filter(investment => investment.status === "converted_to_investment").length;
       const expectedReturns = totalInvested * 0.15; // 15% expected annual return
       
       res.json({
         totalInvested,
+        unclassifiedInvestments,
+        currency: "NGN",
         activeInvestments,
         expectedReturns
       });

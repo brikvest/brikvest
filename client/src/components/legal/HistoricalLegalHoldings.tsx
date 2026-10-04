@@ -352,10 +352,13 @@ function HistoricalLegalHoldingsScope({ propertyId, propertyName, authenticatedR
                 ? `${detail.currency} ${Number(detail.landConsiderationNaira).toLocaleString()}`
                 : "Cost breakdown requires verification"}</strong></p>
               <p className="mt-1 text-slate-600">Total paid including fees: {detail.currency} {Number(detail.amount).toLocaleString()}</p>
-              {detail.needsConsiderationCorrection && !fullySigned(detail.signingState) && <Button
+              {(detail.needsConsiderationCorrection || (
+                detail.landConsiderationNaira && ["queued", "failed"].includes(detail.preparationState) &&
+                detail.documents.length === 2 && detail.documents.every(document => !document.hasSignedPdf)
+              )) && !fullySigned(detail.signingState) && <Button
                 className="mt-3" size="sm" variant="outline" disabled={!!working}
                 onClick={() => void pairAction("correct-consideration")}>
-                Correct unsigned consideration
+                {detail.needsConsiderationCorrection ? "Correct land-only deed amounts" : "Generate corrected land-only PDFs"}
               </Button>}
             </div>
             <div className="grid gap-2 sm:grid-cols-2"><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Preparation</p><p className="mt-1 font-medium">{detail.preparationState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Signing</p><p className="mt-1 font-medium">{detail.signingState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Notification</p><p className="mt-1 font-medium">{detail.notificationState.replace(/_/g, " ")}</p></div><div className="rounded-md bg-[#f2f4ef] p-3"><p className="text-xs uppercase tracking-wide text-[#687568]">Review approval</p><p className="mt-1 font-medium">{review?.approved || detail.reviewApproved ? "Approved for these document hashes" : "Not approved"}</p></div></div>

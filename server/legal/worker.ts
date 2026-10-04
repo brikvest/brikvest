@@ -562,7 +562,7 @@ async function processGeneration(
   const pairResult = await dependencies.getPairWithDocuments(pairId);
   if (!pairResult) throw new Error("Legal document pair was not found");
   const pair = readPairForWorker(pairResult.pair, pairResult.documents);
-  if (!pair.considerationAmountNaira && pairResult.documents.some(d => !d.source_docx_key)) {
+  if (!pair.considerationAmountNaira) {
     throw new Error("A verified land-only consideration is required before generating new legal drafts.");
   }
   const documents = pair.documents;
@@ -574,7 +574,7 @@ async function processGeneration(
     verifiedFullName: pair.dataSnapshot.userFullName,
     verifiedHomeAddress: pair.dataSnapshot.userHomeAddress,
     propertyAreaSqm: pair.dataSnapshot.propertyAreaSqm,
-    approvedPaymentAmountNaira: pair.considerationAmountNaira || pair.dataSnapshot.paymentAmountNaira,
+    approvedLandConsiderationNaira: pair.considerationAmountNaira,
     documentDate: new Date(pair.dataSnapshot.effectiveAt),
   });
   const types = documents.map((document) => parseDocumentType(document.document_type));
@@ -871,10 +871,44 @@ export function createLegalWorker(
     return dependencies.getNotificationRecoveryStatus(input);
   }
 
-  return { dispatchLegalJobs, recoverLegalNotification };
+  async function generateLegalDraftPair(
+    pairId: number,
+    isPermitLive: () => boolean = () => true,
+  ): Promise<DispatchLegalJobsResult> {
+    if (!Number.isSafeInteger(pairId) || pairId <= 0) throw new Error("A valid document pair is required.");
+    if (!isPermitLive()) throw new Error("Legal generation maintenance permit was lost.");
+    // Only this explicitly selected pair's generation job. Never claims notify,
+    // reconciliation, or another investor's work, even while mail is paused.
+    const claim = await dependencies.claimNextLegalJob({ generationPairId: pairId });
+    const result = { claimed: 0, completed: 0, failed: 0, quarantined: 0 };
+    if (!claim) return result;
+    if (claim.kind !== "generation" || claim.pairId !== pairId) {
+      throw new Error("Scoped generation returned an unexpected legal job.");
+    }
+    if (!isPermitLive()) throw new Error("Legal generation maintenance permit was lost.");
+    result.claimed = 1;
+    const pending = new Set<Promise<unknown>>();
+    try {
+      const state = await processClaim(claim, pending);
+      result[state === "completed" ? "completed" : state === "quarantined" ? "quarantined" : "failed"]++;
+      return result;
+    } finally {
+      await Promise.allSettled(Array.from(pending));
+    }
+  }
+
+  return { dispatchLegalJobs, recoverLegalNotification, generateLegalDraftPair };
 }
 
 const defaultWorker = createLegalWorker();
+
+export async function generateLegalDraftPair(pairId: number): Promise<DispatchLegalJobsResult> {
+  return await withLegalDispatchPermit(
+    isPermitLive => defaultWorker.generateLegalDraftPair(pairId, isPermitLive),
+    undefined,
+    "manual-generation",
+  ) ?? { claimed: 0, completed: 0, failed: 0, quarantined: 0 };
+}
 
 export async function dispatchLegalJobs(
   limit = MAX_DISPATCH_LIMIT,

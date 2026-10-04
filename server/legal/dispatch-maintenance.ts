@@ -35,10 +35,11 @@ async function connectPermitClient(): Promise<PermitClient> {
 export async function withLegalDispatchPermit<T>(
   operation: (isPermitLive: () => boolean) => Promise<T>,
   connect: () => Promise<PermitClient> = connectPermitClient,
+  purpose: "scheduled" | "manual-generation" = "scheduled",
 ): Promise<T | null> {
-  // Persist across publications and restarts. Neither scheduled dispatch nor
-  // administrator recovery may connect, claim work or send while paused.
-  if (legalDispatchPaused()) return null;
+  // Persist across publications and restarts. Scheduled dispatch and notification
+  // recovery remain paused. Explicit, pair-scoped generation never dispatches mail.
+  if (legalDispatchPaused() && purpose !== "manual-generation") return null;
   const client = await connect();
   let acquired = false;
   let denied = false;

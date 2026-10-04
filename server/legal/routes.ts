@@ -14,6 +14,7 @@ import { buildIllustrativeTemplateValues } from "./values";
 import { storeLegalTemplateVersion, readLegalTemplateVersion, streamAuthorizedLegalDocument } from "./files";
 import { getLegalReadiness } from "../../scripts/legal-readiness";
 import { correctUnsignedConsideration } from "./consideration-correction";
+import { generateLegalDraftPair } from "./worker";
 import { beginLocalSigning, completeLocalSigning } from "./local-signing";
 import { assertActiveConfirmedHolding } from "./holding-state";
 import { templateUploadInsert } from "./template-query";
@@ -176,6 +177,7 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
       dispatchPauseProtocol: LEGAL_DISPATCH_PAUSE_PROTOCOL,
       legalDispatchPaused: legalDispatchPaused(),
       notificationRecoveryProtocol: "exact-existing-notification-v1",
+      scopedGenerationProtocol: "explicit-land-only-generation-v1",
       applicationOrigin,
       notificationEmailConfigured: Boolean(process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()),
       pdfReviewSchemaInstalled: await reviewSchemaInstalled(db),
@@ -452,12 +454,16 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     if (req.body.confirmed !== true) throw new Error("Explicit confirmation of unsigned draft correction is required.");
     const pairId = id(req.params.id), propertyId = id(req.body.propertyId);
     const result = await correctUnsignedConsideration(pairId, propertyId, req.user.userId);
-    if (result.changed && process.env.NODE_ENV !== "test") {
-      void dispatchLegalJobs(3).catch(() => console.error("[LEGAL] Corrected draft generation remains queued."));
+    let generated = false;
+    if (process.env.NODE_ENV !== "test") {
+      const generation = await generateLegalDraftPair(pairId);
+      generated = generation.completed === 1;
     }
-    res.json({ ...result, message: result.changed
-      ? "Corrected land-only drafts queued. Originals and payment history are retained. Review both new PDFs before approving any email."
-      : "These drafts already use the corrected land-only consideration." });
+    res.json({ ...result, generated, message: generated
+      ? "Corrected land-only PDFs are ready for review. Originals and payment history are retained. No emails were sent."
+      : result.changed
+        ? "Correction saved; replacement PDFs are still queued. Originals and payment history are retained. No emails were sent."
+        : "These drafts use the corrected land-only consideration. Any pending PDF generation remains queued; no emails were sent." });
   }));
   app.post("/api/admin/legal/pairs/:id/approve-send", auth.requireAdminAuth, handler(async (req, res) => {
     const pairId = id(req.params.id), propertyId = id(req.body.propertyId);

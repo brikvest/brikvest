@@ -1400,7 +1400,10 @@ export async function markPairReady(pairId: number): Promise<void> {
   });
 }
 
-export async function claimNextLegalJob(): Promise<LegalJobClaim | null> {
+export async function claimNextLegalJob(scope?: { generationPairId: number }): Promise<LegalJobClaim | null> {
+  if (scope && (!Number.isSafeInteger(scope.generationPairId) || scope.generationPairId <= 0)) {
+    throw new Error("A valid document pair is required for scoped generation.");
+  }
   const leaseToken = randomUUID();
   return db.transaction(async (tx) => {
     const rows = resultRows<LegalJobClaim>(await tx.execute(sql`
@@ -1410,6 +1413,7 @@ export async function claimNextLegalJob(): Promise<LegalJobClaim | null> {
           (status IN ('queued', 'retry') AND available_at <= now())
           OR (status = 'leased' AND leased_until <= now())
         )
+        AND (${scope === undefined} OR (kind='generation' AND pair_id=${scope?.generationPairId ?? null}))
         ORDER BY available_at, id
         FOR UPDATE SKIP LOCKED
         LIMIT 1

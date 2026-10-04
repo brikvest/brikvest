@@ -21,6 +21,8 @@ export interface TrustedLegalDocumentData {
   verifiedFullName: string;
   verifiedHomeAddress: string;
   propertyAreaSqm: number | string;
+  approvedLandConsiderationNaira?: number | string;
+  /** Legacy compatibility for existing callers; real deeds use the land field. */
   approvedPaymentAmountNaira?: number | string;
   documentDate: Date;
 }
@@ -179,17 +181,17 @@ export function buildLegalTemplateValues(
   const date = formatLegalDocumentDate(data.documentDate);
   let paymentNumeric = "";
   let paymentWords = "";
-  if (documentType === "deed_of_assignment" || data.approvedPaymentAmountNaira !== undefined) {
+  const consideration = data.approvedLandConsiderationNaira ?? data.approvedPaymentAmountNaira;
+  if (documentType === "deed_of_assignment" || consideration !== undefined) {
     if (
-      data.approvedPaymentAmountNaira === undefined ||
-      data.approvedPaymentAmountNaira === null ||
-      (typeof data.approvedPaymentAmountNaira === "string" &&
-        !data.approvedPaymentAmountNaira.trim())
+      consideration === undefined ||
+      consideration === null ||
+      (typeof consideration === "string" && !consideration.trim())
     ) {
       throw new Error("Approved payment amount is required for the deed");
     }
     const approvedAmount = parseNairaMinorUnits(
-      data.approvedPaymentAmountNaira,
+      consideration,
       "Approved payment amount",
     );
     if (approvedAmount.naira === BigInt(0) && approvedAmount.kobo === 0) {

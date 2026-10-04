@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { portfolioLandAmount, summarizeLandPortfolio } from "../shared/holding-costs";
+import { readFileSync } from "node:fs";
 
 const property = { currency: "NGN", unitLandCost: 277500, unitAgentFees: 12500,
   unitDueDiligenceCost: 12500, unitServiceCharge: 12500 };
@@ -9,6 +10,28 @@ const holding = (units: number, extra = {}) => ({
 });
 
 describe("every LilyCrest buyer's land stake", () => {
+  it("exposes owned land principal before applying public-property fee redaction", () => {
+    const source = readFileSync("server/routes.ts", "utf8");
+    const ownedRoute = source.slice(source.indexOf("app.get('/api/user/reservations'"),
+      source.indexOf("app.get('/api/user/stats'"));
+    expect(ownedRoute).toContain("landPrincipalAmount: calculateHoldingCostsForPortfolio");
+    expect(ownedRoute.indexOf("landPrincipalAmount:")).toBeLessThan(ownedRoute.indexOf("property: property ? redactHidden"));
+    const statistics = source.slice(source.indexOf("app.get('/api/user/stats'"), source.indexOf("app.get('/api/user/stats'") + 2000);
+    expect(statistics).not.toContain("32353");
+    expect(statistics).toContain("summarizeLandPortfolio(");
+  });
+  it("retains the server-computed land principal when property fee fields are hidden", () => {
+    const paid = "5040000.00";
+    const ownedHolding = { units: "16", amount: paid, currency: "NGN",
+      status: "converted_to_investment", property: { currency: "NGN" },
+      landPrincipalAmount: "4440000.00" };
+    expect(portfolioLandAmount(ownedHolding)).toBe(4440000);
+    expect(summarizeLandPortfolio([ownedHolding], amount => amount).totalPortfolioValue).toBe(4440000);
+    expect(ownedHolding.amount).toBe(paid);
+    expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: null })).toBeNull();
+    expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "6000000" })).toBeNull();
+    expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "invalid" })).toBeNull();
+  });
   it("includes all buyers, whether or not legal documents have been prepared", () => {
     const holdings = [16, 9, 2, 1, 1].map(units => holding(units));
     const before = JSON.stringify(holdings);

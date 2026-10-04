@@ -19,6 +19,14 @@ function client(acquired: boolean) {
 }
 
 describe("legal dispatch maintenance permits", () => {
+  it("allows explicit generation maintenance permits without resuming scheduled mail", async () => {
+    vi.stubEnv("LEGAL_DISPATCH_PAUSED", "true");
+    const connection = client(true);
+    const operation = vi.fn(async () => "generated");
+    expect(await withLegalDispatchPermit(operation, async () => connection, "manual-generation")).toBe("generated");
+    expect(await withLegalDispatchPermit(operation, async () => connection)).toBeNull();
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
   it("blocks work before opening a database connection when the persistent pause is enabled", async () => {
     vi.stubEnv("LEGAL_DISPATCH_PAUSED", "true");
     const connect = vi.fn();

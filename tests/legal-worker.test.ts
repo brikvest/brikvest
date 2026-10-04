@@ -255,6 +255,49 @@ describe("legal durable job worker", () => {
     process.env.APP_BASE_URL = "https://brikvest.example";
   });
 
+  it("scoped correction generates land-only Word documents and never starts email", async () => {
+    const { dependencies, pairResult, stored } = createGenerationDependencies();
+    Object.assign(pairResult.pair, {
+      units_snapshot: "16", square_meters_per_unit: "5", property_area_sqm: "80",
+      payment_amount_naira: "5040000.00",
+    });
+    Object.assign(pairResult.pair.data_snapshot, {
+      units: "16", squareMetersPerUnit: "5", propertyAreaSqm: "80",
+      paymentAmountNaira: "5040000.00", landConsiderationNaira: "4440000.00",
+    });
+    const result = await createLegalWorker(dependencies).generateLegalDraftPair(60);
+    expect(result).toEqual({ claimed: 1, completed: 1, failed: 0, quarantined: 0 });
+    expect(dependencies.claimNextLegalJob).toHaveBeenCalledExactlyOnceWith({ generationPairId: 60 });
+    const wordFiles = [...stored.entries()].filter(([key]) => key.endsWith("/source_docx"));
+    expect(wordFiles).toHaveLength(2);
+    const deed = wordFiles.find(([key]) => key.includes("source_docx"))![1];
+    const text = new PizZip(deed).file("word/document.xml")!.asText().replace(/<[^>]*>/g, "");
+    expect(text).toContain("4,440,000");
+    expect(text).not.toContain("5,040,000");
+    expect(text).not.toContain("calculated by multiplying");
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    expect(dependencies.beginLegalNotificationAttempt).not.toHaveBeenCalled();
+  });
+
+  it.each(["notify", "reconcile"] as const)("scoped correction rejects a %s job before doing any work", async kind => {
+    const { dependencies } = createGenerationDependencies({
+      claimNextLegalJob: vi.fn().mockResolvedValue(claim(kind)),
+    });
+    await expect(createLegalWorker(dependencies).generateLegalDraftPair(60)).rejects.toThrow("unexpected legal job");
+    expect(dependencies.getPairWithDocuments).not.toHaveBeenCalled();
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+    expect(dependencies.reconcilePairSigning).not.toHaveBeenCalled();
+  });
+
+  it("scoped correction never claims a different investor's job", async () => {
+    const { dependencies } = createGenerationDependencies({
+      claimNextLegalJob: vi.fn().mockResolvedValue({ ...claim("generation"), pairId: 61 }),
+    });
+    await expect(createLegalWorker(dependencies).generateLegalDraftPair(60)).rejects.toThrow("unexpected legal job");
+    expect(dependencies.getPairWithDocuments).not.toHaveBeenCalled();
+    expect(dependencies.sendEmail).not.toHaveBeenCalled();
+  });
+
   it("recovers exactly one existing notification with the canonical holding link, without generation or global claims", async () => {
     process.env.APP_BASE_URL = "https://brikvest.net";
     const selected = { pairId: 60, propertyId: 7, jobId: 10, cycleId: 99, adminId: 1 };
