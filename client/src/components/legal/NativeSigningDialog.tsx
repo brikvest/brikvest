@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { signatureCanvasDataUrl } from "@/lib/signature-png";
 
 type NativeSigningSession = {
   documentId: number;
@@ -343,7 +344,7 @@ export function NativeSigningDialog({
           typedName,
           consent: true,
           reviewed: true,
-          signaturePng: canvas.toDataURL("image/png"),
+          signaturePng: signatureCanvasDataUrl(canvas),
           signatureMethod,
           consentVersion: session.consentVersion,
           unsignedPdfSha256: session.unsignedPdfSha256,

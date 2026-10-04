@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { validateSignaturePng } from "../server/legal/local-pdf-signature";
 
 const DOCUMENT_ID = 700;
 const HOLDING_ID = 506;
@@ -44,6 +45,7 @@ type SigningRequestSummary = {
   reviewed: boolean;
   signatureMethod: "drawn" | "typed" | null;
   signaturePngPresent: boolean;
+  signaturePngValid: boolean;
   consentVersion: string;
   unsignedPdfSha256: string;
 };
@@ -180,6 +182,23 @@ async function installApiMocks(
         } catch {
           state.signingHeaderProblems.push("Signature request body was not valid JSON.");
         }
+        let signaturePngValid = false;
+        if (typeof body.signaturePng === "string" && body.signaturePng.startsWith("data:image/png;base64,")) {
+          try {
+            const bytes = Buffer.from(body.signaturePng.split(",")[1], "base64");
+            validateSignaturePng(bytes);
+            const types: string[] = [];
+            for (let offset = 8; offset < bytes.length;) {
+              types.push(bytes.toString("ascii", offset + 4, offset + 8));
+              offset += bytes.readUInt32BE(offset) + 12;
+            }
+            signaturePngValid = types.join(",") === "IHDR,IDAT,IEND";
+          } catch { /* Report only validity, never signature or password bytes. */ }
+        }
+        if (!signaturePngValid) {
+          state.signingHeaderProblems.push("Signature PNG did not pass server validation or contains metadata.");
+          return jsonResponse(route, { error: "Invalid signature PNG in browser regression test." }, 400);
+        }
         state.signRequests.push({
           headerValid: headers["x-brikvest-signing"] === "1",
           contentTypeValid: !!headers["content-type"]?.toLowerCase().includes("application/json"),
@@ -192,6 +211,7 @@ async function installApiMocks(
             ? body.signatureMethod
             : null,
           signaturePngPresent: typeof body.signaturePng === "string" && body.signaturePng.startsWith("data:image/png;base64,"),
+          signaturePngValid,
           consentVersion: typeof body.consentVersion === "string" ? body.consentVersion : "",
           unsignedPdfSha256: typeof body.unsignedPdfSha256 === "string" ? body.unsignedPdfSha256 : "",
         });
@@ -499,6 +519,10 @@ test.describe("native investor legal signing", () => {
     await dialog.getByRole("button", { name: "Create typed signature" }).focus();
     await page.keyboard.press("Enter");
     await expect(dialog.getByRole("img", { name: `Typed signature preview for ${SIGNER_NAME}` })).toBeVisible();
+    await dialog.getByRole("img", { name: `Typed signature preview for ${SIGNER_NAME}` })
+      .evaluate((canvas: HTMLCanvasElement) => {
+        canvas.toDataURL = () => { throw new Error("Native PNG encoder must not be used for signing."); };
+      });
 
     const consentChecks = dialog.getByRole("checkbox");
     await consentChecks.nth(0).check();
@@ -572,6 +596,7 @@ test.describe("native investor legal signing", () => {
       reviewed: true,
       signatureMethod: "typed",
       signaturePngPresent: true,
+      signaturePngValid: true,
       consentVersion: "native-consent-v1",
       unsignedPdfSha256,
     });
