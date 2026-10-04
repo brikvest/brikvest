@@ -27,6 +27,7 @@ import { LEGAL_DISPATCH_PROTOCOL } from "./dispatch-maintenance";
 import { readTemplateEditor, editTemplateWording } from "./template-editor";
 import { dispatchLegalJobs, recoverLegalNotification } from "./worker";
 import { legalApplicationOrigin } from "./application-origin";
+import { HistoricalLoadInputError, historicalLoadError } from "./historical-load-errors";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 3 } });
 const safeUpload: RequestHandler = (req, res, next) => upload.single("file")(req, res, (error) => {
@@ -181,10 +182,28 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
   }));
   app.get("/api/legal/holdings", auth.requireAuth, handler(async (req, res) => res.json(await listPairs(req.user.id))));
   app.get("/api/admin/legal/documents", auth.requireAdminAuth, handler(async (req, res) => res.json(await listPairs(undefined, id(req.query.propertyId)))));
-  app.get("/api/admin/legal/historical-holdings", auth.requireAdminAuth, handler(async (req, res) => res.json(await searchHistoricalHoldings({
-    propertyId: id(req.query.propertyId), search: String(req.query.search || ""),
-    page: req.query.page === undefined ? 1 : Number(req.query.page), pageSize: req.query.pageSize === undefined ? 20 : Number(req.query.pageSize),
-  }))));
+  app.get("/api/admin/legal/historical-holdings", auth.requireAdminAuth, async (req, res) => {
+    let propertyId: number | undefined;
+    try {
+      try { propertyId = id(req.query.propertyId); } catch { throw new HistoricalLoadInputError("HOLDINGS_INVALID_REQUEST"); }
+      if (["search", "page", "pageSize"].some(key => req.query[key] !== undefined && typeof req.query[key] !== "string")) {
+        throw new HistoricalLoadInputError("HOLDINGS_INVALID_REQUEST");
+      }
+      res.json(await searchHistoricalHoldings({
+        propertyId, search: String(req.query.search || ""),
+        page: req.query.page === undefined ? 1 : Number(req.query.page),
+        pageSize: req.query.pageSize === undefined ? 20 : Number(req.query.pageSize),
+      }));
+    } catch (error) {
+      const failure = historicalLoadError(error);
+      const reference = randomUUID();
+      // No SQL, search text, investor data, credentials or raw exceptions.
+      console.error("[LEGAL_HOLDINGS_LOAD]", JSON.stringify({
+        reference, propertyId, code: failure.code, sqlState: failure.sqlState,
+      }));
+      res.status(failure.status).json({ code: failure.code, error: failure.summary, nextAction: failure.nextAction, reference });
+    }
+  });
   app.post("/api/admin/legal/historical-holdings/prepare", auth.requireAdminAuth, handler(async (req, res) => {
     const result = await prepareHistoricalHoldings({ ...req.body, propertyId: id(req.body.propertyId), adminId: req.user.userId });
     if (result.results.some(r => r.state === "queued")) wakeLegalWorker();

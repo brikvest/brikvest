@@ -20,6 +20,9 @@ vi.mock("../server/legal/local-signing", () => ({ beginLocalSigning: vi.fn(), co
 import { prepareHistoricalHoldings, searchHistoricalHoldings } from "../server/legal/historical-rollout";
 import { requestLegalNotificationResend, beginLegalNotificationAttempt, enqueueLegalApproval } from "../server/legal/repository";
 import { registerLegalRoutes } from "../server/legal/routes";
+import { historicalLoadError } from "../server/legal/historical-load-errors";
+import { historicalLoadFailure } from "../shared/historical-holdings-errors";
+import { sendEmail } from "../server/emailService";
 
 let pg: PGlite;
 let database: ReturnType<typeof drizzle>;
@@ -88,6 +91,70 @@ async function ready(pairId: number, signed = 0) {
 }
 
 describe("explicit historical rollout (disposable PostgreSQL, no network)", () => {
+  it("reproduces a pair-only missing-column load, fails closed and recovers after the prerequisite is restored", async () => {
+    const id = await latest();
+    await prepare([id], true);
+    const app = express();
+    registerLegalRoutes(app, {
+      requireAuth: (_req, res) => { res.sendStatus(401); },
+      requireAdminAuth: (req: any, res, next) => {
+        if (req.get("Authorization") !== "Bearer fixture") return res.sendStatus(401);
+        req.user = { userId: 1 }; next();
+      },
+    });
+    const snapshot = () => pg.query(`SELECT
+      (SELECT count(*) FROM legal_document_pairs)::int AS pairs,
+      (SELECT count(*) FROM legal_documents)::int AS documents,
+      (SELECT count(*) FROM legal_jobs)::int AS jobs,
+      (SELECT count(*) FROM legal_audit_events)::int AS audits,
+      (SELECT count(*) FROM legal_notification_cycles)::int AS cycles`);
+    const before = (await snapshot()).rows;
+    reference.dispatch.mockClear(); vi.mocked(sendEmail).mockClear();
+    // Match the observed production prerequisite without touching any live DB.
+    await pg.exec("ALTER TABLE legal_documents RENAME COLUMN superseded_at TO fixture_unavailable_superseded_at");
+    try {
+      const response = await request(app).get("/api/admin/legal/historical-holdings?propertyId=1&search=&page=1&pageSize=20")
+        .set("Authorization", "Bearer fixture").expect(503);
+      expect(response.body).toMatchObject({ code: "HOLDINGS_SETUP_REQUIRED", error: "Legal-document database setup is incomplete." });
+      expect(response.body).not.toHaveProperty("items");
+      expect(JSON.stringify(response.body)).not.toMatch(/SELECT|superseded_at|ada@example|42703|Failed query/i);
+      // An empty property succeeds; this explains how mixed outcomes are possible,
+      // not proof of the parameters used by the October 3 requests.
+      await request(app).get("/api/admin/legal/historical-holdings?propertyId=2").set("Authorization", "Bearer fixture").expect(200);
+    } finally {
+      await pg.exec("ALTER TABLE legal_documents RENAME COLUMN fixture_unavailable_superseded_at TO superseded_at");
+    }
+    const recovered = await request(app).get("/api/admin/legal/historical-holdings?propertyId=1&pageSize=1")
+      .set("Authorization", "Bearer fixture").expect(200);
+    expect(recovered.body.items).toHaveLength(1);
+    expect((await snapshot()).rows).toEqual(before);
+    expect(reference.dispatch).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+  it("classifies wrapped prerequisite failures but never exposes internal errors or legacy response text", () => {
+    for (const code of ["42P01", "42703"]) {
+      expect(historicalLoadError(new Error("Failed query: private", { cause: { code, message: "private" } })))
+        .toMatchObject({ status: 503, code: "HOLDINGS_SETUP_REQUIRED", sqlState: code });
+    }
+    expect(historicalLoadError(new Error("private investor data"))).toMatchObject({ status: 500, code: "HOLDINGS_UNAVAILABLE" });
+    expect(historicalLoadFailure(400, "raw SQL")).toEqual(historicalLoadFailure(400));
+    expect(historicalLoadFailure(401).nextAction).toContain("Sign in again");
+    expect(historicalLoadFailure(403).nextAction).toContain("verify your access");
+  });
+  it("validates search and pagination without mutating fixtures", async () => {
+    const app = express();
+    registerLegalRoutes(app, {
+      requireAuth: (_req, res) => { res.sendStatus(401); },
+      requireAdminAuth: (req: any, _res, next) => { req.user = { userId: 1 }; next(); },
+    });
+    for (const suffix of ["propertyId=bad", "propertyId=1&page=0", "propertyId=1&page=1.5", "propertyId=1&pageSize=51",
+      "propertyId=1&search=a&search=b", `propertyId=1&search=${"x".repeat(151)}`]) {
+      const failed = await request(app).get(`/api/admin/legal/historical-holdings?${suffix}`).expect(400);
+      expect(failed.body.code).toBe("HOLDINGS_INVALID_REQUEST");
+    }
+    await request(app).get(`/api/admin/legal/historical-holdings?propertyId=1&search=${"x".repeat(150)}`).expect(200);
+    await request(app).get("/api/admin/legal/historical-holdings?propertyId=999").expect(404);
+  });
   it("searches name/email across holdings without pairs and paginates without creating anything", async () => {
     const before = (await pg.query("SELECT count(*) AS n FROM legal_document_pairs")).rows[0];
     const result = await searchHistoricalHoldings({ propertyId: 1, search: "ADA@EXAMPLE.TEST", pageSize: 1 });

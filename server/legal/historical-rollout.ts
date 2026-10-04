@@ -7,6 +7,8 @@ import { enqueueLegalApproval, type LegalTransaction } from "./repository";
 import { assertActiveConfirmedHolding } from "./holding-state";
 import type { ManualFullPaymentAttestation } from "./approval";
 import { hasExactPdfApproval } from "./pdf-review";
+import { HistoricalLoadInputError } from "./historical-load-errors";
+import { HISTORICAL_SEARCH_LIMIT } from "../../shared/historical-holdings-errors";
 
 const rows = (result: any): any[] => result.rows || [];
 type Executor = Pick<LegalTransaction, "execute">;
@@ -98,9 +100,9 @@ const holdingQuery = (propertyId: number) => sql`SELECT r.id AS "reservationId",
 
 export async function searchHistoricalHoldings(input: { propertyId: number; search?: string; page?: number; pageSize?: number }) {
   const page = input.page ?? 1, pageSize = input.pageSize ?? 20;
-  if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 50) throw new Error("Use a valid page and page size (maximum 50).");
+  if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 50) throw new HistoricalLoadInputError("HOLDINGS_INVALID_REQUEST");
   const search = (input.search || "").trim();
-  if (search.length > 150) throw new Error("Search must be at most 150 characters.");
+  if (search.length > HISTORICAL_SEARCH_LIMIT) throw new HistoricalLoadInputError("HOLDINGS_INVALID_REQUEST");
   const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
   const filter = sql`AND r.status='converted_to_investment'
     AND (${search === ""} OR u.email ILIKE ${pattern} OR r.full_name ILIKE ${pattern}
@@ -108,7 +110,7 @@ export async function searchHistoricalHoldings(input: { propertyId: number; sear
       OR r.id::text ILIKE ${pattern})`;
   const templates = await activeTemplates(db as Executor, input.propertyId);
   const property = rows(await db.execute(sql`SELECT name FROM properties WHERE id=${input.propertyId}`))[0];
-  if (!property) throw Object.assign(new Error("Property not found"), { statusCode: 404 });
+  if (!property) throw new HistoricalLoadInputError("HOLDINGS_PROPERTY_NOT_FOUND");
   const total = Number(rows(await db.execute(sql`SELECT count(*)::int AS total FROM (${holdingQuery(input.propertyId)} ${filter}) holdings`))[0]?.total || 0);
   const holdings = rows(await db.execute(sql`${holdingQuery(input.propertyId)} ${filter} ORDER BY r.id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`));
   const items = [];

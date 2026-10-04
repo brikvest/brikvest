@@ -51,3 +51,14 @@ establish that all background activity is stopped or has its database prerequisi
 **How to apply:** Review worker startup hooks and schema prerequisites independently
 before reloading the backend. Do not treat a development maintenance flag as a
 production notification lock or as authorization to apply live migrations.
+
+Schema-only prerequisite repairs can enable pending background work even
+without restarting the app or explicitly requesting a notification.
+
+**Why:** A legal-document prerequisite investigation found pending notification
+retries alongside absent columns referenced by installed guards. Restoring those
+prerequisites may remove an obstacle for already scheduled work.
+
+**How to apply:** Before an authorized production prerequisite installation,
+verify all dispatch paths are paused and no leases remain. Keep pause release
+separately approved; unchanged job rows alone do not guarantee no investor mail.

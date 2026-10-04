@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function fixture(page: Page, mobile = false) {
+async function fixture(page: Page, mobile = false, initialFailure: { status: number; body: any } | null = null) {
+  let loadFailure = initialFailure;
   const requests: { path: string; method: string; body: any }[] = [];
   const origin = new URL(test.info().project.use.baseURL as string).origin;
   const row = (reservationId: number, extra: any = {}) => ({
@@ -44,9 +45,12 @@ async function fixture(page: Page, mobile = false) {
     if (path === "/api/admin/legal/readiness") return json({ ready: true, blockers: [] });
     if (path === "/api/admin/legal/templates" || path === "/api/admin/legal/documents" || path === "/api/admin/legal/failures") return json([]);
     if (path === "/api/admin/legal/historical-holdings" && method === "GET") {
+      if (loadFailure) return json(loadFailure.body, loadFailure.status);
       const search = (url.searchParams.get("search") || "").toLowerCase();
-      const items = Number(url.searchParams.get("propertyId")) === 108 ? holdings.filter((h) => `${h.userName} ${h.userEmail}`.toLowerCase().includes(search)) : [];
-      return json({ items, total: items.length, page: 1, pageSize: 20, propertyName: "North Estate", templates: activeTemplates });
+      const matches = Number(url.searchParams.get("propertyId")) === 108 ? holdings.filter((h) => `${h.userName} ${h.userEmail}`.toLowerCase().includes(search)) : [row(2901, { userName: "South Investor" })];
+      const requestedPage = Number(url.searchParams.get("page") || 1);
+      const items = matches.slice((requestedPage - 1) * 20, requestedPage * 20);
+      return json({ items, total: matches.length, page: requestedPage, pageSize: 20, propertyName: "North Estate", templates: activeTemplates });
     }
     if (path === "/api/admin/legal/historical-holdings/prepare" && method === "POST") {
       const results = body.holdings.map((h: any) => {
@@ -82,8 +86,64 @@ async function fixture(page: Page, mobile = false) {
   await page.getByRole("combobox", { name: "Choose property" }).click();
   await page.getByRole("option", { name: /North Estate/ }).click();
   const card = page.locator("div").filter({ has: page.getByRole("heading", { name: "Historical legal holdings", exact: true }) }).filter({ has: page.getByRole("textbox", { name: "Search historical holdings" }) }).last();
-  return { requests, holdings, activeTemplates, card };
+  return { requests, holdings, activeTemplates, card, row, setLoadFailure: (failure: typeof loadFailure) => { loadFailure = failure; } };
 }
+
+test("holdings setup failure is safe, retry recovers, and refresh/search/pagination discard obsolete actions", async ({ page }) => {
+  const f = await fixture(page, false, { status: 503, body: { code: "HOLDINGS_SETUP_REQUIRED", error: "SELECT private FROM legal_documents: investor@example.test" } });
+  const alert = page.getByRole("alert").filter({ hasText: "Could not load holdings" });
+  await expect(alert).toContainText("database setup is incomplete");
+  await expect(alert).toContainText("administrator");
+  await expect(alert).not.toContainText("SELECT");
+  await expect(alert).not.toContainText("investor@example.test");
+  await expect(page.getByText("No confirmed holdings yet", { exact: true })).toHaveCount(0);
+  f.setLoadFailure(null);
+  for (let id = 920; id < 945; id++) f.holdings.push(f.row(id));
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator("[data-holding-id='901']")).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select holding 901 for preparation" }).check();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText(/Page 2 of 2/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review preparation", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Select holding 901 for preparation" }).check();
+  f.setLoadFailure({ status: 400, body: { error: "Failed query: secret credentials investor@example.test" } });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(alert).toContainText("request is invalid");
+  await expect(page.getByRole("button", { name: "Review preparation", exact: true })).toHaveCount(0);
+  await expect(page.locator("[data-holding-id]")).toHaveCount(0);
+  f.setLoadFailure(null);
+  await alert.getByRole("button", { name: "Try again" }).click();
+  const search = page.getByRole("textbox", { name: "Search historical holdings" });
+  await expect(search).toHaveAttribute("maxlength", "150");
+  await search.fill("x".repeat(151));
+  await expect(search).toHaveValue("x".repeat(150));
+  await search.fill("ada@example.test");
+  await expect(page.locator("[data-holding-id='901']")).toBeVisible();
+  expect(f.requests.filter(r => r.method !== "GET")).toHaveLength(0);
+});
+
+test("session and unexpected load failures give safe guidance and property switching cannot retain holdings or selections", async ({ page }) => {
+  const f = await fixture(page);
+  await page.getByRole("checkbox", { name: "Select holding 901 for preparation" }).check();
+  await page.getByRole("combobox", { name: "Choose property" }).click();
+  await page.getByRole("option", { name: /South Estate/ }).click();
+  await expect(page.locator("[data-holding-id='2901']")).toBeVisible();
+  await expect(page.locator("[data-holding-id='901']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Review preparation", exact: true })).toHaveCount(0);
+  f.setLoadFailure({ status: 401, body: { error: "private auth exception" } });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "Could not load holdings" });
+  await expect(alert).toContainText("Sign in again");
+  f.setLoadFailure({ status: 500, body: { error: "SELECT private FROM users" } });
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(alert).toContainText("temporarily unavailable");
+  await expect(alert).not.toContainText("SELECT");
+  f.setLoadFailure(null);
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator("[data-holding-id='2901']")).toBeVisible();
+  expect(f.requests.filter(r => r.method !== "GET")).toHaveLength(0);
+});
 
 for (const mobile of [false, true]) {
   test(`${mobile ? "mobile" : "desktop"} recovers only the existing approved notification and reports provider acceptance`, async ({ page }) => {

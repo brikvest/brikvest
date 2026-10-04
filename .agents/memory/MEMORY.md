@@ -16,3 +16,4 @@
 - [Playwright output isolation](playwright-output-isolation.md) — concurrent browser commands need separate output directories to avoid false trace/cleanup failures.
 - [Land-only consideration](land-only-consideration.md) — portfolio principal and deeds exclude acquisition fees; preserve payments and signed evidence, and re-review replacement drafts.
 - [Task release boundary](task-release-boundary.md) — merge prepared task changes into main before publishing; saved configuration does not prove live activation.
+- [Production request evidence](production-request-evidence.md) — reproducible prerequisite failures do not establish the cause of historical HTTP errors without request/response evidence.

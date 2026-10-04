@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { getApiErrorMessage } from "@/lib/queryClient";
+import { ApiError, getApiErrorMessage } from "@/lib/queryClient";
+import { HISTORICAL_SEARCH_LIMIT, historicalLoadFailure } from "@shared/historical-holdings-errors";
 
 type Request = (url: string, options?: any) => Promise<any>;
 type LegalDocument = { id: number; type: string; status: string; hasUnsignedPdf: boolean; hasSignedPdf: boolean; hasCertificate: boolean; sha256?: string; templateId?: number; templateVersion?: number };
@@ -71,6 +72,11 @@ const stage = (holding: HistoricalHolding) => {
 const statusTone = (text: string) => text.includes("attention") || text.includes("failed") || text.includes("blocked") || text.includes("uncertain") ? "border-rose-200 bg-rose-50 text-rose-800" : text.includes("review") || text.includes("processing") || text.includes("queued") ? "border-amber-200 bg-amber-50 text-amber-900" : text.includes("accepted") || text.includes("signed") ? "border-teal-200 bg-teal-50 text-teal-900" : "border-slate-200 bg-[#f2f4ef] text-slate-700";
 
 export function HistoricalLegalHoldings({ propertyId, propertyName, authenticatedRequest, active = true }: { propertyId: number; propertyName: string; authenticatedRequest: Request; active?: boolean }) {
+  // Remount all action state and invalidate in-flight detail sessions on scope changes.
+  return <HistoricalLegalHoldingsScope key={propertyId} {...{ propertyId, propertyName, authenticatedRequest, active }} />;
+}
+
+function HistoricalLegalHoldingsScope({ propertyId, propertyName, authenticatedRequest, active }: { propertyId: number; propertyName: string; authenticatedRequest: Request; active: boolean }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -97,6 +103,8 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     queryKey: ["/api/admin/legal/historical-holdings", propertyId, search, page, pageSize],
     queryFn: () => { const params = new URLSearchParams({ propertyId: String(propertyId), search, page: String(page), pageSize: String(pageSize) }); return authenticatedRequest(`/api/admin/legal/historical-holdings?${params}`); },
     enabled: active,
+    retry: false,
+    placeholderData: undefined,
     refetchInterval: (current) => active && current.state.data?.items.some((holding) => holding.jobs?.some((job) => activeJob(job.status))) ? 5000 : false,
   });
   const failures = useQuery<any[]>({
@@ -104,7 +112,7 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     queryFn: () => authenticatedRequest(`/api/admin/legal/failures?propertyId=${propertyId}`),
     enabled: active,
   });
-  const items = useMemo(() => query.data?.items || [], [query.data?.items]);
+  const items = useMemo(() => query.isError ? [] : query.data?.items || [], [query.data?.items, query.isError]);
   const templates = query.data?.templates || [];
   const deed = templates.find((template) => template.documentType === "deed_of_assignment");
   const transfer = templates.find((template) => template.documentType === "transfer_exit_rights");
@@ -121,9 +129,26 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
     return !!draft?.confirmed && /^\d+(?:\.\d{1,2})?$/.test(draft.amountNaira.trim()) &&
       decimalText(draft.amountNaira) === decimalText(holding.amount) && holding.currency.toUpperCase() === "NGN" && !!draft.auditNote.trim();
   };
-  const canOpenPreparation = !!deed && !!transfer && selectedRows.length > 0 && selectedRows.length === selected.length && selectedRows.every((h) => h.canPrepare);
-  const canConfirmPreparation = !!confirmation && confirmation.holdings.length > 0 && confirmation.holdings.every((h) => h.canPrepare && (!h.requiresAttestation || validAttestation(h)));
+  const canOpenPreparation = !query.isFetching && !query.isError && !!deed && !!transfer && selectedRows.length > 0 && selectedRows.length === selected.length && selectedRows.every((h) => h.canPrepare);
+  const canConfirmPreparation = !query.isFetching && !query.isError && !!confirmation && confirmation.holdings.length > 0 && confirmation.holdings.every((h) => h.canPrepare && (!h.requiresAttestation || validAttestation(h)));
   const totalPages = Math.max(1, Math.ceil((query.data?.total || 0) / pageSize));
+  const loadFailure = historicalLoadFailure(query.error instanceof ApiError ? query.error.status : 500, query.error instanceof ApiError ? query.error.code : undefined);
+  function clearQueryActions() {
+    setSelected([]); setAttestations({}); setConfirmation(null); setPreparing(false);
+    detailSession.current += 1; activePair.current = null; reviewRequestSignature.current = "";
+    setDetail(null); setReview(null); setChecked({}); setPreview(null); setError(""); setResult("");
+  }
+  useEffect(() => { clearQueryActions(); }, [search, page, query.isError]);
+  useEffect(() => { if (!active) clearQueryActions(); }, [active]);
+  useEffect(() => {
+    if (query.isFetching) {
+      setSelected([]); setConfirmation(null); setPreparing(false);
+    }
+  }, [query.isFetching]);
+  function retryLoad() {
+    clearQueryActions();
+    void query.refetch();
+  }
 
   function toggle(holding: HistoricalHolding, value: boolean) {
     setSelected((current) => value ? current.length >= 20 || current.includes(holding.reservationId) ? current : [...current, holding.reservationId] : current.filter((id) => id !== holding.reservationId));
@@ -269,13 +294,13 @@ export function HistoricalLegalHoldings({ propertyId, propertyName, authenticate
       <CardHeader className="pb-4"><div className="flex items-start justify-between gap-4"><div><CardTitle className="text-lg">Investor documents</CardTitle><CardDescription className="mt-1">One property-scoped queue for every confirmed holding, including purchases without a document pair.</CardDescription></div><span className="hidden rounded-full bg-[#e9eee5] px-3 py-1 text-xs font-medium text-[#405a45] sm:inline">{query.data?.total ?? "—"} holdings</span></div></CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Input aria-label="Search historical holdings" placeholder="Search investor, email or holding" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setSelected([]); setResult(""); }} />
-          <Button type="button" variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw className={`mr-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />Refresh</Button>
+          <Input aria-label="Search historical holdings" maxLength={HISTORICAL_SEARCH_LIMIT} placeholder="Search investor, email or holding" value={search} onChange={(event) => { clearQueryActions(); setSearch(event.target.value.slice(0, HISTORICAL_SEARCH_LIMIT)); setPage(1); }} />
+          <Button type="button" variant="outline" disabled={query.isFetching} onClick={retryLoad}><RefreshCw className={`mr-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />Refresh</Button>
         </div>
         {error && <div role="alert" className="flex gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />{error}</div>}
         {result && <div aria-live="polite" className="rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">{result}</div>}
         {query.isLoading ? <div role="status" aria-label="Loading historical holdings" className="space-y-2"><div className="h-16 animate-pulse rounded bg-[#edf0e9]" /><div className="h-16 animate-pulse rounded bg-[#edf0e9]" /></div>
-          : query.isError ? <div role="alert" className="flex items-center justify-between rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><span>Could not load holdings for {propertyName}.</span><Button size="sm" variant="outline" onClick={() => void query.refetch()}>Try again</Button></div>
+          : query.isError ? <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><div><p>Could not load holdings for {propertyName}. {loadFailure.summary}</p><p className="mt-1">{loadFailure.nextAction}</p></div><Button size="sm" variant="outline" disabled={query.isFetching} onClick={retryLoad}>Try again</Button></div>
           : !items.length ? <div className="rounded-lg border border-dashed border-[#cbd3c6] bg-[#f6f7f3] px-6 py-10 text-center"><FileCheck2 className="mx-auto mb-2 h-6 w-6 text-[#56705b]" /><h3 className="font-medium text-[#25332a]">{query.data?.total ? "No matching holdings" : "No confirmed holdings yet"}</h3><p className="mt-1 text-sm text-[#687568]">{query.data?.total ? "Try an investor name, email or holding number." : "Confirmed property purchases will appear here, even before documents are prepared."}</p></div>
           : <div className="divide-y divide-[#e5e8e1] rounded-lg border border-[#e0e4dc]">{items.map((holding) => {
             const status = stage(holding);

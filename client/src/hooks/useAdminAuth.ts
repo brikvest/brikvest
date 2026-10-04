@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { ApiError, apiRequest } from "@/lib/queryClient";
 
 interface AdminUser {
   id: number;
@@ -108,7 +108,7 @@ export function useAdminAuth() {
   const authenticatedRequest = async (url: string, options: any = {}) => {
     const sessionId = authState.sessionId || localStorage.getItem("admin_session_id");
     if (!sessionId) {
-      throw new Error("No authentication session");
+      throw new ApiError({ status: 401 });
     }
 
     return await apiRequest(url, {
