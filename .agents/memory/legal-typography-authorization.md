@@ -25,8 +25,9 @@ admins may change template wording within the app, saving a new inactive version
 This does not authorize automatic clause changes during conversion or replacement
 of previously issued investor documents.
 
-**Why:** The user requested in-app deed/agreement editing instead of the required
-Word download, while the existing immutable-evidence boundaries remain in force.
+**Why:** The user requested in-app editing of both the deed and transfer agreement
+and reiterated that downloading Word is not a substitute for an admin editor.
+The existing immutable-evidence boundaries remain in force.
 
 **How to apply:** Preserve the original Word structures and signature assets when
 authoring wording; do not reconstruct legal forms from generic HTML. Keep automatic
