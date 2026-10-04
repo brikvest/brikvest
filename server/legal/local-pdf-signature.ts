@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import * as fontkit from "@pdf-lib/fontkit";
+import fontkit, { type Font } from "@pdf-lib/fontkit";
 import {
   PDFDocument,
   StandardFonts,
@@ -309,7 +309,7 @@ async function resolveUnicodeFont(): Promise<{ bytes: Buffer; sha256: string }> 
   return { bytes, sha256: sha256Hex(bytes) };
 }
 
-function assertFontSupportsText(font: fontkit.Font, text: string): void {
+function assertFontSupportsText(font: Font, text: string): void {
   for (const character of text) {
     const codePoint = character.codePointAt(0)!;
     if (!/\s/.test(character) && !font.hasGlyphForCodePoint(codePoint)) {
@@ -323,7 +323,7 @@ function assertFontSupportsText(font: fontkit.Font, text: string): void {
 export async function getLocalSigningFontSha256(visibleText?: string): Promise<string> {
   const resolvedFont = await resolveUnicodeFont();
   if (visibleText !== undefined) {
-    let glyphFont: fontkit.Font;
+    let glyphFont: Font;
     try {
       glyphFont = fontkit.create(resolvedFont.bytes);
     } catch (error) {
@@ -752,7 +752,7 @@ export async function renderLocalSigningEvidencePdf(
       "The Unicode PDF renderer font changed after consent was accepted. Restore the pinned DejaVu Sans font before recovery.",
     );
   }
-  let glyphFont: fontkit.Font;
+  let glyphFont: Font;
   try {
     glyphFont = fontkit.create(rendererFont.bytes);
   } catch (error) {

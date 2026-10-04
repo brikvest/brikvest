@@ -18,3 +18,4 @@
 - [Task release boundary](task-release-boundary.md) — merge prepared task changes into main before publishing; saved configuration does not prove live activation.
 - [Production request evidence](production-request-evidence.md) — reproducible prerequisite failures do not establish the cause of historical HTTP errors without request/response evidence.
 - [Signature browser metadata](signature-browser-metadata.md) — accept bounded colour metadata, embed verified pixels only, and preserve the original signature evidence hash.
+- [Production module interop](production-module-interop.md) — test externalized PDF dependencies under native Node ESM; test-runner namespace exports can mask production failures.
