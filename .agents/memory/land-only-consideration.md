@@ -3,7 +3,8 @@ name: Land-only principal and legal consideration
 description: Confirmed cost basis, fee treatment, and historical unsigned correction limits.
 ---
 
-Investor portfolio principal and deed consideration are land cost only. Acquisition
+For Lily Crest Gardens and subsequent land sold on Brikvest, investor portfolio
+principal and deed consideration are land cost only. Acquisition
 fees remain part of the actual payment, not portfolio principal. The user specified
 LilyCrest costs per 5 m² unit: ₦277,500 land plus ₦12,500 each for agent fees,
 due diligence and the Brikvest service charge.
@@ -21,6 +22,20 @@ unsigned drafts, keep signed documents and signing evidence unchanged, and
 require fresh review of both exact replacement PDFs before releasing email.
 Do not correct drafts with signing activity, an active worker, or accepted or
 uncertain delivery.
+
+Preserve the pre-existing Guzape 2 holdings and their previous recorded portfolio
+basis. Do not apply Lily Crest's cost reclassification to that older land or hide
+its holdings because a historical fee breakdown is absent.
+
+**Why:** The user explicitly stated on 2026-10-04: “I never asked you to make any
+changes regarding the guzape 2 land.” The requested changes are for Lily Crest
+Gardens and subsequent land sold on the app, not a retrospective reclassification
+of Guzape 2.
+
+**How to apply:** Keep Guzape 2 counted in investor and admin portfolio views
+using its existing recorded basis. Never infer confirmation of pending holdings
+or modify its payments, legal evidence, or land records to resolve a display
+regression. New properties still require verified land-only cost classification.
 
 The deed must show the land-only amount without explaining the multiplication
 formula in its wording. Fix the actual rendered amount and dashboard value,

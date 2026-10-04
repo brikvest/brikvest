@@ -13,7 +13,7 @@ import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { registerLegalRoutes } from "./legal/routes";
 import { runStartupDataMaintenance } from "./startup-maintenance";
-import { summarizeLandPortfolio, calculateHoldingCosts as calculateHoldingCostsForPortfolio } from "@shared/holding-costs";
+import { summarizeLandPortfolio, portfolioLandAmount } from "@shared/holding-costs";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -366,7 +366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ...reservation,
             // Calculate from unredacted, trusted records. Owned land principal
             // must remain available even when the public fee breakdown is hidden.
-            landPrincipalAmount: calculateHoldingCostsForPortfolio({ ...reservation, property })?.landAmount ?? null,
+            landPrincipalAmount: portfolioLandAmount({ ...reservation, property }),
             property: property ? redactHiddenUnitCostBreakdown(property) : property,
           };
         })

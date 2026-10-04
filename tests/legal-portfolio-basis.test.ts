@@ -14,7 +14,7 @@ describe("every LilyCrest buyer's land stake", () => {
     const source = readFileSync("server/routes.ts", "utf8");
     const ownedRoute = source.slice(source.indexOf("app.get('/api/user/reservations'"),
       source.indexOf("app.get('/api/user/stats'"));
-    expect(ownedRoute).toContain("landPrincipalAmount: calculateHoldingCostsForPortfolio");
+    expect(ownedRoute).toContain("landPrincipalAmount: portfolioLandAmount");
     expect(ownedRoute.indexOf("landPrincipalAmount:")).toBeLessThan(ownedRoute.indexOf("property: property ? redactHidden"));
     const statistics = source.slice(source.indexOf("app.get('/api/user/stats'"), source.indexOf("app.get('/api/user/stats'") + 2000);
     expect(statistics).not.toContain("32353");
@@ -31,6 +31,23 @@ describe("every LilyCrest buyer's land stake", () => {
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: null })).toBeNull();
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "6000000" })).toBeNull();
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "invalid" })).toBeNull();
+  });
+  it("preserves Guzape 2's recorded holdings alongside Lily Crest's land-only basis", () => {
+    const guzape = { propertyId: 33, units: "9", amount: "2925000.00",
+      currency: "NGN", status: "converted_to_investment",
+      property: { id: 33, currency: "NGN", unitLandCost: 0 } };
+    const holdings = [guzape, holding(16),
+      { ...guzape, status: "payment_received", amount: "2600000" },
+      { ...guzape, status: "cancelled" }, { ...guzape, status: "expired" }];
+    const before = JSON.stringify(holdings);
+    expect(portfolioLandAmount(guzape)).toBe(2925000);
+    expect(portfolioLandAmount({ ...guzape, property: undefined, landPrincipalAmount: null })).toBe(2925000);
+    expect(summarizeLandPortfolio(holdings, amount => amount)).toEqual({
+      totalPortfolioValue: 7365000, unclassifiedInvestments: 0,
+    });
+    expect(JSON.stringify(holdings)).toBe(before);
+    expect(portfolioLandAmount({ ...guzape, propertyId: 35, property: undefined })).toBeNull();
+    expect(portfolioLandAmount({ ...guzape, amount: "invalid" })).toBeNull();
   });
   it("includes all buyers, whether or not legal documents have been prepared", () => {
     const holdings = [16, 9, 2, 1, 1].map(units => holding(units));

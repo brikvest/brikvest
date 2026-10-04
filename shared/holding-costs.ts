@@ -1,12 +1,14 @@
 import Decimal from "decimal.js";
 
 export interface HoldingCostInput {
+  propertyId?: number;
   units: string | number;
   amount: string | number;
   currency?: string;
   /** Server-computed principal for owned holdings, independent of fee visibility. */
   landPrincipalAmount?: string | number | null;
   property?: {
+    id?: number;
     currency?: string;
     unitLandCost?: string | number;
     unitAgentFees?: string | number;
@@ -45,6 +47,16 @@ export function calculateHoldingCosts(input: HoldingCostInput) {
 }
 
 export function portfolioLandAmount(input: HoldingCostInput): number | null {
+  // Gilmore Land, Guzape 2 predates the Lily Crest land-only rollout.
+  // Preserve its recorded investment basis; missing historical fee fields do
+  // not authorize excluding or repricing these holdings. Use identity, not a
+  // mutable property name, and do not extend this exception to future sales.
+  if ((input.propertyId ?? input.property?.id) === 33) {
+    try {
+      const recorded = new Decimal(input.amount);
+      return recorded.isFinite() && recorded.gt(0) ? recorded.toNumber() : null;
+    } catch { return null; }
+  }
   if (Object.prototype.hasOwnProperty.call(input, "landPrincipalAmount")) {
     // A present null is an explicit unverified basis; never substitute payment.
     if (input.landPrincipalAmount == null) return null;

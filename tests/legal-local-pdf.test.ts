@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { deflateSync } from "node:zlib";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -35,6 +36,20 @@ function createInkPng(width = 320, height = 100): Buffer {
     }
   }
   return PNG.sync.write(png);
+}
+
+function withChunk(png: Buffer, type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  let crc = 0xffffffff;
+  for (const byte of body) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  // Insert after the IHDR, as in browser canvas exports.
+  return Buffer.concat([png.subarray(0, 33), length, body, checksum, png.subarray(33)]);
 }
 
 async function createUnsignedPdf(dense = false): Promise<Buffer> {
@@ -136,9 +151,37 @@ describe("deterministic local PDF signature rendering", () => {
     expect(() => validateSignaturePng(oversized)).toThrow(/1600×600/i);
   });
 
+  it("accepts browser colour profiles while embedding only verified signature pixels", () => {
+    const png = createInkPng();
+    const profile = Buffer.concat([Buffer.from("Display P3\0\0"), deflateSync(Buffer.alloc(128))]);
+    const browserPng = withChunk(withChunk(png, "iCCP", profile), "cICP", Buffer.from([12, 13, 0, 1]));
+    const result = validateSignaturePng(browserPng);
+    expect(result).toMatchObject({ width: 320, height: 100 });
+    expect(PNG.sync.read(result.normalizedPng).data).toEqual(PNG.sync.read(png).data);
+    expect(result.normalizedPng.includes(Buffer.from("iCCP"))).toBe(false);
+    expect(result.normalizedPng.includes(Buffer.from("cICP"))).toBe(false);
+    expect(() => validateSignaturePng(withChunk(
+      PNG.sync.write(new PNG({ width: 100, height: 40 })), "iCCP", profile,
+    ))).toThrow(/blank/i);
+  });
+
+  it("still rejects metadata corruption, malformed profiles, animation, text and trailing data", () => {
+    const png = createInkPng();
+    expect(() => validateSignaturePng(withChunk(png, "iCCP", Buffer.from("bad")))).toThrow(/metadata/i);
+    expect(() => validateSignaturePng(withChunk(png, "cICP", Buffer.from([1])))).toThrow(/metadata/i);
+    for (const type of ["acTL", "tEXt", "eXIf", "zzZZ"]) {
+      expect(() => validateSignaturePng(withChunk(png, type, Buffer.from("data")))).toThrow(/unsupported/i);
+    }
+    const corrupt = withChunk(png, "cICP", Buffer.from([12, 13, 0, 1]));
+    corrupt[41] ^= 1;
+    expect(() => validateSignaturePng(corrupt)).toThrow(/integrity/i);
+    expect(() => validateSignaturePng(Buffer.concat([png, Buffer.from("extra")]))).toThrow(/trailing/i);
+  });
+
   it("places the image in a clear area near the verified name and renders identical signed bytes on retry", async () => {
     const unsignedPdf = await createUnsignedPdf();
-    const signaturePng = createInkPng();
+    const signaturePng = withChunk(createInkPng(), "iCCP",
+      Buffer.concat([Buffer.from("Display P3\0\0"), deflateSync(Buffer.alloc(128))]));
     const placement = {
       templateVersionId: "1",
       pageNumber: 1,

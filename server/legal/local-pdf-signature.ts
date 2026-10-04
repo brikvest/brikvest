@@ -23,6 +23,8 @@ const PDF_TEXT_OUTPUT_LIMIT = 4 * 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
 export type SignaturePngDimensions = {
+  /** Pixel-only PNG for embedding; original bytes retain their evidence hash. */
+  normalizedPng: Buffer;
   width: number;
   height: number;
   inkPixelCount: number;
@@ -136,7 +138,8 @@ export function validateSignaturePng(png: Buffer): SignaturePngDimensions {
   let sawImageData = false;
   let sawImageDataEnd = false;
   let sawEnd = false;
-  const allowedAncillaryChunks = new Set(["sRGB", "gAMA", "cHRM", "pHYs"]);
+  const allowedAncillaryChunks = new Set(["sRGB", "gAMA", "cHRM", "pHYs", "iCCP", "cICP"]);
+  const pixelChunks: Buffer[] = [PNG_SIGNATURE];
 
   while (offset < png.length) {
     if (offset + 12 > png.length) throw new Error("The signature PNG has a truncated chunk.");
@@ -182,11 +185,27 @@ export function validateSignaturePng(png: Buffer): SignaturePngDimensions {
       if (sawImageData || sawEnd) {
         throw new Error("The signature PNG contains unexpected metadata after its image data.");
       }
+      // Safari/WebKit canvas exports can include colour-profile chunks. Check
+      // their framing, but never inflate/interpret a profile or pass it to the
+      // decoder/PDF library. Only the CRC-checked image chunks are retained.
+      if (type === "iCCP") {
+        const separator = data.indexOf(0);
+        if (separator < 1 || separator > 79 || separator + 2 >= data.length ||
+            data[separator + 1] !== 0) {
+          throw new Error("The signature PNG has invalid colour-profile metadata.");
+        }
+      }
+      if (type === "cICP" && (length !== 4 || data[3] > 1)) {
+        throw new Error("The signature PNG has invalid colour metadata.");
+      }
     } else {
-      // Reject animation, profiles, text metadata, and unknown chunks.
+      // Reject animation, text metadata, and unknown chunks.
       throw new Error("The signature PNG contains unsupported or unsafe chunk data.");
     }
 
+    if (type === "IHDR" || type === "IDAT" || type === "IEND") {
+      pixelChunks.push(png.subarray(offset, chunkEnd));
+    }
     offset = chunkEnd;
     if (sawEnd && offset !== png.length) {
       throw new Error("The signature PNG contains trailing data.");
@@ -199,7 +218,7 @@ export function validateSignaturePng(png: Buffer): SignaturePngDimensions {
 
   let decoded: ReturnType<typeof PNG.sync.read>;
   try {
-    decoded = PNG.sync.read(png, { checkCRC: true, skipRescale: true });
+    decoded = PNG.sync.read(Buffer.concat(pixelChunks), { checkCRC: true, skipRescale: true });
   } catch {
     throw new Error("The signature PNG image data could not be safely decoded.");
   }
@@ -242,7 +261,8 @@ export function validateSignaturePng(png: Buffer): SignaturePngDimensions {
   if (inkPixelCount < 8 || right - left < 1 || bottom - top < 1) {
     throw new Error("The signature canvas is blank; draw a visible signature before continuing.");
   }
-  return { width, height, inkPixelCount, inkBounds: { left, top, right, bottom } };
+  return { width, height, inkPixelCount, inkBounds: { left, top, right, bottom },
+    normalizedPng: PNG.sync.write(decoded, { colorType: 6, inputColorType: 6, bitDepth: 8 }) };
 }
 
 function safePrintable(value: string): string {
@@ -651,7 +671,7 @@ export async function renderLocallySignedPdf(input: LocalSignedPdfInput): Promis
   }
   let image;
   try {
-    image = await document.embedPng(input.signaturePng);
+    image = await document.embedPng(pngInfo.normalizedPng);
   } catch {
     throw new Error("The verified signature PNG could not be embedded into the legal PDF.");
   }
