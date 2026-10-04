@@ -83,6 +83,9 @@ async function installMocks(page: Page): Promise<Fixture> {
     const reviewMatch = path.match(/^\/api\/admin\/legal\/pairs\/(\d+)\/review$/);
     if (reviewMatch && method === "GET" && propertyId === 209 && Number(reviewMatch[1]) === 2200) return json(route, { pairId: 2200, propertyId: 209, reservationId: 550, investorName: "South Investor", propertyName: "South Estate", approved: holdingRows[209][0].reviewApproved, documents: holdingRows[209][0].documents.map((doc: any) => ({ id: doc.id, type: doc.type, sha256: doc.sha256, templateId: doc.templateId, templateVersion: doc.templateVersion })) });
     if (path === "/api/admin/legal/pairs/2200/approve-send" && method === "POST" && propertyId === 209) { holdingRows[209][0].reviewApproved = true; return json(route, { queued: true, message: "Review recorded and notification queued." }); }
+    if (path === "/api/admin/legal/historical-holdings/prepare" && method === "POST") {
+      return json(route, { results: body.holdings.map((holding: any) => ({ reservationId: holding.reservationId, state: "prepared" })) });
+    }
     if (path === "/api/admin/legal/templates" && method === "GET") return json(route, snapshot.filter((item) => url.searchParams.has("unassigned") ? item.propertyId === null : item.propertyId === propertyId));
     if (path === "/api/admin/legal/templates" && method === "POST" && body.propertyId === 108 && body.hasFile) {
       if (fixture.uploadFailure === "network") return route.abort("failed");
@@ -183,6 +186,57 @@ async function chooseProperty(page: Page, name: string) {
 }
 async function closeDialog(page: Page) {
   await page.getByRole("dialog").last().getByRole("button", { name: "Close", exact: true }).click();
+}
+
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} preparation form retains payment entries during background updates`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installMocks(page);
+    const holding = fixture.holdings![108][0];
+    holding.requiresAttestation = true;
+    // An unrelated queued holding causes the real component's five-second poll.
+    fixture.holdings![108].push({ ...holding, reservationId: 451, userName: "Queued Investor",
+      pairId: 2201, canPrepare: false, jobs: [{ kind: "generate", status: "queued" }] });
+    await openWorkspace(page, mobile);
+    await chooseProperty(page, "North Estate");
+    await page.getByRole("tab", { name: "Investor documents" }).click();
+    const row = page.getByText("North Investor", { exact: true }).locator("..").locator("..");
+    await row.getByRole("button", { name: "Prepare", exact: true }).click();
+    const details = page.getByRole("dialog");
+    await details.getByRole("button", { name: "Prepare this holding", exact: true }).click();
+    const form = page.getByRole("dialog", { name: "Prepare confirmed holdings" });
+    await expect(form).toBeVisible();
+    await form.getByLabel("Confirmed amount (NGN)").fill("150000");
+    await form.getByLabel("Audit note").fill("Reviewed fixture payment receipt.");
+    await form.getByRole("checkbox").check();
+    const submit = form.getByRole("button", { name: "Confirm and prepare" });
+    await expect(submit).toBeEnabled();
+    const polls = fixture.requests.filter(request => request.path === "/api/admin/legal/historical-holdings").length;
+    await expect.poll(() => fixture.requests.filter(request => request.path === "/api/admin/legal/historical-holdings").length,
+      { timeout: 12000 }).toBeGreaterThan(polls);
+    await expect(form).toBeVisible();
+    await expect(form.getByLabel("Confirmed amount (NGN)")).toHaveValue("150000");
+    await expect(form.getByLabel("Audit note")).toHaveValue("Reviewed fixture payment receipt.");
+    await expect(form.getByRole("checkbox")).toBeChecked();
+    await expect(submit).toBeEnabled();
+    expect(fixture.requests.filter(request => request.method === "POST")).toHaveLength(0);
+
+    holding.reviewToken = "north-updated-review";
+    await expect(form.getByRole("alert")).toContainText("changed", { timeout: 12000 });
+    await expect(submit).toBeDisabled();
+    await expect(form.getByLabel("Audit note")).toHaveValue("Reviewed fixture payment receipt.");
+    await form.getByRole("button", { name: "Review updated records" }).click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect(form).not.toBeVisible();
+    const prepared = fixture.requests.filter(request => request.path.endsWith("/historical-holdings/prepare"));
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0].body.holdings[0]).toMatchObject({
+      reservationId: 450, reviewToken: "north-updated-review",
+      attestation: { fullPaymentConfirmed: true, amountNaira: "150000", auditNote: "Reviewed fixture payment receipt." },
+    });
+    expect(fixture.unexpected).toEqual([]);
+  });
 }
 
 for (const mobile of [false, true]) {

@@ -130,7 +130,22 @@ function HistoricalLegalHoldingsScope({ propertyId, propertyName, authenticatedR
       decimalText(draft.amountNaira) === decimalText(holding.amount) && holding.currency.toUpperCase() === "NGN" && !!draft.auditNote.trim();
   };
   const canOpenPreparation = !query.isFetching && !query.isError && !!deed && !!transfer && selectedRows.length > 0 && selectedRows.length === selected.length && selectedRows.every((h) => h.canPrepare);
-  const canConfirmPreparation = !query.isFetching && !query.isError && !!confirmation && confirmation.holdings.length > 0 && confirmation.holdings.every((h) => h.canPrepare && (!h.requiresAttestation || validAttestation(h)));
+  const updatedConfirmationHoldings = confirmation?.holdings.map((holding) =>
+    items.find((item) => item.reservationId === holding.reservationId));
+  const confirmationIsCurrent = !!confirmation && !!deed && !!transfer &&
+    deed.id === confirmation.deed.id && deed.version === confirmation.deed.version &&
+    transfer.id === confirmation.transfer.id && transfer.version === confirmation.transfer.version &&
+    confirmation.holdings.every((holding, index) => {
+      const current = updatedConfirmationHoldings?.[index];
+      return !!current?.canPrepare && current.reviewToken === holding.reviewToken &&
+        current.amount === holding.amount && current.currency === holding.currency &&
+        current.requiresAttestation === holding.requiresAttestation;
+    });
+  const canReviewUpdatedRecords = !!deed && !!transfer && !!updatedConfirmationHoldings?.length &&
+    updatedConfirmationHoldings.every((holding) => !!holding?.canPrepare);
+  const canConfirmPreparation = !query.isFetching && !query.isError && confirmationIsCurrent &&
+    !!confirmation && confirmation.holdings.length > 0 &&
+    confirmation.holdings.every((h) => h.canPrepare && (!h.requiresAttestation || validAttestation(h)));
   const totalPages = Math.max(1, Math.ceil((query.data?.total || 0) / pageSize));
   const loadFailure = historicalLoadFailure(query.error instanceof ApiError ? query.error.status : 500, query.error instanceof ApiError ? query.error.code : undefined);
   function clearQueryActions() {
@@ -138,13 +153,10 @@ function HistoricalLegalHoldingsScope({ propertyId, propertyName, authenticatedR
     detailSession.current += 1; activePair.current = null; reviewRequestSignature.current = "";
     setDetail(null); setReview(null); setChecked({}); setPreview(null); setError(""); setResult("");
   }
-  useEffect(() => { clearQueryActions(); }, [search, page, query.isError]);
+  useEffect(() => { clearQueryActions(); }, [search, page]);
   useEffect(() => { if (!active) clearQueryActions(); }, [active]);
-  useEffect(() => {
-    if (query.isFetching) {
-      setSelected([]); setConfirmation(null); setPreparing(false);
-    }
-  }, [query.isFetching]);
+  // Background polling must not dismiss a form or discard an administrator's
+  // entries. Frozen identities are compared above and rechecked by the server.
   function retryLoad() {
     clearQueryActions();
     void query.refetch();
@@ -331,6 +343,21 @@ function HistoricalLegalHoldingsScope({ propertyId, propertyName, authenticatedR
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>Prepare confirmed holdings</DialogTitle><DialogDescription>Confirm the exact property templates before generating documents. Existing pairs and evidence are never replaced.</DialogDescription></DialogHeader>
         <div className="space-y-2 rounded-md bg-[#f2f4ef] p-3 text-sm"><p><strong>Property:</strong> {propertyName} · #{propertyId}</p><p><strong>Deed:</strong> {confirmation ? `#${confirmation.deed.id} · version ${confirmation.deed.version}` : "Unavailable"}</p><p><strong>Transfer:</strong> {confirmation ? `#${confirmation.transfer.id} · version ${confirmation.transfer.version}` : "Unavailable"}</p><ul className="list-inside list-disc">{confirmation?.holdings.map((holding) => <li key={holding.reservationId}>Holding #{holding.reservationId} · {holding.userName} · {holding.userEmail}</li>)}</ul></div>
+        {query.isFetching && <p role="status" className="text-sm text-slate-600">Updating holding records… Your entries will be kept.</p>}
+        {query.isError && <div role="alert" className="space-y-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          <p>Could not refresh these holding records. Your entries are saved in this form; retry before confirming.</p>
+          <Button variant="outline" disabled={!!working} onClick={() => void query.refetch()}>Retry records</Button>
+        </div>}
+        {!query.isFetching && !query.isError && confirmation && !confirmationIsCurrent &&
+          <div role="alert" className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <p>The holding records or templates changed. Review the updated records before confirming. Your entries have been kept.</p>
+            <Button variant="outline" disabled={!!working || !canReviewUpdatedRecords}
+              onClick={() => {
+                if (canReviewUpdatedRecords) beginPreparation(updatedConfirmationHoldings!.filter((holding): holding is HistoricalHolding => !!holding));
+              }}>Review updated records</Button>
+            {!canReviewUpdatedRecords && <p>One or more holdings are no longer eligible for preparation. Close this form and check their latest status.</p>}
+          </div>}
+        {error && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         {confirmation?.holdings.filter((h) => h.requiresAttestation).map((holding) => {
           const draft = attestations[holding.reservationId] || { confirmed: false, amountNaira: "", auditNote: "" };
           return <section key={holding.reservationId} className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3"><h3 className="font-semibold text-amber-950">Payment attestation · Holding #{holding.reservationId}</h3>

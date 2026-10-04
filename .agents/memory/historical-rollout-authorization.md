@@ -18,3 +18,17 @@ and schema deployment. Resolve ambiguous legacy payment/allocation evidence
 outside the rollout, with separate authorization; never turn legal preparation
 into financial confirmation or treat an audited attestation as an earlier
 payment approval.
+
+Background updates must preserve an in-progress preparation form and its
+payment-attestation entries, without automatically adopting changed reviewed
+records. Block submission and require explicit review of updated identities
+when records or templates change.
+
+**Why:** Background polling closed the preparation form while the user was
+entering an attestation. Keeping the form usable must not weaken the explicit
+review boundary or silently authorize a different payment/template snapshot.
+
+**How to apply:** Keep drafts during background refreshes and transient load
+errors. Fence submission while freshness is unknown or identities differ.
+Clear scope-specific state when the administrator changes property or query
+scope, not merely because the same records are being fetched again.
