@@ -33,3 +33,14 @@ The existing immutable-evidence boundaries remain in force.
 authoring wording; do not reconstruct legal forms from generic HTML. Keep automatic
 investor fields protected. Preview and activation remain explicit separate steps;
 existing investor pairs retain their pinned versions.
+
+In-app editing must be discoverable in the main property legal workspace, not
+offered only as a download or a control behind secondary navigation.
+
+**Why:** The user reiterated that there was no editor visible in the app even
+when the published code contained a template-editing flow. Code presence and
+navigation instructions alone did not satisfy the requested admin experience.
+
+**How to apply:** Verify direct access to both document editors from the default
+property workspace, including mobile and clear load/missing-source states. Report
+workspace availability and published availability separately.

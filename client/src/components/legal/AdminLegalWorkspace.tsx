@@ -105,14 +105,14 @@ export function AdminLegalWorkspace({ authenticatedRequest, properties }: { auth
   const [selectedId, setSelectedId] = useState("");
   const property = properties.find((item) => String(item.id) === selectedId);
   return <div className="space-y-5">
-    <header><h1 className="text-2xl font-bold text-slate-900">Legal documents</h1><p className="mt-1 text-sm text-slate-600">Manage each property’s templates and investor signing records without changing retained evidence.</p></header>
+    <header><h1 className="text-2xl font-bold text-slate-900">Legal documents</h1><p className="mt-1 text-sm text-slate-600">Edit deed and transfer agreement wording inside the app, and manage investor signing records without changing retained evidence.</p></header>
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] md:items-center">
         <div className="flex gap-3"><Building2 className="mt-0.5 h-5 w-5 text-blue-700" /><div><Label htmlFor="legal-property">Property workspace</Label><p className="mt-1 text-xs text-slate-500">Uploads, live templates and holdings stay with this property.</p></div></div>
         <Select value={selectedId} onValueChange={setSelectedId}><SelectTrigger id="legal-property" aria-label="Choose property"><SelectValue placeholder="Select a property" /></SelectTrigger><SelectContent>{properties.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}{item.location ? ` · ${item.location}` : ""}</SelectItem>)}</SelectContent></Select>
       </div>
     </div>
-    {property ? <PropertyWorkspace key={property.id} property={property} authenticatedRequest={authenticatedRequest} /> : <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center"><FileText className="mx-auto mb-3 h-8 w-8 text-blue-700" /><h2 className="font-semibold text-slate-900">{properties.length ? "Choose a property to begin" : "No properties available"}</h2><p className="mt-2 text-sm text-slate-600">{properties.length ? "Choose the property workspace to view investor documents and its template versions." : "Create a property before setting up its legal templates."}</p></div>}
+    {property ? <PropertyWorkspace key={property.id} property={property} authenticatedRequest={authenticatedRequest} /> : <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center"><FileText className="mx-auto mb-3 h-8 w-8 text-blue-700" /><h2 className="font-semibold text-slate-900">{properties.length ? "Choose a property to begin" : "No properties available"}</h2><p className="mt-2 text-sm text-slate-600">{properties.length ? "Choose a property above to open its deed and transfer agreement editors and view investor documents." : "Create a property before setting up its legal templates."}</p></div>}
   </div>;
 }
 
@@ -140,12 +140,18 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
   const controllers = useRef(new Set<AbortController>());
   const urls = useRef(new Set<string>());
   const scoped = (path: string) => `${path}${path.includes("?") ? "&" : "?"}propertyId=${propertyId}`;
-  const templatesQuery = useQuery<Template[]>({ queryKey: ["/api/admin/legal/templates", propertyId], queryFn: () => authenticatedRequest(scoped("/api/admin/legal/templates")), enabled: tab === "templates" });
+  const templatesQuery = useQuery<Template[]>({ queryKey: ["/api/admin/legal/templates", propertyId], queryFn: () => authenticatedRequest(scoped("/api/admin/legal/templates")) });
   const legacyQuery = useQuery<Template[]>({ queryKey: ["/api/admin/legal/templates", "unassigned"], queryFn: () => authenticatedRequest("/api/admin/legal/templates?unassigned=true"), enabled: showLegacy });
   const templates = (templatesQuery.data || []).filter((template) => template.propertyId === undefined || Number(template.propertyId) === propertyId);
   const draft = templates.find((template) => String(template.id) === draftId && !template.active);
   const legacyFields = legacyQuery.data?.find((template) => String(template.id) === legacyFieldsId);
   const activeTemplates = templates.filter((template) => template.active);
+  const editorTemplateFor = (type: string) => {
+    const versions = templates.filter((template) => template.documentType === type).sort((a, b) => b.version - a.version);
+    return versions.find((template) => template.active)
+      || versions.find((template) => template.validationStatus === "valid")
+      || versions[0];
+  };
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -268,6 +274,27 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
    </div>;
 
   return <div className="space-y-6">
+    <Card>
+      <CardHeader><CardTitle className="text-lg">Edit property legal wording</CardTitle><CardDescription>Edit the deed or transfer agreement directly in the app. Saving creates an inactive draft, without changing existing investor documents.</CardDescription></CardHeader>
+      <CardContent className="space-y-3">
+        {templatesQuery.isLoading ? <LoadingRows /> : templatesQuery.isError ? <QueryError retry={() => void templatesQuery.refetch()}>Could not load assigned templates for {property.name}. Editing is unavailable until they load.</QueryError> : <div className="grid gap-3 sm:grid-cols-2">
+          {types.map((type) => {
+            const template = editorTemplateFor(type);
+            return <div key={type} className="flex flex-col items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/70 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">{name(type)}</h3>
+                {template
+                  ? <p className="mt-1 text-xs text-slate-600">{template.active ? "Active version" : template.validationStatus === "valid" ? "Latest valid assigned version" : "Latest assigned version"} · v{template.version} · {human(template.validationStatus)}</p>
+                  : <p className="mt-1 text-xs text-slate-600">No assigned version is available for editing.</p>}
+              </div>
+              {template
+                ? <Button size="sm" disabled={!!busy} onClick={() => setEditingTemplate(template)}><Pencil className="mr-1.5 h-4 w-4" />{type === "deed_of_assignment" ? "Edit deed" : "Edit transfer agreement"}</Button>
+                : <Button size="sm" variant="outline" onClick={() => switchTab("templates")}>Open templates</Button>}
+            </div>;
+          })}
+        </div>}
+      </CardContent>
+    </Card>
     <nav role="tablist" aria-label="Legal workspace sections" className="flex gap-1 border-b border-slate-200">
       <button id="legal-tab-investors" type="button" role="tab" aria-selected={tab === "investors"} tabIndex={tab === "investors" ? 0 : -1} onKeyDown={onTabKeyDown} onClick={() => switchTab("investors")} className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#65816a] ${tab === "investors" ? "border-[#58745d] text-[#344a39]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>Investor documents</button>
       <button id="legal-tab-templates" type="button" role="tab" aria-selected={tab === "templates"} tabIndex={tab === "templates" ? 0 : -1} onKeyDown={onTabKeyDown} onClick={() => switchTab("templates")} className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#65816a] ${tab === "templates" ? "border-[#58745d] text-[#344a39]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>Templates</button>
@@ -317,11 +344,14 @@ function PropertyWorkspace({ property, authenticatedRequest }: { property: Prope
     </Card>}</details>
     <details onToggle={(event) => setShowLegacy(event.currentTarget.open)} className="rounded-md border border-slate-200 p-4"><summary className="cursor-pointer text-sm font-medium text-slate-700">Unassigned legacy templates · explicit destination required</summary><div className="mt-3 space-y-3"><p className="text-sm text-slate-600">Inspect retained versions before assigning their ownership to {property.name}. Assignment does not activate a template or alter existing documents.</p>{legacyQuery.isLoading ? <LoadingRows /> : legacyQuery.isError ? <QueryError retry={() => void legacyQuery.refetch()}>Could not load legacy templates.</QueryError> : !legacyQuery.data?.length ? <p className="text-sm text-slate-500">No unassigned legacy versions.</p> : legacyQuery.data.map((template) => <div key={template.id} className="rounded-md bg-slate-50 p-3"><p className="mb-2 text-sm font-medium text-slate-700">{name(template.documentType)} · v{template.version} · read only</p>{templateControls(template, true)}</div>)}{legacyFields && <TemplateFields key={legacyFields.id} template={legacyFields} propertyId={propertyId} propertyName={property.name} unassigned />}</div></details>
     </section>
-    <section role="tabpanel" id="legal-panel-investors" aria-labelledby="legal-tab-investors" hidden={tab !== "investors"}><HistoricalLegalHoldings key={`historical-${propertyId}`} propertyId={propertyId} propertyName={property.name} authenticatedRequest={authenticatedRequest} active={tab === "investors"} /></section>
+     <section role="tabpanel" id="legal-panel-investors" aria-labelledby="legal-tab-investors" hidden={tab !== "investors"} className="space-y-5">
+       <HistoricalLegalHoldings key={`historical-${propertyId}`} propertyId={propertyId} propertyName={property.name} authenticatedRequest={authenticatedRequest} active={tab === "investors"} />
+     </section>
     <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}><DialogContent className="max-w-5xl h-[90dvh] flex flex-col"><DialogHeader><DialogTitle>{preview?.title}</DialogTitle><DialogDescription>Read-only preview. Templates are review samples; signed investor evidence remains unchanged.</DialogDescription></DialogHeader>{preview && <iframe title={preview.title} src={preview.url} className="min-h-0 w-full flex-1 rounded border bg-slate-100" />}</DialogContent></Dialog>
     {editingTemplate && <LegalTemplateEditor key={`${propertyId}:${editingTemplate.id}`} template={editingTemplate} propertyId={propertyId} propertyName={property.name} onClose={() => setEditingTemplate(null)} onSaved={(saved) => {
       setDraftId(String(saved.id));
       setEditingTemplate(null);
+       switchTab("templates");
       refresh();
       toast({ title: "Wording saved as a draft", description: `${property.name} · ${name(saved.documentType)} · v${saved.version}. The draft is inactive; preview and activate it from template controls when ready.` });
     }} />}

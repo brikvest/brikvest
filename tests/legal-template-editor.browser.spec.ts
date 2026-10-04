@@ -3,13 +3,13 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 test.setTimeout(35000);
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-async function fixture(page: Page) {
+async function fixture(page: Page, options: { openTemplates?: boolean; failTemplates?: boolean; missingTransfer?: boolean } = {}) {
   const requests: { path: string; method: string; body: any }[] = [];
   const templates = [
     { id: 73, propertyId: 34, documentType: "deed_of_assignment", version: 1, active: true, validationStatus: "valid", createdAt: "2026-01-01" },
     { id: 75, propertyId: 34, documentType: "transfer_exit_rights", version: 1, active: true, validationStatus: "valid", createdAt: "2026-01-01" },
-  ];
-  const state = { failSave: false, failLoad: false };
+  ].filter(template => !options.missingTransfer || template.documentType !== "transfer_exit_rights");
+  const state = { failSave: false, failLoad: false, failTemplates: !!options.failTemplates };
   await page.route("**/api/**", async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -25,7 +25,10 @@ async function fixture(page: Page) {
       items: [], total: 0, page: 1, pageSize: 20, propertyName: "LilyCrest Gardens",
       templates: templates.filter(template => template.active),
     });
-    if (path === "/api/admin/legal/templates") return json(route, url.searchParams.get("propertyId") === "34" ? templates : []);
+    if (path === "/api/admin/legal/templates") {
+      if (state.failTemplates) return json(route, { error: "Temporary template list failure" }, 503);
+      return json(route, url.searchParams.get("propertyId") === "34" ? templates : []);
+    }
     if (/\/templates\/\d+\/fields$/.test(path)) return json(route, { fields: [], issues: [] });
     if (/\/templates\/\d+\/editor$/.test(path)) {
       const sourceId = Number(path.split("/")[5]);
@@ -57,7 +60,7 @@ async function fixture(page: Page) {
   await page.getByRole("button", { name: "Legal Documents", exact: true }).click();
   await page.getByRole("combobox", { name: "Choose property" }).click();
   await page.getByRole("option", { name: /LilyCrest Gardens/ }).click();
-  await page.getByRole("tab", { name: "Templates", exact: true }).click();
+  if (options.openTemplates !== false) await page.getByRole("tab", { name: "Templates", exact: true }).click();
   return { requests, state };
 }
 const openEditor = async (page: Page, index = 0) => {
@@ -65,7 +68,48 @@ const openEditor = async (page: Page, index = 0) => {
   await expect(page.getByRole("textbox", { name: "Paragraph 1", exact: true })).toBeVisible();
 };
 
+test("direct editor controls recover when the template list fails", async ({ page }) => {
+  const data = await fixture(page, { openTemplates: false, failTemplates: true });
+  await expect(page.getByText(/Could not load assigned templates for LilyCrest Gardens/)).toBeVisible();
+  expect(data.requests.some(request => /\/editor$/.test(request.path))).toBe(false);
+  data.state.failTemplates = false;
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Edit deed", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Edit transfer agreement", exact: true })).toBeEnabled();
+});
+
+test("a missing agreement is explained instead of opening the wrong document", async ({ page }) => {
+  const data = await fixture(page, { openTemplates: false, missingTransfer: true });
+  await expect(page.getByRole("button", { name: "Edit deed", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Edit transfer agreement", exact: true })).toHaveCount(0);
+  await expect(page.getByText("No assigned version is available for editing.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open templates", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Templates", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect(data.requests.some(request => request.method === "POST" || /\/editor$/.test(request.path))).toBe(false);
+});
+
 for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"} opens both editors directly from the default legal workspace`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    const data = await fixture(page, { openTemplates: false });
+    await expect(page.getByRole("tab", { name: "Investor documents", exact: true })).toHaveAttribute("aria-selected", "true");
+    const deed = page.getByRole("button", { name: "Edit deed", exact: true });
+    const agreement = page.getByRole("button", { name: "Edit transfer agreement", exact: true });
+    await expect(deed).toBeEnabled();
+    await expect(agreement).toBeEnabled();
+    await page.screenshot({ path: `/tmp/legal-editor-entrypoints-${mobile ? "mobile" : "desktop"}.png` });
+    await deed.click();
+    await expect(page.getByRole("textbox", { name: "Paragraph 1", exact: true })).toHaveValue("Original deed wording.");
+    await page.getByRole("textbox", { name: "Paragraph 1", exact: true }).fill("Deed wording changed directly in the app.");
+    await page.getByRole("button", { name: "Save as new draft", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Templates", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("Uploaded · not active · Version 2", { exact: true })).toBeVisible();
+    await agreement.click();
+    await expect(page.getByRole("textbox", { name: "Paragraph 1", exact: true })).toHaveValue("Original agreement wording.");
+    expect(data.requests.some(request => request.path.endsWith("/75/editor") && request.method === "GET")).toBe(true);
+    expect(data.requests.some(request => /download|activate|approve-send/.test(request.path))).toBe(false);
+  });
+
   test(`${mobile ? "mobile" : "desktop"} edits a deed in the admin app and saves only changed paragraphs as an inactive draft`, async ({ page }) => {
     if (mobile) await page.setViewportSize({ width: 390, height: 844 });
     const data = await fixture(page);
