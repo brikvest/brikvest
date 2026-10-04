@@ -6,6 +6,8 @@ import ws from "ws";
 // target connection. No business rows or persistent schema are used for pausing.
 export const LEGAL_DISPATCH_LOCK = [1279608641, 1] as const;
 export const LEGAL_DISPATCH_PROTOCOL = "exact-pdf-review-dispatch-maintenance-v1";
+export const LEGAL_DISPATCH_PAUSE_PROTOCOL = "persistent-legal-dispatch-pause-v1";
+export const legalDispatchPaused = () => process.env.LEGAL_DISPATCH_PAUSED === "true";
 
 type PermitClient = {
   query(text: string, values: number[]): Promise<{ rows: Array<{ acquired?: boolean; released?: boolean }> }>;
@@ -34,6 +36,9 @@ export async function withLegalDispatchPermit<T>(
   operation: (isPermitLive: () => boolean) => Promise<T>,
   connect: () => Promise<PermitClient> = connectPermitClient,
 ): Promise<T | null> {
+  // Persist across publications and restarts. Neither scheduled dispatch nor
+  // administrator recovery may connect, claim work or send while paused.
+  if (legalDispatchPaused()) return null;
   const client = await connect();
   let acquired = false;
   let denied = false;

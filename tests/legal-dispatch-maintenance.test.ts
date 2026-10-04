@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LEGAL_DISPATCH_LOCK, withLegalDispatchPermit } from "../server/legal/dispatch-maintenance";
 import { runStartupDataMaintenance } from "../server/startup-maintenance";
 import { execFileSync } from "node:child_process";
@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+beforeEach(() => vi.stubEnv("LEGAL_DISPATCH_PAUSED", "false"));
 afterEach(() => vi.unstubAllEnvs());
 
 function client(acquired: boolean) {
@@ -18,6 +19,15 @@ function client(acquired: boolean) {
 }
 
 describe("legal dispatch maintenance permits", () => {
+  it("blocks work before opening a database connection when the persistent pause is enabled", async () => {
+    vi.stubEnv("LEGAL_DISPATCH_PAUSED", "true");
+    const connect = vi.fn();
+    const operation = vi.fn();
+    expect(await withLegalDispatchPermit(operation, connect)).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+    expect(operation).not.toHaveBeenCalled();
+  });
+
   it("does not begin work when the verified database has an exclusive maintenance lock", async () => {
     const connection = client(false);
     const operation = vi.fn();

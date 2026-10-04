@@ -44,3 +44,39 @@ a compatible schema.
 **How to apply:** Verify nullability independently of constraint-row counts and
 normalize only specifically understood equivalent expressions. Never broadly
 ignore constraint, trigger or function differences to make rollout pass.
+
+A secure Neon connection matching production does not establish that the
+database is externally managed. Legacy Neon production can still participate
+in the platform's managed schema publication flow.
+
+**Why:** The platform's development-to-production diff correctly described a
+targeted additive repair despite a Neon production identity and a Helium
+development identity. Treating the secure connection as permission for direct
+production DDL would bypass that supported flow.
+
+**How to apply:** Confirm database ownership and inspect the publication schema
+plan before choosing a migration path. For managed production, apply only the
+authorized development prerequisites and publish the reviewed additive diff.
+Keep live dispatch fenced until a persistent pause is verified in the active
+published release; saved environment settings alone do not establish that pause.
+
+Pin maintenance permits to a physical PostgreSQL backend when a connection may
+use a transaction pooler.
+
+**Why:** An advisory lock must protect the same live database continuously;
+transaction multiplexing can move subsequent queries to another backend.
+
+**How to apply:** Use a dedicated read-only transaction with a transaction-level
+maintenance lock, verify that it remains held, and avoid long-lived reads of
+tables whose schema publication must alter.
+
+Do not use the production query interface's lock catalog as authoritative
+evidence of the application primary's maintenance pause.
+
+**Why:** It reported no maintenance locks while the independently verified
+primary connection denied shared dispatch permits and retained its exclusive
+permit. Matching business/catalog fingerprints does not imply shared lock state.
+
+**How to apply:** Verify dispatch denial directly on the verified primary with
+a passive shared-permit probe. Never dispatch a real job as a test; immediately
+release any unexpectedly acquired probe permit and report an unverified pause.

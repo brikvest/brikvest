@@ -23,7 +23,7 @@ import { deleteLegalTemplateVersion, LegalTemplateDeletionError } from "./templa
 import { searchHistoricalHoldings, prepareHistoricalHoldings } from "./historical-rollout";
 import { hasExactPdfApproval, recordPdfApproval, reviewedDocuments, reviewSchemaInstalled } from "./pdf-review";
 import { hasOutstandingLegalSignature } from "./invitation-state";
-import { LEGAL_DISPATCH_PROTOCOL } from "./dispatch-maintenance";
+import { LEGAL_DISPATCH_PROTOCOL, LEGAL_DISPATCH_PAUSE_PROTOCOL, legalDispatchPaused } from "./dispatch-maintenance";
 import { readTemplateEditor, editTemplateWording } from "./template-editor";
 import { dispatchLegalJobs, recoverLegalNotification } from "./worker";
 import { legalApplicationOrigin } from "./application-origin";
@@ -173,6 +173,8 @@ export function registerLegalRoutes(app: Express, auth: { requireAuth: RequestHa
     try { applicationOrigin = legalApplicationOrigin(process.env.APP_BASE_URL).origin; } catch { /* No configuration values on failure. */ }
     res.json({
       dispatchProtocol: LEGAL_DISPATCH_PROTOCOL,
+      dispatchPauseProtocol: LEGAL_DISPATCH_PAUSE_PROTOCOL,
+      legalDispatchPaused: legalDispatchPaused(),
       notificationRecoveryProtocol: "exact-existing-notification-v1",
       applicationOrigin,
       notificationEmailConfigured: Boolean(process.env.SMTP_USER?.trim() && process.env.SMTP_PASS?.trim()),
