@@ -715,7 +715,10 @@ export async function requestLegalNotificationResend(
     // Release only a gate-blocked unsent cycle, never an uncertain send intent.
     await tx.execute(sql`UPDATE legal_jobs SET status='queued',available_at=now(),last_error=NULL,updated_at=now()
       WHERE pair_id=${pairId} AND kind='notify' AND status='blocked'
-        AND last_error='Administrator review of both exact investor PDFs is required'
+        AND last_error IN (
+          'Administrator review of both exact investor PDFs is required',
+          'Corrected PDFs require fresh administrator review'
+        )
         AND EXISTS (SELECT 1 FROM legal_notification_cycles c WHERE c.id=notification_cycle_id AND c.status='queued')`);
   }
 

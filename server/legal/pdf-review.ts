@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
+import Decimal from "decimal.js";
 import { readLegalDocument } from "./files";
 
 type Executor = { execute(query: any): Promise<any> };
@@ -57,11 +58,25 @@ export async function requireExactPdfApproval(executor: Executor, pairId: number
  * not template validation or payment approval. Approval never changes evidence. */
 export async function recordPdfApproval(executor: Executor, pairId: number, adminId: number, input: any) {
   if (!await reviewSchemaInstalled(executor)) {
-    const error = new PdfReviewError("PDF review database setup is required. Apply the documented additive migration.");
+    const error = new PdfReviewError("PDF review is not enabled in this database yet. Publish the prepared database update, then review both PDFs and approve sending.");
     error.statusCode = 503;
     throw error;
   }
   const documents = await reviewedDocuments(executor, pairId);
+  const pair = rows(await executor.execute(sql`
+    SELECT data_snapshot,payment_amount_naira FROM legal_document_pairs WHERE id=${pairId}
+  `))[0];
+  try {
+    const snapshot = typeof pair?.data_snapshot === "string" ? JSON.parse(pair.data_snapshot) : pair?.data_snapshot;
+    const amounts = documents.map(document => new Decimal(
+      document.consideration_amount_naira ?? snapshot?.landConsiderationNaira,
+    ));
+    const paid = new Decimal(pair.payment_amount_naira);
+    if (!paid.isFinite() || !amounts.every(amount => amount.isFinite() && amount.gt(0) && amount.lte(paid)) ||
+        !amounts[0].eq(amounts[1])) throw new Error("Unverified land consideration");
+  } catch {
+    throw new PdfReviewError("Correct the land-only amounts in both unsigned PDFs before approving a signing email.");
+  }
   if (input?.confirmed !== true || !Array.isArray(input.documents) || input.documents.length !== 2 ||
       new Set(input.documents.map((d: any) => d?.id)).size !== 2 ||
       !documents.every(d => input.documents.some((r: any) => r.id === d.id && r.sha256 === d.unsigned_pdf_sha256))) {

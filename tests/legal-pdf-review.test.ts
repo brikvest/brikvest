@@ -16,7 +16,7 @@ vi.mock("../server/legal/worker", () => ({ dispatchLegalJobs: mocks.dispatch }))
 vi.mock("../server/legal/local-signing", () => ({ beginLocalSigning: vi.fn(), completeLocalSigning: vi.fn() }));
 import { registerLegalRoutes } from "../server/legal/routes";
 import { markPairReady, beginLegalNotificationAttempt, claimNextLegalJob } from "../server/legal/repository";
-import { hasExactPdfApproval, requireExactPdfApproval } from "../server/legal/pdf-review";
+import { hasExactPdfApproval, requireExactPdfApproval, recordPdfApproval } from "../server/legal/pdf-review";
 
 const bytes = Buffer.from(`%PDF-1.7\n${"isolated investor PDF\n".repeat(15)}`);
 const hash = createHash("sha256").update(bytes).digest("hex");
@@ -54,7 +54,7 @@ beforeEach(async () => {
     approved_by_admin_id,approved_at,effective_at,approval_note,full_name_snapshot,home_address_snapshot,property_area_sqm,
     units_snapshot,square_meters_per_unit,payment_amount_naira,payment_currency,deed_template_id,transfer_template_id,data_snapshot,status)
     VALUES(${reservationId},1,1,'admin_full_confirmation',${reservationId},1,now(),now(),'Fixture only','Fixture Investor','Fixture address',
-      5,1,5,100,'NGN',1,2,'{}','queued') RETURNING id`)).rows[0].id;
+      5,1,5,100,'NGN',1,2,'{"landConsiderationNaira":"100"}','queued') RETURNING id`)).rows[0].id;
   await pg.query(`INSERT INTO legal_documents(pair_id,document_type,template_id,source_docx_key,unsigned_pdf_key,unsigned_pdf_sha256,signature_placement)
     VALUES($1,'deed_of_assignment',1,'legal/documents/d/source_docx','legal/documents/d/unsigned_pdf',$2,'{}'),
       ($1,'transfer_exit_rights',2,'legal/documents/t/source_docx','legal/documents/t/unsigned_pdf',$2,'{}')`, [pairId, hash]);
@@ -125,6 +125,30 @@ describe("exact PDF review gate (isolated PostgreSQL and mocked storage)", () =>
       UPDATE legal_jobs SET status='complete' WHERE notification_cycle_id=${first.body.cycleId};`);
     const repeated = await approve();
     expect(repeated.body).toMatchObject({ queued: false, coalesced: true, state: "sent", cycleId: first.body.cycleId });
+  });
+  it("releases a corrected-draft review hold only after approval of both exact PDFs", async () => {
+    const cycle = (await pg.query<any>(`INSERT INTO legal_notification_cycles
+      (pair_id,cycle_number,request_kind,status) VALUES(${pairId},1,'initial','queued') RETURNING id`)).rows[0].id;
+    await pg.query(`INSERT INTO legal_jobs(pair_id,kind,status,notification_cycle_id,last_error)
+      VALUES($1,'notify','blocked',$2,'Corrected PDFs require fresh administrator review')`, [pairId, cycle]);
+    expect(await hasExactPdfApproval(mocks.db, pairId)).toBe(false);
+    expect((await approve()).status).toBe(200);
+    expect(await hasExactPdfApproval(mocks.db, pairId)).toBe(true);
+    const job = (await pg.query<any>(`SELECT status,last_error FROM legal_jobs WHERE pair_id=${pairId} AND kind='notify'`)).rows[0];
+    expect(job).toMatchObject({ status: "queued", last_error: null });
+    await pg.query(`UPDATE legal_jobs SET status='complete' WHERE pair_id=$1 AND kind='notify'`, [pairId]);
+  });
+  it("does not approve legacy PDFs lacking a verified land-only amount", async () => {
+    const documents = (await pg.query<any>(`SELECT * FROM legal_documents WHERE pair_id=${pairId} ORDER BY id`)).rows;
+    const executor = { execute: vi.fn()
+      .mockResolvedValueOnce({ rows: [{ installed: true }] })
+      .mockResolvedValueOnce({ rows: documents })
+      .mockResolvedValueOnce({ rows: [{ data_snapshot: {}, payment_amount_naira: "100" }] }) };
+    const attempt = recordPdfApproval(executor, pairId, 1, { confirmed: true, documents: [] });
+    await expect(attempt).rejects.toThrow("land-only");
+    await expect(attempt).rejects.toMatchObject({ statusCode: 409 });
+    expect(executor.execute).toHaveBeenCalledTimes(3);
+    expect(mocks.read).not.toHaveBeenCalled();
   });
   it("wakes the durable worker only after review approval and its notification commit", async () => {
     const environment = process.env.NODE_ENV;

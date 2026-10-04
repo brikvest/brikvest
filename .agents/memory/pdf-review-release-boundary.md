@@ -31,3 +31,15 @@ letting an old, nonparticipating mail worker bypass the review gate or the pause
 worker before relying on a coordinated database pause. Check retained leases
 and unresolved send intents as well; a processing timeout does not cancel an
 external mail operation or prove that it has drained.
+
+The user's subsequent request to restore deed/transfer email delivery permits
+restoring production dispatch for explicitly approved PDFs. It does not permit
+automatic PDF approval, sending incorrect legacy drafts, or enabling development
+mail against real holdings.
+
+**Why:** The user reported that the temporary pause and missing review setup
+were preventing receipt of signing emails after document corrections.
+
+**How to apply:** Keep exact-PDF review mandatory and verify land consideration
+before approving unsigned drafts. Keep development dispatch paused. Treat a
+saved production setting as pending until publishing activates it.

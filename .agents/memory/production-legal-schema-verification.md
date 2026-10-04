@@ -80,3 +80,15 @@ permit. Matching business/catalog fingerprints does not imply shared lock state.
 **How to apply:** Verify dispatch denial directly on the verified primary with
 a passive shared-permit probe. Never dispatch a real job as a test; immediately
 release any unexpectedly acquired probe permit and report an unverified pause.
+
+Do not assume managed schema publication includes PostgreSQL functions and
+triggers installed in development.
+
+**Why:** The approval-table publication plan included table creation and foreign
+keys but omitted its development append-only trigger. Structural readiness alone
+does not establish database-level history enforcement.
+
+**How to apply:** Inspect the actual publication statements and independently
+verify production guards. Arrange guard deployment through a supported,
+explicitly reviewed migration path; never silently repair production DDL at
+runtime or claim a guard is active solely because its table exists.
