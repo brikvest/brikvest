@@ -21,6 +21,7 @@ import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
 import { UnitCostBreakdownPanel } from "@/components/UnitCostBreakdownPanel";
 import { InvestorHeader } from "@/components/InvestorHeader";
+import { FooterSocialLinks } from "@/components/FooterSocialLinks";
 
 export interface HomeProps {
   /** Render the investor property experience inside the authenticated dashboard shell. */
@@ -800,6 +801,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
               <p className="text-slate-300 mb-6 max-w-md">
                 Making real estate investment accessible to everyone through fractional ownership and professional administration.
               </p>
+              <FooterSocialLinks tone="inverse" />
             </div>
             <div>
               <h4 className="font-semibold mb-4">Company</h4>

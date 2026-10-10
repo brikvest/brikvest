@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, MapPin, Tag, Gavel, Clock, Users, ArrowRight, ArrowLeft, Share2, TrendingUp, FileText, Loader2 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { FooterSocialLinks } from "@/components/FooterSocialLinks";
 
 const getCurrencySymbol = (c: string) => {
   switch (c) {
@@ -416,6 +417,9 @@ export default function PublicListing() {
       <footer className="bg-white border-t border-slate-200 mt-12">
         <div className="max-w-5xl mx-auto px-4 py-6 text-center text-sm text-slate-500">
           © {new Date().getFullYear()} Brikvest. All rights reserved. All transactions are managed and verified on the Brikvest platform.
+          <div className="mt-3 flex justify-center">
+            <FooterSocialLinks />
+          </div>
         </div>
       </footer>
     </div>

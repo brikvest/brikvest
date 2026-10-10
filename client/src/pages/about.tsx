@@ -3,6 +3,7 @@ import { InvestorHeader } from "@/components/InvestorHeader";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import brikvest_logo from "@/assets/brikvest-logo.png";
+import { FooterSocialLinks } from "@/components/FooterSocialLinks";
 
 export default function About() {
   return (
@@ -153,6 +154,9 @@ export default function About() {
           <p className="text-slate-400">
             &copy; {new Date().getFullYear()} Brikvest. All rights reserved.
           </p>
+          <div className="mt-4 flex justify-center">
+            <FooterSocialLinks tone="inverse" />
+          </div>
         </div>
       </footer>
     </div>

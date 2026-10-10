@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Check, Sparkles, ArrowRight, Mail } from "lucide-react";
+import { FooterSocialLinks } from "@/components/FooterSocialLinks";
 
 type Billing = "monthly" | "yearly";
 
@@ -273,13 +274,14 @@ export default function DeveloperPricing() {
       </main>
 
       <footer className="mt-16 border-t border-slate-200 bg-white/60">
-        <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row sm:flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
           <div>© {new Date().getFullYear()} Brikvest. All rights reserved.</div>
           <div className="flex items-center gap-4">
             <Link href="/" className="hover:text-slate-900">Home</Link>
             <Link href="/about" className="hover:text-slate-900">About</Link>
             <Link href="/developer/login" className="hover:text-slate-900">Developer sign-in</Link>
           </div>
+          <FooterSocialLinks />
         </div>
       </footer>
     </div>
