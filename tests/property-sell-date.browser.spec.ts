@@ -69,6 +69,31 @@ async function editFirst(page: Page) {
   await page.locator("button:visible").filter({ has: page.locator("svg.lucide-square-pen") }).first().click();
 }
 
+test("investment summary shows the saved sell date and omits it when unset", async ({ page }) => {
+  const state = await fixtures(page);
+  for (const path of ["/", "/dashboard?section=properties"]) {
+    await page.goto(path);
+    await page.getByTestId("property-card-details-1").locator("h3").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Investment Summary" })).toBeVisible();
+    const date = dialog.getByTestId("investment-summary-sell-date");
+    await expect(date).toContainText("Sell date:");
+    await expect(date.locator("time")).toHaveText("February 2028");
+    await expect(date.locator("time")).toHaveAttribute("datetime", "2028-02-29");
+    await date.scrollIntoViewIfNeeded();
+    const box = await date.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("property-card-details-2").locator("h3").click();
+    await expect(dialog.getByRole("heading", { name: "Investment Summary" })).toBeVisible();
+    await expect(dialog.getByTestId("investment-summary-sell-date")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  }
+  expect(state.writes).toEqual([]);
+  expect(state.reservations).toEqual([]);
+});
+
 test("conditional primary-card placement, reload and time-zone-safe mobile/desktop display", async ({ page }) => {
   await fixtures(page);
   await page.goto("/");

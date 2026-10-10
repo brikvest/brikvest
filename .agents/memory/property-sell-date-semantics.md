@@ -13,3 +13,13 @@ investment behavior; those operational meanings require separate authorization.
 **How to apply:** Preserve this boundary when extending property dates. Developer
 editing, per-unit-type dates, resale dates, and historical backfills are not
 authorized by the original Sell date request.
+
+The Sell date belongs in the investor's listing-detail Investment Summary as
+well as on listing cards; it remains optional information, not an action or
+deadline.
+
+**Why:** The user explicitly requested that investors see the property Sell
+date when reading a listing's Investment Summary.
+
+**How to apply:** Keep the investor detail and card displays consistent, and
+omit an unset date rather than inventing a schedule.

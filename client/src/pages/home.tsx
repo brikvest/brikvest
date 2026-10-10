@@ -1058,6 +1058,14 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                         <span className="text-slate-600">Status:</span>
                         <div className="font-semibold">{getCustomerPropertyStatusLabel(selectedProperty)}</div>
                       </div>
+                      {selectedProperty.sellDate && (
+                        <div data-testid="investment-summary-sell-date">
+                          <span className="text-slate-600">Sell date:</span>
+                          <div className="font-semibold">
+                            <time dateTime={selectedProperty.sellDate}>{formatCalendarMonthYear(selectedProperty.sellDate)}</time>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
