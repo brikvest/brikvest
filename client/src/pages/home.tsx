@@ -15,7 +15,7 @@ import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, Fil
 import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation } from "@shared/schema";
 import { getCustomerPropertyStatusLabel, isPropertySoldOut } from "@shared/propertyAvailability";
-import { formatCalendarDate } from "@shared/calendar-date";
+import { formatCalendarMonthYear } from "@shared/calendar-date";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
@@ -381,8 +381,8 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {properties.map((property: any) => (
-                <Card key={property.id} className="overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
-                  <div onClick={() => openPropertyDetailModal(property)}>
+                <Card key={property.id} data-testid={`property-card-${property.id}`} className="flex min-w-0 flex-col overflow-hidden border border-slate-200 hover:shadow-xl transition-shadow cursor-pointer">
+                  <div data-testid={`property-card-details-${property.id}`} onClick={() => openPropertyDetailModal(property)}>
                     <div className="relative">
                       <img 
                         src={property.imageUrl || (property.gallery && property.gallery.length > 0 ? property.gallery[0] : '')} 
@@ -411,17 +411,17 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                     </div>
                     <CardContent className="p-6">
                       <div className="mb-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="text-xl font-semibold">{property.name}</h3>
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <h3 className="min-w-0 break-words text-xl font-semibold">{property.name}</h3>
                           {isPropertySoldOut(property) && (
                             <Badge data-testid={`sold-out-card-badge-${property.id}`} variant="destructive">
                               Sold Out
                             </Badge>
                           )}
                         </div>
-                        <p className="text-slate-600 text-sm flex items-center">
-                          <MapPin className="w-4 h-4 mr-1" />
-                          {property.location}
+                        <p className="text-slate-600 text-sm flex items-start">
+                          <MapPin className="w-4 h-4 mr-1 mt-0.5 shrink-0" />
+                          <span className="min-w-0 break-words">{property.location}</span>
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
@@ -443,7 +443,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                           <span className="text-slate-600">Sell date</span>
                           <div className="font-semibold">
                             <time dateTime={property.sellDate}>
-                              {formatCalendarDate(property.sellDate)}
+                              {formatCalendarMonthYear(property.sellDate)}
                             </time>
                           </div>
                         </div>
@@ -451,9 +451,9 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
 
                     </CardContent>
                   </div>
-                  <CardContent className="px-6 pb-6">
+                  <CardContent data-testid={`property-card-actions-${property.id}`} className="mt-auto shrink-0 px-6 pb-6">
                     {isPropertySoldOut(property) ? (
-                      <div className="w-full rounded-md bg-red-50 px-4 py-2 text-center font-medium text-red-700">
+                      <div className="flex min-h-10 w-full items-center justify-center rounded-md bg-red-50 px-4 py-2 text-center font-medium text-red-700">
                         Sold Out
                       </div>
                     ) : isAuthenticated ? (

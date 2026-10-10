@@ -7,10 +7,18 @@ export function isCalendarDate(value: string): boolean {
   return day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 }
 
+const months = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
 export function formatCalendarDate(value: string): string {
   if (!isCalendarDate(value)) throw new Error("Invalid calendar date");
   const [year, month, day] = value.split("-").map(Number);
-  const months = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
   return `${day} ${months[month - 1]} ${String(year).padStart(4, "0")}`;
+}
+
+/** Month/year presentation of a calendar day, without time-zone conversion. */
+export function formatCalendarMonthYear(value: string): string {
+  if (!isCalendarDate(value)) throw new Error("Invalid calendar date");
+  const [year, month] = value.split("-");
+  return `${months[Number(month) - 1]} ${year}`;
 }

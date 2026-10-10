@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { insertPropertySchema, properties } from "../shared/schema";
-import { isCalendarDate, formatCalendarDate } from "../shared/calendar-date";
+import { isCalendarDate, formatCalendarDate, formatCalendarMonthYear } from "../shared/calendar-date";
 
 const property = {
   name: "Isolated property", location: "Abuja", description: "Isolated date fixture",
@@ -33,12 +33,21 @@ describe("property calendar dates", () => {
         process.env.TZ = zone;
         expect(formatCalendarDate("2028-02-29")).toBe("29 February 2028");
         expect(formatCalendarDate("0001-01-01")).toBe("1 January 0001");
+        expect(formatCalendarMonthYear("2026-03-30")).toBe("March 2026");
+        expect(formatCalendarMonthYear("2028-02-29")).toBe("February 2028");
+        expect(formatCalendarMonthYear("2029-01-01")).toBe("January 2029");
+        expect(formatCalendarMonthYear("0001-01-01")).toBe("January 0001");
+        expect(formatCalendarMonthYear("9999-12-31")).toBe("December 9999");
       } finally {
         if (previous === undefined) delete process.env.TZ;
         else process.env.TZ = previous;
       }
     }
     expect(isCalendarDate("2000-02-29")).toBe(true);
+  });
+
+  it.each(["", "2026-02-29", "2026-13-01", "2026-03-30T00:00:00Z"])("rejects invalid month-year formatter input %s", value => {
+    expect(() => formatCalendarMonthYear(value)).toThrow("Invalid calendar date");
   });
 
   it("reruns the exact additive migration safely and preserves legacy rows", async () => {
