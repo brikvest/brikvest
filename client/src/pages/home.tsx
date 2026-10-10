@@ -15,6 +15,7 @@ import { CheckCircle, MapPin, Clock, Users, Shield, Lock, TrendingUp, Award, Fil
 import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation } from "@shared/schema";
 import { getCustomerPropertyStatusLabel, isPropertySoldOut } from "@shared/propertyAvailability";
+import { formatCalendarDate } from "@shared/calendar-date";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
@@ -433,6 +434,19 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                           <div className="font-semibold">{property.totalSquareMeters && property.totalSlots ? `${(parseFloat(property.totalSquareMeters) / property.totalSlots).toFixed(1)} sqm` : '—'}</div>
                         </div>
                       </div>
+                      {property.sellDate && (
+                        <div
+                          className="mb-4 text-sm"
+                          data-testid={`property-sell-date-${property.id}`}
+                        >
+                          <span className="text-slate-600">Sell date</span>
+                          <div className="font-semibold">
+                            <time dateTime={property.sellDate}>
+                              {formatCalendarDate(property.sellDate)}
+                            </time>
+                          </div>
+                        </div>
+                      )}
 
                     </CardContent>
                   </div>

@@ -1,4 +1,5 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { isCalendarDate } from "./calendar-date";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -103,6 +104,7 @@ export const properties = pgTable("properties", {
   videoUrl: text("video_url"), // Property video URL
   gallery: text("gallery").array(), // Array of gallery image URLs
   status: text("status").notNull().default("active"),
+  sellDate: date("sell_date", { mode: "string" }), // Admin-managed display-only calendar day
   // Developer Portal: optional ownership of this project by a developer user
   developerId: integer("developer_id").references((): any => users.id),
   // Display-only attribution: whose name/type shows as "Listed by" to buyers.
@@ -589,6 +591,7 @@ const optionalDocumentUrl = z.string().trim().max(2048).refine(
 ).nullable().optional();
 
 export const insertPropertySchema = createInsertSchema(properties, {
+  sellDate: z.string().refine(isCalendarDate, "Sell date must be a real date in YYYY-MM-DD format").nullable().optional(),
   unitLandCost: nonNegativeMoney,
   unitDueDiligenceCost: nonNegativeMoney,
   unitAgentFees: nonNegativeMoney,

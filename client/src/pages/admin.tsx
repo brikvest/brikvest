@@ -26,6 +26,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-cost-breakdown";
+import { isCalendarDate } from "@shared/calendar-date";
 import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
 import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
 
@@ -3457,6 +3458,7 @@ export default function AdminDashboard() {
     unitServiceCharge: "0",
     showUnitCostBreakdown: false,
     totalSquareMeters: "",
+    sellDate: "",
     isTransferable: false,
     developerId: "none" as string,
     listerId: "none" as string,
@@ -3527,6 +3529,8 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties-converted"] });
       toast({ title: "Property created successfully" });
       clearDraft(); // Clear draft on successful creation
       resetPropertyForm();
@@ -3545,6 +3549,8 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/properties-converted"] });
       toast({ title: "Property updated successfully" });
       setIsEditDialogOpen(false);
       setEditingProperty(null);
@@ -3661,6 +3667,7 @@ export default function AdminDashboard() {
       unitServiceCharge: "0",
       showUnitCostBreakdown: false,
       totalSquareMeters: "",
+      sellDate: "",
       isTransferable: false,
       developerId: "none" as string,
       listerId: "none" as string,
@@ -3796,6 +3803,7 @@ export default function AdminDashboard() {
       status: "active",
       currency: "NGN",
       totalSquareMeters: "",
+      sellDate: "",
       isTransferable: false,
     });
     return currentForm !== emptyForm;
@@ -3830,6 +3838,11 @@ export default function AdminDashboard() {
 
   const handlePropertySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (propertyForm.sellDate && !isCalendarDate(propertyForm.sellDate)) {
+      toast({ title: "Invalid sell date", description: "Enter a valid calendar date.", variant: "destructive" });
+      return;
+    }
 
     // Validate minimum content requirements
     const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
@@ -3916,6 +3929,7 @@ export default function AdminDashboard() {
         ? parseInt(propertyForm.listerId)
         : null,
     };
+    propertyData.sellDate = propertyForm.sellDate || null;
 
 
     if (editingProperty) {
@@ -4387,6 +4401,7 @@ export default function AdminDashboard() {
                                             unitServiceCharge: String(property.unitServiceCharge ?? 0),
                                             showUnitCostBreakdown: property.showUnitCostBreakdown ?? false,
                                             totalSquareMeters: property.totalSquareMeters || "",
+                                            sellDate: (property as any).sellDate || "",
                                             isTransferable: property.isTransferable || false,
                                             developerId: property.developerId ? String(property.developerId) : "none",
                                             listerId: (property as any).listerId ? String((property as any).listerId) : "none",
@@ -4486,6 +4501,7 @@ export default function AdminDashboard() {
                                         unitServiceCharge: String(property.unitServiceCharge ?? 0),
                                         showUnitCostBreakdown: property.showUnitCostBreakdown ?? false,
                                         totalSquareMeters: property.totalSquareMeters || "",
+                                        sellDate: (property as any).sellDate || "",
                                         isTransferable: property.isTransferable || false,
                                         developerId: property.developerId ? String(property.developerId) : "none",
                                         listerId: (property as any).listerId ? String((property as any).listerId) : "none",
@@ -4792,6 +4808,17 @@ export default function AdminDashboard() {
                             </SelectContent>
                           </Select>
                         </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="sellDate">Sell date (optional)</Label>
+                        <Input
+                          id="sellDate"
+                          data-testid="admin-property-sell-date-create"
+                          type="date"
+                          value={propertyForm.sellDate}
+                          onChange={(e) => setPropertyForm(prev => ({ ...prev, sellDate: e.target.value }))}
+                        />
                       </div>
 
                       <div className="flex items-center gap-3 py-2">
@@ -5420,6 +5447,7 @@ export default function AdminDashboard() {
                         unitServiceCharge: String(viewingProperty.unitServiceCharge ?? 0),
                         showUnitCostBreakdown: viewingProperty.showUnitCostBreakdown ?? false,
                         totalSquareMeters: viewingProperty.totalSquareMeters || "",
+                        sellDate: (viewingProperty as any).sellDate || "",
                         isTransferable: viewingProperty.isTransferable || false,
                         developerId: viewingProperty.developerId ? String(viewingProperty.developerId) : "none",
                         listerId: (viewingProperty as any).listerId ? String((viewingProperty as any).listerId) : "none",
@@ -5625,6 +5653,17 @@ export default function AdminDashboard() {
                   required
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-sellDate">Sell date (optional)</Label>
+              <Input
+                id="edit-sellDate"
+                data-testid="admin-property-sell-date-edit"
+                type="date"
+                value={propertyForm.sellDate}
+                onChange={(e) => setPropertyForm(prev => ({ ...prev, sellDate: e.target.value }))}
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

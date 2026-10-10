@@ -19,3 +19,4 @@
 - [Production request evidence](production-request-evidence.md) — reproducible prerequisite failures do not establish the cause of historical HTTP errors without request/response evidence.
 - [Signature browser metadata](signature-browser-metadata.md) — accept bounded colour metadata, embed verified pixels only, and preserve the original signature evidence hash.
 - [Production module interop](production-module-interop.md) — test externalized PDF dependencies under native Node ESM; test-runner namespace exports can mask production failures.
+- [Property Sell date](property-sell-date-semantics.md) — admin-managed listing information only; never infer deadlines or selling/availability automation.

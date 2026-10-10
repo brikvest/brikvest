@@ -442,7 +442,7 @@ describe("legal Word template rendering", () => {
     expect(metadata.fields.find((field) => field.token === "DOCUMENT_DATE_YEAR")?.count)
       .toBe(counts.DOCUMENT_DATE_YEAR + 1);
     expect(metadata.fields.find((field) => field.token === "PAYMENT_AMOUNT_NAIRA_NUMERIC"))
-      .toEqual(expect.objectContaining({ count: 1, source: expect.stringContaining("Approved payment") }));
+      .toEqual(expect.objectContaining({ count: 1, source: expect.stringContaining("Verified land consideration") }));
     expect(metadata.fields.some((field) => field.token === "PAYMENT_AMOUNT_NAIRA_WORDS")).toBe(false);
     expect(zip.file("word/document.xml")!.asText()).toContain(originalXml.slice(0, originalXml.indexOf("</w:body>")));
 

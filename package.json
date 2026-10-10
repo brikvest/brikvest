@@ -4,6 +4,9 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:sell-date": "vitest run --config vitest.sell-date.config.ts",
+    "test:sell-date:browser": "playwright test --config playwright.sell-date.config.ts",
+    "db:ensure-property-sell-date": "tsx scripts/ensure-property-sell-date.ts",
     "test:legal": "vitest run --config vitest.legal.config.ts",
     "test:legal:browser": "playwright test --config=playwright.legal.config.ts",
     "legal:readiness": "bash scripts/legal-font-env.sh tsx scripts/legal-readiness.ts",

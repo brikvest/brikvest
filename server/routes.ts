@@ -6432,6 +6432,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new project (starts as draft)
   app.post("/api/developer/projects", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "sellDate")) {
+        return res.status(403).json({ message: "Only admins can change Sell date." });
+      }
       if (!(await checkTrialActive(req, res))) return;
       const ownerId = await getOwnerId(req);
       const { getPlanLimits, isUnlimited } = await import("@shared/plans");
@@ -6547,6 +6550,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update project
   app.patch("/api/developer/projects/:id", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, "sellDate")) {
+        return res.status(403).json({ message: "Only admins can change Sell date." });
+      }
       const propertyId = await resolveDevProjectId(req, res);
       if (propertyId === null) return;
       const property = await ensureProjectOwnership(req, res, propertyId);
