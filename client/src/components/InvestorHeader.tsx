@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import { Link, useLocation } from "wouter";
-import { Award, Building2, LayoutDashboard, LogOut, Menu, TrendingUp, X } from "lucide-react";
+import { Award, Building2, CircleHelp, LayoutDashboard, LogOut, Menu, TrendingUp, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { queryClient } from "@/lib/queryClient";
 import brikvestLogo from "@/assets/brikvest-logo.png";
@@ -68,6 +68,7 @@ export function InvestorHeader() {
               </Link>
               <Link href="/insights" className={navLinkClass}>Insights</Link>
               <Link href="/about" className={navLinkClass}>About</Link>
+              <Link href="/faqs" className={navLinkClass} data-testid="link-faqs">FAQs</Link>
             </nav>
 
             <div className="hidden md:flex items-center gap-2">
@@ -203,6 +204,9 @@ export function InvestorHeader() {
               </Link>
               <Link href="/about" className={mobileNavLinkClass} onClick={closeMenu} data-testid="link-mobile-about">
                 <Award className="h-4 w-4 mr-3 text-slate-500" /> About
+              </Link>
+              <Link href="/faqs" className={mobileNavLinkClass} onClick={closeMenu} data-testid="link-mobile-faqs">
+                <CircleHelp className="h-4 w-4 mr-3 text-slate-500" /> FAQs
               </Link>
             </div>
           </div>

@@ -21,3 +21,4 @@
 - [Production module interop](production-module-interop.md) — test externalized PDF dependencies under native Node ESM; test-runner namespace exports can mask production failures.
 - [Property Sell date](property-sell-date-semantics.md) — admin-managed listing information only; never infer deadlines or selling/availability automation.
 - [Vitest JSX transforms](vitest-jsx-transforms.md) — test and app runners can use different Vite generations; JSX tests need the test runner's transform settings.
+- [FAQ policy boundaries](faq-policy-boundaries.md) — preserve supplied FAQ claims; flag conflicting copy instead of changing investment rules or legal agreements.

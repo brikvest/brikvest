@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:faqs": "vitest run --config vitest.faqs.config.ts",
+    "test:faqs:browser": "LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173 playwright test --config playwright.faqs.config.ts",
     "test:footer-socials": "vitest run --config vitest.footer-socials.config.ts",
     "test:footer-socials:browser": "LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173 playwright test --config playwright.footer-socials.config.ts",
     "test:sell-date": "vitest run --config vitest.sell-date.config.ts",

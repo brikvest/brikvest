@@ -13,6 +13,7 @@ import AdminProtected from "@/pages/admin-protected";
 import Insights from "@/pages/insights";
 import CertificateVerification from "@/pages/verify";
 import About from "@/pages/about";
+import FAQs from "@/pages/faqs";
 import Marketplace from "@/pages/marketplace";
 import PublicListing from "@/pages/public-listing";
 import DeveloperLogin from "@/pages/developer/login";
@@ -68,6 +69,7 @@ function Router() {
         <Route path="/insights" component={Insights} />
         <Route path="/verify/:token" component={CertificateVerification} />
         <Route path="/about" component={About} />
+        <Route path="/faqs" component={FAQs} />
         <Route path="/marketplace" component={Marketplace} />
         <Route path="/listing/:shareToken" component={PublicListing} />
         <Route path="/developer/login" component={DeveloperLogin} />

@@ -50,7 +50,7 @@ function contrast(foreground: string, background: string) {
 }
 
 for (const [name, path] of [
-  ["home", "/"], ["about", "/about"], ["listing", "/listing/footer-fixture"],
+  ["home", "/"], ["about", "/about"], ["faqs", "/faqs"], ["listing", "/listing/footer-fixture"],
   ["pricing", "/developer/pricing"],
 ] as const) {
   test(`${name} footer keeps social destinations, accessibility and responsive layout`, async ({ page }) => {

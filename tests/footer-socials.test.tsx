@@ -33,9 +33,9 @@ describe("shared website footer socials", () => {
     });
   }
 
-  it("integrates once inside each of the four existing website footers", () => {
+  it("integrates once inside each website footer", () => {
     for (const [file, inverse] of [
-      ["home.tsx", true], ["about.tsx", true],
+      ["home.tsx", true], ["about.tsx", true], ["faqs.tsx", true],
       ["public-listing.tsx", false], ["developer/pricing.tsx", false],
     ] as const) {
       const source = fs.readFileSync(path.resolve("client/src/pages", file), "utf8");

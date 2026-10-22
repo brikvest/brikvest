@@ -1,7 +1,7 @@
 export type InvestorScrollDestination = "top" | "properties" | null;
 export type DashboardSection = "portfolio" | "properties" | "insights";
 
-const investorRoutes = new Set(["/", "/insights", "/about"]);
+const investorRoutes = new Set(["/", "/insights", "/about", "/faqs"]);
 
 export function getInvestorScrollDestination(
   pathname: string,
