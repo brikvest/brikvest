@@ -4,6 +4,7 @@
 - [Resale integration test cleanup](resale-integration-test-cleanup.md) — remove resale child rows before shared test cleanup deletes their referenced reservations.
 - [Post-merge database safety](post-merge-database-safety.md) — never run generic drizzle push automatically; use explicit idempotent schema scripts against the live DB.
 - [Valuation report source of truth](valuation-report-source.md) — user-facing reports must come from valuation-history entries, never legacy property-level fields.
+- [Portfolio performance scope](portfolio-performance-scope.md) — keep overall graphs plus per-property land and investor views; group purchases without changing financial basis.
 - [Brikvest email branding](resale-email-branding.md) — legal notifications match existing transactional mail; P2P emails use the current logo, no tagline and computed price labels.
 - [Vitest module mocking](vitest-module-mocking.md) — with shared forks and isolation disabled, import order can bypass later file-level mocks; run mocked email tests independently.
 - [Legal signing boundaries](legal-signing-boundaries.md) — SD118 scope requires explicit identity confirmation; investor signing is not certification of full legal execution.

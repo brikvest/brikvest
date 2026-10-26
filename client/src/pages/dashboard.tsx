@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { TrendingUp, Building2, DollarSign, Clock, CheckCircle, LogOut, User, ArrowRight, Menu, X, AlertCircle, ShieldCheck, Upload, BarChart3, PieChart, Award, Download, FileText, Copy, Share2, Users, Tag, Gavel, XCircle, Megaphone, Hammer } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useId } from "react";
 import type { InvestmentReservation, Property, OwnershipCertificate, PropertyValuation } from "@shared/schema";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
@@ -23,7 +23,8 @@ import { PropertyBrowsingContent } from "@/pages/home";
 import { MarketInsightsContent } from "@/pages/insights";
 import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type DashboardSection } from "@/lib/investorNavigation";
 import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
-import { portfolioLandAmount } from "@shared/holding-costs";
+import { portfolioLandAmount, summarizeLandPortfolio } from "@shared/holding-costs";
+import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -32,6 +33,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
   totalInvested: number;
   toast: any;
 }) {
+  const gradientId = useId().replace(/:/g, "");
   const confirmedInvestments = reservations.filter(r => r.status === 'converted_to_investment');
   const investedPropertyIds = Array.from(new Set(confirmedInvestments.map(r => r.propertyId)));
 
@@ -40,7 +42,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
       queryKey: ["/api/properties", propertyId, "valuations"],
       queryFn: async () => {
         const res = await fetch(`/api/properties/${propertyId}/valuations`, { credentials: 'include' });
-        if (!res.ok) return [] as PropertyValuation[];
+        if (!res.ok) throw new Error("Could not load property valuations.");
         return res.json() as Promise<PropertyValuation[]>;
       },
     })),
@@ -180,6 +182,20 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     );
   }
 
+  if (valuationQueries.some(query => query.isError)) {
+    return (
+      <Card className="mb-6 sm:mb-8 shadow-lg">
+        <CardContent className="space-y-3 p-6" role="alert">
+          <p className="text-sm text-slate-700">Could not load performance data. Your holdings have not changed. Retry to view the valuation graphs.</p>
+          <Button variant="outline" disabled={valuationQueries.some(query => query.isFetching)}
+            onClick={() => void Promise.all(valuationQueries.filter(query => query.isError).map(query => query.refetch()))}>
+            Retry performance data
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const hasAnyValuations = Object.values(valuationsByProperty).some(v => v.length > 0);
 
   if (!hasAnyValuations) {
@@ -225,7 +241,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={landAppreciationData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="colorLandValue" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={`${gradientId}-land`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
                     </linearGradient>
@@ -238,7 +254,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                     formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Property Value']}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
-                  <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorLandValue)" />
+                  <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-land)`} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -299,11 +315,11 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={investmentPerformanceData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="colorInitial" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={`${gradientId}-initial`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.2}/>
                       <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
                     </linearGradient>
-                    <linearGradient id="colorCurrent" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={`${gradientId}-current`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                     </linearGradient>
@@ -316,13 +332,13 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                     formatter={(value: any, name: string) => [formatCurrency(Number(value)), name === 'initialValue' ? 'Land principal' : 'Current Value']}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
-                  <Area type="monotone" dataKey="initialValue" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill="url(#colorInitial)" />
-                  <Area type="monotone" dataKey="currentValue" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorCurrent)" />
+                  <Area type="monotone" dataKey="initialValue" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill={`url(#${gradientId}-initial)`} />
+                  <Area type="monotone" dataKey="currentValue" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-current)`} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             {latestPerformance && (
-              <div className="mt-4 grid grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+              <div className="mt-4 grid grid-cols-1 gap-3 pt-4 border-t border-slate-200 sm:grid-cols-3 sm:gap-4">
                 <div>
                   <p className="text-xs text-slate-600">Land principal</p>
                   <p className="text-lg font-bold text-slate-900">{formatCurrency(latestPerformance.initial)}</p>
@@ -1463,13 +1479,32 @@ export default function Portfolio() {
 
           {/* Valuation-Driven Performance Charts */}
           {isKycVerified && reservations.filter(r => r.status === 'converted_to_investment').length > 0 && (
-            <InvestmentPerformanceCharts
-              reservations={reservations}
-              formatCurrency={formatCurrency}
-              convertAmount={convertAmount}
-              totalInvested={totalInvested}
-              toast={toast}
-            />
+            <>
+              <section aria-label="Overall portfolio performance" data-testid="overall-portfolio-performance">
+                <h2 className="mb-4 text-lg font-semibold text-slate-900 sm:text-xl">Overall portfolio performance</h2>
+                <InvestmentPerformanceCharts
+                  reservations={reservations}
+                  formatCurrency={formatCurrency}
+                  convertAmount={convertAmount}
+                  totalInvested={totalInvested}
+                  toast={toast}
+                />
+              </section>
+              <AssetPerformanceSection
+                assets={Array.from(new Set(reservations.filter(holding => holding.status === "converted_to_investment").map(holding => holding.propertyId)))
+                  .map(id => ({ id, name: reservations.find(holding => holding.propertyId === id)?.property?.name || `Property #${id}` }))}
+                renderCharts={(propertyId) => {
+                  const assetHoldings = reservations.filter(holding => holding.propertyId === propertyId && holding.status === "converted_to_investment");
+                  return <InvestmentPerformanceCharts
+                    reservations={assetHoldings}
+                    formatCurrency={formatCurrency}
+                    convertAmount={convertAmount}
+                    totalInvested={summarizeLandPortfolio(assetHoldings, convertAmount).totalPortfolioValue}
+                    toast={toast}
+                  />;
+                }}
+              />
+            </>
           )}
 
           {/* My Holdings */}
