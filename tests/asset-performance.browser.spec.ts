@@ -61,6 +61,16 @@ async function fixtures(page: Page) {
 test("overall graphs remain while each asset has isolated land and investor performance", async ({ page }) => {
   const state = await fixtures(page);
   await page.goto("/dashboard");
+  await expect(page.getByTestId("card-current-value")).toContainText("Current Portfolio Value");
+  await expect(page.getByTestId("card-current-value")).toContainText("1,770,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("Amount Invested");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  for (const card of ["card-current-value", "card-total-invested"]) {
+    const value = page.getByTestId(card).locator("p").nth(1);
+    expect(await value.evaluate(element =>
+      element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1)).toBe(true);
+  }
+  await page.screenshot({ path: `${test.info().outputDir}/portfolio-summary.png` });
   const overall = page.getByRole("region", { name: "Overall portfolio performance" });
   const assets = page.getByRole("region", { name: "Performance by asset" });
   const charts = assets.getByTestId("asset-performance-charts");
@@ -120,6 +130,41 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await charts.scrollIntoViewIfNeeded();
   await assets.screenshot({ path: test.info().outputPath("asset-performance.png") });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(state.writes).toEqual([]);
+});
+
+test("summary never substitutes zero for loading or failed valuations", async ({ page }) => {
+  const state = await fixtures(page);
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/properties/33/valuations", async route => {
+    await waiting;
+    await route.fulfill({ status: 500, contentType: "application/json", body: '{"message":"Fixture failure"}' });
+  });
+  await page.goto("/dashboard");
+  const current = page.getByTestId("card-current-value");
+  await expect(current).toContainText("Loading…");
+  await expect(current).not.toContainText("₦0.00");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  release();
+  await expect(current).toContainText("Value unavailable");
+  await expect(current).not.toContainText("₦0.00");
+  await page.unroute("**/api/properties/33/valuations");
+  await current.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(current).toContainText("1,770,000");
+  expect(state.writes).toEqual([]);
+});
+
+test("summary uses invested basis without valuations and shows genuine empty totals", async ({ page }) => {
+  const state = await fixtures(page);
+  state.valuations = {};
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("card-current-value")).toContainText("1,375,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  state.holdings = [];
+  await page.reload();
+  await expect(page.getByTestId("card-current-value")).toContainText("₦0.00");
+  await expect(page.getByTestId("card-total-invested")).toContainText("₦0.00");
   expect(state.writes).toEqual([]);
 });
 

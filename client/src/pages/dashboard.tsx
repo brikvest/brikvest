@@ -25,6 +25,8 @@ import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type
 import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
 import { portfolioLandAmount, summarizeLandPortfolio } from "@shared/holding-costs";
 import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
+import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards";
+import { holdingValueAtDate, propertyValuationQuery } from "@/lib/portfolio-performance";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -38,14 +40,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
   const investedPropertyIds = Array.from(new Set(confirmedInvestments.map(r => r.propertyId)));
 
   const valuationQueries = useQueries({
-    queries: investedPropertyIds.map(propertyId => ({
-      queryKey: ["/api/properties", propertyId, "valuations"],
-      queryFn: async () => {
-        const res = await fetch(`/api/properties/${propertyId}/valuations`, { credentials: 'include' });
-        if (!res.ok) throw new Error("Could not load property valuations.");
-        return res.json() as Promise<PropertyValuation[]>;
-      },
-    })),
+    queries: investedPropertyIds.map(propertyValuationQuery),
   });
 
   const allLoading = valuationQueries.some(q => q.isLoading);
@@ -122,26 +117,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         const invAmount = convertAmount(landAmount, inv.currency || "NGN");
         totalInitial += invAmount;
 
-        const vals = valuationsByProperty[inv.propertyId] || [];
-        if (vals.length === 0) {
-          totalCurrent += invAmount;
-          return;
-        }
-
-        const entryVal = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= invDate);
-        const entryLatest = entryVal.length > 0 ? entryVal[entryVal.length - 1] : null;
-        const entryValue = entryLatest ? Number(entryLatest.investorBasisValue || entryLatest.currentValue) : Number(inv.property?.totalValue || 0);
-
-        const currentVal = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= dateStr);
-        const currentLatest = currentVal.length > 0 ? currentVal[currentVal.length - 1] : null;
-        const currentValue = currentLatest ? Number(currentLatest.investorBasisValue || currentLatest.currentValue) : entryValue;
-
-        if (entryValue > 0) {
-          const growthRatio = currentValue / entryValue;
-          totalCurrent += invAmount * growthRatio;
-        } else {
-          totalCurrent += invAmount;
-        }
+        totalCurrent += holdingValueAtDate(inv, valuationsByProperty[inv.propertyId] || [], dateStr, convertAmount);
       });
 
       results.push({
@@ -552,10 +528,33 @@ export default function Portfolio() {
   }, [kycModalOpen, user]);
 
   // Fetch user's reservations with property details
-  const { data: reservations = [] } = useQuery<(InvestmentReservation & { property?: Property })[]>({
+  const { data: reservations = [], isLoading: holdingsLoading, isError: holdingsError, refetch: refetchHoldings } = useQuery<(InvestmentReservation & { property?: Property })[]>({
     queryKey: ["/api/user/reservations"],
     enabled: isAuthenticated,
   });
+
+  const confirmedHoldings = reservations.filter(r => r.status === "converted_to_investment");
+  const summaryPropertyIds = Array.from(new Set(confirmedHoldings.map(r => r.propertyId)));
+  const summaryValuations = useQueries({
+    queries: summaryPropertyIds.map(propertyValuationQuery),
+  });
+  const summaryLoading = holdingsLoading || summaryValuations.some(query => query.isLoading);
+  const summaryError = holdingsError || summaryValuations.some(query => query.isError);
+  // Match the final point in the overall investment-performance graph.
+  const summaryDates = [
+    ...confirmedHoldings.map(r => new Date(r.createdAt).toISOString().split("T")[0]),
+    ...summaryValuations.flatMap(query => (query.data || []).map(v =>
+      new Date(v.valuationDate).toISOString().split("T")[0])),
+  ].sort();
+  const summaryDate = summaryDates.at(-1);
+  const currentPortfolioValue = summaryError || summaryLoading ? null : Math.round(
+    confirmedHoldings.reduce((sum, holding) => sum + (summaryDate
+      ? holdingValueAtDate(holding, summaryValuations[summaryPropertyIds.indexOf(holding.propertyId)]?.data || [], summaryDate, convertAmount)
+      : 0), 0));
+  const retrySummary = () => {
+    if (holdingsError) void refetchHoldings();
+    summaryValuations.filter(query => query.isError).forEach(query => void query.refetch());
+  };
 
   useEffect(() => {
     const requestedHolding = new URLSearchParams(searchString).get("holding");
@@ -1245,32 +1244,19 @@ export default function Portfolio() {
           })()}
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-gradient-to-br from-blue-500 to-blue-600 text-white relative overflow-hidden" data-testid="card-total-invested">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-              <CardContent className="p-4 sm:p-6 relative">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm text-blue-100 mb-1 font-medium">Total Portfolio Value</p>
-                    <p className={`text-xl sm:text-2xl lg:text-3xl font-bold truncate ${!isKycVerified ? 'blur-md select-none' : ''}`}>
-                      {formatCurrency(totalInvested)}
-                    </p>
-                    <p className="text-xs text-blue-100 mt-1">Land cost only · acquisition fees excluded</p>
-                    {unclassifiedInvestments > 0 && <p className="text-xs text-blue-100 mt-1">
-                      Land value unavailable for {unclassifiedInvestments} holding(s); excluded from this total.
-                    </p>}
-                  </div>
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0 ml-2 backdrop-blur-sm">
-                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                  </div>
-                </div>
-                {!isKycVerified && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-blue-600/60 backdrop-blur-[2px]">
-                    <ShieldCheck className="h-6 w-6 text-white" />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+            <PortfolioValueCards
+              currentValue={currentPortfolioValue}
+              invested={totalInvested}
+              isLoading={summaryLoading}
+              isError={summaryError}
+              investedLoading={holdingsLoading}
+              investedError={holdingsError}
+              onRetry={retrySummary}
+              isVerified={isKycVerified}
+              unclassifiedCount={unclassifiedInvestments}
+              formatCurrency={formatCurrency}
+            />
 
             <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white relative" data-testid="card-active-reservations">
               <CardContent className="p-4 sm:p-6">
@@ -1296,7 +1282,7 @@ export default function Portfolio() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white sm:col-span-2 lg:col-span-1 relative" data-testid="card-completed">
+            <Card className="shadow-lg hover:shadow-xl transition-all border-0 bg-white relative" data-testid="card-completed">
               <CardContent className="p-4 sm:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">

@@ -15,3 +15,12 @@ not instead of, the overall portfolio graphs.
 investor's own holdings. Scope both series to the selected property without
 reclassifying payments, fees, historical investment basis or legal evidence.
 Use saved valuation history, not invented appreciation or a new valuation.
+
+Show both current portfolio value and amount invested at the top of the
+portfolio page, as distinct totals.
+
+**Why:** The user requested both values and clearer wording; the previous
+single portfolio-value label did not distinguish principal from performance.
+
+**How to apply:** Keep the current-value summary consistent with the overall
+investor-performance graph and preserve the existing principal basis.
