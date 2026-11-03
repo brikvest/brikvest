@@ -29,6 +29,7 @@ import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-c
 import { isCalendarDate } from "@shared/calendar-date";
 import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
 import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
+import { FlutterwavePaymentReviews } from "@/components/payments/flutterwave";
 
 // Helper function to get currency symbol
 import { SellerAlertRecoveryTab } from "@/components/marketplace/SellerAlertRecoveryTab";
@@ -1626,6 +1627,8 @@ function PaymentReviewsTab({
           ))}
         </div>
       )}
+
+      <FlutterwavePaymentReviews authenticatedRequest={authenticatedRequest} queryClient={queryClient} toast={toast} />
 
       <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
         <AlertDialogContent>
@@ -3951,6 +3954,7 @@ export default function AdminDashboard() {
               size="sm"
               onClick={() => setIsMenuOpen(false)}
               className="lg:hidden"
+              aria-label="Close admin menu"
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -4009,7 +4013,7 @@ export default function AdminDashboard() {
               <Button
                 variant={selectedTab === "payment-reviews" ? "secondary" : "ghost"}
                 className="w-full justify-start mb-1"
-                onClick={() => setSelectedTab("payment-reviews")}
+                onClick={() => { setSelectedTab("payment-reviews"); setIsMenuOpen(false); }}
               >
                 <FileText className="mr-3 h-4 w-4" />
                 Payment Reviews
@@ -4085,6 +4089,7 @@ export default function AdminDashboard() {
                   size="sm"
                   onClick={() => setIsMenuOpen(true)}
                   className="lg:hidden mr-2"
+                  aria-label="Open admin menu"
                 >
                   <Menu className="h-4 w-4" />
                 </Button>

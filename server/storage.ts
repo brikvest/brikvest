@@ -78,6 +78,8 @@ import {
   DEFAULT_CONSTRUCTION_STAGES,
 } from "@shared/schema";
 import { db } from "./db";
+import { hasCollectedGatewayPayment, hasGatewayPaymentConflict, assertGatewayCancellationSafe } from "./payments/gateway-guards";
+import { GatewayError } from "./payments/flutterwave-provider";
 import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
 
 /**
@@ -887,6 +889,7 @@ export class DatabaseStorage implements IStorage {
         `))[0];
         if (!holding) return { state: "changed" as const };
 
+        if (await hasCollectedGatewayPayment(tx, reservation.id)) return { state: "pending" as const };
         const pending = queryRows<{ id: number }>(await tx.execute(sql`
           SELECT id FROM payment_submissions
           WHERE reservation_id = ${reservation.id}
@@ -1014,12 +1017,13 @@ export class DatabaseStorage implements IStorage {
     if (updates.status === "cancelled") {
       return db.transaction(async (tx) => {
         const existing = queryRows<{ id: number; propertyId: number; status: string }>(await tx.execute(sql`
-          SELECT id, property_id AS "propertyId", status
-          FROM investment_reservations
-          WHERE id = ${id}
-          FOR UPDATE
+          SELECT r.id, r.property_id AS "propertyId", r.status
+          FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+          WHERE r.id = ${id}
+          FOR UPDATE OF r,p
         `))[0];
         if (!existing) return undefined as unknown as InvestmentReservation;
+        await assertGatewayCancellationSafe(tx, id);
         if (existing.status === "cancelled") {
           throw new Error("This reservation has already been cancelled.");
         }
@@ -1478,8 +1482,19 @@ export class DatabaseStorage implements IStorage {
   // Payment submissions methods (user-initiated payment proof uploads)
 
   async createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission> {
-    const [result] = await db.insert(paymentSubmissions).values(submission).returning();
-    return result;
+    return db.transaction(async tx => {
+      const holding = queryRows<any>(await tx.execute(sql`
+        SELECT r.* FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+        WHERE r.id=${submission.reservationId} FOR UPDATE OF r,p`))[0];
+      if (!holding || holding.user_id !== submission.userId || holding.status !== "reserved") {
+        throw new Error("Reservation is not eligible for payment proof.");
+      }
+      if (await hasGatewayPaymentConflict(tx, submission.reservationId)) {
+        throw new GatewayError("A collected or unresolved Flutterwave payment requires review; do not submit another payment.");
+      }
+      const [result] = await tx.insert(paymentSubmissions).values(submission).returning();
+      return result;
+    });
   }
 
   async getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]> {

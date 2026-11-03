@@ -6,6 +6,7 @@ import {
   type EnqueueLegalApprovalResult,
 } from "./repository";
 import { HoldingStateError, recordUnsignedLegalCancellation } from "./holding-state";
+import { hasGatewayPaymentConflict, assertGatewayCancellationSafe } from "../payments/gateway-guards";
 
 interface DbRow {
   [key: string]: any;
@@ -196,6 +197,13 @@ export async function approvePaymentSubmissionAtomically(
   adminId: number,
 ): Promise<ApprovalTransitionResult> {
   return db.transaction(async (tx) => {
+    // Reservation/property precede evidence locks in expiry, gateway verification
+    // and every review, avoiding the inverse evidence -> holding lock order.
+    await tx.execute(sql`
+      SELECT r.id FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+      WHERE r.id=(SELECT reservation_id FROM payment_submissions WHERE id=${submissionId})
+      FOR UPDATE OF r,p
+    `);
     const submission = rows<DbRow>(await tx.execute(sql`
       SELECT id, reservation_id AS "reservationId", user_id AS "userId",
         amount::numeric::text AS amount, currency, status
@@ -221,6 +229,9 @@ export async function approvePaymentSubmissionAtomically(
       FOR UPDATE OF r, p
     `))[0];
     if (!holding) throw new LegalApprovalTransitionError("Associated reservation not found", 404);
+    if (await hasGatewayPaymentConflict(tx, Number(holding.id))) {
+      throw new LegalApprovalTransitionError("A collected gateway payment requires review in Payment Reviews; manual proof cannot approve it.");
+    }
     if (Number(holding.userId) !== Number(submission.userId)) {
       throw new LegalApprovalTransitionError("Payment submission does not belong to the reservation owner", 400);
     }
@@ -324,18 +335,51 @@ export async function approvePaymentSubmissionAtomically(
   });
 }
 
-/**
- * Admin full confirmation. An independently
- * submitted, audited full-NGN-payment attestation is required for legal
- * generation. The amount is checked against the locked reservation and never
- * replaces its trusted value.
- */
+/** Unconfirmed cancellation shares holding/property locks with verification.
+ * All inventory release is in this transaction, never a follow-on delta call. */
+export async function cancelUnconfirmedInvestmentAtomically(reservationId: number): Promise<void> {
+  await db.transaction(async tx => {
+    const holding = rows<DbRow>(await tx.execute(sql`
+      SELECT r.id,r.property_id AS "propertyId",r.units::numeric::text AS units,r.status,
+        p.reserved_units AS "reservedUnits"
+      FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+      WHERE r.id=${reservationId} FOR UPDATE OF r,p`))[0];
+    if (!holding) throw new LegalApprovalTransitionError("Reservation not found",404);
+    if (!["reserved","payment_pending"].includes(holding.status)) {
+      throw new LegalApprovalTransitionError("Only active unconfirmed reservations can use this cancellation path.");
+    }
+    await assertGatewayCancellationSafe(tx,reservationId);
+    requireWholeUnitInventoryCount(holding.units);
+    const contribution = await getReservedInventoryContribution(tx, {
+      reservationId,propertyId:Number(holding.propertyId),units:String(holding.units),propertyReservedUnits:holding.reservedUnits,
+    });
+    await tx.execute(sql`UPDATE investment_reservations SET status='cancelled',funnel_stage=NULL,updated_at=now() WHERE id=${reservationId}`);
+    await tx.execute(sql`UPDATE properties SET
+      reserved_units=reserved_units-${contribution.units}::numeric,
+      available_slots=CASE WHEN total_slots>0 THEN available_slots+${holding.units}::numeric ELSE available_slots END
+      WHERE id=${holding.propertyId}`);
+    await clearReservedInventoryContribution(tx,reservationId,contribution.sideLedgerInstalled);
+  });
+}
+
+/** Admin full confirmation requires an independently submitted, audited
+ * full-NGN-payment attestation for legal generation, checked against the holding. */
 export async function confirmInvestmentAtomically(
   reservationId: number,
   adminId: number,
   attestation?: ManualFullPaymentAttestation,
 ): Promise<ApprovalTransitionResult> {
-  return db.transaction(async (tx) => {
+  return db.transaction(tx => confirmInvestmentWithinTransaction(tx, reservationId, adminId, attestation));
+}
+
+/** Internal gateway review calls this only after locking and claiming verified evidence. */
+export async function confirmInvestmentWithinTransaction(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  reservationId: number,
+  adminId: number,
+  attestation?: ManualFullPaymentAttestation,
+  gatewayAttemptId?: number,
+): Promise<ApprovalTransitionResult> {
     const holding = rows<DbRow>(await tx.execute(sql`
       SELECT r.id, r.user_id AS "userId", r.property_id AS "propertyId",
         r.units::numeric::text AS units, r.amount::numeric::text AS amount,
@@ -348,6 +392,9 @@ export async function confirmInvestmentAtomically(
       FOR UPDATE OF r, p
     `))[0];
     if (!holding) throw new LegalApprovalTransitionError("Reservation not found", 404);
+    if (!gatewayAttemptId && await hasGatewayPaymentConflict(tx, reservationId)) {
+      throw new LegalApprovalTransitionError("Review the collected gateway payment in Payment Reviews instead of manual confirmation.");
+    }
     if (holding.status === "converted_to_investment") {
       throw new LegalApprovalTransitionError("This reservation is already a confirmed investment.", 400);
     }
@@ -418,7 +465,6 @@ export async function confirmInvestmentAtomically(
       units: String(holding.units),
       legal,
     };
-  });
 }
 
 /**
@@ -450,6 +496,9 @@ export async function reinstateInvestmentAtomically(
       FOR UPDATE OF r, p
     `))[0];
     if (!holding) throw new LegalApprovalTransitionError("Reservation not found", 404);
+    if (await hasGatewayPaymentConflict(tx, reservationId)) {
+      throw new LegalApprovalTransitionError("A collected gateway payment must be reconciled before reinstatement.");
+    }
     if (holding.status === "converted_to_investment") {
       throw new LegalApprovalTransitionError("This reservation is already a confirmed investment.", 400);
     }
@@ -553,6 +602,7 @@ export async function cancelConfirmedInvestmentAtomically(
       FOR UPDATE OF r, p
     `))[0];
     if (!holding) throw new LegalApprovalTransitionError("Reservation not found", 404);
+    await assertGatewayCancellationSafe(tx, reservationId);
     if (holding.status !== "converted_to_investment") {
       throw new LegalApprovalTransitionError(
         "Only a confirmed investment can use this cancellation path.",

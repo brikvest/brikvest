@@ -31,7 +31,7 @@ app.use((req, res, next) => {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       // Signing responses contain short-lived challenge tokens. Never include
       // these, signature images, identity evidence or passwords in logs.
-      if (capturedJsonResponse && !/^\/api\/(?:admin\/)?legal(?:\/|$)/.test(path)) {
+      if (capturedJsonResponse && !/^\/api\/(?:admin\/)?(?:legal|payments)(?:\/|$)/.test(path)) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

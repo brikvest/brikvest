@@ -27,6 +27,7 @@ import { portfolioLandAmount, summarizeLandPortfolio } from "@shared/holding-cos
 import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
 import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards";
 import { holdingValueAtDate, propertyValuationQuery } from "@/lib/portfolio-performance";
+import { FlutterwaveActivity, FlutterwaveReservationPanel, getFlutterwaveReservation, useFlutterwaveReservation, primaryGatewayAttempt, gatewayBlocksPayment } from "@/components/payments/flutterwave";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
   reservations: (InvestmentReservation & { property?: Property })[];
@@ -478,6 +479,41 @@ export default function Portfolio() {
     }
   }, [searchString]);
 
+  const flutterwaveReturnHandled = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    const params = new URLSearchParams(searchString);
+    if (params.get("flutterwaveReturn") !== "1") return;
+    const txRef = params.get("tx_ref");
+    if (!txRef || flutterwaveReturnHandled.current === txRef) return;
+    flutterwaveReturnHandled.current = txRef;
+    void (async () => {
+      try {
+        await apiRequest("/api/payments/flutterwave/return", {
+          method: "POST",
+          body: JSON.stringify({
+            txRef,
+            transactionId: params.get("transaction_id") || undefined,
+            status: params.get("status") || undefined,
+          }),
+        });
+        await queryClient.invalidateQueries({ queryKey: ["/api/user/reservations"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/user/payment-submissions"] });
+        await queryClient.invalidateQueries({ predicate: query => String(query.queryKey[0]).includes("/api/payments/flutterwave") });
+        toast({ title: "Payment status received", description: "Flutterwave is verifying the transaction. Ownership requires admin approval." });
+      } catch (error: any) {
+        toast({ title: "Payment verification pending", description: error?.message || "We could not confirm the return yet. Check your payment status before paying again.", variant: "destructive" });
+      } finally {
+        await queryClient.invalidateQueries({ predicate: query => String(query.queryKey[0]).includes("/api/payments/flutterwave") });
+        params.delete("flutterwaveReturn");
+        params.delete("tx_ref");
+        params.delete("transaction_id");
+        params.delete("status");
+        setLocation(`/dashboard${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
+      }
+    })();
+  }, [searchString, setLocation, toast, isLoading, isAuthenticated]);
+
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [kycFormData, setKycFormData] = useState({
     fullName: '',
@@ -532,6 +568,20 @@ export default function Portfolio() {
     queryKey: ["/api/user/reservations"],
     enabled: isAuthenticated,
   });
+  const flutterwaveCardQueries = useQueries({
+    queries: reservations.filter(reservation => reservation.status === "reserved").map(reservation => ({
+      queryKey: ["/api/payments/flutterwave/reservations", reservation.id],
+      queryFn: () => getFlutterwaveReservation(reservation.id),
+      enabled: isAuthenticated,
+      retry: false,
+    })),
+  });
+  const flutterwaveByReservation = new Map(
+    reservations.filter(reservation => reservation.status === "reserved").map((reservation, index) => [
+      reservation.id,
+      flutterwaveCardQueries[index],
+    ])
+  );
 
   const confirmedHoldings = reservations.filter(r => r.status === "converted_to_investment");
   const summaryPropertyIds = Array.from(new Set(confirmedHoldings.map(r => r.propertyId)));
@@ -578,7 +628,7 @@ export default function Portfolio() {
     enabled: isAuthenticated,
   });
 
-  const { data: paymentInstructions, isLoading: paymentInstructionsLoading } = useQuery<any>({
+  const { data: paymentInstructions, isLoading: paymentInstructionsLoading, isError: paymentInstructionsError } = useQuery<any>({
     queryKey: ["/api/user/reservations", selectedPaymentReservation?.id, "payment-instructions"],
     queryFn: async () => {
       const response = await fetch(`/api/user/reservations/${selectedPaymentReservation!.id}/payment-instructions`, {
@@ -591,6 +641,8 @@ export default function Portfolio() {
     enabled: paymentModalOpen && !!selectedPaymentReservation && (user as any)?.kycStatus === "approved",
     retry: false,
   });
+  const selectedFlutterwave = useFlutterwaveReservation(selectedPaymentReservation?.id, paymentModalOpen && !!selectedPaymentReservation);
+  const selectedGatewayAttempt = primaryGatewayAttempt(selectedFlutterwave.data?.attempts);
 
   // Helper to get the latest payment submission for a reservation
   const getPaymentSubmission = (reservationId: number) => {
@@ -1195,8 +1247,11 @@ export default function Portfolio() {
             <p className="text-slate-600 mt-1">Track and manage your real estate investments</p>
           </div>
           {/* Pending Payment Banner */}
+          <FlutterwaveActivity />
           {(() => {
-            const pendingReservations = reservations.filter(r => r.status === 'reserved');
+            const pendingReservations = reservations.filter(r => r.status === 'reserved' &&
+              flutterwaveByReservation.get(r.id)?.isSuccess &&
+              !gatewayBlocksPayment(flutterwaveByReservation.get(r.id)?.data?.attempts));
             if (pendingReservations.length === 0) return null;
             const firstPending = pendingReservations[0];
             return (
@@ -1348,11 +1403,55 @@ export default function Portfolio() {
                               </div>
                             </div>
                             <span className="px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap self-start bg-yellow-100 text-yellow-700">
-                              Awaiting Payment
+                              {(() => {
+                                const state = primaryGatewayAttempt(flutterwaveByReservation.get(reservation.id)?.data?.attempts)?.state;
+                                return state === "awaiting_admin" ? "Awaiting admin approval"
+                                  : state === "reconciliation" ? "Payment under reconciliation"
+                                  : state === "rejected" ? "Payment rejected — unresolved charge"
+                                  : ["initiated","verification_pending"].includes(state || "") ? "Payment verification pending"
+                                  : "Awaiting Payment";
+                              })()}
                             </span>
                           </div>
                           
                           {(() => {
+                            const gatewayQuery = flutterwaveByReservation.get(reservation.id);
+                            if (gatewayQuery?.isLoading) {
+                              return <div className="mt-4 h-14 animate-pulse rounded-lg border border-slate-200 bg-slate-50" aria-label="Checking online payment status" />;
+                            }
+                            if (gatewayQuery?.isError) {
+                              return (
+                                <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                                  Could not verify online payment status. Please check before making another payment.
+                                  <Button size="sm" variant="outline" className="ml-2 mt-2" onClick={() => void gatewayQuery.refetch()}>Retry status</Button>
+                                </div>
+                              );
+                            }
+                            const gatewayAttempt = primaryGatewayAttempt(gatewayQuery?.data?.attempts);
+                            if (gatewayAttempt && ["awaiting_admin", "reconciliation", "rejected", "approved"].includes(gatewayAttempt.state)) {
+                              const rejected = gatewayAttempt.state === "rejected";
+                              return (
+                                <div className={`mt-4 rounded-lg border p-3 ${rejected ? "border-red-200 bg-red-50" : gatewayAttempt.state === "awaiting_admin" ? "border-amber-200 bg-amber-50" : "border-blue-200 bg-blue-50"}`}>
+                                  <p className={`text-sm font-semibold ${rejected ? "text-red-900" : "text-slate-900"}`}>
+                                    {gatewayAttempt.state === "awaiting_admin" ? "Awaiting admin approval" : gatewayAttempt.state === "reconciliation" ? "Payment under reconciliation" : rejected ? "Payment rejected" : "Payment approved"}
+                                  </p>
+                                  <p className="mt-1 text-sm text-slate-700">Amount: {gatewayAttempt.expectedAmount} {gatewayAttempt.expectedCurrency}</p>
+                                  {gatewayAttempt.reason && <p className="mt-1 text-xs text-slate-600">{gatewayAttempt.reason}</p>}
+                                  {rejected
+                                    ? <p className="mt-2 text-xs font-medium text-red-800">No refund has been issued. Contact support for assistance. Do not pay again from this reservation.</p>
+                                    : <p className="mt-2 text-xs text-slate-700">{gatewayAttempt.state === "awaiting_admin" ? "Payment is verified and awaiting admin approval. Receiving money does not grant ownership." : gatewayAttempt.state === "reconciliation" ? "Do not pay again while the payment is being reconciled." : "This payment has been approved."}</p>}
+                                </div>
+                              );
+                            }
+                            if (gatewayAttempt && gatewayBlocksPayment(gatewayQuery?.data?.attempts) && ["initiated", "verification_pending","failed","cancelled"].includes(gatewayAttempt.state)) {
+                              return (
+                                <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                                  <p className="text-sm font-semibold text-blue-900">{gatewayAttempt.state === "initiated" ? "Online payment started" : gatewayAttempt.state === "verification_pending" ? "Payment verification pending" : "Previous hosted session still active"}</p>
+                                  <p className="mt-1 text-xs text-blue-800">Check payment status before paying again. Do not start another online checkout while this attempt is unresolved.</p>
+                                  <Button size="sm" variant="outline" className="mt-3" onClick={() => handleOpenPaymentModal(reservation)}>Check payment status</Button>
+                                </div>
+                              );
+                            }
                             const paymentSub = getPaymentSubmission(reservation.id);
                             
                             if (paymentSub?.status === 'pending_admin_review') {
@@ -2352,12 +2451,32 @@ export default function Portfolio() {
                 </div>
               </div>
 
-              {/* Step 1: Bank Details */}
+              <FlutterwaveReservationPanel reservationId={selectedPaymentReservation.id} />
+
+              {selectedFlutterwave.isLoading && <div className="h-14 animate-pulse rounded-lg bg-slate-100" aria-label="Loading payment state" />}
+              {selectedFlutterwave.isError && <p role="alert" className="text-sm text-red-700">Could not verify existing Flutterwave attempts. Retry the status panel before making another payment.</p>}
+              {paymentInstructionsError && <p role="alert" className="text-sm text-red-700">Could not load bank transfer instructions. Please close and reopen this payment window or contact support.</p>}
+
+              {!selectedFlutterwave.isLoading && !selectedFlutterwave.isError && selectedGatewayAttempt &&
+              gatewayBlocksPayment(selectedFlutterwave.data?.attempts) ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  {selectedGatewayAttempt.state === "awaiting_admin"
+                    ? "Awaiting admin approval. No additional payment or proof is needed while this payment is reviewed."
+                    : selectedGatewayAttempt.state === "reconciliation"
+                      ? "Payment is under reconciliation. Do not pay again or submit payment proof."
+                      : selectedGatewayAttempt.state === "rejected"
+                        ? "Payment rejected. No refund has been issued. Contact support; do not repay from this reservation."
+                        : selectedGatewayAttempt.state === "approved" ? "Payment approved. Ownership records update only after the platform's approval process."
+                        : "Online checkout is unresolved or can still collect funds. Bank payment and proof upload are unavailable. Recheck status; do not make another payment."}
+                </div>
+              ) : !selectedFlutterwave.isLoading && !selectedFlutterwave.isError ? (
+              <>
               <div className="space-y-4">
                 <h4 className="font-semibold text-slate-900">Step 1: Make Payment</h4>
                 <p className="text-xs text-slate-500 -mt-2">Transfer the exact amount to one of the accounts below.</p>
                 
                 {paymentInstructionsLoading && <p className="text-sm text-slate-500">Loading secure payment details...</p>}
+                {!paymentInstructionsLoading && !paymentInstructionsError && !paymentInstructions?.method && <p role="alert" className="text-sm text-red-700">Bank payment instructions are unavailable. Please retry later or contact support.</p>}
                 {paymentInstructions?.method && (() => {
                   const method = paymentInstructions.method;
                   return (
@@ -2446,6 +2565,8 @@ export default function Portfolio() {
                   )}
                 </Button>
               </div>
+              </>
+              ) : null}
             </form>
           )}
         </DialogContent>

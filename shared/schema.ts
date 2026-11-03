@@ -290,6 +290,69 @@ export const paymentSubmissions = pgTable("payment_submissions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Provider evidence is deliberately separate from payment_submissions: a
+// verified hosted charge is not an uploaded receipt and not an investment.
+export const flutterwaveAttempts = pgTable("flutterwave_attempts", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").notNull().references(() => investmentReservations.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  txRef: text("tx_ref").notNull().unique(),
+  expectedAmount: decimal("expected_amount", { precision: 20, scale: 2 }).notNull(),
+  expectedCurrency: text("expected_currency").notNull(),
+  mode: text("mode").notNull(),
+  state: text("state").notNull().default("initiated"),
+  checkoutUrl: text("checkout_url"),
+  checkoutExpiresAt: timestamp("checkout_expires_at", { withTimezone: true }).notNull(),
+  reason: text("reason"),
+  verifiedAmount: decimal("verified_amount", { precision: 20, scale: 2 }),
+  verifiedCurrency: text("verified_currency"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  providerTransactionId: text("provider_transaction_id").unique(),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const flutterwaveCharges = pgTable("flutterwave_charges", {
+  transactionId: text("transaction_id").primaryKey(),
+  attemptId: integer("attempt_id").references(() => flutterwaveAttempts.id),
+  txRef: text("tx_ref").notNull(),
+  amount: text("amount"),
+  currency: text("currency"),
+  providerStatus: text("provider_status").notNull(),
+  disposition: text("disposition").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const flutterwaveVerificationJobs = pgTable("flutterwave_verification_jobs", {
+  transactionId: text("transaction_id").primaryKey(),
+  txRef: text("tx_ref").notNull(),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const flutterwaveAudit = pgTable("flutterwave_audit", {
+  id: serial("id").primaryKey(),
+  attemptId: integer("attempt_id").notNull().references(() => flutterwaveAttempts.id),
+  adminId: integer("admin_id").references(() => adminUsers.id),
+  event: text("event").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const flutterwaveConfirmationJobs = pgTable("flutterwave_confirmation_jobs", {
+  reservationId: integer("reservation_id").primaryKey().references(() => investmentReservations.id),
+  state: text("state").notNull().default("queued"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const flutterwaveCheckoutClosures = pgTable("flutterwave_checkout_closures", {
+  attemptId: integer("attempt_id").primaryKey().references(() => flutterwaveAttempts.id),
+  checkoutUrl: text("checkout_url"),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const developerBids = pgTable("developer_bids", {
   id: serial("id").primaryKey(),
   developerName: text("developer_name").notNull(),

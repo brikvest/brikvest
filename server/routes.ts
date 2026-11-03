@@ -12,12 +12,15 @@ import {
 import { setupAuth, hashPassword, comparePasswords } from "./auth";
 import passport from "passport";
 import { registerLegalRoutes } from "./legal/routes";
+import { registerFlutterwaveRoutes } from "./payments/flutterwave-routes";
+import { startGatewayWorker } from "./payments/flutterwave-worker";
 import { runStartupDataMaintenance } from "./startup-maintenance";
 import { summarizeLandPortfolio, portfolioLandAmount } from "@shared/holding-costs";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
   cancelConfirmedInvestmentAtomically,
+  cancelUnconfirmedInvestmentAtomically,
   confirmInvestmentAtomically,
   LegalApprovalTransitionError,
   reinstateInvestmentAtomically,
@@ -78,6 +81,7 @@ import {
 } from "@shared/schema";
 import { isPropertySoldOut } from "@shared/propertyAvailability";
 import { getPaymentInstructions } from "./paymentInstructions";
+import { GatewayError } from "./payments/flutterwave-provider";
 import {
   calculateResalePaymentTerms,
   completeListedResaleTransfer,
@@ -224,6 +228,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
   registerMarketplaceOfferRoutes(app, { requireApprovedUser, requireAdminAuth });
   registerLegalRoutes(app, { requireAuth, requireAdminAuth });
+  registerFlutterwaveRoutes(app, { requireAuth, requireAdminAuth });
+  startGatewayWorker();
 
   // User authentication routes
   app.post('/api/register', async (req, res) => {
@@ -686,6 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         submission
       });
     } catch (error) {
+      if (error instanceof GatewayError) return res.status(error.httpStatus).json({ error: error.message });
       console.error("Error submitting payment proof:", error);
       res.status(500).json({ error: "Failed to submit payment proof" });
     }
@@ -1881,16 +1888,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Number((req.user as any).userId),
         );
       } else if (reservation.status === "reserved" || reservation.status === "payment_pending") {
-        const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-        await storage.updateReservation(reservationId, { status: "cancelled" });
-        await storage.updatePropertyUnitCounts(reservation.propertyId, -units, 0);
+        await cancelUnconfirmedInvestmentAtomically(reservationId);
       } else {
         return res.status(409).json({ error: "Only active reservations or confirmed investments can be cancelled." });
       }
 
       res.json({ message: "Investment cancelled successfully" });
     } catch (error) {
-      if (error instanceof LegalApprovalTransitionError) {
+      if (error instanceof LegalApprovalTransitionError || error instanceof GatewayError) {
         return res.status(error.httpStatus).json({ error: error.message });
       }
       if (error instanceof ConfirmedInvestmentCancellationRequiredError) {
