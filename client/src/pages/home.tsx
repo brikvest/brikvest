@@ -426,8 +426,8 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                       </div>
                       <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                         <div>
-                          <span className="text-slate-600">Price per Unit</span>
-                          <div className="font-semibold text-green-600">{formatCurrency(property.unitPrice || property.minInvestment)}</div>
+                          <span className="text-slate-600">Listed Price per Unit</span>
+                          <div className="font-semibold text-green-600">{formatCurrency(property.minInvestment)}</div>
                           <span className="text-xs text-slate-500">(minimum investment)</span>
                         </div>
                         <div>
@@ -436,14 +436,26 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                         </div>
                       </div>
                       {property.sellDate && (
-                        <div
-                          className="mb-4 text-sm"
-                          data-testid={`property-sell-date-${property.id}`}
-                        >
+                        <div className="mb-4 text-sm" data-testid={`property-sell-date-${property.id}`}>
                           <span className="text-slate-600">Sell date</span>
                           <div className="font-semibold">
-                            <time dateTime={property.sellDate}>
-                              {formatCalendarMonthYear(property.sellDate)}
+                            <time dateTime={property.sellDate}>{formatCalendarMonthYear(property.sellDate)}</time>
+                          </div>
+                        </div>
+                      )}
+                      {property.currentPricePerUnit != null && (
+                        <div className="mb-4 text-sm" data-testid={`property-current-price-${property.id}`}>
+                          <span className="text-slate-600">Current Price per Unit</span>
+                          <div className="font-semibold">{formatCurrency(property.currentPricePerUnit)}</div>
+                          {property.propertyType === "land" && <span className="text-xs text-slate-500">Per 5 sqm</span>}
+                        </div>
+                      )}
+                      {property.listedDate && (
+                        <div className="mb-4 text-sm" data-testid={`property-listed-date-${property.id}`}>
+                          <span className="text-slate-600">Listed Date</span>
+                          <div className="font-semibold">
+                            <time dateTime={property.listedDate}>
+                              {formatCalendarMonthYear(`${property.listedDate}-01`)}
                             </time>
                           </div>
                         </div>
@@ -1043,12 +1055,29 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <span className="text-slate-600">Price per Unit:</span>
+                        <span className="text-slate-600">Listed Price per Unit:</span>
                         <div className="font-semibold text-green-600">{formatCurrency(selectedProperty.minInvestment)}</div>
                       </div>
                       <div>
                         <span className="text-slate-600 text-xs">(Minimum Investment)</span>
                       </div>
+                      {selectedProperty.listedDate && (
+                        <div data-testid="investment-summary-listed-date">
+                          <span className="text-slate-600">Listed Date:</span>
+                          <div className="font-semibold">
+                            <time dateTime={selectedProperty.listedDate}>
+                              {formatCalendarMonthYear(`${selectedProperty.listedDate}-01`)}
+                            </time>
+                          </div>
+                        </div>
+                      )}
+                      {selectedProperty.currentPricePerUnit != null && (
+                        <div data-testid="investment-summary-current-price">
+                          <span className="text-slate-600">Current Price per Unit:</span>
+                          <div className="font-semibold">{formatCurrency(selectedProperty.currentPricePerUnit)}</div>
+                          {selectedProperty.propertyType === "land" && <span className="text-xs text-slate-500">Per 5 sqm</span>}
+                        </div>
+                      )}
                       <div>
                         <span className="text-slate-600">Available Units:</span>
                         <div className="font-semibold">{selectedProperty.availableSlots} of {selectedProperty.totalSlots}</div>

@@ -1,5 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
-import { isCalendarDate } from "./calendar-date";
+import { isCalendarDate, isCalendarMonth } from "./calendar-date";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -105,6 +105,8 @@ export const properties = pgTable("properties", {
   gallery: text("gallery").array(), // Array of gallery image URLs
   status: text("status").notNull().default("active"),
   sellDate: date("sell_date", { mode: "string" }), // Admin-managed display-only calendar day
+  listedDate: text("listed_date"), // Optional YYYY-MM, not a timestamp or sale deadline
+  currentPricePerUnit: bigint("current_price_per_unit", { mode: "number" }), // Display only; never checkout pricing or valuation history
   // Developer Portal: optional ownership of this project by a developer user
   developerId: integer("developer_id").references((): any => users.id),
   // Display-only attribution: whose name/type shows as "Listed by" to buyers.
@@ -655,6 +657,8 @@ const optionalDocumentUrl = z.string().trim().max(2048).refine(
 
 export const insertPropertySchema = createInsertSchema(properties, {
   sellDate: z.string().refine(isCalendarDate, "Sell date must be a real date in YYYY-MM-DD format").nullable().optional(),
+  listedDate: z.string().refine(isCalendarMonth, "Listed date must be a real month in YYYY-MM format").nullable().optional(),
+  currentPricePerUnit: z.number().finite().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
   unitLandCost: nonNegativeMoney,
   unitDueDiligenceCost: nonNegativeMoney,
   unitAgentFees: nonNegativeMoney,

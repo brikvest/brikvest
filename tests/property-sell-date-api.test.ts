@@ -7,7 +7,7 @@ vi.mock("../server/storage", () => ({
   storage: {
     getAdminUserByUsername: async (username: string) => ({ id: 1, username, password: "fixture", role: username === "not-admin" ? "investor" : "admin", isActive: true }),
     updateAdminUserLastLogin: async () => {},
-    createProperty: async (data: any) => { const row = { id: fixture.rows.length + 1, sellDate: null, currency: "NGN", ...data }; fixture.rows.push(row); return row; },
+    createProperty: async (data: any) => { const row = { id: fixture.rows.length + 1, sellDate: null, listedDate: null, currentPricePerUnit: null, currency: "NGN", ...data }; fixture.rows.push(row); return row; },
     updateProperty: async (id: number, data: any) => {
       const row = fixture.rows.find(r => r.id === id);
       for (const [key, value] of Object.entries(data)) if (value !== undefined) row[key] = value;
@@ -69,6 +69,38 @@ const admin = (method: "post" | "put", url: string, data: any) =>
   request(app)[method](url).set("Authorization", `Bearer ${token}`).send(data);
 
 describe("actual property routes with isolated persistence", () => {
+  it("persists listing metadata, converts the display price and leaves purchase pricing unchanged", async () => {
+    const created = await admin("post", "/api/properties", { ...base, listedDate: "2026-10", currentPricePerUnit: 350000, developerId: 2 });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+    const original = { minInvestment: 1000, totalValue: 10000, totalSlots: 10, availableSlots: 10 };
+    const metadata = { listedDate: "2026-10", currentPricePerUnit: 350000 };
+    expect(created.body).toMatchObject({ ...original, ...metadata });
+    const converted = await request(app).get("/api/properties-converted").query({ currency: "USD" });
+    expect(converted.body.find((r: any) => r.id === id)).toMatchObject({
+      listedDate: "2026-10", currentPricePerUnit: 350000 / 1500, originalMinInvestment: 1000,
+    });
+    const read = await request(app).get(`/api/properties/${id}`).set("x-fixture-role", "investor");
+    expect(read.body).toMatchObject(metadata);
+    const updated = await admin("put", `/api/properties/${id}`, { ...base, listedDate: "2027-01", currentPricePerUnit: 370000 });
+    expect(updated.body).toMatchObject({ ...original, listedDate: "2027-01", currentPricePerUnit: 370000 });
+    const unrelated = await admin("put", `/api/properties/${id}`, { ...base, name: "Unrelated update" });
+    expect(unrelated.body).toMatchObject({ listedDate: "2027-01", currentPricePerUnit: 370000 });
+    const developer = await request(app).patch(`/api/developer/projects/${id}`).set("x-fixture-role", "developer").send({ name: "Developer edit" });
+    expect(developer.body).toMatchObject({ listedDate: "2027-01", currentPricePerUnit: 370000 });
+    for (const payload of [{ listedDate: "2028-01" }, { currentPricePerUnit: 1 }, { listedDate: null, currentPricePerUnit: null }]) {
+      expect((await request(app).patch(`/api/developer/projects/${id}`).set("x-fixture-role", "developer").send(payload)).status).toBe(403);
+    }
+    expect((await admin("put", `/api/properties/${id}`, { ...base, listedDate: null, currentPricePerUnit: null })).body)
+      .toMatchObject({ ...original, listedDate: null, currentPricePerUnit: null });
+  });
+  it.each([
+    { listedDate: "2026-13" }, { listedDate: "2026-10-01" }, { listedDate: "" },
+    { currentPricePerUnit: -1 }, { currentPricePerUnit: 1.5 }, { currentPricePerUnit: "350000" },
+  ])("rejects invalid listing metadata %j", async payload => {
+    expect((await admin("post", "/api/properties", { ...base, ...payload })).status).toBe(400);
+    expect((await admin("put", "/api/properties/1", { ...base, ...payload })).status).toBe(400);
+  });
   it("supports create, update, omission, reads, conversion and clear without affecting availability", async () => {
     const legacy = await admin("post", "/api/properties", base);
     expect(legacy.status).toBe(201);

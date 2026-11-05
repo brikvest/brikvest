@@ -26,7 +26,8 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calculateUnitCostTotal, UNIT_COST_COMPONENTS } from "@shared/property-cost-breakdown";
-import { isCalendarDate } from "@shared/calendar-date";
+import { isCalendarDate, isCalendarMonth } from "@shared/calendar-date";
+import { PropertyListingFields, PropertyListingMetadata } from "@/components/portfolio/PropertyListingFields";
 import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
 import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
 import { FlutterwavePaymentReviews } from "@/components/payments/flutterwave";
@@ -3462,6 +3463,8 @@ export default function AdminDashboard() {
     showUnitCostBreakdown: false,
     totalSquareMeters: "",
     sellDate: "",
+    listedDate: "",
+    currentPricePerUnit: "",
     isTransferable: false,
     developerId: "none" as string,
     listerId: "none" as string,
@@ -3671,6 +3674,8 @@ export default function AdminDashboard() {
       showUnitCostBreakdown: false,
       totalSquareMeters: "",
       sellDate: "",
+      listedDate: "",
+      currentPricePerUnit: "",
       isTransferable: false,
       developerId: "none" as string,
       listerId: "none" as string,
@@ -3807,6 +3812,8 @@ export default function AdminDashboard() {
       currency: "NGN",
       totalSquareMeters: "",
       sellDate: "",
+      listedDate: "",
+      currentPricePerUnit: "",
       isTransferable: false,
     });
     return currentForm !== emptyForm;
@@ -3844,6 +3851,15 @@ export default function AdminDashboard() {
 
     if (propertyForm.sellDate && !isCalendarDate(propertyForm.sellDate)) {
       toast({ title: "Invalid sell date", description: "Enter a valid calendar date.", variant: "destructive" });
+      return;
+    }
+    if (propertyForm.listedDate && !isCalendarMonth(propertyForm.listedDate)) {
+      toast({ title: "Invalid listed date", description: "Choose a valid month and year.", variant: "destructive" });
+      return;
+    }
+    if (propertyForm.currentPricePerUnit !== "" &&
+      (!Number.isSafeInteger(Number(propertyForm.currentPricePerUnit)) || Number(propertyForm.currentPricePerUnit) < 0)) {
+      toast({ title: "Invalid current price", description: "Enter a whole monetary amount of zero or more.", variant: "destructive" });
       return;
     }
 
@@ -3933,6 +3949,8 @@ export default function AdminDashboard() {
         : null,
     };
     propertyData.sellDate = propertyForm.sellDate || null;
+    propertyData.listedDate = propertyForm.listedDate || null;
+    propertyData.currentPricePerUnit = propertyForm.currentPricePerUnit === "" ? null : Number(propertyForm.currentPricePerUnit);
 
 
     if (editingProperty) {
@@ -4322,8 +4340,9 @@ export default function AdminDashboard() {
                                         {formatCurrency(property.totalValue, property.currency)}
                                       </p>
                                       <p className="text-sm text-slate-500">
-                                        Min: {formatCurrency(property.minInvestment, property.currency)}
+                                        Listed Price per Unit: {formatCurrency(property.minInvestment, property.currency)}
                                       </p>
+                                      <PropertyListingMetadata property={property} formatCurrency={formatCurrency} />
                                     </div>
                                   </TableCell>
                                   <TableCell className="py-6 px-6">
@@ -4407,6 +4426,8 @@ export default function AdminDashboard() {
                                             showUnitCostBreakdown: property.showUnitCostBreakdown ?? false,
                                             totalSquareMeters: property.totalSquareMeters || "",
                                             sellDate: (property as any).sellDate || "",
+                                            listedDate: property.listedDate || "",
+                                            currentPricePerUnit: property.currentPricePerUnit == null ? "" : String(property.currentPricePerUnit),
                                             isTransferable: property.isTransferable || false,
                                             developerId: property.developerId ? String(property.developerId) : "none",
                                             listerId: (property as any).listerId ? String((property as any).listerId) : "none",
@@ -4507,6 +4528,8 @@ export default function AdminDashboard() {
                                         showUnitCostBreakdown: property.showUnitCostBreakdown ?? false,
                                         totalSquareMeters: property.totalSquareMeters || "",
                                         sellDate: (property as any).sellDate || "",
+                                        listedDate: property.listedDate || "",
+                                        currentPricePerUnit: property.currentPricePerUnit == null ? "" : String(property.currentPricePerUnit),
                                         isTransferable: property.isTransferable || false,
                                         developerId: property.developerId ? String(property.developerId) : "none",
                                         listerId: (property as any).listerId ? String((property as any).listerId) : "none",
@@ -4524,7 +4547,8 @@ export default function AdminDashboard() {
                                 <div className="space-y-2">
                                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Investment Value</p>
                                   <p className="text-xl font-bold text-slate-900">{formatCurrency(property.totalValue, property.currency)}</p>
-                                  <p className="text-sm text-slate-600">Min: {formatCurrency(property.minInvestment, property.currency)}</p>
+                                  <p className="text-sm text-slate-600">Listed Price per Unit: {formatCurrency(property.minInvestment, property.currency)}</p>
+                                  <PropertyListingMetadata property={property} formatCurrency={formatCurrency} />
                                 </div>
                                 <div className="space-y-2">
                                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Progress</p>
@@ -4826,6 +4850,15 @@ export default function AdminDashboard() {
                         />
                       </div>
 
+                      <PropertyListingFields
+                        idPrefix="create-property"
+                        listedDate={propertyForm.listedDate}
+                        currentPricePerUnit={propertyForm.currentPricePerUnit}
+                        currency={propertyForm.currency}
+                        onListedDateChange={(listedDate) => setPropertyForm(prev => ({ ...prev, listedDate }))}
+                        onCurrentPriceChange={(currentPricePerUnit) => setPropertyForm(prev => ({ ...prev, currentPricePerUnit }))}
+                      />
+
                       <div className="flex items-center gap-3 py-2">
                         <input
                           type="checkbox"
@@ -4876,7 +4909,7 @@ export default function AdminDashboard() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Minimum Investment ({getCurrencySymbol(propertyForm.currency)})</Label>
+                          <Label>Listed Price per Unit ({getCurrencySymbol(propertyForm.currency)})</Label>
                           <div className="p-3 bg-slate-50 border rounded-md">
                             <span className="text-slate-900 font-medium">
                               {propertyForm.totalValue && propertyForm.totalSlots ? 
@@ -5453,6 +5486,8 @@ export default function AdminDashboard() {
                         showUnitCostBreakdown: viewingProperty.showUnitCostBreakdown ?? false,
                         totalSquareMeters: viewingProperty.totalSquareMeters || "",
                         sellDate: (viewingProperty as any).sellDate || "",
+                        listedDate: viewingProperty.listedDate || "",
+                        currentPricePerUnit: viewingProperty.currentPricePerUnit == null ? "" : String(viewingProperty.currentPricePerUnit),
                         isTransferable: viewingProperty.isTransferable || false,
                         developerId: viewingProperty.developerId ? String(viewingProperty.developerId) : "none",
                         listerId: (viewingProperty as any).listerId ? String((viewingProperty as any).listerId) : "none",
@@ -5660,6 +5695,15 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            <PropertyListingFields
+              idPrefix="edit-property"
+              listedDate={propertyForm.listedDate}
+              currentPricePerUnit={propertyForm.currentPricePerUnit}
+              currency={propertyForm.currency}
+              onListedDateChange={(listedDate) => setPropertyForm(prev => ({ ...prev, listedDate }))}
+              onCurrentPriceChange={(currentPricePerUnit) => setPropertyForm(prev => ({ ...prev, currentPricePerUnit }))}
+            />
+
             <div className="space-y-2">
               <Label htmlFor="edit-sellDate">Sell date (optional)</Label>
               <Input
@@ -5837,7 +5881,7 @@ export default function AdminDashboard() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Minimum Investment ({getCurrencySymbol(propertyForm.currency)})</Label>
+                <Label>Listed Price per Unit ({getCurrencySymbol(propertyForm.currency)})</Label>
                 <div className="p-3 bg-slate-50 border rounded-md">
                   <span className="text-slate-900 font-medium">
                     {propertyForm.totalValue && propertyForm.totalSlots ? 

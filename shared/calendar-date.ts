@@ -10,6 +10,11 @@ export function isCalendarDate(value: string): boolean {
 const months = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 
+/** Month-only listing information, without an invented day or time zone. */
+export function isCalendarMonth(value: string): boolean {
+  return /^\d{4}-\d{2}$/.test(value) && isCalendarDate(`${value}-01`);
+}
+
 export function formatCalendarDate(value: string): string {
   if (!isCalendarDate(value)) throw new Error("Invalid calendar date");
   const [year, month, day] = value.split("-").map(Number);

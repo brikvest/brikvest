@@ -3490,6 +3490,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalValue: convertCurrency(property.totalValue, storedCurrency, userCurrency, rates),
           minInvestment: convertCurrency(property.minInvestment, storedCurrency, userCurrency, rates),
           unitPrice: convertCurrency(property.unitPrice || property.minInvestment, storedCurrency, userCurrency, rates),
+          currentPricePerUnit: property.currentPricePerUnit == null ? null
+            : convertCurrency(property.currentPricePerUnit, storedCurrency, userCurrency, rates),
           ...("unitLandCost" in property ? {
             unitLandCost: convertCurrency(property.unitLandCost, storedCurrency, userCurrency, rates),
             unitDueDiligenceCost: convertCurrency(property.unitDueDiligenceCost, storedCurrency, userCurrency, rates),
@@ -6437,6 +6439,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new project (starts as draft)
   app.post("/api/developer/projects", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
+      if (["listedDate", "currentPricePerUnit"].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key))) {
+        return res.status(403).json({ message: "Only admins can change listed date and current price per unit." });
+      }
       if (Object.prototype.hasOwnProperty.call(req.body || {}, "sellDate")) {
         return res.status(403).json({ message: "Only admins can change Sell date." });
       }
@@ -6555,6 +6560,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update project
   app.patch("/api/developer/projects/:id", requireDeveloper, requirePermission("settings"), async (req: any, res) => {
     try {
+      if (["listedDate", "currentPricePerUnit"].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key))) {
+        return res.status(403).json({ message: "Only admins can change listed date and current price per unit." });
+      }
       if (Object.prototype.hasOwnProperty.call(req.body || {}, "sellDate")) {
         return res.status(403).json({ message: "Only admins can change Sell date." });
       }

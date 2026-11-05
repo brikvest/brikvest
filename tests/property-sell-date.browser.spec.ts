@@ -6,13 +6,14 @@ const base = {
   totalValue: 10000, minInvestment: 1000, totalSlots: 10, availableSlots: 10,
   totalSquareMeters: "100", unitPrice: 1000, currency: "NGN", status: "active",
   imageUrl: "/fixture.svg", sellDate: "2028-02-29", gallery: [],
+  listedDate: "2026-10" as string | null, currentPricePerUnit: 3500 as number | null,
 };
 async function fixtures(page: Page, authenticated = true) {
   const state = {
     rows: [
       { ...base },
       { ...base, id: 3, name: "Sold out estate with a long property name that wraps onto several lines", location: "A long location description in Guzape District, Federal Capital Territory, Abuja", status: "sold_out", sellDate: "2026-03-30" },
-      { ...base, id: 2, name: "Without sell date", sellDate: null as string | null },
+      { ...base, id: 2, name: "Without sell date", sellDate: null as string | null, listedDate: null, currentPricePerUnit: null },
       { ...base, id: 5, name: "Available estate with a long property name that wraps onto several lines", location: "A long location description in Guzape District, Federal Capital Territory, Abuja", sellDate: "2029-01-01" },
       { ...base, id: 4, name: "Sold out without date", projectStatus: "sold_out", sellDate: null },
       { ...base, id: 6, name: "UndatedAvailablePropertyWithAnUnbrokenNameThatMustNotOverflowTheCard", location: "UnbrokenLocationDescriptionThatMustWrapWithinTheAvailableCard", sellDate: null },
@@ -69,6 +70,61 @@ async function editFirst(page: Page) {
   await page.locator("button:visible").filter({ has: page.locator("svg.lucide-square-pen") }).first().click();
 }
 
+test("admin can update, reload and clear listing metadata without changing purchase prices", async ({ page }) => {
+  const state = await fixtures(page);
+  await page.addInitScript(() => localStorage.setItem("admin_session_id", "isolated-fixture"));
+  await page.goto("/admin");
+  await editFirst(page);
+  const dialog = page.getByRole("dialog");
+  const month = dialog.getByLabel("Listed Date", { exact: true });
+  const price = dialog.getByLabel("Current Price per Unit", { exact: true });
+  await expect(month).toHaveAttribute("type", "month");
+  await expect(month).toHaveValue("2026-10");
+  await expect(price).toHaveValue("3500");
+  await expect(dialog.getByText("Listed Price per Unit (₦)", { exact: true })).toBeVisible();
+  await month.fill("2027-02");
+  await price.fill("4500");
+  await dialog.getByRole("button", { name: "Update Property", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.writes.at(-1)).toMatchObject({
+    listedDate: "2027-02", currentPricePerUnit: 4500, minInvestment: 1000,
+    totalValue: 10000, totalSlots: 10, availableSlots: 10, sellDate: "2028-02-29",
+  });
+  await page.reload();
+  await propertiesTab(page);
+  const editAction = page.locator("button:visible").filter({ has: page.locator("svg.lucide-square-pen") }).first();
+  await editAction.locator("..").locator("button").filter({ has: page.locator("svg.lucide-eye") }).click({ timeout: 12000 });
+  await page.getByRole("dialog").getByRole("button", { name: "Edit Property", exact: true }).click();
+  await expect(month).toHaveValue("2027-02");
+  await expect(price).toHaveValue("4500");
+  await dialog.screenshot({ path: test.info().outputPath("listing-fields-edit.png") });
+  await page.keyboard.press("Escape");
+  for (const path of ["/", "/dashboard?section=properties"]) {
+    await page.goto(path);
+    await expect(page.getByTestId("property-listed-date-1").locator("time")).toHaveText("February 2027");
+    await expect(page.getByTestId("property-current-price-1")).toContainText("4,500");
+    await expect(page.getByTestId("property-card-details-1")).toContainText("Listed Price per Unit");
+    await expect(page.getByTestId("property-card-details-1")).toContainText("1,000");
+    await page.getByTestId("property-card-details-1").screenshot({ path: test.info().outputPath("listing-fields-card.png") });
+    await page.getByTestId("property-card-details-1").locator("h3").click();
+    await expect(dialog.getByTestId("investment-summary-listed-date")).toContainText("February 2027");
+    await expect(dialog.getByTestId("investment-summary-current-price")).toContainText("4,500");
+    await page.keyboard.press("Escape");
+  }
+  await page.goto("/admin");
+  await editFirst(page);
+  await month.fill("");
+  await price.fill("");
+  await dialog.getByRole("button", { name: "Update Property", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.writes.at(-1)).toMatchObject({ listedDate: null, currentPricePerUnit: null, minInvestment: 1000 });
+  await page.goto("/");
+  await expect(page.getByTestId("property-listed-date-1")).toHaveCount(0);
+  await expect(page.getByTestId("property-current-price-1")).toHaveCount(0);
+  await expect(page.getByTestId("property-listed-date-2")).toHaveCount(0);
+  expect(state.reservations).toEqual([]);
+});
+
 test("investment summary shows the saved sell date and omits it when unset", async ({ page }) => {
   const state = await fixtures(page);
   for (const path of ["/", "/dashboard?section=properties"]) {
@@ -103,8 +159,11 @@ test("conditional primary-card placement, reload and time-zone-safe mobile/deskt
   await expect(date.locator("time")).toHaveAttribute("datetime", "2028-02-29");
   await expect(page.getByTestId("property-sell-date-2")).toHaveCount(0);
   const card = date.locator("..");
-  const unitBlock = card.locator("div.grid").filter({ hasText: "Price per Unit" });
-  expect(await unitBlock.evaluate(el => el.nextElementSibling?.getAttribute("data-testid"))).toBe("property-sell-date-1");
+  const unitBlock = card.locator("div.grid").filter({ hasText: "Listed Price per Unit" });
+  expect(await unitBlock.evaluate(el => {
+    const next = el.nextElementSibling;
+    return next?.getAttribute("data-testid");
+  })).toBe("property-sell-date-1");
   const box = await date.boundingBox();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(test.info().project.use.viewport!.width);
