@@ -45,8 +45,8 @@ import {
   sendNewListingNotificationToCoInvestors,
 } from "./resaleEmails";
 import { 
-  investmentEmailTemplate, 
-  kycApprovedEmailTemplate, 
+  investmentEmailTemplate,
+  kycApprovedEmailTemplate,
   kycRejectedEmailTemplate,
   investmentCreatedEmailTemplate,
   paymentReceivedEmailTemplate,
@@ -57,7 +57,7 @@ import {
 } from "./emailTemplates";
 import { getExchangeRates, convertCurrency, formatCurrency, detectUserCurrency, CURRENCY_CONFIG, getCurrencyFromCountry } from "./currencyService";
 import { 
-  insertInvestmentReservationSchema, 
+  insertInvestmentReservationSchema,
   insertPropertySchema,
   insertInvestmentGroupSchema,
   insertGroupMembershipSchema,
@@ -89,6 +89,9 @@ import {
   createResaleListingSafely,
   registerMarketplaceOfferRoutes,
 } from "./marketplaceOffers";
+
+// Simple session store for admin authentication
+import { registerAccountConsolidationRoutes } from "./account-consolidation-routes";
 
 // Simple session store for admin authentication
 const adminSessions = new Map<string, { userId: number; username: string; role: string; expiresAt: number }>();
@@ -231,6 +234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerLegalRoutes(app, { requireAuth, requireAdminAuth });
   registerFlutterwaveRoutes(app, { requireAuth, requireAdminAuth });
   startGatewayWorker();
+  registerAccountConsolidationRoutes(app, requireAdminAuth);
 
   // User authentication routes
   app.post('/api/register', async (req, res) => {

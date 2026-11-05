@@ -1,5 +1,5 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { isCalendarDate, isCalendarMonth } from "./calendar-date";
+import { pgTable, text, serial, bigserial, uuid, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -87,6 +87,20 @@ export const adminUsers = pgTable("admin_users", {
   isActive: boolean("is_active").notNull().default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Administrative identity consolidation, never a market transfer. Immutable
+// evidence protection is installed by ensure-account-consolidations.sql.
+export const accountConsolidations = pgTable("account_consolidations", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  requestId: uuid("request_id").notNull().unique(),
+  adminId: integer("admin_id").notNull().references(() => adminUsers.id),
+  sourceId: integer("source_id").notNull().unique().references(() => users.id),
+  destinationId: integer("destination_id").notNull().references(() => users.id),
+  requestHash: text("request_hash").notNull(),
+  verificationNote: text("verification_note").notNull(),
+  evidence: jsonb("evidence").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const properties = pgTable("properties", {

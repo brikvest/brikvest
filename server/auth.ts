@@ -89,7 +89,9 @@ export function setupAuth(app: Express) {
   passport.deserializeUser(async (id: number, done) => {
     try {
       const user = await storage.getUser(id);
-      done(null, user);
+      // Disabled/consolidated accounts must lose existing sessions as well
+      // as password login. Passport deserializes on every authenticated request.
+      done(null, user?.isActive ? user : false);
     } catch (error) {
       done(error);
     }

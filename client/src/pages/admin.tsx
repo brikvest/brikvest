@@ -30,6 +30,7 @@ import { isCalendarDate, isCalendarMonth } from "@shared/calendar-date";
 import { PropertyListingFields, PropertyListingMetadata } from "@/components/portfolio/PropertyListingFields";
 import { MarketplaceOffersAdminTab } from "@/components/marketplace/MarketplaceOffersAdminTab";
 import { AdminLegalManagement } from "@/components/legal/LegalDocuments";
+import { AccountConsolidation } from "@/components/admin/account-consolidation";
 import { FlutterwavePaymentReviews } from "@/components/payments/flutterwave";
 
 // Helper function to get currency symbol
@@ -1984,6 +1985,7 @@ function UserPortfolioTab({
           </Card>
         </>
       )}
+      <AccountConsolidation authenticatedRequest={authenticatedRequest} />
     </div>
   );
 }

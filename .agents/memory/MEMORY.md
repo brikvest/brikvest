@@ -25,3 +25,4 @@
 - [Vitest JSX transforms](vitest-jsx-transforms.md) — test and app runners can use different Vite generations; JSX tests need the test runner's transform settings.
 - [FAQ policy boundaries](faq-policy-boundaries.md) — preserve supplied FAQ claims; flag conflicting copy instead of changing investment rules or legal agreements.
 - [Gateway approval boundary](flutterwave-approval-boundary.md) — verified Flutterwave receipt awaits explicit admin approval; no automatic allocation, refund, or live release.
+- [Duplicate account boundary](account-consolidation-scope.md) — verified duplicates only; never rewrite retained evidence or use a merge as a general investor transfer.
