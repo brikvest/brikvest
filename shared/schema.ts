@@ -106,7 +106,7 @@ export const properties = pgTable("properties", {
   status: text("status").notNull().default("active"),
   sellDate: date("sell_date", { mode: "string" }), // Admin-managed display-only calendar day
   listedDate: text("listed_date"), // Optional YYYY-MM, not a timestamp or sale deadline
-  currentPricePerUnit: bigint("current_price_per_unit", { mode: "number" }), // Display only; never checkout pricing or valuation history
+  currentPricePerUnit: bigint("current_price_per_unit", { mode: "number" }), // Overrides listed price for NEW reservations only
   // Developer Portal: optional ownership of this project by a developer user
   developerId: integer("developer_id").references((): any => users.id),
   // Display-only attribution: whose name/type shows as "Listed by" to buyers.

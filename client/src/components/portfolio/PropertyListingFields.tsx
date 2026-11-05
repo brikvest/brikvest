@@ -50,7 +50,7 @@ export function PropertyListingFields({
           onChange={(event) => onCurrentPriceChange(event.target.value)}
           placeholder={currency}
         />
-        <p id={`${currentPriceId}-help`} className="text-xs text-muted-foreground">Optional. Per 5 sqm land unit, in {currency}. Display only; does not change checkout prices or valuation graphs.</p>
+        <p id={`${currentPriceId}-help`} className="text-xs text-muted-foreground">Optional. Per 5 sqm land unit, in {currency}. Used for new reservations when set; otherwise the listed price applies. Does not change existing reservations or valuation history.</p>
       </div>
     </div>
   );

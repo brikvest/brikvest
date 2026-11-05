@@ -16,6 +16,7 @@ import { registerFlutterwaveRoutes } from "./payments/flutterwave-routes";
 import { startGatewayWorker } from "./payments/flutterwave-worker";
 import { runStartupDataMaintenance } from "./startup-maintenance";
 import { summarizeLandPortfolio, portfolioLandAmount } from "@shared/holding-costs";
+import { purchaseUnitPrice } from "@shared/property-pricing";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -1362,8 +1363,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Calculate amount - use unitPrice if available, otherwise use minInvestment
-      const unitPriceSnapshot = property.unitPrice || property.minInvestment || 0;
+      const unitPriceSnapshot = purchaseUnitPrice(property);
+      if (!Number.isFinite(unitPriceSnapshot) || unitPriceSnapshot <= 0) {
+        return res.status(400).json({ error: "This property does not have a valid purchase price." });
+      }
       const amount = Math.round(requestedUnits * unitPriceSnapshot);
 
       // Always use property's currency, default to NGN (Nigerian Naira) - platform's primary currency
@@ -2347,13 +2350,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Please select which unit type you are buying" });
       }
 
+      // Never trust client-submitted amounts, prices or display-currency conversions.
+      const unitPriceSnapshot = purchaseUnitPrice(property, chosenType);
+      const amount = Math.round(units * unitPriceSnapshot);
+      if (!Number.isFinite(unitPriceSnapshot) || unitPriceSnapshot <= 0 || !Number.isSafeInteger(amount)) {
+        return res.status(400).json({ message: "This property does not have a valid purchase price." });
+      }
       const sanitizedReservationData = {
         ...reservationData,
         currency: investmentCurrency, // Override any user-provided currency with property's currency
         unitTypeLabel: chosenType ? chosenType.label : null,
-        unitPriceSnapshot: chosenType
-          ? String(chosenType.price)
-          : reservationData.unitPriceSnapshot,
+        unitPriceSnapshot: String(unitPriceSnapshot),
+        amount: String(amount),
         expiresAt,
       };
       
@@ -2366,7 +2374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Send confirmation email
       try {
-        const investmentAmount = units * property.minInvestment;
+        const investmentAmount = amount;
         const emailTemplate = investmentEmailTemplate({
           fullName: reservationData.fullName,
           propertyName: property.name,
@@ -2463,7 +2471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Send payment confirmation email
       const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
-      const investmentAmount = units * property.minInvestment;
+      const investmentAmount = Number(reservation.amount);
       await sendEmail({
         to: reservation.email,
         subject: "Payment Confirmed - Brikvest Investment",
@@ -3472,6 +3480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Store original values for reservation purposes
         const originalMinInvestment = property.minInvestment;
         const originalUnitPrice = property.unitPrice || property.minInvestment;
+        const originalCurrentPricePerUnit = property.currentPricePerUnit ?? null;
         
         // If user currency matches stored currency, no conversion needed
         if (userCurrency === storedCurrency) {
@@ -3480,6 +3489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             userCurrency,
             originalMinInvestment,
             originalUnitPrice,
+            originalCurrentPricePerUnit,
             originalCurrency: storedCurrency
           };
         }
@@ -3501,6 +3511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userCurrency,
           originalMinInvestment,
           originalUnitPrice,
+          originalCurrentPricePerUnit,
           originalCurrency: storedCurrency
         };
       });

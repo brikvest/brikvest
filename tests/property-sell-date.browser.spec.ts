@@ -246,11 +246,25 @@ test("mixed card footers align without clipping and keep reservation/details beh
   await page.getByTestId("property-card-actions-1").getByRole("button", { name: "Reserve Ownership Slot" }).click();
   const reservation = page.getByRole("dialog");
   await expect(reservation.getByRole("heading", { name: "Reserve Ownership Slot" })).toBeVisible();
+  await expect(reservation.getByText("Purchase Price per Unit: ₦3,500.00", { exact: true })).toBeVisible();
   await reservation.getByLabel("Number of Units").fill("2");
   await reservation.getByRole("button", { name: "Reserve My Slot", exact: true }).click();
   await expect.poll(() => state.reservations.length).toBe(1);
-  expect(state.reservations[0]).toMatchObject({ propertyId: 1, units: "2", email: "fixture@example.test" });
+  expect(state.reservations[0]).toMatchObject({ propertyId: 1, units: "2", email: "fixture@example.test", amount: "7000", unitPriceSnapshot: "3500" });
   await expect(page.getByRole("dialog").getByRole("heading", { name: "Success!" })).toBeVisible();
+});
+
+test("new reservations fall back to listed price when current price is unset", async ({ page }) => {
+  const state = await fixtures(page);
+  await page.goto("/");
+  await page.getByTestId("property-card-actions-2").getByRole("button", { name: "Reserve Ownership Slot" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Purchase Price per Unit: ₦1,000.00", { exact: true })).toBeVisible();
+  await dialog.getByLabel("Number of Units").fill("2");
+  await expect(dialog.getByText("Total: ₦2,000.00", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Reserve My Slot", exact: true }).click();
+  await expect.poll(() => state.reservations.length).toBe(1);
+  expect(state.reservations[0]).toMatchObject({ propertyId: 2, amount: "2000", unitPriceSnapshot: "1000" });
 });
 
 test("signed-out actions keep the same footer alignment and sign-in route", async ({ page }) => {

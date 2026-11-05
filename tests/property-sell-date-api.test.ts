@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ rows: [] as any[] }));
+const fixture = vi.hoisted(() => ({ rows: [] as any[], reservations: [] as any[] }));
 vi.mock("../server/storage", () => ({
   storage: {
     getAdminUserByUsername: async (username: string) => ({ id: 1, username, password: "fixture", role: username === "not-admin" ? "investor" : "admin", isActive: true }),
@@ -18,6 +18,12 @@ vi.mock("../server/storage", () => ({
     getPublicProperties: async () => fixture.rows,
     getUser: async (id: number) => ({ id, role: "developer", subscriptionStatus: "active", plan: "starter" }),
     getReservationsByProperty: async () => [],
+    getReservationsByEmail: async (email: string) => fixture.reservations.filter(r => r.email === email),
+    createInvestmentReservation: async (data: any) => {
+      const row = { status: "reserved", ...data, id: fixture.reservations.length + 1, createdAt: new Date().toISOString() };
+      fixture.reservations.push(row);
+      return row;
+    },
   },
 }));
 vi.mock("../server/db", () => ({ db: {}, pool: {} }));
@@ -40,7 +46,10 @@ vi.mock("../server/cloudinary", () => ({
 }));
 vi.mock("../server/emailService", () => ({ sendEmail: vi.fn() }));
 vi.mock("../server/resaleEmails", () => ({}));
-vi.mock("../server/emailTemplates", () => ({}));
+vi.mock("../server/emailTemplates", () => ({
+  investmentEmailTemplate: vi.fn(data => ({ subject: "Reservation", html: JSON.stringify(data) })),
+  investmentCreatedEmailTemplate: vi.fn(data => ({ subject: "Reservation", html: JSON.stringify(data) })),
+}));
 vi.mock("../server/currencyService", () => ({
   getExchangeRates: async () => ({ NGN: 1500, USD: 1 }),
   convertCurrency: (value: number) => value / 1500,
@@ -64,11 +73,49 @@ beforeAll(async () => {
 });
 afterAll(() => vi.restoreAllMocks());
 const base = { name: "Fixture", location: "Abuja", description: "Fixture property",
-  totalValue: 10000, minInvestment: 1000, totalSlots: 10, availableSlots: 10, imageUrl: "/fixture.svg", currency: "NGN" };
+  totalValue: 10000, minInvestment: 1000, totalSlots: 10, availableSlots: 10, imageUrl: "/fixture.svg", currency: "NGN", projectStatus: "live" };
 const admin = (method: "post" | "put", url: string, data: any) =>
   request(app)[method](url).set("Authorization", `Bearer ${token}`).send(data);
 
 describe("actual property routes with isolated persistence", () => {
+  it("uses current price for new reservations, ignores client prices, and preserves previous reservations", async () => {
+    const created = await admin("post", "/api/properties", { ...base, currentPricePerUnit: 3500 });
+    const id = created.body.id;
+    const body = { propertyId: id, fullName: "Test Investor", email: "pricing@example.test",
+      phone: "08012345678", units: "2", amount: "1", unitPriceSnapshot: "1", currency: "USD" };
+    const first = await request(app).post("/api/reservations").send(body);
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500", currency: "NGN" });
+    const { investmentEmailTemplate } = await import("../server/emailTemplates");
+    expect(investmentEmailTemplate).toHaveBeenLastCalledWith(expect.objectContaining({ amount: 7000 }));
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: 4500 });
+    const duplicate = await request(app).post("/api/reservations").send(body);
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body).toMatchObject({ id: first.body.id, amount: "7000", unitPriceSnapshot: "3500" });
+    const next = await request(app).post("/api/reservations").send({ ...body, email: "next@example.test" });
+    expect(next.body).toMatchObject({ amount: "9000", unitPriceSnapshot: "4500" });
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: null });
+    const fallback = await request(app).post("/api/reservations").send({ ...body, email: "fallback@example.test" });
+    expect(fallback.body).toMatchObject({ amount: "2000", unitPriceSnapshot: "1000" });
+    expect(fixture.reservations.find(r => r.id === first.body.id).amount).toBe("7000");
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: 0 });
+    const invalid = await request(app).post("/api/reservations").send({ ...body, email: "zero@example.test" });
+    expect(invalid.status).toBe(400);
+  });
+  it("prioritizes current price over unit types and prices admin-assisted new reservations consistently", async () => {
+    const created = await admin("post", "/api/properties", { ...base, currentPricePerUnit: 3500,
+      unitTypes: [{ label: "Land", quantity: 10, price: 1000 }] });
+    const id = created.body.id;
+    const response = await request(app).post("/api/reservations").send({
+      propertyId: id, fullName: "Test Investor", email: "typed@example.test", phone: "08012345678",
+      units: "2", amount: "2000", unitPriceSnapshot: "1000", unitTypeLabel: "Land",
+    });
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500", unitTypeLabel: "Land" });
+    const assisted = await admin("post", "/api/admin/investments/create", { userId: 2, propertyId: id, units: 2 });
+    expect(assisted.status).toBe(201);
+    expect(assisted.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500" });
+  });
   it("persists listing metadata, converts the display price and leaves purchase pricing unchanged", async () => {
     const created = await admin("post", "/api/properties", { ...base, listedDate: "2026-10", currentPricePerUnit: 350000, developerId: 2 });
     expect(created.status).toBe(201);
@@ -79,6 +126,7 @@ describe("actual property routes with isolated persistence", () => {
     const converted = await request(app).get("/api/properties-converted").query({ currency: "USD" });
     expect(converted.body.find((r: any) => r.id === id)).toMatchObject({
       listedDate: "2026-10", currentPricePerUnit: 350000 / 1500, originalMinInvestment: 1000,
+      originalCurrentPricePerUnit: 350000,
     });
     const read = await request(app).get(`/api/properties/${id}`).set("x-fixture-role", "investor");
     expect(read.body).toMatchObject(metadata);

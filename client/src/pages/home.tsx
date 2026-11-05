@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Property, InsertInvestmentReservation } from "@shared/schema";
 import { getCustomerPropertyStatusLabel, isPropertySoldOut } from "@shared/propertyAvailability";
 import { formatCalendarMonthYear } from "@shared/calendar-date";
+import { purchaseUnitPrice } from "@shared/property-pricing";
 import brikvest_logo from "@/assets/brikvest-logo.png";
 import { PropertyMediaCarousel } from "@/components/PropertyMediaCarousel";
 import { useCurrency, useConvertedProperties } from "@/hooks/useCurrency";
@@ -148,7 +149,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
       Array.isArray((selectedProperty as any).unitTypes) ? (selectedProperty as any).unitTypes : [];
     const chosenType = investmentForm.unitTypeLabel
       ? cfgUnitTypes.find(t => String(t.label) === investmentForm.unitTypeLabel)
-      : null;
+      : cfgUnitTypes.length === 1 ? cfgUnitTypes[0] : null;
 
     // Require a selection whenever the property has multiple unit types,
     // even if they share a price — attribution by label is the only way to
@@ -162,9 +163,12 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
       return;
     }
 
-    const originalUnitPrice = chosenType
-      ? Number(chosenType.price)
-      : ((selectedProperty as any).originalUnitPrice || selectedProperty.unitPrice || selectedProperty.minInvestment || 0);
+    const originalUnitPrice = purchaseUnitPrice({
+      ...selectedProperty,
+      currentPricePerUnit: (selectedProperty as any).originalCurrentPricePerUnit !== undefined
+        ? (selectedProperty as any).originalCurrentPricePerUnit : selectedProperty.currentPricePerUnit,
+      unitPrice: (selectedProperty as any).originalUnitPrice ?? selectedProperty.unitPrice,
+    }, chosenType);
     const originalCurrency = (selectedProperty as any).originalCurrency || selectedProperty.currency || 'NGN';
     const amount = units * originalUnitPrice;
 
@@ -953,14 +957,12 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                   Array.isArray((selectedProperty as any)?.unitTypes) ? (selectedProperty as any).unitTypes : [];
                 const chosen = investmentForm.unitTypeLabel
                   ? cfg.find(t => String(t.label) === investmentForm.unitTypeLabel)
-                  : null;
-                const unitPrice = chosen
-                  ? Number(chosen.price)
-                  : (selectedProperty?.unitPrice || selectedProperty?.minInvestment || 30000);
+                  : cfg.length === 1 ? cfg[0] : null;
+                const unitPrice = selectedProperty ? purchaseUnitPrice(selectedProperty, chosen) : 0;
                 return (
                   <div className="mt-2 p-3 bg-slate-50 rounded-lg">
                     <p className="text-sm text-slate-600">
-                      Price per Unit: {formatCurrency(unitPrice)}
+                      Purchase Price per Unit: {formatCurrency(unitPrice)}
                     </p>
                     <p className="text-base font-semibold text-slate-900 mt-1">
                       Total: {formatCurrency(parseFloat(investmentForm.units || "0") * unitPrice)}
