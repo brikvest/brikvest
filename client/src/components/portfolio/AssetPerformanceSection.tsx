@@ -57,8 +57,8 @@ export function AssetPerformanceSection({
               Performance by asset
             </CardTitle>
             <CardDescription className="mt-1 max-w-2xl leading-relaxed">
-              Review Land Valuation for the whole selected property and
-              Current Value for your own holdings in it.
+              Review Land Valuation and Current Value for your own units
+              in the selected property.
             </CardDescription>
           </div>
 

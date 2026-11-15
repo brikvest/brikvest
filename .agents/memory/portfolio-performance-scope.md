@@ -11,10 +11,24 @@ the same property belong together.
 **Why:** The user explicitly requested individual asset graphs in addition to,
 not instead of, the overall portfolio graphs.
 
-**How to apply:** Label whole-property land performance separately from the
-investor's own holdings. Scope both series to the selected property without
+**How to apply:** Scope both series to the selected property without
 reclassifying payments, fees, historical investment basis or legal evidence.
 Use saved valuation history, not invented appreciation or a new valuation.
+
+Land Valuation must show only the user's owned share, in both overall and
+individual-property graphs: recorded raw land value × owned units / total
+property units. It must not show the entire property's value.
+
+**Why:** The user explicitly corrected the previous whole-land graph and asked
+for a small info button explaining Land Valuation versus Current Value.
+
+**How to apply:** Group confirmed purchases by property; include a purchase
+only from its date onward; use total slots for legacy slot properties and
+total units otherwise. Convert from each property's currency before summing.
+Missing ownership totals or valuation evidence are unavailable, not a full-land
+fallback or a fabricated zero. Preserve the independent Current Value formula;
+explain that it adjusts purchase basis using investor-basis valuation changes
+and is not a guaranteed selling price.
 
 Show both current portfolio value and amount invested at the top of the
 portfolio page, as distinct totals.

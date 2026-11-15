@@ -26,7 +26,8 @@ import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
 import { portfolioLandAmount, summarizeLandPortfolio } from "@shared/holding-costs";
 import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
 import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards";
-import { holdingValueAtDate, propertyValuationQuery } from "@/lib/portfolio-performance";
+import { PortfolioValuationInfo } from "@/components/portfolio/PortfolioValuationInfo";
+import { holdingValueAtDate, ownedLandValuationSeries, propertyValuationQuery } from "@/lib/portfolio-performance";
 import { FlutterwaveActivity, FlutterwaveReservationPanel, getFlutterwaveReservation, useFlutterwaveReservation, primaryGatewayAttempt, gatewayBlocksPayment } from "@/components/payments/flutterwave";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast, showValuationReport = true }: {
@@ -52,41 +53,18 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     valuationsByProperty[pid] = valuationQueries[idx]?.data || [];
   });
 
-  const landAppreciationData = (() => {
-    const allDates = new Set<string>();
-    Object.values(valuationsByProperty).forEach(vals => {
-      vals.forEach(v => {
-        allDates.add(new Date(v.valuationDate).toISOString().split('T')[0]);
-      });
-    });
-    const sortedDates = Array.from(allDates).sort();
-    if (sortedDates.length === 0) return [];
-
-    return sortedDates.map(dateStr => {
-      let totalValue = 0;
-      let count = 0;
-      investedPropertyIds.forEach(pid => {
-        const vals = valuationsByProperty[pid] || [];
-        const applicable = vals.filter(v => new Date(v.valuationDate).toISOString().split('T')[0] <= dateStr);
-        if (applicable.length > 0) {
-          const latest = applicable[applicable.length - 1];
-          totalValue += Number(latest.rawAssetValue || latest.currentValue);
-          count++;
-        }
-      });
-      return {
-        date: new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        value: totalValue,
-        properties: count,
-      };
-    });
-  })();
+  const landAppreciationData = ownedLandValuationSeries(confirmedInvestments, valuationsByProperty, convertAmount)
+    .map(point => ({
+      ...point,
+      date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+    }));
+  const latestLandValue = landAppreciationData.at(-1)?.value;
 
   const latestAppreciation = (() => {
     if (landAppreciationData.length < 2) return null;
     const first = landAppreciationData[0].value;
     const last = landAppreciationData[landAppreciationData.length - 1].value;
-    if (first === 0) return null;
+    if (first == null || last == null || first === 0) return null;
     return ((last - first) / first * 100).toFixed(1);
   })();
 
@@ -197,15 +175,16 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     <>
       {/* Land Appreciation Graph */}
       {landAppreciationData.length > 0 && (
-        <Card className="mb-6 sm:mb-8 shadow-lg">
+        <Card className="mb-6 sm:mb-8 shadow-lg" data-testid="owned-land-valuation-chart">
           <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-green-600" />
                   Land Valuation
+                  <PortfolioValuationInfo metric="land" />
                 </CardTitle>
-                <p className="text-sm text-slate-600 mt-1">Property value trends based on official valuations</p>
+                <p className="text-sm text-slate-600 mt-1">The land-only value of your owned units, based on recorded valuations</p>
               </div>
               {latestAppreciation && (
                 <Badge variant="outline" className={`${Number(latestAppreciation) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
@@ -215,6 +194,14 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
             </div>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
+            {landAppreciationData.some(point => point.value == null) && (
+              <p className="mb-3 text-sm text-slate-600" role="status">Some land valuations are unavailable because valuation records or valid ownership totals are missing.</p>
+            )}
+            {latestLandValue != null && (
+              <p className="mb-3 text-sm font-medium text-slate-700" data-testid="owned-land-valuation-latest">
+                Latest land valuation: {formatCurrency(latestLandValue)}
+              </p>
+            )}
             <div className="h-64 sm:h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={landAppreciationData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -226,10 +213,10 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `₦${(v / 1000000).toFixed(0)}M`} />
+                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `${formatCurrency(v / 1000)}k`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Property Value']}
+                    formatter={(value: any) => [formatCurrency(Number(value)), 'Your Land Valuation']}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
                   <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-land)`} />
@@ -273,11 +260,12 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
       {investmentPerformanceData.length > 0 && (
         <Card className="mb-6 sm:mb-8 shadow-lg">
           <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-blue-600" />
                   Current Value
+                  <PortfolioValuationInfo metric="current" />
                 </CardTitle>
                 <p className="text-sm text-slate-600 mt-1">Your holdings’ value over time based on property valuations</p>
               </div>

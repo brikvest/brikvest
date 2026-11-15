@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import { ownedLandValueAtDate, ownedLandValuationSeries } from "../client/src/lib/portfolio-performance";
+
+const holding = (propertyId = 33, units = "3", totalSlots = 50) => ({
+  propertyId, units, status: "converted_to_investment",
+  createdAt: new Date("2025-10-15T12:00:00Z"),
+  property: { totalSlots, totalUnits: 0, currency: "NGN" },
+});
+const valuation = (date: string, raw: string | null, currentValue = "99999999") => ({
+  valuationDate: new Date(date), rawAssetValue: raw, currentValue,
+});
+const values = {
+  33: [valuation("2026-10-19", "18000000"), valuation("2025-10-01", "12500000")],
+  34: [valuation("2025-10-01", "10000000"), valuation("2026-10-19", "15000000")],
+};
+const identity = (value: number) => value;
+const asOf = "2026-10-19";
+
+describe("owned-unit land valuations", () => {
+  it("values only 3 of 50 units, using raw land rather than investor or listed values", () => {
+    expect(ownedLandValueAtDate([holding()], values, asOf, identity)).toBe(1080000);
+  });
+  it("combines multiple purchases without counting the whole property repeatedly", () => {
+    expect(ownedLandValueAtDate([holding(33, "2"), holding(33, "1")], values, asOf, identity)).toBe(1080000);
+  });
+  it("aggregates the owned fractions across properties", () => {
+    expect(ownedLandValueAtDate([holding(), holding(34, "4", 100)], values, asOf, identity)).toBe(1680000);
+  });
+  it("scopes dates to ownership, carries forward the latest applicable valuation and sorts input safely", () => {
+    const series = ownedLandValuationSeries([holding()], values, identity);
+    expect(series).toEqual([
+      { date: "2025-10-15", value: 750000 },
+      { date: "2026-10-19", value: 1080000 },
+    ]);
+    expect(values[33][0].rawAssetValue).toBe("18000000");
+    expect(ownedLandValueAtDate([holding()], values, "2025-10-01", identity)).toBe(0);
+  });
+  it("adds later purchases only on their purchase date", () => {
+    const later = { ...holding(33, "1"), createdAt: new Date("2026-01-10") };
+    expect(ownedLandValueAtDate([holding(33, "2"), later], values, "2025-11-01", identity)).toBe(500000);
+    expect(ownedLandValuationSeries([holding(33, "2"), later], values, identity)[1])
+      .toEqual({ date: "2026-01-10", value: 750000 });
+  });
+  it("excludes pending, cancelled and expired reservations", () => {
+    for (const status of ["reserved", "payment_pending", "cancelled", "expired"]) {
+      expect(ownedLandValueAtDate([holding(), { ...holding(33, "10"), status }], values, asOf, identity)).toBe(1080000);
+    }
+  });
+  it("converts each property's proportional value from its own currency", () => {
+    const calls: string[] = [];
+    const result = ownedLandValueAtDate([holding(), { ...holding(34, "4", 100), property: { totalSlots: 100, totalUnits: 0, currency: "USD" } }],
+      values, asOf, (amount, currency) => { calls.push(currency); return currency === "USD" ? amount * 1500 : amount; });
+    expect(result).toBe(901080000);
+    expect(calls).toEqual(["NGN", "USD"]);
+  });
+  it("uses totalUnits only when the legacy totalSlots is not configured", () => {
+    expect(ownedLandValueAtDate([{ ...holding(), property: { totalSlots: 0, totalUnits: 50, currency: "NGN" } }], values, asOf, identity)).toBe(1080000);
+  });
+  it("supports fractional ownership", () => {
+    expect(ownedLandValueAtDate([holding(33, "0.5")], values, asOf, identity)).toBe(180000);
+  });
+  it("does not substitute a whole-property or zero value when ownership totals are invalid", () => {
+    for (const total of [0, -1, NaN, 2]) {
+      expect(ownedLandValueAtDate([holding(33, "3", total)], values, asOf, identity)).toBeNull();
+    }
+    expect(ownedLandValueAtDate([holding(33, "30"), holding(33, "30")], values, asOf, identity)).toBeNull();
+  });
+  it("does not silently omit an owned property with missing valuations", () => {
+    expect(ownedLandValueAtDate([holding(), holding(34, "4", 100)], { 33: values[33] }, asOf, identity)).toBeNull();
+  });
+  it("preserves true zero valuations, supports legacy missing raw value and rejects malformed values", () => {
+    expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, "0")]}, asOf, identity)).toBe(0);
+    expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, null, "18000000")]}, asOf, identity)).toBe(1080000);
+    for (const raw of ["", "NaN", "-1"]) {
+      expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, raw)]}, asOf, identity)).toBeNull();
+    }
+  });
+  it("does not expose valuations for an unowned property", () => {
+    expect(ownedLandValuationSeries([], values, identity)).toEqual([]);
+    expect(ownedLandValuationSeries([holding()], { ...values, 99: [valuation("2027-01-01", "1")] }, identity)).toHaveLength(2);
+  });
+});

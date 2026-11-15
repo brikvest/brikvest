@@ -78,13 +78,35 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await expect(charts.getByRole("button", { name: "View Valuation Report" })).toBeVisible();
   await expect(overall).toContainText("1,375,000");
   await expect(overall).toContainText("1,770,000");
-  await expect(overall).toContainText("+46.7% overall");
+  await expect(overall).toContainText("+46.1% overall");
+  await expect(overall.getByTestId("owned-land-valuation-latest")).toContainText("1,680,000");
   await expect(assets.getByRole("heading", { name: "Gilmore Yard", exact: true })).toBeVisible();
   await expect(charts).toContainText("Land Valuation");
   await expect(charts).toContainText("Current Value");
   await expect(charts).toContainText("975,000");
   await expect(charts).toContainText("1,170,000");
   await expect(charts).toContainText("+44.0% overall");
+  await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("1,080,000");
+  const landInfo = charts.getByRole("button", { name: "About Land Valuation" });
+  await landInfo.click();
+  const info = page.getByRole("dialog");
+  await expect(info).toContainText("your owned units");
+  await expect(info).toContainText("Acquisition fees are excluded");
+  await expect(info).toContainText("investor-basis property valuations since purchase");
+  await expect(info).toContainText("Neither is a guaranteed selling price");
+  await info.screenshot({ path: test.info().outputPath("valuation-info.png") });
+  const infoBounds = await info.boundingBox();
+  expect(infoBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(infoBounds!.x + infoBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.keyboard.press("Escape");
+  await expect(info).toHaveCount(0);
+  await expect(landInfo).toBeFocused();
+  const currentInfo = charts.getByRole("button", { name: "About Current Value" });
+  await currentInfo.focus();
+  await page.keyboard.press("Enter");
+  await expect(info).toContainText("recorded purchase basis");
+  await page.keyboard.press("Escape");
+  await expect(currentInfo).toBeFocused();
   await expect(charts).not.toContainText("400,000");
   await expect(charts.locator(".recharts-responsive-container")).toHaveCount(2);
   const select = assets.getByRole("combobox", { name: "Choose an asset" });
@@ -97,6 +119,7 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await expect(charts).toContainText("400,000");
   await expect(charts).toContainText("600,000");
   await expect(charts).toContainText("+50.0% overall");
+  await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("600,000");
   await expect(charts).not.toContainText("975,000");
   await expect(overall).toContainText("1,770,000");
   await expect(charts.locator("svg.recharts-surface")).toHaveCount(2);
@@ -120,6 +143,9 @@ test("overall graphs remain while each asset has isolated land and investor perf
   expect(summaryBoxes.every(box => box.textFits)).toBe(true);
   const gradients = await page.locator("linearGradient").evaluateAll(elements => elements.map(element => element.id));
   expect(new Set(gradients).size).toBe(gradients.length);
+  // Capture the graphs before opening a report tab changes browser focus.
+  await charts.scrollIntoViewIfNeeded();
+  await charts.screenshot({ path: test.info().outputPath("owned-land-and-current.png") });
   const popup = page.waitForEvent("popup");
   await charts.getByRole("button", { name: "View Valuation Report" }).click();
   const reportTab = await popup;
@@ -154,6 +180,20 @@ test("summary never substitutes zero for loading or failed valuations", async ({
   await page.unroute("**/api/properties/33/valuations");
   await current.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(current).toContainText("1,770,000");
+  expect(state.writes).toEqual([]);
+});
+
+test("missing ownership totals do not turn land valuation into the entire land or a fake zero", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings.forEach(holding => { holding.property.totalSlots = 0; });
+  await page.goto("/dashboard");
+  const overall = page.getByTestId("overall-portfolio-performance");
+  const land = overall.getByTestId("owned-land-valuation-chart");
+  await expect(land.getByRole("status")).toContainText("valid ownership totals are missing");
+  await expect(land.getByTestId("owned-land-valuation-latest")).toHaveCount(0);
+  await expect(land).not.toContainText("33,000,000");
+  await expect(land).not.toContainText("Latest land valuation: ₦0.00");
+  await expect(page.getByTestId("card-current-value")).toContainText("1,770,000");
   expect(state.writes).toEqual([]);
 });
 
