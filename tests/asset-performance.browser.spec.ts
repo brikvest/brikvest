@@ -14,7 +14,7 @@ async function fixtures(page: Page) {
     holdings: [
       holding(1, first, "2", "650000"),
       holding(2, first, "1", "325000"),
-      holding(3, second, "4", "400000"),
+      { ...holding(3, second, "4", "460000"), landPrincipalAmount: "400000" },
       holding(4, { ...first, id: 99, name: "Pending property" }, "1", "325000", "reserved"),
     ],
     valuations: {
@@ -58,13 +58,14 @@ async function fixtures(page: Page) {
   return state;
 }
 
-test("overall graphs remain while each asset has isolated land and investor performance", async ({ page }) => {
+test("overall and each asset use one owned-land graph with a fee-inclusive horizontal purchase line", async ({ page }) => {
   const state = await fixtures(page);
   await page.goto("/dashboard");
   await expect(page.getByTestId("card-current-value")).toContainText("Current Portfolio Value");
   await expect(page.getByTestId("card-current-value")).toContainText("1,770,000");
   await expect(page.getByTestId("card-total-invested")).toContainText("Purchase Amount");
-  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,435,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("includes fees");
   for (const card of ["card-current-value", "card-total-invested"]) {
     const value = page.getByTestId(card).locator("p").nth(1);
     expect(await value.evaluate(element =>
@@ -76,24 +77,23 @@ test("overall graphs remain while each asset has isolated land and investor perf
   const charts = assets.getByTestId("asset-performance-charts");
   await expect(overall.getByRole("button", { name: "View Valuation Report" })).toHaveCount(0);
   await expect(charts.getByRole("button", { name: "View Valuation Report" })).toBeVisible();
-  await expect(overall).toContainText("1,375,000");
-  await expect(overall).toContainText("1,770,000");
+  await expect(overall).toContainText("1,435,000");
   await expect(overall).toContainText("+46.1% overall");
   await expect(overall.getByTestId("owned-land-valuation-latest")).toContainText("1,680,000");
   await expect(assets.getByRole("heading", { name: "Gilmore Yard", exact: true })).toBeVisible();
   await expect(charts).toContainText("Land Valuation");
-  await expect(charts).toContainText("Current Value");
+  await expect(charts.getByRole("heading", { name: "Current Value", exact: true })).toHaveCount(0);
   await expect(charts).toContainText("975,000");
-  await expect(charts).toContainText("1,170,000");
+  await expect(charts.getByTestId("purchase-amount-reference")).toContainText("975,000");
   await expect(charts).toContainText("+44.0% overall");
   await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("1,080,000");
   const landInfo = charts.getByRole("button", { name: "About Land Valuation" });
   await landInfo.click();
   const info = page.getByRole("dialog");
   await expect(info).toContainText("your owned units");
-  await expect(info).toContainText("Acquisition fees are excluded");
-  await expect(info).toContainText("investor-basis property valuations since purchase");
-  await expect(info).toContainText("Neither is a guaranteed selling price");
+  await expect(info).toContainText("excluding any fees");
+  await expect(info).toContainText("including fees");
+  await expect(info).not.toContainText("investor-basis");
   await info.screenshot({ path: test.info().outputPath("valuation-info.png") });
   const infoBounds = await info.boundingBox();
   expect(infoBounds!.x).toBeGreaterThanOrEqual(0);
@@ -101,14 +101,14 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await page.keyboard.press("Escape");
   await expect(info).toHaveCount(0);
   await expect(landInfo).toBeFocused();
-  const currentInfo = charts.getByRole("button", { name: "About Current Value" });
-  await currentInfo.focus();
+  const purchaseInfo = charts.getByRole("button", { name: "About Purchase Amount" });
+  await purchaseInfo.focus();
   await page.keyboard.press("Enter");
-  await expect(info).toContainText("recorded purchase basis");
+  await expect(info).toContainText("including fees");
   await page.keyboard.press("Escape");
-  await expect(currentInfo).toBeFocused();
+  await expect(purchaseInfo).toBeFocused();
   await expect(charts).not.toContainText("400,000");
-  await expect(charts.locator(".recharts-responsive-container")).toHaveCount(2);
+  await expect(charts.locator(".recharts-responsive-container")).toHaveCount(1);
   const select = assets.getByRole("combobox", { name: "Choose an asset" });
   await select.click();
   // Multiple purchases of one property produce one asset; pending holdings are excluded.
@@ -116,36 +116,28 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await expect(page.getByRole("option", { name: "Pending property" })).toHaveCount(0);
   await page.getByRole("option", { name: "Lily Crest Gardens", exact: true }).click();
   await expect(assets.getByRole("heading", { name: "Lily Crest Gardens", exact: true })).toBeVisible();
-  await expect(charts).toContainText("400,000");
+  await expect(charts.getByTestId("purchase-amount-reference")).toContainText("460,000");
   await expect(charts).toContainText("600,000");
   await expect(charts).toContainText("+50.0% overall");
   await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("600,000");
   await expect(charts).not.toContainText("975,000");
-  await expect(overall).toContainText("1,770,000");
-  await expect(charts.locator("svg.recharts-surface")).toHaveCount(2);
-  await expect(charts.locator(".recharts-area-curve")).toHaveCount(3);
+  await expect(overall).toContainText("1,435,000");
+  await expect(charts.locator("svg.recharts-surface")).toHaveCount(1);
+  await expect(charts.locator(".recharts-area-curve")).toHaveCount(1);
+  await expect(charts.locator(".recharts-line-curve")).toHaveCount(1);
+  const purchasePath = await charts.locator(".recharts-line-curve").getAttribute("d");
+  const referenceYs = Array.from(purchasePath!.matchAll(/[ML]-?[\d.]+,(-?[\d.]+)/g), match => Number(match[1]));
+  expect(referenceYs.length).toBeGreaterThanOrEqual(2);
+  expect(new Set(referenceYs).size).toBe(1);
   for (const surface of await charts.locator("svg.recharts-surface").all()) {
     await expect(surface).toBeVisible();
     expect(await surface.locator(".recharts-cartesian-axis-tick").count()).toBeGreaterThan(0);
   }
-  const summary = charts.getByText("Purchase Amount", { exact: true }).locator("..").locator("..");
-  const summaryBoxes = await summary.locator(":scope > div").evaluateAll(elements =>
-    elements.map(element => {
-      const rect = element.getBoundingClientRect();
-      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
-        textFits: element.scrollWidth <= element.clientWidth };
-    }));
-  expect(summaryBoxes).toHaveLength(3);
-  for (let index = 1; index < summaryBoxes.length; index++) {
-    const previous = summaryBoxes[index - 1], current = summaryBoxes[index];
-    expect(current.left >= previous.right || current.top >= previous.bottom).toBe(true);
-  }
-  expect(summaryBoxes.every(box => box.textFits)).toBe(true);
   const gradients = await page.locator("linearGradient").evaluateAll(elements => elements.map(element => element.id));
   expect(new Set(gradients).size).toBe(gradients.length);
   // Capture the graphs before opening a report tab changes browser focus.
   await charts.scrollIntoViewIfNeeded();
-  await charts.screenshot({ path: test.info().outputPath("owned-land-and-current.png") });
+  await charts.screenshot({ path: test.info().outputPath("owned-land-and-purchase.png") });
   const popup = page.waitForEvent("popup");
   await charts.getByRole("button", { name: "View Valuation Report" }).click();
   const reportTab = await popup;
@@ -173,7 +165,7 @@ test("summary never substitutes zero for loading or failed valuations", async ({
   const current = page.getByTestId("card-current-value");
   await expect(current).toContainText("Loading…");
   await expect(current).not.toContainText("₦0.00");
-  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,435,000");
   release();
   await expect(current).toContainText("Value unavailable");
   await expect(current).not.toContainText("₦0.00");
@@ -197,12 +189,53 @@ test("missing ownership totals do not turn land valuation into the entire land o
   expect(state.writes).toEqual([]);
 });
 
+test("missing raw land valuations never use a fee-inclusive value as land", async ({ page }) => {
+  const state = await fixtures(page);
+  for (const valuations of Object.values(state.valuations)) {
+    valuations.forEach(valuation => { valuation.rawAssetValue = null; valuation.currentValue = "99999999"; });
+  }
+  await page.goto("/dashboard");
+  const overall = page.getByTestId("overall-portfolio-performance");
+  await expect(overall.getByTestId("owned-land-valuation-latest")).toHaveCount(0);
+  await expect(overall.getByTestId("purchase-amount-reference")).toContainText("1,435,000");
+  await expect(overall).not.toContainText("99,999,999");
+  expect(state.writes).toEqual([]);
+});
+
+test("invalid acquisition payments are unavailable rather than a zero purchase line", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings[0].amount = "";
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("card-total-invested")).toContainText("Value unavailable");
+  const charts = page.getByTestId("asset-performance-charts");
+  await expect(charts.getByTestId("purchase-amount-reference")).toContainText("unavailable");
+  await expect(charts.locator(".recharts-line-curve")).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+});
+
+test("a single valuation still shows a horizontal purchase reference without inventing history", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings = state.holdings.filter(holding => holding.propertyId === 33);
+  state.holdings.forEach(holding => { holding.createdAt = "2025-10-01T12:00:00Z"; });
+  state.valuations[33] = [state.valuations[33][0]];
+  await page.goto("/dashboard");
+  const chart = page.getByTestId("asset-performance-charts");
+  await expect(chart.locator(".recharts-responsive-container")).toHaveCount(1);
+  const reference = chart.locator(".recharts-reference-line-line");
+  await expect(reference).toHaveCount(1);
+  const y1 = await reference.getAttribute("y1");
+  expect(y1).not.toBeNull();
+  expect(await reference.getAttribute("y2")).toBe(y1);
+  await expect(chart.getByTestId("purchase-amount-reference")).toContainText("975,000");
+  expect(state.writes).toEqual([]);
+});
+
 test("summary uses invested basis without valuations and shows genuine empty totals", async ({ page }) => {
   const state = await fixtures(page);
   state.valuations = {};
   await page.goto("/dashboard");
   await expect(page.getByTestId("card-current-value")).toContainText("1,375,000");
-  await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
+  await expect(page.getByTestId("card-total-invested")).toContainText("1,435,000");
   state.holdings = [];
   await page.reload();
   await expect(page.getByTestId("card-current-value")).toContainText("₦0.00");
@@ -225,7 +258,7 @@ test("assets without valuations show an honest empty state and keyboard selectio
   await expect(assets.locator(".recharts-responsive-container")).toHaveCount(0);
   await select.click();
   await page.getByRole("option", { name: "Gilmore Yard", exact: true }).click();
-  await expect(assets).toContainText("1,170,000");
+  await expect(assets).toContainText("1,080,000");
   expect(state.writes).toEqual([]);
 });
 
@@ -238,7 +271,7 @@ test("a valuation request failure is not shown as zero and can be retried", asyn
   await expect(assets).not.toContainText("No confirmed investments");
   state.failProperty = null;
   await assets.getByRole("button", { name: "Retry performance data" }).click();
-  await expect(assets).toContainText("1,170,000");
+  await expect(assets).toContainText("1,080,000");
   await expect(assets.getByRole("alert")).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });

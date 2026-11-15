@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/popover";
 
 type PortfolioValuationInfoProps = {
-  metric: "land" | "current";
+  metric: "land" | "purchase";
 };
 
 const valuationCopy = {
@@ -16,13 +16,13 @@ const valuationCopy = {
     trigger: "About Land Valuation",
     heading: "Land Valuation",
     definition:
-      "The latest recorded raw land valuation, multiplied by your owned units and divided by the property's total units. Acquisition fees are excluded.",
+      "The recorded raw cost or value of the land, excluding any fees. It shows only your owned shares: the property-wide land amount is scaled by your owned units over the property's total units.",
   },
-  current: {
-    trigger: "About Current Value",
-    heading: "Current Value",
+  purchase: {
+    trigger: "About Purchase Amount",
+    heading: "Purchase Amount",
     definition:
-      "Your recorded purchase basis, adjusted by the change in investor-basis property valuations since purchase.",
+      "The full recorded purchase price for your confirmed, currently owned units, including fees. For multiple purchases, the amounts are combined.",
   },
 } as const;
 
@@ -62,18 +62,18 @@ export function PortfolioValuationInfo({
         </div>
         <div className="space-y-1 border-t border-border pt-3">
           <h3 className="text-sm font-semibold leading-5 text-popover-foreground">
-            {metric === "land" ? "Current Value" : "Land Valuation"}
+            {metric === "land" ? "Purchase Amount" : "Land Valuation"}
           </h3>
           <p className="text-sm leading-5 text-muted-foreground">
             {metric === "land"
-              ? valuationCopy.current.definition
+              ? valuationCopy.purchase.definition
               : valuationCopy.land.definition}
           </p>
         </div>
         <p className="border-t border-border pt-3 text-xs leading-4 text-muted-foreground">
-          They can differ because raw-land and investor-basis valuations use
-          different starting values and cost assumptions. Neither is a
-          guaranteed selling price.
+          The straight Purchase Amount line is the total paid for your currently
+          owned units, including fees, held fixed across the graph for comparison.
+          Land Valuation is not a guaranteed selling price.
         </p>
       </PopoverContent>
     </Popover>

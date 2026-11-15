@@ -1,5 +1,6 @@
 import type { InvestmentReservation, Property, PropertyValuation } from "@shared/schema";
 import { portfolioLandAmount } from "@shared/holding-costs";
+import Decimal from "decimal.js";
 
 type Holding = InvestmentReservation & { property?: Property };
 
@@ -8,6 +9,25 @@ type LandHolding = Pick<InvestmentReservation, "propertyId" | "units" | "created
 };
 type LandValuation = Pick<PropertyValuation, "valuationDate" | "rawAssetValue" | "currentValue">;
 const dayKey = (value: string | Date) => new Date(value).toISOString().slice(0, 10);
+
+/** Actual acquisition payments INCLUDING fees; never substitute land-only principal. */
+export function confirmedPurchaseAmount(
+  holdings: Pick<InvestmentReservation, "status" | "amount" | "currency">[],
+  convertAmount: (amount: number, currency: string) => number,
+): number | null {
+  try {
+    let total = new Decimal(0);
+    for (const holding of holdings) {
+      if (holding.status !== "converted_to_investment") continue;
+      const paid = new Decimal(holding.amount);
+      if (!paid.isFinite() || !paid.gt(0)) return null;
+      const converted = convertAmount(paid.toNumber(), holding.currency || "NGN");
+      if (!Number.isFinite(converted) || converted < 0) return null;
+      total = total.plus(converted);
+    }
+    return total.isFinite() ? total.toNumber() : null;
+  } catch { return null; }
+}
 
 /** Whole-property raw land valuation multiplied by the user's actual unit share. */
 export function ownedLandValueAtDate(
@@ -35,8 +55,8 @@ export function ownedLandValueAtDate(
       .filter(value => dayKey(value.valuationDate) <= date)
       .sort((a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime()).at(-1);
     if (!latest) return null;
-    // Legacy valuations without a raw-land field used currentValue.
-    const rawInput = latest.rawAssetValue ?? latest.currentValue;
+    // A generic reference/investor value is not evidence of a fee-exclusive land valuation.
+    const rawInput = latest.rawAssetValue;
     if (rawInput == null || rawInput === "") return null;
     const raw = Number(rawInput);
     if (!Number.isFinite(raw) || raw < 0) return null;

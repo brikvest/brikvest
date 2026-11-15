@@ -4,7 +4,7 @@ import { DollarSign, ShieldCheck } from "lucide-react";
 
 interface PortfolioValueCardsProps {
   currentValue: number | null;
-  invested: number;
+  invested: number | null;
   isLoading: boolean;
   isError: boolean;
   investedLoading: boolean;
@@ -37,7 +37,7 @@ export function PortfolioValueCards({
 
   const investedContent = investedLoading
     ? "Loading…"
-    : investedError
+    : investedError || invested === null
       ? "Value unavailable"
       : formatCurrency(invested);
 
@@ -108,11 +108,8 @@ export function PortfolioValueCards({
                 {investedContent}
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Land cost only · acquisition fees excluded
+                Total purchase price · includes fees
               </p>
-              {unclassifiedCount > 0 && (
-                <p className="mt-1 text-xs text-slate-500">{excludedMessage}</p>
-              )}
               {investedError && (
                 <Button
                   type="button"

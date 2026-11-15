@@ -57,8 +57,8 @@ export function AssetPerformanceSection({
               Performance by asset
             </CardTitle>
             <CardDescription className="mt-1 max-w-2xl leading-relaxed">
-              Review Land Valuation and Current Value for your own units
-              in the selected property.
+              Compare the raw land value of your owned shares with the full
+              purchase amount, including fees, for the selected property.
             </CardDescription>
           </div>
 

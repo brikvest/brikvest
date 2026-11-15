@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ownedLandValueAtDate, ownedLandValuationSeries } from "../client/src/lib/portfolio-performance";
+import { confirmedPurchaseAmount, ownedLandValueAtDate, ownedLandValuationSeries } from "../client/src/lib/portfolio-performance";
 
 const holding = (propertyId = 33, units = "3", totalSlots = 50) => ({
   propertyId, units, status: "converted_to_investment",
@@ -68,9 +68,9 @@ describe("owned-unit land valuations", () => {
   it("does not silently omit an owned property with missing valuations", () => {
     expect(ownedLandValueAtDate([holding(), holding(34, "4", 100)], { 33: values[33] }, asOf, identity)).toBeNull();
   });
-  it("preserves true zero valuations, supports legacy missing raw value and rejects malformed values", () => {
+  it("preserves true zero raw valuations but never substitutes a fee-inclusive reference value", () => {
     expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, "0")]}, asOf, identity)).toBe(0);
-    expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, null, "18000000")]}, asOf, identity)).toBe(1080000);
+    expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, null, "18000000")]}, asOf, identity)).toBeNull();
     for (const raw of ["", "NaN", "-1"]) {
       expect(ownedLandValueAtDate([holding()], {33: [valuation(asOf, raw)]}, asOf, identity)).toBeNull();
     }
@@ -78,5 +78,37 @@ describe("owned-unit land valuations", () => {
   it("does not expose valuations for an unowned property", () => {
     expect(ownedLandValuationSeries([], values, identity)).toEqual([]);
     expect(ownedLandValuationSeries([holding()], { ...values, 99: [valuation("2027-01-01", "1")] }, identity)).toHaveLength(2);
+  });
+});
+
+describe("fee-inclusive purchase reference", () => {
+  const purchase = (amount: string, currency = "NGN", status = "converted_to_investment") => ({amount, currency, status});
+  it("sums actual full purchase amounts across multiple confirmed purchases, including fees", () => {
+    expect(confirmedPurchaseAmount([purchase("650000"), purchase("325000"), purchase("460000")], identity)).toBe(1435000);
+  });
+  it("ignores reservations that have not become confirmed holdings", () => {
+    expect(confirmedPurchaseAmount([purchase("460000"), purchase("999999", "NGN", "reserved"), purchase("999999", "NGN", "expired")], identity)).toBe(460000);
+  });
+  it("converts each acquisition payment from its recorded currency", () => {
+    expect(confirmedPurchaseAmount([purchase("650000"), purchase("100", "USD")],
+      (amount, currency) => currency === "USD" ? amount * 1500 : amount)).toBe(800000);
+  });
+  it("keeps a constant reference across all dates even for purchases on different dates", () => {
+    const holdings = [
+      { ...holding(33, "2"), ...purchase("650000") },
+      { ...holding(33, "1"), ...purchase("325000"), createdAt: new Date("2026-01-10") },
+    ];
+    const amount = confirmedPurchaseAmount(holdings, identity);
+    const series = ownedLandValuationSeries(holdings, values, identity).map(point => ({...point, purchaseAmount: amount}));
+    expect(series.map(point => point.purchaseAmount)).toEqual([975000, 975000, 975000]);
+    expect(series.map(point => point.value)).toEqual([500000, 750000, 1080000]);
+  });
+  it("does not silently exclude invalid recorded amounts or invent a zero", () => {
+    for (const invalid of ["", "NaN", "-1", "0"]) {
+      expect(confirmedPurchaseAmount([purchase("100"), purchase(invalid)], identity)).toBeNull();
+    }
+    expect(confirmedPurchaseAmount([purchase("100")], () => NaN)).toBeNull();
+    expect(confirmedPurchaseAmount([], identity)).toBe(0);
+    expect(confirmedPurchaseAmount([purchase("0.10"), purchase("0.20")], identity)).toBe(0.3);
   });
 });

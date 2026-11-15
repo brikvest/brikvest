@@ -15,7 +15,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import brikvest_logo from "@/assets/brikvest-logo.png";
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { ComposedChart, Line, Area, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OwnershipCertificate as CertificateComponent, CertificateDownloadButton } from "@/components/OwnershipCertificate";
 import { CurrencySelector } from "@/components/CurrencySelector";
 import { Badge } from "@/components/ui/badge";
@@ -23,18 +23,17 @@ import { PropertyBrowsingContent } from "@/pages/home";
 import { MarketInsightsContent } from "@/pages/insights";
 import { getDashboardLoginUrl, getDashboardSection, getDashboardSectionUrl, type DashboardSection } from "@/lib/investorNavigation";
 import { InvestorLegalDocuments } from "@/components/legal/LegalDocuments";
-import { portfolioLandAmount, summarizeLandPortfolio } from "@shared/holding-costs";
+import { portfolioLandAmount } from "@shared/holding-costs";
 import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
 import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards";
 import { PortfolioValuationInfo } from "@/components/portfolio/PortfolioValuationInfo";
-import { holdingValueAtDate, ownedLandValuationSeries, propertyValuationQuery } from "@/lib/portfolio-performance";
+import { confirmedPurchaseAmount, holdingValueAtDate, ownedLandValuationSeries, propertyValuationQuery } from "@/lib/portfolio-performance";
 import { FlutterwaveActivity, FlutterwaveReservationPanel, getFlutterwaveReservation, useFlutterwaveReservation, primaryGatewayAttempt, gatewayBlocksPayment } from "@/components/payments/flutterwave";
 
-function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast, showValuationReport = true }: {
+function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, toast, showValuationReport = true }: {
   reservations: (InvestmentReservation & { property?: Property })[];
   formatCurrency: (v: number) => string;
   convertAmount: (amount: number, fromCurrency: string) => number;
-  totalInvested: number;
   toast: any;
   showValuationReport?: boolean;
 }) {
@@ -53,10 +52,14 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     valuationsByProperty[pid] = valuationQueries[idx]?.data || [];
   });
 
+  const purchaseAmount = confirmedInvestments.length > 0
+    ? confirmedPurchaseAmount(confirmedInvestments, convertAmount)
+    : null;
   const landAppreciationData = ownedLandValuationSeries(confirmedInvestments, valuationsByProperty, convertAmount)
     .map(point => ({
       ...point,
       date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      purchaseAmount,
     }));
   const latestLandValue = landAppreciationData.at(-1)?.value;
 
@@ -66,59 +69,6 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     const last = landAppreciationData[landAppreciationData.length - 1].value;
     if (first == null || last == null || first === 0) return null;
     return ((last - first) / first * 100).toFixed(1);
-  })();
-
-  const investmentPerformanceData = (() => {
-    const results: { date: string; initialValue: number; currentValue: number }[] = [];
-    const allDates = new Set<string>();
-
-    confirmedInvestments.forEach(inv => {
-      const invDate = new Date(inv.createdAt).toISOString().split('T')[0];
-      allDates.add(invDate);
-    });
-
-    Object.values(valuationsByProperty).forEach(vals => {
-      vals.forEach(v => allDates.add(new Date(v.valuationDate).toISOString().split('T')[0]));
-    });
-
-    const sortedDates = Array.from(allDates).sort();
-    if (sortedDates.length === 0) return [];
-
-    sortedDates.forEach(dateStr => {
-      let totalInitial = 0;
-      let totalCurrent = 0;
-
-      confirmedInvestments.forEach(inv => {
-        const invDate = new Date(inv.createdAt).toISOString().split('T')[0];
-        if (invDate > dateStr) return;
-
-        const landAmount = portfolioLandAmount(inv);
-        if (landAmount === null) return;
-        const invAmount = convertAmount(landAmount, inv.currency || "NGN");
-        totalInitial += invAmount;
-
-        totalCurrent += holdingValueAtDate(inv, valuationsByProperty[inv.propertyId] || [], dateStr, convertAmount);
-      });
-
-      results.push({
-        date: new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        initialValue: totalInitial,
-        currentValue: Math.round(totalCurrent),
-      });
-    });
-
-    return results;
-  })();
-
-  const latestPerformance = (() => {
-    if (investmentPerformanceData.length === 0) return null;
-    const latest = investmentPerformanceData[investmentPerformanceData.length - 1];
-    if (!latest || latest.initialValue === 0) return null;
-    return {
-      initial: latest.initialValue,
-      current: latest.currentValue,
-      returnPct: ((latest.currentValue - latest.initialValue) / latest.initialValue * 100).toFixed(2),
-    };
   })();
 
   const latestReportPropertyId = (() => {
@@ -159,13 +109,20 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
       <Card className="mb-6 sm:mb-8 shadow-lg">
         <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
           <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-blue-600" />
-            Current Value
+            <BarChart3 className="h-5 w-5 text-emerald-700" />
+            Land Valuation
+            <PortfolioValuationInfo metric="land" />
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6 text-center">
           <TrendingUp className="h-12 w-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-600">Performance data will appear here once property valuations are recorded.</p>
+          {purchaseAmount != null && (
+            <p className="mt-3 text-sm text-slate-600" data-testid="purchase-amount-reference">
+              Purchase Amount (including fees): <span className="font-semibold text-slate-800">{formatCurrency(purchaseAmount)}</span>
+              <PortfolioValuationInfo metric="purchase" />
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -173,18 +130,17 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
 
   return (
     <>
-      {/* Land Appreciation Graph */}
       {landAppreciationData.length > 0 && (
         <Card className="mb-6 sm:mb-8 shadow-lg" data-testid="owned-land-valuation-chart">
           <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-green-600" />
+                  <TrendingUp className="h-5 w-5 shrink-0 text-emerald-700" />
                   Land Valuation
                   <PortfolioValuationInfo metric="land" />
                 </CardTitle>
-                <p className="text-sm text-slate-600 mt-1">The land-only value of your owned units, based on recorded valuations</p>
+                <p className="text-sm text-slate-600 mt-1">Raw land value for your owned shares, excluding all fees.</p>
               </div>
               {latestAppreciation && (
                 <Badge variant="outline" className={`${Number(latestAppreciation) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
@@ -195,32 +151,80 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             {landAppreciationData.some(point => point.value == null) && (
-              <p className="mb-3 text-sm text-slate-600" role="status">Some land valuations are unavailable because valuation records or valid ownership totals are missing.</p>
+              <p className="mb-3 text-sm text-slate-600" role="status">Some land valuations are unavailable because fee-exclusive land values or valid ownership totals are missing.</p>
             )}
             {latestLandValue != null && (
               <p className="mb-3 text-sm font-medium text-slate-700" data-testid="owned-land-valuation-latest">
                 Latest land valuation: {formatCurrency(latestLandValue)}
               </p>
             )}
+            <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" aria-label="Chart legend">
+              <span className="inline-flex items-center gap-2 text-slate-700">
+                <span aria-hidden="true" className="h-0.5 w-5 bg-emerald-700" />
+                Land Valuation
+              </span>
+              {purchaseAmount != null ? (
+                <span className="inline-flex items-center gap-2 text-slate-700" data-testid="purchase-amount-reference">
+                  <span aria-hidden="true" className="w-5 border-t-2 border-dashed border-amber-700" />
+                  <span>Purchase Amount (including fees): <strong className="font-semibold">{formatCurrency(purchaseAmount)}</strong></span>
+                  <PortfolioValuationInfo metric="purchase" />
+                </span>
+              ) : (
+                <span className="text-slate-500" data-testid="purchase-amount-reference">Purchase Amount is unavailable because no valid confirmed purchase amount is recorded.</span>
+              )}
+            </div>
             <div className="h-64 sm:h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={landAppreciationData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <ComposedChart data={landAppreciationData} margin={{ top: 10, right: 10, left: 0, bottom: 0}}>
                   <defs>
                     <linearGradient id={`${gradientId}-land`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#16866a" stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor="#16866a" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `${formatCurrency(v / 1000)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '11px' }} tickMargin={8} />
+                  <YAxis
+                    stroke="#64748b"
+                    width={68}
+                    style={{ fontSize: '11px' }}
+                    tickFormatter={(v) => `${formatCurrency(v / 1000)}k`}
+                    domain={[0, (dataMax: number) => Math.max(dataMax, purchaseAmount ?? 0)]}
+                  />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: any) => [formatCurrency(Number(value)), 'Your Land Valuation']}
+                    contentStyle={{ backgroundColor: '#fffdf8', border: '1px solid #d9e4dd', borderRadius: '8px', boxShadow: '0 4px 12px rgba(30, 58, 49, 0.08)' }}
+                    formatter={(value: any, name: string) => [formatCurrency(Number(value)), name]}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
-                  <Area type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-land)`} />
-                </AreaChart>
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    name="Land Valuation (excluding fees)"
+                    stroke="#16866a"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill={`url(#${gradientId}-land)`}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                    dot={landAppreciationData.length === 1 ? { r: 4 } : false}
+                  />
+                  {purchaseAmount != null && (
+                    <Line
+                      type="linear"
+                      dataKey="purchaseAmount"
+                      name="Purchase Amount (including fees)"
+                      stroke="#a45b17"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {purchaseAmount != null && landAppreciationData.length === 1 && (
+                    <ReferenceLine y={purchaseAmount} stroke="#a45b17" strokeWidth={2} strokeDasharray="6 4" ifOverflow="extendDomain" />
+                  )}
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
             {showValuationReport && latestReportPropertyId && (
@@ -256,76 +260,6 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         </Card>
       )}
 
-      {/* Investment Performance Graph */}
-      {investmentPerformanceData.length > 0 && (
-        <Card className="mb-6 sm:mb-8 shadow-lg">
-          <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-blue-600" />
-                  Current Value
-                  <PortfolioValuationInfo metric="current" />
-                </CardTitle>
-                <p className="text-sm text-slate-600 mt-1">Your holdings’ value over time based on property valuations</p>
-              </div>
-              {latestPerformance && (
-                <Badge variant="outline" className={`${Number(latestPerformance.returnPct) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
-                  {Number(latestPerformance.returnPct) >= 0 ? '+' : ''}{latestPerformance.returnPct}% return
-                </Badge>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 sm:p-6">
-            <div className="h-64 sm:h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={investmentPerformanceData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id={`${gradientId}-initial`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id={`${gradientId}-current`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" stroke="#64748b" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `${formatCurrency(v / 1000)}k`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: any, name: string) => [formatCurrency(Number(value)), name === 'initialValue' ? 'Purchase Amount' : 'Current Value']}
-                    labelStyle={{ color: '#334155', fontWeight: 600 }}
-                  />
-                  <Area type="monotone" dataKey="initialValue" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill={`url(#${gradientId}-initial)`} />
-                  <Area type="monotone" dataKey="currentValue" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId}-current)`} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-            {latestPerformance && (
-              <div className="mt-4 grid grid-cols-1 gap-3 pt-4 border-t border-slate-200 sm:grid-cols-3 sm:gap-4">
-                <div>
-                  <p className="text-xs text-slate-600">Purchase Amount</p>
-                  <p className="text-lg font-bold text-slate-900">{formatCurrency(latestPerformance.initial)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-600">Current Value</p>
-                  <p className={`text-lg font-bold ${Number(latestPerformance.returnPct) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                    {formatCurrency(latestPerformance.current)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-600">Return</p>
-                  <p className={`text-lg font-bold ${Number(latestPerformance.returnPct) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                    {Number(latestPerformance.returnPct) >= 0 ? '+' : ''}{latestPerformance.returnPct}%
-                  </p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 }
@@ -579,7 +513,7 @@ export default function Portfolio() {
   });
   const summaryLoading = holdingsLoading || summaryValuations.some(query => query.isLoading);
   const summaryError = holdingsError || summaryValuations.some(query => query.isError);
-  // Match the final point in the overall investment-performance graph.
+  // Retain the existing current-value summary basis independently of the graph comparison.
   const summaryDates = [
     ...confirmedHoldings.map(r => new Date(r.createdAt).toISOString().split("T")[0]),
     ...summaryValuations.flatMap(query => (query.data || []).map(v =>
@@ -999,17 +933,8 @@ export default function Portfolio() {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   };
   
-  // Only count converted investments in total portfolio value
-  const totalInvested = reservations
-    .filter(res => res.status === 'converted_to_investment')
-    .reduce((sum, res) => {
-      // Portfolio principal is land only; recorded payment totals remain unchanged.
-      const reservationAmount = portfolioLandAmount(res);
-      if (reservationAmount === null) return sum;
-      const reservationCurrency = res.currency || 'NGN';
-      const convertedAmount = convertAmount(reservationAmount, reservationCurrency);
-      return sum + convertedAmount;
-    }, 0);
+  // Purchase Amount is the recorded acquisition price INCLUDING fees, not land principal.
+  const purchaseTotal = confirmedPurchaseAmount(reservations, convertAmount);
   const unclassifiedInvestments = reservations.filter(res =>
     res.status === "converted_to_investment" && portfolioLandAmount(res) === null).length;
   
@@ -1291,11 +1216,11 @@ export default function Portfolio() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <PortfolioValueCards
               currentValue={currentPortfolioValue}
-              invested={totalInvested}
+              invested={purchaseTotal}
               isLoading={summaryLoading}
               isError={summaryError}
               investedLoading={holdingsLoading}
-              investedError={holdingsError}
+              investedError={holdingsError || purchaseTotal === null}
               onRetry={retrySummary}
               isVerified={isKycVerified}
               unclassifiedCount={unclassifiedInvestments}
@@ -1561,7 +1486,6 @@ export default function Portfolio() {
                   reservations={reservations}
                   formatCurrency={formatCurrency}
                   convertAmount={convertAmount}
-                  totalInvested={totalInvested}
                   toast={toast}
                 />
               </section>
@@ -1574,7 +1498,6 @@ export default function Portfolio() {
                     reservations={assetHoldings}
                     formatCurrency={formatCurrency}
                     convertAmount={convertAmount}
-                    totalInvested={summarizeLandPortfolio(assetHoldings, convertAmount).totalPortfolioValue}
                     toast={toast}
                   />;
                 }}
