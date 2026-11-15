@@ -74,6 +74,8 @@ test("overall graphs remain while each asset has isolated land and investor perf
   const overall = page.getByRole("region", { name: "Overall portfolio performance" });
   const assets = page.getByRole("region", { name: "Performance by asset" });
   const charts = assets.getByTestId("asset-performance-charts");
+  await expect(overall.getByRole("button", { name: "View Valuation Report" })).toHaveCount(0);
+  await expect(charts.getByRole("button", { name: "View Valuation Report" })).toBeVisible();
   await expect(overall).toContainText("1,375,000");
   await expect(overall).toContainText("1,770,000");
   await expect(overall).toContainText("+46.7% overall");

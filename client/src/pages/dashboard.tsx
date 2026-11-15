@@ -29,12 +29,13 @@ import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards"
 import { holdingValueAtDate, propertyValuationQuery } from "@/lib/portfolio-performance";
 import { FlutterwaveActivity, FlutterwaveReservationPanel, getFlutterwaveReservation, useFlutterwaveReservation, primaryGatewayAttempt, gatewayBlocksPayment } from "@/components/payments/flutterwave";
 
-function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast }: {
+function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, totalInvested, toast, showValuationReport = true }: {
   reservations: (InvestmentReservation & { property?: Property })[];
   formatCurrency: (v: number) => string;
   convertAmount: (amount: number, fromCurrency: string) => number;
   totalInvested: number;
   toast: any;
+  showValuationReport?: boolean;
 }) {
   const gradientId = useId().replace(/:/g, "");
   const confirmedInvestments = reservations.filter(r => r.status === 'converted_to_investment');
@@ -235,7 +236,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            {latestReportPropertyId && (
+            {showValuationReport && latestReportPropertyId && (
               <div className="mt-4 pt-4 border-t border-slate-200">
                 <Button
                   variant="outline"
@@ -1568,6 +1569,7 @@ export default function Portfolio() {
               <section aria-label="Overall portfolio performance" data-testid="overall-portfolio-performance">
                 <h2 className="mb-4 text-lg font-semibold text-slate-900 sm:text-xl">Overall portfolio performance</h2>
                 <InvestmentPerformanceCharts
+                  showValuationReport={false}
                   reservations={reservations}
                   formatCurrency={formatCurrency}
                   convertAmount={convertAmount}

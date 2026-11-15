@@ -35,3 +35,12 @@ change.
 
 **How to apply:** Keep headings, explanatory text and chart tooltips consistent
 without changing the stored purchase basis or valuation formulas.
+
+Keep **View Valuation Report** on individual-property graphs only, not on the
+overall portfolio graphs.
+
+**Why:** The user explicitly requested removing the report action from overall
+portfolio performance; a property's report is not a combined portfolio report.
+
+**How to apply:** Preserve access to individual reports when changing the shared
+chart component, without adding a report action to the aggregate view.
