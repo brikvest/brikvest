@@ -181,7 +181,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
         <CardHeader className="border-b border-slate-200 p-4 sm:p-6">
           <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-blue-600" />
-            Investment Performance
+            Current Value
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6 text-center">
@@ -202,7 +202,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
               <div>
                 <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-green-600" />
-                  Land Appreciation
+                  Land Valuation
                 </CardTitle>
                 <p className="text-sm text-slate-600 mt-1">Property value trends based on official valuations</p>
               </div>
@@ -276,9 +276,9 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
               <div>
                 <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-blue-600" />
-                  Investment Performance
+                  Current Value
                 </CardTitle>
-                <p className="text-sm text-slate-600 mt-1">Your investment value over time based on property valuations</p>
+                <p className="text-sm text-slate-600 mt-1">Your holdings’ value over time based on property valuations</p>
               </div>
               {latestPerformance && (
                 <Badge variant="outline" className={`${Number(latestPerformance.returnPct) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
@@ -306,7 +306,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                   <YAxis stroke="#64748b" style={{ fontSize: '12px' }} tickFormatter={(v) => `${formatCurrency(v / 1000)}k`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: any, name: string) => [formatCurrency(Number(value)), name === 'initialValue' ? 'Land principal' : 'Current Value']}
+                    formatter={(value: any, name: string) => [formatCurrency(Number(value)), name === 'initialValue' ? 'Purchase Amount' : 'Current Value']}
                     labelStyle={{ color: '#334155', fontWeight: 600 }}
                   />
                   <Area type="monotone" dataKey="initialValue" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" fillOpacity={1} fill={`url(#${gradientId}-initial)`} />
@@ -317,7 +317,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
             {latestPerformance && (
               <div className="mt-4 grid grid-cols-1 gap-3 pt-4 border-t border-slate-200 sm:grid-cols-3 sm:gap-4">
                 <div>
-                  <p className="text-xs text-slate-600">Land principal</p>
+                  <p className="text-xs text-slate-600">Purchase Amount</p>
                   <p className="text-lg font-bold text-slate-900">{formatCurrency(latestPerformance.initial)}</p>
                 </div>
                 <div>

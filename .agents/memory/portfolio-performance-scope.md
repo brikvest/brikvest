@@ -24,3 +24,14 @@ single portfolio-value label did not distinguish principal from performance.
 
 **How to apply:** Keep the current-value summary consistent with the overall
 investor-performance graph and preserve the existing principal basis.
+
+Use the investor-facing labels **Purchase Amount**, **Land Valuation**, and
+**Current Value** instead of Amount Invested, Land Appreciation, and Investment
+Performance on the portfolio page, including each property's graphs.
+
+**Why:** The user explicitly requested these terms to avoid describing the
+holdings as investments. This was a wording request, not a financial calculation
+change.
+
+**How to apply:** Keep headings, explanatory text and chart tooltips consistent
+without changing the stored purchase basis or valuation formulas.

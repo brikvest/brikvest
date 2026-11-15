@@ -98,7 +98,7 @@ export function PortfolioValueCards({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-xs font-medium text-slate-600 sm:text-sm">
-                Amount Invested
+                Purchase Amount
               </p>
               <p
                 className={`break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl xl:text-3xl ${

@@ -63,7 +63,7 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await page.goto("/dashboard");
   await expect(page.getByTestId("card-current-value")).toContainText("Current Portfolio Value");
   await expect(page.getByTestId("card-current-value")).toContainText("1,770,000");
-  await expect(page.getByTestId("card-total-invested")).toContainText("Amount Invested");
+  await expect(page.getByTestId("card-total-invested")).toContainText("Purchase Amount");
   await expect(page.getByTestId("card-total-invested")).toContainText("1,375,000");
   for (const card of ["card-current-value", "card-total-invested"]) {
     const value = page.getByTestId(card).locator("p").nth(1);
@@ -78,8 +78,8 @@ test("overall graphs remain while each asset has isolated land and investor perf
   await expect(overall).toContainText("1,770,000");
   await expect(overall).toContainText("+46.7% overall");
   await expect(assets.getByRole("heading", { name: "Gilmore Yard", exact: true })).toBeVisible();
-  await expect(charts).toContainText("Land Appreciation");
-  await expect(charts).toContainText("Investment Performance");
+  await expect(charts).toContainText("Land Valuation");
+  await expect(charts).toContainText("Current Value");
   await expect(charts).toContainText("975,000");
   await expect(charts).toContainText("1,170,000");
   await expect(charts).toContainText("+44.0% overall");
@@ -103,7 +103,7 @@ test("overall graphs remain while each asset has isolated land and investor perf
     await expect(surface).toBeVisible();
     expect(await surface.locator(".recharts-cartesian-axis-tick").count()).toBeGreaterThan(0);
   }
-  const summary = charts.getByText("Land principal", { exact: true }).locator("..").locator("..");
+  const summary = charts.getByText("Purchase Amount", { exact: true }).locator("..").locator("..");
   const summaryBoxes = await summary.locator(":scope > div").evaluateAll(elements =>
     elements.map(element => {
       const rect = element.getBoundingClientRect();
