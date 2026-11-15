@@ -10,6 +10,61 @@ type LandHolding = Pick<InvestmentReservation, "propertyId" | "units" | "created
 type LandValuation = Pick<PropertyValuation, "valuationDate" | "rawAssetValue" | "currentValue">;
 const dayKey = (value: string | Date) => new Date(value).toISOString().slice(0, 10);
 
+export type OwnedLandGrowth = {
+  purchaseLandValue: number;
+  currentLandValue: number;
+  changeAmount: number;
+  changePercent: number;
+  firstPurchaseDate: string;
+  lastPurchaseDate: string;
+  latestValuationDate: string;
+};
+
+/** Compare the SAME currently owned shares against each purchase's raw-land entry valuation. */
+export function ownedLandGrowth(
+  holdings: LandHolding[],
+  valuationsByProperty: Record<number, LandValuation[]>,
+  convertAmount: (amount: number, currency: string) => number,
+): OwnedLandGrowth | null {
+  const confirmed = holdings.filter(holding => holding.status === "converted_to_investment");
+  if (!confirmed.length) return null;
+  const purchaseDates = confirmed.map(holding => dayKey(holding.createdAt)).sort();
+  const valuationDates = confirmed.flatMap(holding =>
+    (valuationsByProperty[holding.propertyId] || []).map(valuation => dayKey(valuation.valuationDate)));
+  const asOf = [...purchaseDates, ...valuationDates].sort().at(-1)!;
+  // Reuse ownership-total, missing-value and currency safeguards for current value.
+  const currentLandValue = ownedLandValueAtDate(confirmed, valuationsByProperty, asOf, convertAmount);
+  if (currentLandValue === null) return null;
+  let purchaseLandValue = new Decimal(0);
+  for (const holding of confirmed) {
+    const purchaseDate = dayKey(holding.createdAt);
+    const entry = [...(valuationsByProperty[holding.propertyId] || [])]
+      .filter(valuation => dayKey(valuation.valuationDate) <= purchaseDate)
+      .sort((a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime()).at(-1);
+    // Do not substitute fees, today's listing price, or a post-purchase valuation.
+    if (entry?.rawAssetValue == null || entry.rawAssetValue === "") return null;
+    const rawEntryNumber = Number(entry.rawAssetValue);
+    if (!Number.isFinite(rawEntryNumber) || rawEntryNumber <= 0) return null;
+    const rawEntry = new Decimal(rawEntryNumber);
+    const total = Number(holding.property?.totalSlots) > 0
+      ? Number(holding.property?.totalSlots) : Number(holding.property?.totalUnits);
+    const entryShare = rawEntry.mul(holding.units).div(total).toNumber();
+    const converted = convertAmount(entryShare, holding.property?.currency || "NGN");
+    if (!Number.isFinite(converted) || converted <= 0) return null;
+    purchaseLandValue = purchaseLandValue.plus(converted);
+  }
+  const change = new Decimal(currentLandValue).minus(purchaseLandValue);
+  return {
+    purchaseLandValue: purchaseLandValue.toNumber(),
+    currentLandValue,
+    changeAmount: change.toNumber(),
+    changePercent: change.div(purchaseLandValue).mul(100).toNumber(),
+    firstPurchaseDate: purchaseDates[0],
+    lastPurchaseDate: purchaseDates.at(-1)!,
+    latestValuationDate: valuationDates.sort().at(-1)!,
+  };
+}
+
 /** Actual acquisition payments INCLUDING fees; never substitute land-only principal. */
 export function confirmedPurchaseAmount(
   holdings: Pick<InvestmentReservation, "status" | "amount" | "currency">[],

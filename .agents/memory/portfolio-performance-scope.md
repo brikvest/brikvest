@@ -62,6 +62,22 @@ graph confusing.
 **How to apply:** Keep headings, info explanations, legends and tooltips
 consistent with the fee boundaries above.
 
+Show land growth from the raw valuation at each purchase to the latest raw
+valuation, scaled to the same currently owned shares. Aggregate by comparing
+the sum of those entry values with the sum of latest values, not by averaging
+percentages or treating additional purchases as growth.
+
+**Why:** The user explicitly requested the percentage increase in raw land value
+since purchase and an easy-to-understand comparison over the actual period.
+
+**How to apply:** Show raw value at purchase, latest raw value, monetary change,
+signed percentage and recorded dates. Exclude fees from both growth values;
+the fee-inclusive Purchase Amount remains a separate reference, not the growth
+denominator. Use the latest recorded raw valuation on or before each purchase.
+Missing entry evidence means growth unavailable, never a guessed zero or a
+post-purchase baseline. Multiple purchase dates need an explicit explanation;
+do not imply one shared holding period or annualize the result.
+
 Keep **View Valuation Report** on individual-property graphs only, not on the
 overall portfolio graphs.
 

@@ -16,7 +16,7 @@ const valuationCopy = {
     trigger: "About Land Valuation",
     heading: "Land Valuation",
     definition:
-      "The recorded raw cost or value of the land, excluding any fees. It shows only your owned shares: the property-wide land amount is scaled by your owned units over the property's total units.",
+      "The recorded raw cost or value of the land, excluding any fees. It shows only your owned shares: the property-wide land amount is scaled by your owned units over the property's total units. Growth compares the latest recorded raw valuation on or before each purchase with the latest raw valuation, for the same owned units. Buying more units does not count as growth. This excludes fees and is not profit after fees.",
   },
   purchase: {
     trigger: "About Purchase Amount",
@@ -73,6 +73,8 @@ export function PortfolioValuationInfo({
         <p className="border-t border-border pt-3 text-xs leading-4 text-muted-foreground">
           The straight Purchase Amount line is the total paid for your currently
           owned units, including fees, held fixed across the graph for comparison.
+          Raw land growth compares land value at purchase with the latest land value
+          for your owned shares. It excludes fees and is not profit after fees.
           Land Valuation is not a guaranteed selling price.
         </p>
       </PopoverContent>

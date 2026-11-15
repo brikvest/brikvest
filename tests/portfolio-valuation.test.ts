@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmedPurchaseAmount, ownedLandValueAtDate, ownedLandValuationSeries } from "../client/src/lib/portfolio-performance";
+import { confirmedPurchaseAmount, ownedLandGrowth, ownedLandValueAtDate, ownedLandValuationSeries } from "../client/src/lib/portfolio-performance";
 
 const holding = (propertyId = 33, units = "3", totalSlots = 50) => ({
   propertyId, units, status: "converted_to_investment",
@@ -110,5 +110,63 @@ describe("fee-inclusive purchase reference", () => {
     expect(confirmedPurchaseAmount([purchase("100")], () => NaN)).toBeNull();
     expect(confirmedPurchaseAmount([], identity)).toBe(0);
     expect(confirmedPurchaseAmount([purchase("0.10"), purchase("0.20")], identity)).toBe(0.3);
+  });
+});
+
+describe("raw land growth from each purchase baseline", () => {
+  it("shows 2.86% when 17.5 million becomes 18 million, scaled to the owned shares", () => {
+    const sample = {33: [valuation("2026-01-01", "17500000"), valuation("2026-07-01", "18000000")]};
+    const investor = { ...holding(33, "10", 100), createdAt: new Date("2026-01-01") };
+    const result = ownedLandGrowth([investor], sample, identity)!;
+    expect(result.purchaseLandValue).toBe(1750000);
+    expect(result.currentLandValue).toBe(1800000);
+    expect(result.changeAmount).toBe(50000);
+    expect(result.changePercent).toBeCloseTo(2.857142857);
+    expect(result.firstPurchaseDate).toBe("2026-01-01");
+    expect(result.latestValuationDate).toBe("2026-07-01");
+  });
+  it("does not count a later purchase as appreciation", () => {
+    const sample = {33: [valuation("2026-01-01", "10000000"), valuation("2026-04-01", "20000000")]};
+    const first = { ...holding(33, "1", 100), createdAt: new Date("2026-01-01") };
+    const second = { ...holding(33, "1", 100), createdAt: new Date("2026-04-01") };
+    const result = ownedLandGrowth([first, second], sample, identity)!;
+    expect(result.purchaseLandValue).toBe(300000);
+    expect(result.currentLandValue).toBe(400000);
+    expect(result.changePercent).toBeCloseTo(33.3333333);
+    expect(result.lastPurchaseDate).toBe("2026-04-01");
+    // A same-price additional purchase must produce zero growth, not a deposit-driven increase.
+    expect(ownedLandGrowth([first, second], {33: [valuation("2026-01-01", "10000000")]}, identity)?.changePercent).toBe(0);
+  });
+  it("weights different assets by each owned share's raw entry value, not a simple average", () => {
+    const result = ownedLandGrowth([holding(), holding(34, "4", 100)], values, identity)!;
+    expect(result.purchaseLandValue).toBe(1150000);
+    expect(result.currentLandValue).toBe(1680000);
+    expect(result.changePercent).toBeCloseTo(46.0869565);
+  });
+  it("handles negative, zero and total-loss growth accurately", () => {
+    for (const [latest, percent] of [["10000000", -20], ["12500000", 0], ["0", -100]] as const) {
+      expect(ownedLandGrowth([holding()], {33: [values[33][1], valuation(asOf, latest)]}, identity)?.changePercent).toBe(percent);
+    }
+  });
+  it("converts both entry and latest values consistently across currencies", () => {
+    const holdings = [holding(), { ...holding(34, "4", 100), property: {totalSlots: 100, totalUnits: 0, currency: "USD"} }];
+    const result = ownedLandGrowth(holdings, values, (amount, currency) => currency === "USD" ? amount * 1500 : amount)!;
+    expect(result.purchaseLandValue).toBe(600750000);
+    expect(result.currentLandValue).toBe(901080000);
+    expect(result.changePercent).toBeCloseTo(49.99250936);
+  });
+  it("does not guess a raw entry valuation from a newer valuation, fees, or missing data", () => {
+    expect(ownedLandGrowth([holding()], {33: [values[33][0]]}, identity)).toBeNull();
+    expect(ownedLandGrowth([holding()], {33: [valuation("2025-10-01", null), values[33][0]]}, identity)).toBeNull();
+    expect(ownedLandGrowth([holding()], {33: [valuation("2025-10-01", "bad"), values[33][0]]}, identity)).toBeNull();
+    expect(ownedLandGrowth([holding()], {33: [valuation("2025-10-01", "0"), values[33][0]]}, identity)).toBeNull();
+    expect(ownedLandGrowth([holding()], {}, identity)).toBeNull();
+  });
+  it("excludes pending holdings and protects invalid ownership totals", () => {
+    const result = ownedLandGrowth([holding(), {...holding(34, "99", 100), status:"reserved"}], values, identity)!;
+    expect(result.purchaseLandValue).toBe(750000);
+    expect(result.changePercent).toBe(44);
+    expect(ownedLandGrowth([holding(33, "99")], values, identity)).toBeNull();
+    expect(ownedLandGrowth([], values, identity)).toBeNull();
   });
 });

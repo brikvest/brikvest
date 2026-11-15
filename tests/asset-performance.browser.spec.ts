@@ -78,14 +78,16 @@ test("overall and each asset use one owned-land graph with a fee-inclusive horiz
   await expect(overall.getByRole("button", { name: "View Valuation Report" })).toHaveCount(0);
   await expect(charts.getByRole("button", { name: "View Valuation Report" })).toBeVisible();
   await expect(overall).toContainText("1,435,000");
-  await expect(overall).toContainText("+46.1% overall");
+  await expect(overall.getByTestId("land-growth-percentage")).toHaveText("+46.09%");
+  await expect(overall.getByTestId("land-growth-at-purchase")).toContainText("1,150,000");
   await expect(overall.getByTestId("owned-land-valuation-latest")).toContainText("1,680,000");
   await expect(assets.getByRole("heading", { name: "Gilmore Yard", exact: true })).toBeVisible();
   await expect(charts).toContainText("Land Valuation");
   await expect(charts.getByRole("heading", { name: "Current Value", exact: true })).toHaveCount(0);
   await expect(charts).toContainText("975,000");
   await expect(charts.getByTestId("purchase-amount-reference")).toContainText("975,000");
-  await expect(charts).toContainText("+44.0% overall");
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveText("+44.00%");
+  await expect(charts.getByTestId("land-growth-at-purchase")).toContainText("750,000");
   await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("1,080,000");
   const landInfo = charts.getByRole("button", { name: "About Land Valuation" });
   await landInfo.click();
@@ -118,7 +120,7 @@ test("overall and each asset use one owned-land graph with a fee-inclusive horiz
   await expect(assets.getByRole("heading", { name: "Lily Crest Gardens", exact: true })).toBeVisible();
   await expect(charts.getByTestId("purchase-amount-reference")).toContainText("460,000");
   await expect(charts).toContainText("600,000");
-  await expect(charts).toContainText("+50.0% overall");
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveText("+50.00%");
   await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("600,000");
   await expect(charts).not.toContainText("975,000");
   await expect(overall).toContainText("1,435,000");
@@ -181,7 +183,7 @@ test("missing ownership totals do not turn land valuation into the entire land o
   await page.goto("/dashboard");
   const overall = page.getByTestId("overall-portfolio-performance");
   const land = overall.getByTestId("owned-land-valuation-chart");
-  await expect(land.getByRole("status")).toContainText("valid ownership totals are missing");
+  await expect(land.getByRole("status").filter({ hasText: "valid ownership totals are missing" })).toBeVisible();
   await expect(land.getByTestId("owned-land-valuation-latest")).toHaveCount(0);
   await expect(land).not.toContainText("33,000,000");
   await expect(land).not.toContainText("Latest land valuation: ₦0.00");
@@ -227,6 +229,65 @@ test("a single valuation still shows a horizontal purchase reference without inv
   expect(y1).not.toBeNull();
   expect(await reference.getAttribute("y2")).toBe(y1);
   await expect(chart.getByTestId("purchase-amount-reference")).toContainText("975,000");
+  expect(state.writes).toEqual([]);
+});
+
+test("raw land growth clearly shows 2.86 percent over six months for the owned shares", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings = state.holdings.filter(holding => holding.propertyId === 33);
+  state.holdings.forEach(holding => { holding.createdAt = "2026-01-01T12:00:00Z"; });
+  state.holdings[0].amount = "760000";
+  state.holdings[1].amount = "380000";
+  state.valuations[33] = [
+    { ...state.valuations[33][0], valuationDate: "2026-01-01", rawAssetValue: "17500000" },
+    { ...state.valuations[33][1], valuationDate: "2026-07-01", rawAssetValue: "18000000" },
+  ];
+  await page.goto("/dashboard");
+  const charts = page.getByTestId("asset-performance-charts");
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveText("+2.86%");
+  await expect(charts.getByTestId("land-growth-at-purchase")).toContainText("1,050,000");
+  await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("1,080,000");
+  await expect(charts.getByTestId("land-growth-summary")).toContainText("30,000");
+  await expect(charts.getByTestId("land-growth-summary")).toContainText("6 complete months");
+  await expect(charts.getByTestId("purchase-amount-reference")).toContainText("1,140,000");
+  await expect(charts.getByTestId("land-growth-summary")).toContainText("not your profit after fees");
+  await charts.getByTestId("land-growth-summary").screenshot({path: test.info().outputPath("six-month-land-growth.png")});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(state.writes).toEqual([]);
+});
+
+test("growth accounts for separate purchase dates rather than treating more units as gains", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings = state.holdings.filter(holding => holding.propertyId === 33);
+  state.holdings[0].createdAt = "2026-01-01T12:00:00Z";
+  state.holdings[1].createdAt = "2026-04-01T12:00:00Z";
+  state.valuations[33] = [
+    { ...state.valuations[33][0], valuationDate: "2026-01-01", rawAssetValue: "10000000" },
+    { ...state.valuations[33][1], valuationDate: "2026-04-01", rawAssetValue: "20000000" },
+  ];
+  await page.goto("/dashboard");
+  const summary = page.getByTestId("asset-performance-charts").getByTestId("land-growth-summary");
+  await expect(summary.getByTestId("land-growth-at-purchase")).toContainText("800,000");
+  await expect(summary.getByTestId("owned-land-valuation-latest")).toContainText("1,200,000");
+  await expect(summary.getByTestId("land-growth-percentage")).toHaveText("+50.00%");
+  await expect(summary).toContainText("Each purchase is compared with its own raw land value");
+  expect(state.writes).toEqual([]);
+});
+
+test("missing entry values do not invent growth and declines keep their negative sign", async ({ page }) => {
+  const state = await fixtures(page);
+  state.holdings = state.holdings.filter(holding => holding.propertyId === 33);
+  const original = [...state.valuations[33]];
+  state.valuations[33] = [original[1]];
+  await page.goto("/dashboard");
+  const charts = page.getByTestId("asset-performance-charts");
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveCount(0);
+  await expect(charts.getByTestId("land-growth-summary").getByRole("status")).toContainText("missing records");
+  await expect(charts.getByTestId("owned-land-valuation-latest")).toContainText("1,080,000");
+  state.valuations[33] = [original[0], { ...original[1], rawAssetValue: "10000000" }];
+  await page.reload();
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveText("−20.00%");
+  await expect(charts.getByTestId("land-growth-percentage")).toHaveAttribute("aria-label", "decrease 20.00 percent");
   expect(state.writes).toEqual([]);
 });
 

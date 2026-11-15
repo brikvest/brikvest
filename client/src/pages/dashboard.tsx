@@ -27,7 +27,8 @@ import { portfolioLandAmount } from "@shared/holding-costs";
 import { AssetPerformanceSection } from "@/components/portfolio/AssetPerformanceSection";
 import { PortfolioValueCards } from "@/components/portfolio/PortfolioValueCards";
 import { PortfolioValuationInfo } from "@/components/portfolio/PortfolioValuationInfo";
-import { confirmedPurchaseAmount, holdingValueAtDate, ownedLandValuationSeries, propertyValuationQuery } from "@/lib/portfolio-performance";
+import { LandGrowthSummary } from "@/components/portfolio/LandGrowthSummary";
+import { confirmedPurchaseAmount, holdingValueAtDate, ownedLandGrowth, ownedLandValuationSeries, propertyValuationQuery } from "@/lib/portfolio-performance";
 import { FlutterwaveActivity, FlutterwaveReservationPanel, getFlutterwaveReservation, useFlutterwaveReservation, primaryGatewayAttempt, gatewayBlocksPayment } from "@/components/payments/flutterwave";
 
 function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmount, toast, showValuationReport = true }: {
@@ -63,13 +64,7 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
     }));
   const latestLandValue = landAppreciationData.at(-1)?.value;
 
-  const latestAppreciation = (() => {
-    if (landAppreciationData.length < 2) return null;
-    const first = landAppreciationData[0].value;
-    const last = landAppreciationData[landAppreciationData.length - 1].value;
-    if (first == null || last == null || first === 0) return null;
-    return ((last - first) / first * 100).toFixed(1);
-  })();
+  const landGrowth = ownedLandGrowth(confirmedInvestments, valuationsByProperty, convertAmount);
 
   const latestReportPropertyId = (() => {
     for (const pid of investedPropertyIds) {
@@ -142,22 +137,13 @@ function InvestmentPerformanceCharts({ reservations, formatCurrency, convertAmou
                 </CardTitle>
                 <p className="text-sm text-slate-600 mt-1">Raw land value for your owned shares, excluding all fees.</p>
               </div>
-              {latestAppreciation && (
-                <Badge variant="outline" className={`${Number(latestAppreciation) >= 0 ? 'text-green-700 border-green-300 bg-green-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
-                  {Number(latestAppreciation) >= 0 ? '+' : ''}{latestAppreciation}% overall
-                </Badge>
-              )}
             </div>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             {landAppreciationData.some(point => point.value == null) && (
               <p className="mb-3 text-sm text-slate-600" role="status">Some land valuations are unavailable because fee-exclusive land values or valid ownership totals are missing.</p>
             )}
-            {latestLandValue != null && (
-              <p className="mb-3 text-sm font-medium text-slate-700" data-testid="owned-land-valuation-latest">
-                Latest land valuation: {formatCurrency(latestLandValue)}
-              </p>
-            )}
+            <LandGrowthSummary growth={landGrowth} currentLandValue={latestLandValue ?? null} formatCurrency={formatCurrency} />
             <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" aria-label="Chart legend">
               <span className="inline-flex items-center gap-2 text-slate-700">
                 <span aria-hidden="true" className="h-0.5 w-5 bg-emerald-700" />
