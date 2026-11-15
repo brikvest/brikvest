@@ -1594,7 +1594,7 @@ export default function Portfolio() {
                                   <p className="text-lg font-bold text-slate-900">{reservation.units}</p>
                                 </div>
                                 <div className="bg-slate-50 rounded-lg p-3">
-                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Land cost</p>
+                                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Purchase Price</p>
                                   <p className="text-lg font-bold text-blue-600">
                                     {portfolioLandAmount(reservation) === null ? "Not recorded" : formatCurrency(convertAmount(
                                       portfolioLandAmount(reservation)!,
