@@ -104,7 +104,11 @@ timeoutMs = 90000
 [userenv.production]
 SKIP_STARTUP_DATA_MAINTENANCE = "true"
 APP_BASE_URL = "https://brikvest.net"
-LEGAL_DISPATCH_PAUSED = "false"
+LEGAL_DISPATCH_PAUSED = "true"
+FLW_ENABLED = "false"
+FLW_LIVE_AUTHORIZED = "false"
+FLW_NOTIFICATION_DISPATCH = "false"
+FLW_WORKER_ENABLED = "false"
 
 [userenv.development]
 SKIP_POST_MERGE_DATABASE_MUTATIONS = "true"
