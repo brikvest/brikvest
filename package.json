@@ -6,6 +6,7 @@
   "scripts": {
     "test:consolidation": "vitest run --config vitest.consolidation.config.ts",
     "test:flutterwave": "vitest run --config vitest.flutterwave.config.ts",
+    "test:flutterwave:preparation": "vitest run --config vitest.flutterwave.config.ts && vitest run --config vitest.legal.config.ts tests/legal-pdf-safeguard-plan.test.ts tests/legal-pdf-review.test.ts",
     "test:flutterwave:browser": "LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173 playwright test --config playwright.flutterwave.config.ts",
     "test:faqs": "vitest run --config vitest.faqs.config.ts",
     "test:faqs:browser": "LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173 playwright test --config playwright.faqs.config.ts",

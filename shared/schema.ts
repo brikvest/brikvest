@@ -1,5 +1,5 @@
 import { isCalendarDate, isCalendarMonth } from "./calendar-date";
-import { pgTable, text, serial, bigserial, uuid, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, bigserial, uuid, integer, boolean, timestamp, date, decimal, bigint, varchar, jsonb, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -331,7 +331,12 @@ export const flutterwaveAttempts = pgTable("flutterwave_attempts", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  check("flutterwave_attempts_expected_amount_check", sql`${table.expectedAmount} > 0`),
+  check("flutterwave_attempts_mode_check", sql`${table.mode} IN ('test','live')`),
+  uniqueIndex("flutterwave_one_open_attempt").on(table.reservationId)
+    .where(sql`${table.state} IN ('initiated','verification_pending')`),
+]);
 export const flutterwaveCharges = pgTable("flutterwave_charges", {
   transactionId: text("transaction_id").primaryKey(),
   attemptId: integer("attempt_id").references(() => flutterwaveAttempts.id),

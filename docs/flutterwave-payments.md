@@ -1,5 +1,42 @@
 # Flutterwave primary-reservation payments
 
+For the disabled package ready to merge into main, start with the
+[main-project handoff](flutterwave-main-handoff.md). It includes the approved
+review documents and explicitly separates preparation from production release.
+
+## Current decision: v3 hosted Standard
+
+The owner explicitly switched back to **v3**, reported updating `FLW_SECRET_KEY`,
+and retained the same `FLW_SECRET_HASH`. Use the official
+[v3 docs](https://developer.flutterwave.com/docs) and
+[API reference](https://developer.flutterwave.com/api). The earlier
+[v4 investigation](flutterwave-v4-contract.md) is historical and no longer blocks
+the selected v3 flow. No OAuth or v4 webhook migration is required.
+
+The owner reports completed sandbox testing, merchant KYC, and enabled currencies
+NGN, USD, GBP and EUR. Intended production settings are
+`FLW_RETURN_ORIGIN=https://brikvest.net` and `FLW_CURRENCIES=NGN,USD,GBP,EUR`.
+Always charge the reservation currency, never the display currency or an FX conversion.
+
+Read-only rollout checks found a public successful deployment at that origin and
+both secret names present in production configuration. Secret contents, provider
+acceptance and the active deployment's adoption of the updated key were not
+verified. The production query interface reports all six Flutterwave tables
+absent; the Flutterwave guard is absent too. Production payment flags, origin and
+currency settings were unset. **Do not enable collection yet.** Database target
+identity, ownership, backups and the supported schema/guard publication path still
+need verification before any authorized schema changes. No schema changes,
+publishing, charges, provider probes or email dispatch were performed during
+those initial checks.
+
+After separate owner authorization, the six empty Flutterwave tables and their
+guards were installed and catalog-verified in **development only**. Production
+still has no Flutterwave tables. No existing investor records were changed and
+collection remains disabled. The owner confirmed seven-day production PITR.
+
+The [schema rollout preparation](flutterwave-v3-schema-rollout.md) records the
+remaining gates and the separately identified missing exact-PDF approval guard.
+
 ## Release status and safety boundary
 
 This implementation is **disabled by default**, defaults to **test mode**, and does
@@ -23,12 +60,12 @@ Flutterwave v3 Standard, checked against official documentation on 2026-10-31:
   key. Send unique `tx_ref`, decimal amount string, explicit currency, customer
   email and server-controlled redirect URL; accept only HTTPS links on
   `checkout.flutterwave.com`.
-  <https://developer.flutterwave.com/docs/flutterwave-standard-1>
+  <https://developer.flutterwave.com/docs/collections-inflow/flutterwave-standard>
 - Transaction verification: `GET /v3/transactions/{id}/verify`.
-  <https://developer.flutterwave.com/docs/transaction-verification-1>
+  <https://developer.flutterwave.com/api/transactions/verify-transaction>
 - Missed-event lookup: `GET /v3/transactions/verify_by_reference?tx_ref=...`,
   followed by verification by provider transaction ID.
-  <https://developer.flutterwave.com/reference/verify-transaction-with-tx_ref>
+  <https://developer.flutterwave.com/api/transactions/verify-transaction-with-tx-ref>
 - v3 webhook authentication: constant-time comparison of `verif-hash` against the
   merchant's configured secret hash. **Not** the v4 HMAC signature contract; raw
   request bytes are not required for this selected v3 scheme.
@@ -98,14 +135,21 @@ expected-price trigger. It does not backfill or change investors or holdings.
 Shared Drizzle definitions describe the same objects; **do not run generic
 `drizzle-kit push`**. This script is deliberately not in post-merge startup.
 
-After separate database-rollout authorization:
+After separate database-rollout authorization, follow the
+[target-specific rollout plan](flutterwave-v3-schema-rollout.md). The SQL file is
+an isolated-test/development contract, not permission for direct production DDL.
+For a managed production database, use reviewed publication for supported schema
+objects and the supported owner-operated SQL-console path for separately reviewed
+functions/triggers; do not run this script directly against production.
+
+Required checks:
 
 1. Verify exact target/database identity and backups; establish that old app
    instances and workers cannot race new payment handling.
 2. Verify existing reservation inventory-accounting, ownership-certificate,
    legal-generation and exact-PDF review schema prerequisites.
-3. Apply only `scripts/ensure-flutterwave.sql` with a trusted PostgreSQL client
-   against the explicitly approved target; rerun to confirm idempotence.
+3. Apply only the separately approved development schema changes against the
+   verified development target; test idempotence on disposable data.
 4. Check the tables, indexes, trigger and permissions. Do not alter existing
    financial rows or generate historical certificates/documents.
 5. Release the prepared code with collection, worker and mail flags still off.

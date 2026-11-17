@@ -38,7 +38,7 @@ beforeAll(async () => {
       total_units integer DEFAULT 10,reserved_units integer DEFAULT 1,sold_units integer DEFAULT 0);
     CREATE TABLE investment_reservations(id serial PRIMARY KEY,property_id integer REFERENCES properties(id),user_id integer REFERENCES users(id),
       full_name text,email text,phone text DEFAULT '',units numeric(15,2),amount numeric(20,2),currency text,unit_price_snapshot numeric(15,2) DEFAULT 1200.10,
-      unit_type_label text,funnel_stage text,status text,expires_at timestamptz,updated_at timestamptz DEFAULT now(),created_at timestamptz DEFAULT now(),
+      unit_type_label text,funnel_stage text,status text,cost_basis jsonb,expires_at timestamptz,updated_at timestamptz DEFAULT now(),created_at timestamptz DEFAULT now(),
       payment_method text,payment_reference text,notes text,created_by_admin_id integer,last_reminder_sent_at timestamptz,payment_evidence_url text,kyc_extended_at timestamptz);
     CREATE TABLE payment_submissions(id serial PRIMARY KEY,reservation_id integer,user_id integer,amount numeric(20,2),currency text,
       status text DEFAULT 'pending_admin_review',reviewed_at timestamptz,reviewed_by_admin_id integer,
@@ -87,6 +87,24 @@ describe("Flutterwave configuration and trust boundaries", () => {
     expect(exactAmount("NaN","0")).toBe(false);
     expect(webhookAuthenticated("fixture-hash")).toBe(true);
     expect(webhookAuthenticated("forged")).toBe(false);
+  });
+  it("accepts authorized v3 live configuration for the owner's currencies without enabling by default", () => {
+    vi.stubEnv("FLW_SECRET_KEY", "FLWSECK-fixture-live-only");
+    vi.stubEnv("FLW_MODE", "live");
+    vi.stubEnv("FLW_LIVE_AUTHORIZED", "false");
+    expect(() => gatewayConfig()).toThrow("not authorized");
+    vi.stubEnv("FLW_LIVE_AUTHORIZED", "true");
+    vi.stubEnv("FLW_RETURN_ORIGIN", "https://brikvest.net");
+    vi.stubEnv("FLW_CURRENCIES", "NGN,USD,GBP,EUR");
+    expect(gatewayConfig()).toMatchObject({
+      mode: "live", origin: "https://brikvest.net", currencies: ["NGN", "USD", "GBP", "EUR"],
+    });
+    expect(webhookAuthenticated("fixture-hash")).toBe(true);
+    vi.stubEnv("FLW_SECRET_KEY", "FLWSECK_TEST-fixture-only");
+    expect(() => gatewayConfig()).toThrow("not authorized");
+    vi.stubEnv("FLW_ENABLED", "false");
+    expect(() => gatewayConfig()).toThrow("not enabled");
+    vi.stubEnv("FLW_LIVE_AUTHORIZED", "false");
   });
   it("charges persisted pricing, never request amounts or preferred currency", async () => {
     mockResponse({ link: "https://checkout.flutterwave.com/v3/hosted/pay/fixture" });
