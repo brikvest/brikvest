@@ -3,6 +3,7 @@ import { pgTable, text, serial, bigserial, uuid, integer, boolean, timestamp, da
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
+import type { HoldingCostBasis } from "./holding-costs";
 
 // Session storage table for Replit Auth
 export const sessions = pgTable(
@@ -232,6 +233,8 @@ export const investmentReservations = pgTable("investment_reservations", {
   // Snapshot of the unit-type label (from properties.unitTypes) the buyer chose.
   // Null for legacy rows or projects with no configured unit-type breakdown.
   unitTypeLabel: text("unit_type_label"),
+  // Server-owned immutable classification; null means historical basis unavailable.
+  costBasis: jsonb("cost_basis").$type<HoldingCostBasis>(),
   status: text("status").notNull().default("reserved"), // 'reserved', 'expired', 'converted_to_investment', 'cancelled'
   // Developer-portal conversion funnel stage. Independent of platform-level `status`.
   // 'prospective' | 'due_diligence' | 'documentation' | 'payment_incomplete' | 'confirmed'
@@ -709,6 +712,7 @@ export const insertPropertySchema = createInsertSchema(properties, {
 
 export const insertInvestmentReservationSchema = createInsertSchema(investmentReservations).omit({
   id: true,
+  costBasis: true,
   createdAt: true,
   updatedAt: true,
 }).extend({

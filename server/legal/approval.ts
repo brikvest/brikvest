@@ -6,10 +6,60 @@ import {
   type EnqueueLegalApprovalResult,
 } from "./repository";
 import { HoldingStateError, recordUnsignedLegalCancellation } from "./holding-state";
+import Decimal from "decimal.js";
+import { freezeHoldingCosts, type HoldingCostBasis } from "../../shared/holding-costs";
 import { hasGatewayPaymentConflict, assertGatewayCancellationSafe } from "../payments/gateway-guards";
 
 interface DbRow {
   [key: string]: any;
+}
+
+// The caller already holds the property and reservation locks. Classification is
+// independent of legal eligibility (scope, templates, identity and document jobs).
+async function confirmedCostBasis(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  holding: DbRow,
+  adminId: number,
+  source: HoldingCostBasis["source"],
+  evidence?: { amount: string; currency: string },
+): Promise<string | null> {
+  if (!evidence) return null;
+  try {
+    if (evidence.currency !== holding.currency ||
+        !new Decimal(evidence.amount).eq(holding.amount)) return null;
+  } catch { return null; }
+  // to_jsonb permits older properties without explicit cost columns to remain
+  // unclassified; absent components are never assumed to be zero. Extract as
+  // text so PostgreSQL numeric/bigint values never pass through JS floats.
+  const property = rows<{ costs: DbRow }>(await tx.execute(sql`
+    SELECT jsonb_build_object(
+      'currency', to_jsonb(p)->>'currency',
+      'unit_land_cost', to_jsonb(p)->>'unit_land_cost',
+      'unit_agent_fees', to_jsonb(p)->>'unit_agent_fees',
+      'unit_due_diligence_cost', to_jsonb(p)->>'unit_due_diligence_cost',
+      'unit_service_charge', to_jsonb(p)->>'unit_service_charge'
+    ) AS costs FROM properties p WHERE p.id = ${holding.propertyId}
+  `))[0]?.costs;
+  if (!property) return null;
+  const basis = freezeHoldingCosts({
+    units: holding.units, amount: holding.amount, currency: holding.currency,
+    property: {
+      currency: property.currency,
+      unitLandCost: property.unit_land_cost,
+      unitAgentFees: property.unit_agent_fees,
+      unitDueDiligenceCost: property.unit_due_diligence_cost,
+      unitServiceCharge: property.unit_service_charge,
+    },
+  }, { source, sourceId: Number(holding.sourceId ?? holding.id),
+    confirmedByAdminId: adminId, confirmedAt: new Date().toISOString() });
+  return basis ? JSON.stringify(basis) : null;
+}
+
+function attestedCostEvidence(attestation?: ManualFullPaymentAttestation) {
+  return attestation?.fullPaymentConfirmed === true &&
+    attestation.currency === "NGN" && attestation.auditNote?.trim() &&
+    /^\d+(?:\.\d{1,2})?$/.test(attestation.amountNaira)
+    ? { amount: attestation.amountNaira, currency: attestation.currency } : undefined;
 }
 
 export class LegalApprovalTransitionError extends Error {
@@ -271,10 +321,12 @@ export async function approvePaymentSubmissionAtomically(
     if (!claimedSubmission) {
       throw new LegalApprovalTransitionError("This submission was just processed by another administrator", 409);
     }
+    const costBasis = await confirmedCostBasis(tx, { ...holding, sourceId: submissionId },
+      adminId, "payment_submission", { amount: submission.amount, currency: submission.currency });
     const converted = rows<DbRow>(await tx.execute(sql`
       UPDATE investment_reservations
       SET status = 'converted_to_investment', funnel_stage = 'confirmed',
-          updated_at = now()
+          cost_basis = COALESCE(cost_basis, ${costBasis}::jsonb), updated_at = now()
       WHERE id = ${submission.reservationId} AND status = 'reserved'
         AND user_id = ${submission.userId}
       RETURNING id
@@ -418,10 +470,12 @@ export async function confirmInvestmentWithinTransaction(
       units: String(holding.units),
       propertyReservedUnits: holding.reservedUnits,
     });
+    const costBasis = await confirmedCostBasis(tx, holding, adminId,
+      "admin_full_confirmation", attestedCostEvidence(attestation));
     const converted = rows<DbRow>(await tx.execute(sql`
       UPDATE investment_reservations
       SET status = 'converted_to_investment', funnel_stage = 'confirmed',
-          updated_at = now()
+          cost_basis = COALESCE(cost_basis, ${costBasis}::jsonb), updated_at = now()
       WHERE id = ${reservationId} AND status IN ('reserved', 'payment_pending')
       RETURNING id
     `))[0];
@@ -532,12 +586,14 @@ export async function reinstateInvestmentAtomically(
         400,
       );
     }
+    const costBasis = await confirmedCostBasis(tx, holding, adminId,
+      "admin_reinstate", attestedCostEvidence(attestation));
     const claimed = rows<DbRow>(await tx.execute(sql`
       UPDATE investment_reservations
       SET status = 'converted_to_investment', funnel_stage = 'confirmed',
           expires_at = NULL, payment_reference = ${paymentReference},
           payment_method = ${paymentMethod}, notes = ${reinstateNote},
-          updated_at = now()
+          cost_basis = COALESCE(cost_basis, ${costBasis}::jsonb), updated_at = now()
       WHERE id = ${reservationId} AND status IN ('expired', 'cancelled')
       RETURNING id
     `))[0];

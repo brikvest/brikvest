@@ -159,7 +159,7 @@ export function holdingValueAtDate(
   const latest = sorted.filter(v => new Date(v.valuationDate).toISOString().split("T")[0] <= date).at(-1);
   const entryValue = entry
     ? Number(entry.investorBasisValue || entry.currentValue)
-    : Number(holding.property?.totalValue || 0);
+    : 0; // Missing entry evidence must not borrow today's editable listing value.
   const currentValue = latest ? Number(latest.investorBasisValue || latest.currentValue) : entryValue;
   return entryValue > 0 ? principal * currentValue / entryValue : principal;
 }

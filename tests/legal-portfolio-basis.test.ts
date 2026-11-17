@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { portfolioLandAmount, summarizeLandPortfolio } from "../shared/holding-costs";
 import { readFileSync } from "node:fs";
+import { freezeHoldingCosts, portfolioLandAmount, summarizeLandPortfolio } from "../shared/holding-costs";
 
 const property = { currency: "NGN", unitLandCost: 277500, unitAgentFees: 12500,
   unitDueDiligenceCost: 12500, unitServiceCharge: 12500 };
-const holding = (units: number, extra = {}) => ({
+const evidence = { confirmedAt: "2026-10-03T00:00:00Z", confirmedByAdminId: 1,
+  source: "payment_submission" as const, sourceId: 1 };
+const holding = (units: number, extra = {}) => {
+  const input = {
   units: String(units), amount: String(units * 315000), currency: "NGN",
   status: "converted_to_investment", property, ...extra,
-});
+  };
+  return { ...input, costBasis: freezeHoldingCosts(input, evidence), ...extra };
+};
 
 describe("every LilyCrest buyer's land stake", () => {
   it("exposes owned land principal before applying public-property fee redaction", () => {
@@ -31,6 +36,15 @@ describe("every LilyCrest buyer's land stake", () => {
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: null })).toBeNull();
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "6000000" })).toBeNull();
     expect(portfolioLandAmount({ ...ownedHolding, landPrincipalAmount: "invalid" })).toBeNull();
+  });
+  it("prefers frozen evidence over server display values and the legacy compatibility path", () => {
+    const frozen = holding(16);
+    expect(portfolioLandAmount({ ...frozen, landPrincipalAmount: "100.00", property: undefined })).toBe(4440000);
+    expect(portfolioLandAmount({ ...frozen, propertyId: 33, landPrincipalAmount: null })).toBe(4440000);
+    expect(portfolioLandAmount({ ...frozen, propertyId: 33, landPrincipalAmount: "4440000.00",
+      costBasis: { ...frozen.costBasis!, landAmount: "1.00" } })).toBeNull();
+    expect(portfolioLandAmount({ units: "16", amount: "5040000", currency: "NGN",
+      status: "converted_to_investment", property })).toBeNull();
   });
   it("preserves Guzape 2's recorded holdings alongside Lily Crest's land-only basis", () => {
     const guzape = { propertyId: 33, units: "9", amount: "2925000.00",
@@ -65,13 +79,14 @@ describe("every LilyCrest buyer's land stake", () => {
     expect(summarizeLandPortfolio(holdings, amount => amount).totalPortfolioValue).toBe(4440000);
   });
   it("reports an unknown basis rather than substituting the full payment", () => {
-    expect(summarizeLandPortfolio([holding(16), holding(2, { property: undefined })], amount => amount))
+    expect(summarizeLandPortfolio([holding(16), holding(2, { costBasis: null })], amount => amount))
       .toEqual({ totalPortfolioValue: 4440000, unclassifiedInvestments: 1 });
   });
   it("converts land, not acquisition fees, into the portfolio display currency", () => {
     const convert = vi.fn((amount: number, currency: string) => currency === "USD" ? amount * 1500 : amount);
     const holdings = [holding(1), holding(2, { amount: "220", currency: "USD",
-      property: { currency: "USD", unitLandCost: 100, unitAgentFees: 10 } })];
+      property: { currency: "USD", unitLandCost: 100, unitAgentFees: 10,
+        unitDueDiligenceCost: 0, unitServiceCharge: 0 } })];
     expect(summarizeLandPortfolio(holdings, convert).totalPortfolioValue).toBe(577500);
     expect(convert).toHaveBeenCalledWith(200, "USD");
     expect(convert).not.toHaveBeenCalledWith(220, "USD");

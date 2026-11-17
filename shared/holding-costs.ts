@@ -1,5 +1,20 @@
 import Decimal from "decimal.js";
 
+export interface HoldingCostBasis {
+  version: 1;
+  units: string;
+  currency: string;
+  landAmount: string;
+  agentFees: string;
+  dueDiligenceFees: string;
+  serviceCharges: string;
+  acquisitionAmount: string;
+  confirmedAt: string;
+  confirmedByAdminId: number;
+  source: "payment_submission" | "admin_full_confirmation" | "admin_reinstate";
+  sourceId: number;
+}
+
 export interface HoldingCostInput {
   propertyId?: number;
   units: string | number;
@@ -7,13 +22,15 @@ export interface HoldingCostInput {
   currency?: string;
   /** Server-computed principal for owned holdings, independent of fee visibility. */
   landPrincipalAmount?: string | number | null;
+  status?: string;
+  costBasis?: HoldingCostBasis | null;
   property?: {
     id?: number;
     currency?: string;
-    unitLandCost?: string | number;
-    unitAgentFees?: string | number;
-    unitDueDiligenceCost?: string | number;
-    unitServiceCharge?: string | number;
+    unitLandCost?: string | number | null;
+    unitAgentFees?: string | number | null;
+    unitDueDiligenceCost?: string | number | null;
+    unitServiceCharge?: string | number | null;
   };
 }
 
@@ -46,7 +63,49 @@ export function calculateHoldingCosts(input: HoldingCostInput) {
   }
 }
 
+/** Confirmation requires every component to be explicit, including zero fees. */
+export function freezeHoldingCosts(
+  input: HoldingCostInput,
+  evidence: Pick<HoldingCostBasis, "confirmedAt" | "confirmedByAdminId" | "source" | "sourceId">,
+): HoldingCostBasis | null {
+  const property = input.property;
+  if (!property || !input.currency || !property.currency ||
+      [property.unitLandCost, property.unitAgentFees, property.unitDueDiligenceCost,
+        property.unitServiceCharge].some(value => value == null)) return null;
+  const costs = calculateHoldingCosts(input);
+  const basis: HoldingCostBasis | null = costs ? { ...costs, version: 1, units: new Decimal(input.units).toFixed(),
+    currency: input.currency, ...evidence } : null;
+  return basis && recordedHoldingCosts({ ...input, costBasis: basis }) ? basis : null;
+}
+
+/** Fail closed on missing or inconsistent frozen evidence; never use today's fees. */
+export function recordedHoldingCosts(input: HoldingCostInput) {
+  try {
+    const basis = input.costBasis;
+    if (!basis || basis.version !== 1 || basis.currency !== (input.currency || "NGN") ||
+        !new Decimal(basis.units).eq(input.units) || !new Decimal(basis.units).gt(0) ||
+        !Number.isFinite(Date.parse(basis.confirmedAt)) ||
+        !Number.isInteger(basis.confirmedByAdminId) || basis.confirmedByAdminId <= 0 ||
+        !Number.isInteger(basis.sourceId) || basis.sourceId <= 0 ||
+        !["payment_submission", "admin_full_confirmation", "admin_reinstate"].includes(basis.source)) return null;
+    const amounts = [basis.landAmount, basis.agentFees, basis.dueDiligenceFees,
+      basis.serviceCharges, basis.acquisitionAmount].map(value => new Decimal(value));
+    if (amounts.some(value => !value.isFinite() || value.lt(0) || value.decimalPlaces() > 2) ||
+        !amounts[0].gt(0) || !amounts[4].eq(input.amount) ||
+        !amounts.slice(0, 4).reduce((sum, value) => sum.plus(value), new Decimal(0)).eq(amounts[4])) return null;
+    return basis;
+  } catch {
+    return null;
+  }
+}
+
 export function portfolioLandAmount(input: HoldingCostInput): number | null {
+  // Frozen evidence takes precedence over all display and legacy compatibility
+  // paths. An invalid snapshot must never fall back to mutable pricing.
+  if (input.costBasis != null) {
+    const costs = recordedHoldingCosts(input);
+    return costs ? Number(costs.landAmount) : null;
+  }
   // Gilmore Land, Guzape 2 predates the Lily Crest land-only rollout.
   // Preserve its recorded investment basis; missing historical fee fields do
   // not authorize excluding or repricing these holdings. Use identity, not a
@@ -67,8 +126,8 @@ export function portfolioLandAmount(input: HoldingCostInput): number | null {
         ? land.toNumber() : null;
     } catch { return null; }
   }
-  const costs = calculateHoldingCosts(input);
-  return costs ? Number(costs.landAmount) : null;
+  // No adoption from current property prices, including when the total matches.
+  return null;
 }
 
 /** Covers every confirmed holding, independently of legal-document preparation. */

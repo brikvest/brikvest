@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calculateHoldingCosts, portfolioLandAmount } from "../shared/holding-costs";
+import { calculateHoldingCosts, freezeHoldingCosts, portfolioLandAmount } from "../shared/holding-costs";
 import { buildLegalTemplateValues } from "../server/legal/values";
 
 const property = { currency: "NGN", unitLandCost: 277500, unitAgentFees: 12500,
   unitDueDiligenceCost: 12500, unitServiceCharge: 12500 };
+const evidence = { confirmedAt: "2026-10-03T00:00:00Z", confirmedByAdminId: 1,
+  source: "payment_submission" as const, sourceId: 1 };
 
 describe("land principal excludes acquisition fees", () => {
   it("separates 16 five-square-metre units from the full payment", () => {
@@ -12,7 +14,7 @@ describe("land principal excludes acquisition fees", () => {
       landAmount: "4440000.00", agentFees: "200000.00", dueDiligenceFees: "200000.00",
       serviceCharges: "200000.00", acquisitionAmount: "5040000.00",
     });
-    expect(portfolioLandAmount(holding)).toBe(4440000);
+    expect(portfolioLandAmount({ ...holding, costBasis: freezeHoldingCosts(holding, evidence) })).toBe(4440000);
     const values = buildLegalTemplateValues("deed_of_assignment", {
       verifiedFullName: "Sample Investor", verifiedHomeAddress: "Verified address",
       propertyAreaSqm: "80", approvedPaymentAmountNaira: "4440000.00",
@@ -22,8 +24,8 @@ describe("land principal excludes acquisition fees", () => {
     expect(values.PAYMENT_AMOUNT_NAIRA_WORDS).toContain("Four Million Four Hundred");
   });
   it("supports fractional units and other configured properties", () => {
-    expect(portfolioLandAmount({ units: "3.2", amount: "1008000", property })).toBe(888000);
-    expect(portfolioLandAmount({ units: 2, amount: 220, property: { unitLandCost: 100, unitAgentFees: 10 } })).toBe(200);
+    expect(calculateHoldingCosts({ units: "3.2", amount: "1008000", property })?.landAmount).toBe("888000.00");
+    expect(calculateHoldingCosts({ units: 2, amount: 220, property: { unitLandCost: 100, unitAgentFees: 10 } })?.landAmount).toBe("200.00");
   });
   it("uses explicit land consideration even when the full payment is also supplied", () => {
     const values = buildLegalTemplateValues("deed_of_assignment", {

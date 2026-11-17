@@ -59,3 +59,18 @@ inputs needed by the dashboard's land-only calculation.
 **How to apply:** Calculate owned principal from trusted, unredacted records
 before applying public visibility rules. Expose only the owned principal needed
 for the dashboard; preserve full payments and continue respecting fee visibility.
+
+Except for the explicitly preserved historical Guzape 2 basis above, confirmed
+portfolio principal must use immutable per-holding evidence, not a
+reconciliation against today's property costs. Unknown historical classification
+stays unavailable, even if current costs happen to match the payment. Every
+fee component must be explicit, including verified zero fees.
+
+**Why:** A later land/fee redistribution can keep the acquisition total unchanged
+while silently changing principal if the holding is reclassified from current
+pricing. A missing component is not evidence that the fee was zero.
+
+**How to apply:** Capture reconciled classification only with verified full
+payment confirmation. Historical adoption requires explicit selection and
+verified historical breakdown evidence; never derive it from document
+preparation, migration reapplication, startup, or current price matching.

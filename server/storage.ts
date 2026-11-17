@@ -1014,6 +1014,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    if ("costBasis" in updates) throw new Error("Holding cost basis is confirmation-owned and immutable.");
     if (updates.status === "cancelled") {
       return db.transaction(async (tx) => {
         const existing = queryRows<{ id: number; propertyId: number; status: string }>(await tx.execute(sql`
@@ -1089,6 +1090,7 @@ export class DatabaseStorage implements IStorage {
     updates: Partial<InvestmentReservation>,
 
   ): Promise<InvestmentReservation | null> {
+    if ("costBasis" in updates) throw new Error("Holding cost basis is confirmation-owned and immutable.");
     const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
       ...updates,
       updatedAt: new Date(),

@@ -322,6 +322,7 @@ async function seedIsolatedDatabase(installLegalSchema = true): Promise<void> {
   `);
   submissionId = submission.rows[0].id;
 
+  await pglite.exec(await fs.readFile("scripts/ensure-holding-cost-basis.sql", "utf8"));
   if (!installLegalSchema) return;
 
   await pglite.exec(await fs.readFile(

@@ -95,6 +95,7 @@ async function seedDatabase(): Promise<void> {
     INSERT INTO properties (name,location,total_slots,available_slots,total_units)
       VALUES ('SD118','Abuja',5,5,5), ('Other Estate','Lagos',5,5,5);
   `);
+  await pglite.exec(await fs.readFile("scripts/ensure-holding-cost-basis.sql", "utf8"));
   await pglite.exec(await fs.readFile(
     "scripts/ensure-investment-reservation-inventory-accounting.sql",
     "utf8",

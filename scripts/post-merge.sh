@@ -22,6 +22,7 @@ npx tsx scripts/ensure-property-due-diligence-document-columns.ts
 npx tsx scripts/ensure-property-listing-details.ts
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-resale-marketplace-offers.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-investment-reservation-inventory-accounting.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-holding-cost-basis.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-documents.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-local-signing.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ensure-legal-notification-cycles.sql
