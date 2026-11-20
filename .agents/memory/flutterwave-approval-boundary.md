@@ -28,6 +28,17 @@ Standard flow; do not keep pursuing the earlier v4 migration or provider request
 Preserve provider-hosted initial collection; do not collect PAN, CVV, PIN or OTP
 in the app.
 
+The owner authorized a separate, isolated v3 test checkout using synthetic
+accounts, properties and reservations, test-only credentials and no email.
+Test records must never be transferred into actual investor holdings.
+
+**Why:** The owner accepted testing outside the live Brikvest website before
+returning the shared integration to the production rollout.
+
+**How to apply:** Keep the test database, credentials, session access and delivery
+dependencies isolated. This authorization does not enable real charges, live
+collection, production schema changes or publishing the live gateway.
+
 **Why:** This is an explicit replacement of the earlier v4-only requirement, not
 a silent version fallback. It resolves the hosted-flow selection, but does not
 establish production schema readiness or authorize real charges.
