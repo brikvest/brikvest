@@ -17,6 +17,7 @@ import { startGatewayWorker } from "./payments/flutterwave-worker";
 import { runStartupDataMaintenance } from "./startup-maintenance";
 import { summarizeLandPortfolio, portfolioLandAmount } from "@shared/holding-costs";
 import { purchaseUnitPrice } from "@shared/property-pricing";
+import { resaleAreaSqm } from "@shared/resale-area";
 import { randomBytes } from "crypto";
 import {
   approvePaymentSubmissionAtomically,
@@ -4803,6 +4804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           highestBidAmount: highestBid?.amount || null,
           bidCount,
           sellerName: "Brikvest Member",
+          areaSqm: resaleAreaSqm(listing.units, property),
         };
       }));
       res.json(enriched);
@@ -4832,6 +4834,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           propertyImageUrl: property?.imageUrl,
           propertyType: property?.propertyType,
           sellerName: seller?.fullName || "Anonymous",
+          areaSqm: resaleAreaSqm(listing.units, property),
           developer: developer ? {
             companyName: developer.companyName || developer.fullName,
             companyLogoUrl: developer.companyLogoUrl || null,
@@ -4880,6 +4883,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         propertyImageUrl: property?.imageUrl,
         propertyType: property?.propertyType,
         sellerName: seller?.fullName || "Anonymous",
+        areaSqm: resaleAreaSqm(listing.units, property),
         developer: developer ? {
           companyName: developer.companyName || developer.fullName,
           companyLogoUrl: developer.companyLogoUrl || null,

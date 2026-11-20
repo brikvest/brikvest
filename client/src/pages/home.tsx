@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { formatResaleArea } from "@shared/resale-area";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, getApiErrorMessage, queryClient } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
@@ -592,6 +593,7 @@ export function PropertyBrowsingContent({ embedded = false, dashboardReturnPath 
                               <div className="bg-slate-50 rounded-lg p-3">
                                 <p className="text-xs text-slate-500 mb-0.5">Units Available</p>
                                 <p className="font-bold text-slate-900">{listing.units}</p>
+                                <p className="text-sm text-slate-600" data-testid="resale-area">{formatResaleArea(listing.areaSqm)}</p>
                               </div>
                               <div className="bg-slate-50 rounded-lg p-3">
                                 <p className="text-xs text-slate-500 mb-0.5">

@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { formatResaleArea } from "@shared/resale-area";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -444,6 +445,7 @@ export default function Marketplace() {
                       <div className="bg-slate-50 rounded-lg p-2.5">
                         <p className="text-xs text-slate-500">Units</p>
                         <p className="font-bold text-slate-900">{listing.units}</p>
+                        <p className="text-sm text-slate-600" data-testid="resale-area">{formatResaleArea(listing.areaSqm)}</p>
                       </div>
                       <div className="bg-slate-50 rounded-lg p-2.5">
                         <p className="text-xs text-slate-500">
@@ -576,7 +578,7 @@ export default function Marketplace() {
               Place a Bid
             </DialogTitle>
             <DialogDescription>
-              {selectedListing?.propertyName} — {selectedListing?.units} units
+              {selectedListing?.propertyName} — {selectedListing?.units} units · {formatResaleArea(selectedListing?.areaSqm)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
@@ -665,7 +667,7 @@ export default function Marketplace() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Units</span>
-                <span className="font-semibold">{selectedListing?.units}</span>
+                <span className="font-semibold">{selectedListing?.units} · {formatResaleArea(selectedListing?.areaSqm)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">Price</span>
@@ -932,6 +934,7 @@ export default function Marketplace() {
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-500 mb-0.5">Units for Sale</p>
                 <p className="font-bold text-slate-900">{detailListing?.units}</p>
+                <p className="text-sm text-slate-600" data-testid="resale-detail-area">{formatResaleArea(detailListing?.areaSqm)}</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-500 mb-0.5">Listing Type</p>
