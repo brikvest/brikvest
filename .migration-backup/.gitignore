@@ -1,0 +1,11 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+.env
+.env.*
+.agents/outputs/referral-removal-prechange-snapshot.txt
+test-results/
+playwright-report/
