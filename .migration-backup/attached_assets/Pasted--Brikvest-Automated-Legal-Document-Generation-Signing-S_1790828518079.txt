@@ -1,0 +1,961 @@
+# Brikvest — Automated Legal Document Generation, Signing & Storage
+
+I need you to implement a complete document-generation and electronic-signature workflow in the existing Brikvest web application.
+
+## IMPORTANT: Work With the Existing Application
+
+First, inspect the existing Brikvest codebase, database schema, authentication system, payment/admin workflow, user dashboard, land ownership records, email functionality, and file/storage setup.
+
+Do **not** rebuild or replace existing functionality unnecessarily.
+
+Reuse the application's existing:
+
+* authentication and authorization
+* users
+* land/property ownership records
+* payment records
+* admin dashboard
+* email infrastructure
+* database
+* file storage
+* UI patterns/components
+
+Before making changes, understand how payment approval currently works and identify the exact backend event/action that represents an admin confirming a payment.
+
+The new document workflow must integrate into that existing flow.
+
+---
+
+# 1. Overall Workflow
+
+The desired workflow is:
+
+```text
+User purchases land
+        ↓
+Payment exists in system
+        ↓
+Admin reviews payment
+        ↓
+Admin confirms/approves payment
+        ↓
+Backend automatically generates:
+    1. Deed of Assignment
+    2. Transfer and Exit Rights Agreement
+        ↓
+Populate templates with the correct user's and land's information
+        ↓
+Convert generated Word documents to PDF
+        ↓
+Save generated PDFs securely
+        ↓
+Create document records associated with:
+    User
+    Land ownership
+    Payment/transaction
+    Template version
+        ↓
+Send confirmation email to user
+        ↓
+User clicks email link
+        ↓
+User enters Brikvest dashboard
+        ↓
+User sees documents attached to the relevant land
+        ↓
+User reviews documents
+        ↓
+User digitally signs
+        ↓
+E-signature provider finalizes the documents
+        ↓
+Final signed PDFs are securely stored
+        ↓
+Document status becomes SIGNED / FINAL
+        ↓
+Signed documents cannot be edited, deleted, voided,
+replaced, or re-signed by the user
+```
+
+---
+
+# 2. Templates
+
+There are two legal document templates:
+
+1. `DEED OF ASSIGNMENT BRIKVEST.docx`
+2. `TRANSFER AND EXIT RIGHTS AGREEMENT.docx`
+
+These are Word `.docx` templates.
+
+The Word documents are the **source templates**.
+
+Do not modify the legal wording of the templates during implementation.
+
+The templates contain placeholders using this format:
+
+```text
+{{USER_FULL_NAME}}
+{{USER_HOME_ADDRESS}}
+{{PROPERTY_AREA_SQM}}
+{{PAYMENT_AMOUNT_NAIRA_NUMERIC}}
+{{PAYMENT_AMOUNT_NAIRA_WORDS}}
+{{DOCUMENT_DATE}}
+```
+
+Treat these placeholders as the authoritative dynamic fields.
+
+Do not rely on highlighting/color in the Word documents to identify fields.
+
+The templates must remain editable by authorized Brikvest administrators for future legal/content changes.
+
+---
+
+# 3. Template Management in Admin
+
+Create an admin-only "Document Templates" area.
+
+Administrators should be able to:
+
+* view the current Deed of Assignment template
+* view the current Transfer and Exit Rights Agreement template
+* upload a new `.docx` template
+* replace/update the active template
+* see the currently active template version
+* see previous template versions
+* download previous versions
+* activate a new version
+
+Do not allow ordinary users to access templates.
+
+### Template versioning
+
+Every uploaded template must have a version.
+
+Example:
+
+```text
+Deed of Assignment
+Version 1 — old
+Version 2 — current
+Version 3 — future
+```
+
+A generated document must permanently record the exact template version used to generate it.
+
+For example:
+
+```text
+document_type: deed_of_assignment
+template_version: 2
+```
+
+Changing the active template later must **not** alter previously generated documents.
+
+Previously generated/signed documents are immutable historical records.
+
+---
+
+# 4. Validate Templates Before Activation
+
+When an administrator uploads a new template, validate that all required placeholders exist.
+
+Required placeholders:
+
+```text
+{{USER_FULL_NAME}}
+{{USER_HOME_ADDRESS}}
+{{PROPERTY_AREA_SQM}}
+{{PAYMENT_AMOUNT_NAIRA_NUMERIC}}
+{{PAYMENT_AMOUNT_NAIRA_WORDS}}
+{{DOCUMENT_DATE}}
+```
+
+If a required placeholder is missing, malformed, or duplicated in a way that could cause incorrect generation, show a clear validation error and do not activate the template.
+
+Also make sure placeholder replacement does not destroy surrounding Word formatting.
+
+Do not use a simplistic global text replacement that rewrites an entire paragraph and accidentally removes fonts, bolding, spacing, alignment, tables, etc.
+
+---
+
+# 5. Data Mapping
+
+Populate the documents using trusted backend/database data.
+
+Do not accept document values directly from frontend requests.
+
+### User information
+
+```text
+{{USER_FULL_NAME}}
+    → authenticated user's verified full name
+
+{{USER_HOME_ADDRESS}}
+    → user's saved/verified home address
+```
+
+### Land information
+
+```text
+{{PROPERTY_AREA_SQM}}
+    → calculated/stored property area for the user's land ownership record
+```
+
+The template should contain `{{PROPERTY_AREA_SQM}}`.
+
+Do NOT put business logic such as:
+
+```text
+{{NUM_UNITS_OWNED*5}}
+```
+
+inside the Word template.
+
+If the application stores the number of units, calculate the property area in the backend before template rendering.
+
+Example:
+
+```text
+num_units_owned = 4
+property_area_sqm = 4 × 5 = 20
+```
+
+Then insert:
+
+```text
+{{PROPERTY_AREA_SQM}} → 20
+```
+
+The backend should control this calculation.
+
+### Payment information
+
+```text
+{{PAYMENT_AMOUNT_NAIRA_NUMERIC}}
+    → approved transaction/payment amount
+
+{{PAYMENT_AMOUNT_NAIRA_WORDS}}
+    → the same approved amount converted into words
+```
+
+The numeric amount and written amount must always originate from the same approved payment amount.
+
+Do not allow the frontend to submit a different amount for document generation.
+
+### Date
+
+The templates now use:
+
+```text
+{{DOCUMENT_DATE}}
+```
+
+Populate this with the appropriate document-generation/effective date according to the existing Brikvest business rules.
+
+Use one consistent formatted date throughout each generated document.
+
+For example:
+
+```text
+30th September, 2026
+```
+
+Do not independently generate day/month/year values in different parts of the system.
+
+---
+
+# 6. Generate Documents Only After Payment Approval
+
+The trigger for document generation should be the **backend confirmation/approval of payment by an authorized admin**.
+
+Do not generate the legal documents merely because:
+
+* a user starts a payment
+* a payment is pending
+* a payment page is opened
+* a payment webhook is received without confirmed/approved status
+
+Only generate once the application's authoritative payment record reaches the approved/confirmed state.
+
+---
+
+# 7. Idempotency — Extremely Important
+
+Document generation must be idempotent.
+
+If an admin accidentally clicks "Approve" twice, or the backend processes the same approval event multiple times, do NOT generate duplicate documents.
+
+Before generating documents, check whether documents already exist for that specific:
+
+```text
+user + land ownership + approved payment + document type
+```
+
+If the documents have already been generated for that approval/version, do not create duplicates.
+
+Design this at the database/backend level rather than relying only on frontend button disabling.
+
+---
+
+# 8. Document Generation
+
+When payment is approved:
+
+1. Retrieve the approved payment.
+2. Retrieve the associated user.
+3. Retrieve the associated land/ownership record.
+4. Retrieve the currently active Deed of Assignment Word template.
+5. Retrieve the currently active Transfer and Exit Rights Agreement Word template.
+6. Build the trusted data object containing all required values.
+7. Render each Word template using the placeholder values.
+8. Convert each completed Word document to PDF.
+9. Store the PDFs securely.
+10. Create document records in the database.
+11. Send the user a confirmation email.
+
+The generated PDF must preserve the formatting/layout of the Word template as closely as possible.
+
+Do not generate the PDF from scratch using HTML/CSS unless the existing Word-to-PDF approach is technically impossible.
+
+The Word template is the source of truth for document formatting.
+
+---
+
+# 9. Generated Document Records
+
+Create or extend a document model/table to support something similar to:
+
+```text
+id
+user_id
+land_ownership_id
+payment_id
+document_type
+template_version
+status
+source_docx_storage_path
+unsigned_pdf_storage_path
+signed_pdf_storage_path
+signing_provider
+signing_envelope_id
+created_at
+sent_for_signature_at
+signed_at
+finalized_at
+```
+
+Use the existing database conventions where possible.
+
+Document types should be represented using stable values such as:
+
+```text
+deed_of_assignment
+transfer_exit_rights
+```
+
+Suggested document statuses:
+
+```text
+GENERATED
+AWAITING_SIGNATURE
+SIGNING_IN_PROGRESS
+SIGNED
+FINAL
+FAILED
+```
+
+You may simplify these where appropriate, but the lifecycle must remain clear.
+
+---
+
+# 10. Secure File Storage
+
+Legal documents must not be stored as publicly accessible files.
+
+Use private storage.
+
+Users should only be able to access documents belonging to their own account.
+
+Admins should be able to access documents according to existing admin permissions.
+
+Prefer secure temporary/signed download URLs or authenticated document access rather than permanent public URLs.
+
+Do not expose raw storage paths to users.
+
+---
+
+# 11. Email Notification
+
+After successful document generation, automatically send the user a confirmation email.
+
+The email should clearly say that their Brikvest legal documents are ready to review and sign.
+
+The email should contain a secure link to the user's Brikvest dashboard/document-review page.
+
+Example structure:
+
+```text
+Subject:
+Your Brikvest documents are ready for review and signature
+
+Hi {{USER_FULL_NAME}},
+
+Your documents for {{LAND/PROPERTY DESCRIPTION}} are now ready to review and sign.
+
+Please log in to your Brikvest account to review and complete the signing process.
+
+[Review & Sign Documents]
+
+Thank you,
+Brikvest
+```
+
+Use the existing Brikvest email system if one already exists.
+
+Do not expose direct unauthenticated document URLs inside the email.
+
+The link should take the user to Brikvest, authenticate them as appropriate, and then show the relevant documents.
+
+---
+
+# 12. User Dashboard
+
+Add a documents section to each land/property owned by the user.
+
+The structure should be conceptually:
+
+```text
+My Lands
+
+Lilycrest Garden Estate — Plot SD118
+20 m²
+
+Documents
+
+Deed of Assignment
+Status: Awaiting Signature
+[Review & Sign]
+
+Transfer and Exit Rights Agreement
+Status: Awaiting Signature
+[Review & Sign]
+```
+
+After signing:
+
+```text
+Deed of Assignment
+Status: Signed
+[View Signed Document]
+
+Transfer and Exit Rights Agreement
+Status: Signed
+[View Signed Document]
+```
+
+Documents must be associated with the specific land ownership record.
+
+Do not simply display all documents in one generic account-level list without showing which land they belong to.
+
+---
+
+# 13. Electronic Signature
+
+Integrate an established electronic-signature provider rather than building custom signature/legal-audit functionality from scratch.
+
+The implementation should support:
+
+* creating a signing request/envelope
+* attaching the generated PDF
+* identifying the Brikvest/company signer where required
+* identifying the user as the assignee/signer
+* placing the user's signature field in the appropriate signature location
+* allowing the user to review the document before signing
+* receiving confirmation when signing is completed
+* receiving the final completed PDF
+* recording the provider's envelope/request ID
+* using webhook/callback events to update Brikvest's database
+
+Use a provider abstraction so the signing provider can be changed later without rewriting the document system.
+
+Store provider credentials only in secure environment variables/secrets.
+
+Never place API keys in frontend code.
+
+---
+
+# 14. Signature Rules
+
+The user must not be able to modify the legal document before or after signing.
+
+The expected flow is:
+
+```text
+Generated PDF
+    ↓
+Review
+    ↓
+Sign
+    ↓
+Finalized signed PDF
+```
+
+Once the document has been signed/finalized:
+
+* user cannot edit it
+* user cannot delete it
+* user cannot replace it
+* user cannot void it
+* user cannot remove their signature
+* user cannot reopen it for editing
+* user cannot create another version of the same signed document
+
+The UI should not expose any "Void", "Delete", "Edit", or "Replace" functionality to the user after signing.
+
+The final signed PDF should be stored as a permanent immutable record.
+
+The application must also prevent a user from uploading a replacement document and attaching it to an existing signed document record.
+
+---
+
+# 15. Preserve the Original Generated Document
+
+Do not overwrite the original generated PDF with the signed PDF.
+
+Keep both:
+
+```text
+Original generated PDF
++
+Final signed PDF
+```
+
+The original generated PDF is useful for audit/history.
+
+The final signed PDF is the official completed document.
+
+If the signing provider supplies an audit certificate/completion certificate, store that as well where practical.
+
+---
+
+# 16. Signing Completion Webhook
+
+Do not rely solely on the user's browser redirect to determine whether signing succeeded.
+
+The authoritative update should come from the e-signature provider's completion webhook/event.
+
+For example:
+
+```text
+Provider confirms signing completed
+        ↓
+Webhook reaches Brikvest backend
+        ↓
+Verify webhook
+        ↓
+Identify document/envelope
+        ↓
+Download/retrieve completed signed PDF
+        ↓
+Store signed PDF
+        ↓
+Update document:
+    status = FINAL
+    signed_at = ...
+    finalized_at = ...
+```
+
+Webhook processing must also be idempotent so the same event cannot create duplicate records or repeatedly modify a finalized document.
+
+---
+
+# 17. Immutable Finalization
+
+Once the database record reaches:
+
+```text
+FINAL
+```
+
+treat it as immutable.
+
+Do not allow normal CRUD operations to modify:
+
+* signed PDF
+* signed date
+* signing provider ID
+* template version
+* payment association
+* land association
+* user association
+
+If an extraordinary administrative correction mechanism is ever required, it should be a separate audited admin process rather than ordinary editing.
+
+Do not implement such a correction mechanism unless the existing Brikvest requirements already call for one.
+
+---
+
+# 18. Template Changes Must Not Affect Existing Documents
+
+This is critical.
+
+Suppose:
+
+```text
+2026:
+Deed template Version 1
+```
+
+is used to generate User A's documents.
+
+Later:
+
+```text
+2027:
+Deed template Version 2
+```
+
+is uploaded.
+
+User A's existing documents must remain exactly as generated.
+
+Only new transactions/documents should use Version 2.
+
+The document record must therefore retain the template version used.
+
+---
+
+# 19. Admin Document Management
+
+Create an admin interface where authorized administrators can see:
+
+```text
+User
+Land
+Document Type
+Payment
+Template Version
+Status
+Created Date
+Signed Date
+```
+
+Admins should be able to view/download the generated documents according to their existing permissions.
+
+Provide clear statuses such as:
+
+```text
+Generated
+Awaiting Signature
+Signing In Progress
+Signed
+Final
+Failed
+```
+
+Also show meaningful errors when generation or signing fails.
+
+---
+
+# 20. Failure Handling
+
+This workflow involves multiple external/system steps, so don't allow partial failures to leave the system in an inconsistent state.
+
+Examples:
+
+### Word generation fails
+
+Do not mark the documents as successfully generated.
+
+Record an error and expose a retry mechanism to authorized administrators.
+
+### PDF conversion fails
+
+Record the failure and do not send the "documents ready" email.
+
+### File upload/storage fails
+
+Do not mark the document as complete.
+
+### Email fails
+
+The documents may still exist, but record the email failure and allow an admin to resend the notification.
+
+### E-signature provider fails
+
+Keep the document in an appropriate pre-signing status and allow a controlled retry.
+
+Avoid generating duplicate documents or duplicate signing envelopes during retries.
+
+---
+
+# 21. Security Requirements
+
+Treat these documents as sensitive legal records.
+
+Ensure:
+
+* users can only access their own documents
+* users cannot access another user's documents by changing an ID in the URL
+* admin endpoints require existing admin authorization
+* document-generation endpoints are backend-only
+* payment amount and legal data are retrieved from trusted database records
+* storage files are private
+* e-signature API credentials are server-side only
+* webhook endpoints verify authenticity according to the provider's mechanism
+* finalized signed documents cannot be modified through normal API requests
+* document IDs should not expose predictable access patterns without authorization checks
+
+Test for IDOR/insecure direct object reference vulnerabilities when implementing document URLs/routes.
+
+---
+
+# 22. Do Not Trust Frontend Data for Legal Documents
+
+For document generation, do not trust values such as:
+
+```text
+user name
+address
+payment amount
+land size
+payment status
+land ownership
+```
+
+when they are submitted from the browser.
+
+The backend must independently retrieve and validate these values from the authenticated user's database records and approved payment/ownership records.
+
+The frontend should request document generation/signing, but the backend should determine exactly what gets put into the legal documents.
+
+---
+
+# 23. Keep Legal Content Separate From Application Logic
+
+Do not hard-code large portions of the legal documents into the application.
+
+The Word templates are the legal source documents.
+
+Application code should be responsible for:
+
+```text
+template selection
++
+data retrieval
++
+placeholder replacement
++
+PDF conversion
++
+storage
++
+signature workflow
+```
+
+The legal wording remains inside the `.docx` templates.
+
+---
+
+# 24. UI Expectations
+
+Keep the UI consistent with the existing Brikvest design.
+
+For users, make the document workflow obvious:
+
+```text
+Awaiting Signature
+Review Document
+Sign Document
+Signed / Final
+View Signed Document
+```
+
+Clearly differentiate:
+
+* unsigned/generated document
+* document waiting for signature
+* signed/final document
+
+Do not show editing controls to users.
+
+---
+
+# 25. Audit Trail
+
+Record meaningful document events.
+
+At minimum, capture:
+
+```text
+payment approved
+document generated
+document generation failed
+document sent for signature
+signature started
+signature completed
+signed PDF stored
+document finalized
+email sent
+email failed
+```
+
+Where the existing application supports an audit/event table, reuse it.
+
+Otherwise create an appropriate document event/history model.
+
+The goal is to be able to determine:
+
+```text
+Who?
+What?
+When?
+Which land?
+Which payment?
+Which template version?
+Which document?
+Which signing request?
+```
+
+---
+
+# 26. Testing
+
+Do not consider the feature complete until you have tested the complete workflow.
+
+Test at least:
+
+### Happy path
+
+```text
+Payment approved
+→ documents generated
+→ PDFs stored
+→ email sent
+→ dashboard updated
+→ user signs
+→ signed PDFs received
+→ documents become FINAL
+```
+
+### Duplicate approval
+
+Approve the same payment multiple times.
+
+Expected result:
+
+```text
+Exactly one Deed of Assignment
+Exactly one Transfer and Exit Rights Agreement
+```
+
+unless a new explicit document version/reissue process is implemented.
+
+### Incorrect/missing user data
+
+Verify the system refuses to generate a legal document if required information is missing rather than generating a blank/incorrect document.
+
+### PDF generation failure
+
+Verify no misleading "documents ready" email is sent.
+
+### Email failure
+
+Verify the generated documents remain available and the failure is recorded.
+
+### Signing failure
+
+Verify the system does not incorrectly mark the document as signed.
+
+### Unauthorized access
+
+Verify User A cannot access User B's document by manipulating IDs/routes/API requests.
+
+### Post-signing modification
+
+Verify a finalized document cannot be modified, deleted, replaced, or re-signed through the application.
+
+### Template update
+
+Generate documents using Template Version 1.
+
+Then upload Template Version 2.
+
+Verify Version 1 documents remain unchanged and future documents use Version 2.
+
+---
+
+# 27. Implementation Approach
+
+Before writing code:
+
+1. Inspect the current application architecture.
+2. Identify the existing payment approval flow.
+3. Identify the existing user/land/payment database relationships.
+4. Identify existing email and storage functionality.
+5. Identify the current technology/framework used by the Replit application.
+6. Propose the minimal schema/API/UI changes needed.
+7. Then implement the feature using the existing architecture.
+
+Do not replace existing infrastructure just because another approach is available.
+
+Use established libraries/services for:
+
+* DOCX template rendering
+* Word-to-PDF conversion
+* secure file storage
+* electronic signatures
+
+Choose technologies compatible with the application's current stack.
+
+---
+
+# 28. Important Business Rule
+
+A successful payment approval is the trigger for generating the documents.
+
+However, **do not automatically mark a document as signed merely because it was generated or sent to the user**.
+
+The document lifecycle must distinguish:
+
+```text
+Generated
+≠
+Sent
+≠
+Viewed
+≠
+Signed
+≠
+Finalized
+```
+
+Only confirmed completion of the electronic-signature process should transition the document to its final signed state.
+
+---
+
+# 29. Deliverables
+
+Implement the complete feature end-to-end.
+
+At the end, provide me with:
+
+1. A summary of the files/components changed.
+2. Database/schema changes made.
+3. Environment variables/secrets that I need to configure.
+4. Any external service accounts/API credentials required.
+5. The document generation library/service used.
+6. The PDF conversion method used.
+7. The electronic-signature provider used.
+8. Any setup steps I must complete manually.
+9. How an admin uploads/updates document templates.
+10. How the payment approval trigger works.
+11. How signed-document webhooks work.
+12. How to test the entire workflow.
+
+Do not stop after creating the UI. The entire backend workflow must be implemented and connected.
+
+Do not fabricate successful integrations. If an external service requires credentials or configuration that is unavailable, implement everything that can safely be implemented, clearly identify the missing configuration, and provide the exact setup required.
+
+The existing Brikvest application and its existing business logic should remain intact outside the scope of this feature.

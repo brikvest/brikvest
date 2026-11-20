@@ -1,0 +1,120 @@
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["libreoffice", "poppler_utils", "liberation_ttf", "dejavu_fonts", "chromium"]
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
+run = ["npm", "run", "start"]
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "legal-workflow"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "production-build"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "email-recovery-tests"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "SKIP_STARTUP_DATA_MAINTENANCE=true npm run dev"
+waitForPort = 5000
+
+[[workflows.workflow]]
+name = "legal-workflow"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:legal"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "production-build"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "email-recovery-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx vitest run --config vitest.email.config.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[agent]
+integrations = ["javascript_sendgrid:1.0.0"]
+
+[objectStorage]
+defaultBucketID = "replit-objstore-35269575-475c-4d86-88b0-e0fedb234478"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 90000
+
+[userenv]
+
+[userenv.production]
+SKIP_STARTUP_DATA_MAINTENANCE = "true"
+APP_BASE_URL = "https://brikvest.net"
+LEGAL_DISPATCH_PAUSED = "true"
+FLW_ENABLED = "false"
+FLW_LIVE_AUTHORIZED = "false"
+FLW_NOTIFICATION_DISPATCH = "false"
+FLW_WORKER_ENABLED = "false"
+
+[userenv.development]
+SKIP_POST_MERGE_DATABASE_MUTATIONS = "true"
+SKIP_STARTUP_DATA_MAINTENANCE = "true"
+LEGAL_DISPATCH_PAUSED = "true"
+FLW_ENABLED = "false"
+FLW_LIVE_AUTHORIZED = "false"
+FLW_NOTIFICATION_DISPATCH = "false"
+FLW_WORKER_ENABLED = "false"

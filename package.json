@@ -1,5 +1,6 @@
 {
-  "name": "rest-express",
+  "name": "workspace",
+  "private": true,
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
@@ -19,9 +20,10 @@
     "test:legal": "vitest run --config vitest.legal.config.ts",
     "test:legal:browser": "playwright test --config=playwright.legal.config.ts",
     "legal:readiness": "bash scripts/legal-font-env.sh tsx scripts/legal-readiness.ts",
-    "dev": "NODE_ENV=development bash scripts/legal-font-env.sh tsx server/index.ts",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production bash scripts/legal-font-env.sh node dist/index.js",
+    "build": "pnpm --filter @workspace/brikvest run build && pnpm --filter @workspace/api-server run build",
+    "start": "NODE_ENV=production bash scripts/legal-font-env.sh node artifacts/api-server/dist/index.mjs",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "tsc --noEmit",
     "check": "tsc",
     "db:push": "drizzle-kit push"
   },
@@ -154,7 +156,7 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
-    "@vitejs/plugin-react": "^4.3.2",
+    "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.4",
@@ -163,7 +165,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.1",
     "typescript": "5.6.3",
-    "vite": "^5.4.14"
+    "vite": "^8.3.8"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

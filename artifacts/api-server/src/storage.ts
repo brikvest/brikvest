@@ -1,0 +1,2259 @@
+import { 
+  users, 
+  adminUsers,
+  properties,
+  investmentReservations,
+  investmentReservationInventory,
+  investmentPayments,
+  investmentGroups,
+  groupMemberships,
+  propertyVerificationChecklists,
+  verificationStepCompletions,
+  marketInsights,
+  guzapeListings,
+  ownershipCertificates,
+  paymentSubmissions,
+  propertyValuations,
+  resaleListings,
+  resaleBids,
+  type User, 
+  type InsertUser,
+  type AdminUser,
+  type InsertAdminUser,
+  type Property,
+  type InsertProperty,
+  type InvestmentReservation,
+  type InsertInvestmentReservation,
+  type InvestmentGroup,
+  type InsertInvestmentGroup,
+  type GroupMembership,
+  type InsertGroupMembership,
+  type MarketInsight,
+  type InsertMarketInsight,
+  type GuzapeListing,
+  type InsertGuzapeListing,
+  type OwnershipCertificate,
+  type InsertOwnershipCertificate,
+  type PaymentSubmission,
+  type InsertPaymentSubmission,
+  type PropertyValuation,
+  type InsertPropertyValuation,
+  type ResaleListing,
+  type InsertResaleListing,
+  type ResaleBid,
+  type InsertResaleBid,
+  resalePayments,
+  type ResalePayment,
+  type InsertResalePayment,
+  resaleAuditLogs,
+  type ResaleAuditLog,
+  type InsertResaleAuditLog,
+  projectMilestones,
+  type ProjectMilestone,
+  type InsertProjectMilestone,
+  projectUpdates,
+  type ProjectUpdate,
+  type InsertProjectUpdate,
+  developerInvestorNotes,
+  type DeveloperInvestorNote,
+  type InsertDeveloperInvestorNote,
+  developerLeads,
+  type DeveloperLead,
+  type InsertDeveloperLead,
+  reservationReminders,
+  type ReservationReminder,
+  type InsertReservationReminder,
+  developerTeamInvites,
+  type DeveloperTeamInvite,
+  type InsertDeveloperTeamInvite,
+  constructionStages,
+  type ConstructionStage,
+  type InsertConstructionStage,
+  vendors,
+  type Vendor,
+  type InsertVendor,
+  vendorPayments,
+  type VendorPayment,
+  type InsertVendorPayment,
+  DEFAULT_CONSTRUCTION_STAGES,
+} from "@shared/schema";
+import { db } from "./db";
+import { hasCollectedGatewayPayment, hasGatewayPaymentConflict, assertGatewayCancellationSafe } from "./payments/gateway-guards";
+import { GatewayError } from "./payments/flutterwave-provider";
+import { eq, desc, and, ne, or, sql, inArray, notInArray, lt, gte } from "drizzle-orm";
+
+/**
+ * Map a reservation's platform status to its funnel_stage bucket. Centralised
+ * here so both `createInvestmentReservation` and `updateReservation` keep the
+ * funnel column in sync at write time (the startup backfill is just a safety
+ * net for legacy rows).
+ *   converted_to_investment -> 'confirmed'
+ *   payment_pending         -> 'payment_incomplete'
+ *   reserved                -> 'prospective'
+ *   expired / cancelled / *  -> null  (out of funnel)
+ */
+function deriveFunnelStageFromStatus(status: string): string | null {
+  switch (status) {
+    case "converted_to_investment":
+      return "confirmed";
+    case "payment_pending":
+      return "payment_incomplete";
+    case "reserved":
+      return "prospective";
+    default:
+      return null;
+  }
+}
+
+function queryRows<T>(result: unknown): T[] {
+  const rows = (result as { rows?: T[] } | null)?.rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
+export class ProjectHasConfirmedInvestorsError extends Error {
+  constructor(public readonly count: number) {
+    super(`Project has ${count} confirmed investment(s)`);
+    this.name = "ProjectHasConfirmedInvestorsError";
+  }
+}
+
+export class ReservationInventoryUnavailableError extends Error {
+  constructor() {
+    super("Not enough whole units are available to reserve this investment.");
+    this.name = "ReservationInventoryUnavailableError";
+  }
+}
+
+export class UnsupportedFractionalInventoryReservationError extends Error {
+  constructor() {
+    super(
+      "Fractional reservations cannot be safely allocated to whole-unit inventory counters. " +
+        "No reservation or inventory changes were made.",
+    );
+    this.name = "UnsupportedFractionalInventoryReservationError";
+  }
+}
+
+export class ConfirmedInvestmentCancellationRequiredError extends Error {
+  constructor() {
+    super("Confirmed investments must be cancelled through the legal-aware cancellation transition.");
+    this.name = "ConfirmedInvestmentCancellationRequiredError";
+  }
+}
+
+export interface CreateInvestmentReservationOptions {
+  /** Atomically claim capacity and track this reservation's exact counter contribution. */
+  accountInventoryAtomically?: boolean;
+}
+
+export interface IStorage {
+  // User methods (Email/Password Auth)
+  getUser(id: number): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, updates: Partial<User>): Promise<User>;
+  deleteUser(id: number): Promise<void>;
+  updateUserPassword(id: number, password: string): Promise<void>;
+  setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
+  consumeResetTokenAndSetPassword(token: string, hashedPassword: string): Promise<User | undefined>;
+  updateUserLastLogin(id: number): Promise<void>;
+  updateUserKyc(id: number, kycData: Partial<User>): Promise<void>;
+  submitUserKyc(id: number, kycData: Partial<User>): Promise<boolean>;
+  getAllKycSubmissions(): Promise<User[]>;
+  updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<boolean>;
+  getPendingUsers(): Promise<User[]>;
+  updateUserAccountStatus(userId: number, status: string): Promise<User>;
+  
+  // Admin user methods
+  getAdminUser(id: number): Promise<AdminUser | undefined>;
+  getAdminUserByUsername(username: string): Promise<AdminUser | undefined>;
+  createAdminUser(user: InsertAdminUser): Promise<AdminUser>;
+  updateAdminUserLastLogin(id: number): Promise<void>;
+  
+  // Property methods
+  getProperties(): Promise<Property[]>; // All properties (admin use)
+  getPublicProperties(): Promise<Property[]>; // Only non-archived properties (buyer use)
+  getProperty(id: number): Promise<Property | undefined>;
+  createProperty(property: InsertProperty): Promise<Property>;
+  updateProperty(id: number, property: InsertProperty): Promise<Property>;
+  updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property>;
+  deleteProperty(id: number): Promise<void>;
+  deleteDeveloperProject(id: number): Promise<InvestmentReservation[]>;
+
+  // Construction stages (predefined 8-stage template per project)
+  getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]>;
+  seedDefaultConstructionStages(propertyId: number): Promise<void>;
+  updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+  // Idempotent create-or-update by (propertyId, stageKey) — the natural key
+  // backed by a unique index. Used by the Construction tab's stage editor.
+  upsertConstructionStage(propertyId: number, stageKey: string, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage>;
+
+  // Vendors / subcontractors
+  getVendorsByProperty(propertyId: number): Promise<Vendor[]>;
+  getVendor(id: number): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor>;
+  deleteVendor(id: number): Promise<void>;
+
+  // Vendor payments (developer-recorded payments to a vendor)
+  getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]>;
+  getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]>;
+  createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment>;
+  deleteVendorPayment(id: number): Promise<void>;
+
+  // Reservation funnel / conversion rollups for the Fundraising tab.
+  getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>>;
+  getMonthlyConversionEfficiency(propertyId: number, months?: number): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]>;
+  // One-shot startup backfill — defaults funnel_stage on any pre-existing
+  // reservations from their platform-level status. Idempotent.
+  backfillReservationFunnelStages(): Promise<number>;
+  updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void>;
+  
+  // Investment reservation methods
+  createInvestmentReservation(
+    reservation: InsertInvestmentReservation,
+    options?: CreateInvestmentReservationOptions,
+  ): Promise<InvestmentReservation>;
+  getReservationsByEmail(email: string): Promise<InvestmentReservation[]>;
+  getUserReservationsWithPropertyByEmail(email: string): Promise<(InvestmentReservation & { property?: Property })[]>;
+  getReservationsByUserId(userId: number): Promise<InvestmentReservation[]>;
+  getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]>;
+  getAllReservations(): Promise<InvestmentReservation[]>;
+  getReservation(id: number): Promise<InvestmentReservation | undefined>;
+  updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation>;
+  reinstateReservationIfEligible(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation | null>;
+  createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder>;
+  getReservationReminders(reservationId: number): Promise<ReservationReminder[]>;
+  getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]>;
+  updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void>;
+  linkOrphanedReservationsToUser(userId: number, email: string): Promise<number>;
+  extendReservationsOnKycSubmission(userId: number): Promise<number>;
+  cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }>;
+  
+  // Investment group methods
+  createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup>;
+  getInvestmentGroups(): Promise<InvestmentGroup[]>;
+  getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined>;
+  getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined>;
+  updateInvestmentGroup(id: number, updates: Partial<InvestmentGroup>): Promise<InvestmentGroup>;
+  
+  // Group membership methods
+  createGroupMembership(membership: InsertGroupMembership): Promise<GroupMembership>;
+  getGroupMemberships(groupId: number): Promise<GroupMembership[]>;
+  getMembershipsByEmail(email: string): Promise<GroupMembership[]>;
+  updateGroupMembership(id: number, updates: Partial<GroupMembership>): Promise<GroupMembership>;
+  
+  // Market insights methods
+  createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]>;
+  getMarketInsights(location?: string): Promise<MarketInsight[]>;
+  deleteOldInsights(daysOld: number): Promise<void>;
+  
+  // Guzape listings methods
+  saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]>;
+  getGuzapeListings(limit?: number): Promise<GuzapeListing[]>;
+  
+  // Investment payments methods (admin-assisted)
+  createInvestmentPayment(payment: any): Promise<any>;
+  getInvestmentPayments(reservationId: number): Promise<any[]>;
+  
+  // Ownership certificates methods
+  createOwnershipCertificate(certificate: InsertOwnershipCertificate): Promise<OwnershipCertificate>;
+  getCertificateByReservationId(reservationId: number): Promise<OwnershipCertificate | undefined>;
+  getCertificateByVerificationToken(token: string): Promise<OwnershipCertificate | undefined>;
+  getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined>;
+  getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]>;
+  getNextCertificateNumber(): Promise<string>;
+  
+  // Payment submissions methods (user-initiated)
+  createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission>;
+  getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]>;
+  getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]>;
+  getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]>;
+  getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined>;
+  updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission>;
+  
+  // Property valuation methods
+  createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation>;
+  getPropertyValuation(id: number): Promise<PropertyValuation | undefined>;
+  getPropertyValuations(propertyId: number): Promise<PropertyValuation[]>;
+  getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined>;
+  deletePropertyValuation(id: number): Promise<void>;
+  getAllUsers(): Promise<User[]>;
+  
+  // Resale listing methods
+  createResaleListing(listing: InsertResaleListing): Promise<ResaleListing>;
+  getResaleListingsByUser(userId: number): Promise<ResaleListing[]>;
+  getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]>;
+  getResaleListing(id: number): Promise<ResaleListing | undefined>;
+  updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing>;
+  getAllResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListings(): Promise<ResaleListing[]>;
+  getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]>;
+  getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined>;
+  
+  // Resale bid methods
+  createResaleBid(bid: InsertResaleBid): Promise<ResaleBid>;
+  getBidsByListing(listingId: number): Promise<ResaleBid[]>;
+  getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined>;
+  getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined>;
+  getBidsByUser(userId: number): Promise<ResaleBid[]>;
+  getResaleBid(id: number): Promise<ResaleBid | undefined>;
+  updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid>;
+
+  // Resale payment methods
+  createResalePayment(payment: InsertResalePayment): Promise<ResalePayment>;
+  getResalePayment(id: number): Promise<ResalePayment | undefined>;
+  getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]>;
+  getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]>;
+  getAllResalePayments(): Promise<ResalePayment[]>;
+  updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment>;
+
+  // Expired payment deadline listings
+  getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]>;
+
+  // Resale audit log methods
+  createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog>;
+  getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]>;
+  getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]>;
+  getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]>;
+
+  // Developer Portal methods
+  getPropertiesByDeveloper(developerId: number): Promise<Property[]>;
+  getDevelopers(): Promise<User[]>;
+
+  // Project milestones
+  createProjectMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone>;
+  getMilestonesByProperty(propertyId: number): Promise<ProjectMilestone[]>;
+  getMilestone(id: number): Promise<ProjectMilestone | undefined>;
+  updateMilestone(id: number, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone>;
+  reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]>;
+  deleteMilestone(id: number): Promise<void>;
+
+  // Project updates
+  createProjectUpdate(update: InsertProjectUpdate, recipientCount: number): Promise<ProjectUpdate>;
+  getProjectUpdatesByProperty(propertyId: number): Promise<ProjectUpdate[]>;
+  getProjectUpdatesByDeveloper(developerId: number): Promise<ProjectUpdate[]>;
+
+  // Developer investor notes
+  upsertDeveloperInvestorNote(note: InsertDeveloperInvestorNote): Promise<DeveloperInvestorNote>;
+  getDeveloperInvestorNote(propertyId: number, developerUserId: number, investorUserId: number): Promise<DeveloperInvestorNote | undefined>;
+
+  // Developer CRM leads (pre-reservation funnel)
+  createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead>;
+  getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]>;
+  getDeveloperLead(id: number): Promise<DeveloperLead | undefined>;
+  updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead>;
+  deleteDeveloperLead(id: number): Promise<void>;
+
+  // Developer subscription / team helpers
+  getDeveloperOwnerId(userId: number): Promise<number>;
+  getTeamMembersByDeveloper(developerId: number): Promise<User[]>;
+  countActiveProjectsForDeveloper(developerId: number): Promise<number>;
+  countDistinctInvestorsForDeveloper(developerId: number): Promise<number>;
+  countUpdatesThisMonthForDeveloper(developerId: number): Promise<number>;
+
+  // Developer team invites
+  createDeveloperTeamInvite(invite: InsertDeveloperTeamInvite): Promise<DeveloperTeamInvite>;
+  getDeveloperTeamInvitesByDeveloper(developerId: number): Promise<DeveloperTeamInvite[]>;
+  getDeveloperTeamInviteByToken(token: string): Promise<DeveloperTeamInvite | undefined>;
+  updateDeveloperTeamInvite(id: number, updates: Partial<DeveloperTeamInvite>): Promise<DeveloperTeamInvite>;
+}
+
+export class DatabaseStorage implements IStorage {
+  // User methods (Email/Password Auth)
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(userData).returning();
+    return user;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  async updateUserPassword(id: number, password: string): Promise<void> {
+    await db.update(users)
+      .set({ password, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async setPasswordResetToken(email: string, token: string, expiry: Date): Promise<void> {
+    await db.update(users)
+      .set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() })
+      .where(eq(users.email, email));
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.resetToken, token));
+    return user;
+  }
+
+  async consumeResetTokenAndSetPassword(token: string, hashedPassword: string): Promise<User | undefined> {
+    const [user] = await db.update(users)
+      .set({
+        password: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(users.resetToken, token),
+        gte(users.resetTokenExpiry, new Date()),
+      ))
+      .returning();
+    return user;
+  }
+
+  async updateUserLastLogin(id: number): Promise<void> {
+    await db.update(users)
+      .set({ lastLogin: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async updateUserKyc(id: number, kycData: Partial<User>): Promise<void> {
+    await db.update(users)
+      .set({ ...kycData, updatedAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async submitUserKyc(id: number, kycData: Partial<User>): Promise<boolean> {
+    const updated = await db.update(users)
+      .set({ ...kycData, kycStatus: 'submitted', updatedAt: new Date() })
+      .where(and(
+        eq(users.id, id),
+        inArray(users.kycStatus, ['not_started', 'rejected']),
+      ))
+      .returning({ id: users.id });
+    return updated.length === 1;
+  }
+
+  async getAllKycSubmissions(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(ne(users.kycStatus, 'not_started'))
+      .orderBy(desc(users.kycSubmittedAt));
+  }
+
+  async updateUserKycStatus(userId: number, status: string, rejectionReason?: string): Promise<boolean> {
+    const updated = await db.update(users)
+      .set({ 
+        kycStatus: status as 'not_started' | 'submitted' | 'approved' | 'rejected',
+        kycVerifiedAt: status === 'approved' ? new Date() : undefined,
+        kycRejectionReason: status === 'rejected' ? (rejectionReason || null) : null,
+        updatedAt: new Date() 
+      })
+      .where(and(eq(users.id, userId), eq(users.kycStatus, 'submitted')))
+      .returning({ id: users.id });
+    return updated.length === 1;
+  }
+
+  async getPendingUsers(): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.accountStatus, 'pending')).orderBy(desc(users.createdAt));
+  }
+
+  async updateUserAccountStatus(userId: number, status: string): Promise<User> {
+    const [user] = await db.update(users)
+      .set({ accountStatus: status, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
+  }
+
+  // Admin user methods
+
+  async getAdminUser(id: number): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
+    return user;
+  }
+
+  async getAdminUserByUsername(username: string): Promise<AdminUser | undefined> {
+    const [user] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    return user;
+  }
+
+  async createAdminUser(insertUser: InsertAdminUser): Promise<AdminUser> {
+    const [user] = await db.insert(adminUsers).values(insertUser).returning();
+    return user;
+  }
+
+  async updateAdminUserLastLogin(id: number): Promise<void> {
+    await db.update(adminUsers).set({
+      lastLogin: new Date(),
+    }).where(eq(adminUsers.id, id));
+  }
+
+  // Property methods - All properties (admin use)
+
+  async getProperties(): Promise<Property[]> {
+    return await db.select().from(properties).orderBy(desc(properties.createdAt));
+  }
+
+  // Public properties only (buyer use) - excludes archived properties.
+  // Also hides developer-owned projects that are still draft or pending approval —
+  // those must only be visible to the owning developer and admins, not to investors.
+
+  async getPublicProperties(): Promise<Property[]> {
+    const all = await db.select().from(properties)
+      .where(ne(properties.status, 'archived'))
+      .orderBy(desc(properties.createdAt));
+    return all.filter(p =>
+      // Admin-created properties (no developerId) are visible
+      !p.developerId ||
+      // Developer-owned properties only visible once approved (live or sold_out)
+      p.projectStatus === 'live' ||
+      p.projectStatus === 'sold_out'
+    );
+  }
+
+  async getProperty(id: number): Promise<Property | undefined> {
+    const [property] = await db.select().from(properties).where(eq(properties.id, id));
+    return property || undefined;
+  }
+
+  async createProperty(insertProperty: InsertProperty): Promise<Property> {
+    // Run the property insert + default-stage seeding in a single transaction
+    // so the invariant "every project has its 8 construction stages" is
+    // atomic — either both succeed or neither persists. Stage seeding is
+    // idempotent via the (propertyId, stageKey) unique index.
+    return await db.transaction(async (tx) => {
+      const [property] = await tx
+        .insert(properties)
+        .values(insertProperty)
+        .returning();
+      const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+        propertyId: property.id,
+        stageKey: s.stageKey,
+        name: s.name,
+        sortOrder: s.sortOrder,
+      }));
+      await tx.insert(constructionStages).values(rows).onConflictDoNothing();
+      return property;
+    });
+  }
+
+  async updateProperty(id: number, updateData: InsertProperty): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set(updateData)
+      .where(eq(properties.id, id))
+      .returning();
+    return property;
+  }
+
+  // Typed minimal-patch update — only the supplied columns are written. Use this
+  // instead of updateProperty() when you only want to change a few fields and
+  // don't want to risk clobbering other columns by round-tripping the full row.
+
+  async updatePropertyFields(id: number, fields: Partial<InsertProperty>): Promise<Property> {
+    const [property] = await db
+      .update(properties)
+      .set(fields)
+      .where(eq(properties.id, id))
+      .returning();
+    return property;
+  }
+
+  async deleteProperty(id: number): Promise<void> {
+    await db.delete(properties).where(eq(properties.id, id));
+  }
+
+  // Cascade-delete a developer project and every child row that references it.
+  // Caller must verify ownership/permission and confirm there are no active
+  // confirmed investors before invoking.
+
+  async deleteDeveloperProject(id: number): Promise<InvestmentReservation[]> {
+    return await db.transaction(async (tx) => {
+      // Keep the investment guard in the same serializable transaction as the
+      // cleanup so a concurrent reservation conversion cannot slip between a
+      // route-level check and the deletes below.
+      const reservations = await tx
+        .select()
+        .from(investmentReservations)
+        .where(eq(investmentReservations.propertyId, id));
+      const confirmedReservations = reservations.filter(
+        reservation => reservation.status === "converted_to_investment",
+      );
+      if (confirmedReservations.length) {
+        throw new ProjectHasConfirmedInvestorsError(confirmedReservations.length);
+      }
+
+      // Resale audit chain
+      await tx.delete(resaleAuditLogs).where(eq(resaleAuditLogs.propertyId, id));
+      const listings = await tx.select({ id: resaleListings.id }).from(resaleListings).where(eq(resaleListings.propertyId, id));
+      const listingIds = listings.map(l => l.id);
+      if (listingIds.length) {
+        await tx.delete(resaleAuditLogs).where(inArray(resaleAuditLogs.listingId, listingIds));
+        await tx.delete(resalePayments).where(inArray(resalePayments.listingId, listingIds));
+        await tx.delete(resaleBids).where(inArray(resaleBids.listingId, listingIds));
+      }
+      await tx.delete(resaleListings).where(eq(resaleListings.propertyId, id));
+
+      // Reservation-linked rows
+      const reservationIds = reservations.map(r => r.id);
+      if (reservationIds.length) {
+        await tx.delete(reservationReminders).where(inArray(reservationReminders.reservationId, reservationIds));
+        await tx.delete(ownershipCertificates).where(inArray(ownershipCertificates.reservationId, reservationIds));
+        await tx.delete(paymentSubmissions).where(inArray(paymentSubmissions.reservationId, reservationIds));
+        await tx.delete(investmentPayments).where(inArray(investmentPayments.reservationId, reservationIds));
+        // Null out lead -> reservation links so we can drop the reservations.
+        await tx.update(developerLeads)
+          .set({ convertedReservationId: null as any })
+          .where(inArray(developerLeads.convertedReservationId, reservationIds));
+      }
+
+      // Property-scoped child tables
+      await tx.delete(developerLeads).where(eq(developerLeads.propertyId, id));
+      await tx.delete(developerInvestorNotes).where(eq(developerInvestorNotes.propertyId, id));
+      await tx.delete(projectUpdates).where(eq(projectUpdates.propertyId, id));
+      await tx.delete(projectMilestones).where(eq(projectMilestones.propertyId, id));
+      await tx.delete(propertyValuations).where(eq(propertyValuations.propertyId, id));
+      await tx.delete(verificationStepCompletions).where(eq(verificationStepCompletions.propertyId, id));
+      await tx.delete(propertyVerificationChecklists).where(eq(propertyVerificationChecklists.propertyId, id));
+      await tx.delete(investmentReservations).where(eq(investmentReservations.propertyId, id));
+
+      // Construction tab data (payments must drop before vendors before stages due to FKs).
+      // Delete payments by vendorId too to cover legacy rows whose propertyId drifted.
+      const projectVendors = await tx.select({ id: vendors.id }).from(vendors).where(eq(vendors.propertyId, id));
+      const vendorIds = projectVendors.map(v => v.id);
+      if (vendorIds.length) {
+        await tx.delete(vendorPayments).where(inArray(vendorPayments.vendorId, vendorIds));
+      }
+      await tx.delete(vendorPayments).where(eq(vendorPayments.propertyId, id));
+      await tx.delete(vendors).where(eq(vendors.propertyId, id));
+      await tx.delete(constructionStages).where(eq(constructionStages.propertyId, id));
+
+      // Investment groups carry a nullable property reference — detach rather than delete.
+      await tx.update(investmentGroups)
+        .set({ propertyId: null as any })
+        .where(eq(investmentGroups.propertyId, id));
+
+      await tx.delete(properties).where(eq(properties.id, id));
+      return reservations.filter(reservation => reservation.status === "reserved");
+    }, { isolationLevel: "serializable" });
+  }
+
+  async updatePropertySlots(propertyId: number, reservedUnits: number): Promise<void> {
+    const [property] = await db.select().from(properties).where(eq(properties.id, propertyId));
+    
+    if (property) {
+      const newAvailableSlots = property.availableSlots - reservedUnits;
+      const newFundingProgress = Math.round(((property.totalSlots - newAvailableSlots) / property.totalSlots) * 100);
+      
+      await db
+        .update(properties)
+        .set({ 
+          availableSlots: newAvailableSlots,
+          fundingProgress: newFundingProgress
+        })
+        .where(eq(properties.id, propertyId));
+    }
+  }
+
+  // Investment reservation methods
+
+  async createInvestmentReservation(
+    reservation: InsertInvestmentReservation,
+    options: CreateInvestmentReservationOptions = {},
+  ): Promise<InvestmentReservation> {
+    // Derive funnel_stage at write time so funnel/conversion charts are
+    // accurate in real time (no reliance on the startup backfill).
+    const withFunnel = {
+      ...reservation,
+      funnelStage: reservation.funnelStage ?? deriveFunnelStageFromStatus(reservation.status ?? "reserved"),
+    };
+
+    if (options.accountInventoryAtomically) {
+      const units = Number(reservation.units);
+      if (!Number.isFinite(units) || units <= 0) {
+        throw new ReservationInventoryUnavailableError();
+      }
+      if (!Number.isInteger(units)) {
+        throw new UnsupportedFractionalInventoryReservationError();
+      }
+      if (reservation.status && reservation.status !== "reserved" && reservation.status !== "payment_pending") {
+        throw new Error("Atomic reservation inventory accounting only applies to active reservations.");
+      }
+
+      return db.transaction(async (tx) => {
+        const accountingInstalled = queryRows<{ installed: boolean }>(await tx.execute(sql`
+          SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+        `))[0]?.installed === true;
+        if (!accountingInstalled) {
+          throw new Error(
+            "Reservation inventory accounting migration is required before accepting new reservations.",
+          );
+        }
+        const inventoryResult = await tx.execute(sql`
+          UPDATE properties
+          SET available_slots = CASE WHEN total_slots > 0
+                THEN available_slots - ${units} ELSE available_slots END,
+              funding_progress = CASE WHEN total_slots > 0
+                THEN round(
+                  (total_slots - (available_slots - ${units})::numeric) /
+                  total_slots::numeric * 100
+                )::integer
+                ELSE funding_progress END,
+              reserved_units = reserved_units + ${units}
+          WHERE id = ${reservation.propertyId}
+            AND (
+              (total_slots > 0 AND available_slots >= ${units})
+              OR
+              (COALESCE(total_slots, 0) <= 0
+                AND total_units - reserved_units - sold_units >= ${units})
+            )
+          RETURNING id
+        `);
+        const inventoryRows = (inventoryResult as { rows?: unknown[] } | null)?.rows;
+        if (!inventoryRows?.length) throw new ReservationInventoryUnavailableError();
+
+        const [newReservation] = await tx
+          .insert(investmentReservations)
+          .values({
+            ...withFunnel,
+          })
+          .returning();
+        await tx.insert(investmentReservationInventory).values({
+          reservationId: newReservation.id,
+          propertyId: reservation.propertyId,
+          reservedUnits: String(units),
+        });
+        return newReservation;
+      });
+    }
+
+    const [newReservation] = await db
+      .insert(investmentReservations)
+      .values(withFunnel)
+      .returning();
+
+    // Update property slots and funding progress
+    const units = typeof reservation.units === 'string' ? parseFloat(reservation.units) : reservation.units;
+    await this.updatePropertySlots(reservation.propertyId, units);
+    
+    return newReservation;
+  }
+
+  async getReservationsByEmail(email: string): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.email, email))
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getUserReservationsWithPropertyByEmail(email: string): Promise<(InvestmentReservation & { property?: Property })[]> {
+    const reservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.email, email))
+      .orderBy(desc(investmentReservations.createdAt));
+    
+    // Fetch property details for each reservation
+    const reservationsWithProperty = await Promise.all(
+      reservations.map(async (reservation) => {
+        const property = await this.getProperty(reservation.propertyId);
+        return { ...reservation, property: property || undefined };
+      })
+    );
+    
+    return reservationsWithProperty;
+  }
+
+  async getReservationsByUserId(userId: number): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.userId, userId))
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async linkOrphanedReservationsToUser(userId: number, email: string): Promise<number> {
+    const result = await db
+      .update(investmentReservations)
+      .set({ userId })
+      .where(
+        and(
+          eq(investmentReservations.email, email),
+          sql`${investmentReservations.userId} IS NULL`
+        )
+      );
+    
+    return result.rowCount || 0;
+  }
+
+  async extendReservationsOnKycSubmission(userId: number): Promise<number> {
+    const now = new Date();
+    const extensionMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    
+    // First, get eligible reservations to extend individually
+    const eligibleReservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(
+        and(
+          eq(investmentReservations.userId, userId),
+          eq(investmentReservations.status, 'reserved'),
+          sql`${investmentReservations.kycExtendedAt} IS NULL`
+        )
+      );
+    
+    if (eligibleReservations.length === 0) {
+      return 0;
+    }
+    
+    let extendedCount = 0;
+    
+    for (const reservation of eligibleReservations) {
+      // Calculate new expiry: add 24h from the later of (current expiry, now)
+      const currentExpiry = reservation.expiresAt ? new Date(reservation.expiresAt) : now;
+      const baseTime = currentExpiry > now ? currentExpiry : now;
+      const newExpiry = new Date(baseTime.getTime() + extensionMs);
+      
+      await db
+        .update(investmentReservations)
+        .set({ 
+          expiresAt: newExpiry,
+          kycExtendedAt: now,
+          updatedAt: now
+        })
+        .where(eq(investmentReservations.id, reservation.id));
+      
+      extendedCount++;
+      console.log(`[KYC-EXTENSION] Extended reservation ${reservation.id} from ${currentExpiry.toISOString()} to ${newExpiry.toISOString()}`);
+    }
+    
+    if (extendedCount > 0) {
+      console.log(`[KYC-EXTENSION] Extended ${extendedCount} reservation(s) by 24 hours for user ${userId} due to KYC submission`);
+    }
+    
+    return extendedCount;
+  }
+
+  async cleanupExpiredReservations(): Promise<{ cancelled: number; unitsReleased: number }> {
+    const now = new Date();
+    
+    const expiredReservations = await db
+      .select()
+      .from(investmentReservations)
+      .where(
+        and(
+          eq(investmentReservations.status, 'reserved'),
+          sql`${investmentReservations.expiresAt} IS NOT NULL`,
+          sql`${investmentReservations.expiresAt} < ${now}`
+        )
+      );
+    
+    if (expiredReservations.length === 0) {
+      return { cancelled: 0, unitsReleased: 0 };
+    }
+    
+    let totalCancelled = 0;
+    let totalUnitsReleased = 0;
+
+    for (const reservation of expiredReservations) {
+      const outcome = await db.transaction(async (tx) => {
+        const holding = queryRows<{
+          id: number;
+          propertyId: number;
+          units: string;
+          email: string;
+          reservedUnits: number;
+        }>(await tx.execute(sql`
+          SELECT r.id, r.property_id AS "propertyId",
+            r.units::numeric::text AS units, r.email,
+            p.reserved_units AS "reservedUnits"
+          FROM investment_reservations r
+          JOIN properties p ON p.id = r.property_id
+          WHERE r.id = ${reservation.id}
+            AND r.status = 'reserved'
+            AND r.expires_at IS NOT NULL
+            AND r.expires_at < ${now}
+          FOR UPDATE OF r, p
+        `))[0];
+        if (!holding) return { state: "changed" as const };
+
+        if (await hasCollectedGatewayPayment(tx, reservation.id)) return { state: "pending" as const };
+        const pending = queryRows<{ id: number }>(await tx.execute(sql`
+          SELECT id FROM payment_submissions
+          WHERE reservation_id = ${reservation.id}
+            AND status = 'pending_admin_review'
+          LIMIT 1
+          FOR UPDATE
+        `))[0];
+        if (pending) return { state: "pending" as const };
+
+        const units = Number(holding.units);
+        const accountingInstalled = queryRows<{ installed: boolean }>(await tx.execute(sql`
+          SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+        `))[0]?.installed === true;
+        let reservedRelease = units;
+        if (accountingInstalled) {
+          const ownAccount = queryRows<{ units: string }>(await tx.execute(sql`
+            SELECT reserved_units::numeric::text AS units
+            FROM investment_reservation_inventory
+            WHERE reservation_id = ${reservation.id}
+          `))[0];
+          const ownReservedUnits = Number(ownAccount?.units ?? 0);
+          if (ownReservedUnits > 0) {
+            reservedRelease = ownReservedUnits === units ? ownReservedUnits : 0;
+          } else {
+            const legacyReservations = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT r.units::numeric::text AS units
+              FROM investment_reservations r
+              WHERE r.property_id = ${holding.propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND NOT EXISTS (
+                  SELECT 1 FROM investment_reservation_inventory i
+                  WHERE i.reservation_id = r.id AND i.reserved_units > 0
+                )
+              ORDER BY r.id
+              FOR UPDATE OF r
+            `));
+            const tracked = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT COALESCE(sum(i.reserved_units), 0)::numeric::text AS units
+              FROM investment_reservation_inventory i
+              JOIN investment_reservations r ON r.id = i.reservation_id
+              WHERE r.property_id = ${holding.propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND i.reserved_units > 0
+            `))[0];
+            const legacyDemand = legacyReservations.reduce((sum, row) => sum + Number(row.units), 0);
+            const untrackedCounter = Number(holding.reservedUnits) - Number(tracked?.units ?? 0);
+            reservedRelease = untrackedCounter >= legacyDemand ? units : 0;
+          }
+        }
+
+        const [updated] = await tx
+          .update(investmentReservations)
+          .set({ status: "expired", funnelStage: null, updatedAt: now })
+          .where(and(
+            eq(investmentReservations.id, reservation.id),
+            eq(investmentReservations.status, "reserved"),
+            sql`${investmentReservations.expiresAt} IS NOT NULL`,
+            sql`${investmentReservations.expiresAt} < ${now}`,
+          ))
+          .returning({ id: investmentReservations.id });
+        if (!updated) return { state: "changed" as const };
+
+        if (units > 0) {
+          await tx.execute(sql`
+            UPDATE properties
+            SET available_slots = available_slots + ${units},
+                reserved_units = GREATEST(0, reserved_units - ${reservedRelease})
+            WHERE id = ${holding.propertyId}
+          `);
+        }
+        if (accountingInstalled) {
+          await tx.execute(sql`
+            UPDATE investment_reservation_inventory
+            SET reserved_units = 0, release_pending = false, updated_at = now()
+            WHERE reservation_id = ${reservation.id}
+          `);
+        }
+        return { state: "expired" as const, units, email: holding.email };
+      });
+
+      if (outcome.state === "pending") {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - has pending payment proof awaiting admin review`);
+        continue;
+      }
+      if (outcome.state === "changed") {
+        console.log(`[CLEANUP] Skipped reservation ${reservation.id} - status changed during cleanup`);
+        continue;
+      }
+      totalCancelled++;
+      totalUnitsReleased += outcome.units;
+      console.log(
+        `[CLEANUP] Cancelled expired reservation ${reservation.id} (${outcome.email}), released ${outcome.units} units`,
+      );
+    }
+    
+    console.log(`[CLEANUP] Total: ${totalCancelled} reservations cancelled, ${totalUnitsReleased} units released`);
+    
+    return { cancelled: totalCancelled, unitsReleased: totalUnitsReleased };
+  }
+
+  async getReservationsByProperty(propertyId: number): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.propertyId, propertyId))
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getAllReservations(): Promise<InvestmentReservation[]> {
+    return await db
+      .select()
+      .from(investmentReservations)
+      .orderBy(desc(investmentReservations.createdAt));
+  }
+
+  async getReservation(id: number): Promise<InvestmentReservation | undefined> {
+    const [reservation] = await db
+      .select()
+      .from(investmentReservations)
+      .where(eq(investmentReservations.id, id));
+    return reservation;
+  }
+
+  async updateReservation(id: number, updates: Partial<InvestmentReservation>): Promise<InvestmentReservation> {
+    if ("costBasis" in updates) throw new Error("Holding cost basis is confirmation-owned and immutable.");
+    if (updates.status === "cancelled") {
+      return db.transaction(async (tx) => {
+        const existing = queryRows<{ id: number; propertyId: number; status: string }>(await tx.execute(sql`
+          SELECT r.id, r.property_id AS "propertyId", r.status
+          FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+          WHERE r.id = ${id}
+          FOR UPDATE OF r,p
+        `))[0];
+        if (!existing) return undefined as unknown as InvestmentReservation;
+        await assertGatewayCancellationSafe(tx, id);
+        if (existing.status === "cancelled") {
+          throw new Error("This reservation has already been cancelled.");
+        }
+        if (existing.status === "converted_to_investment") {
+          throw new ConfirmedInvestmentCancellationRequiredError();
+        }
+        const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+          ...updates,
+          updatedAt: new Date(),
+        };
+        if (updates.status != null && updates.funnelStage === undefined) {
+          merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+        }
+        const [updated] = await tx
+          .update(investmentReservations)
+          .set(merged)
+          .where(eq(investmentReservations.id, id))
+          .returning();
+
+        if (existing.status === "reserved" || existing.status === "payment_pending") {
+          const accountingSchema = queryRows<{ installed: boolean }>(await tx.execute(sql`
+            SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+          `))[0]?.installed;
+          if (accountingSchema) {
+            await tx.execute(sql`
+              INSERT INTO investment_reservation_inventory
+                (reservation_id, property_id, reserved_units, release_pending, updated_at)
+              VALUES (${id}, ${existing.propertyId}, 0, true, now())
+              ON CONFLICT (reservation_id) DO UPDATE
+              SET release_pending = true, updated_at = now()
+            `);
+          }
+        }
+        return updated;
+      });
+    }
+
+    // If the caller changes status without explicitly setting funnelStage,
+    // re-derive it so funnel analytics stay correct in real time. Callers
+    // can still pass funnelStage explicitly to override this default.
+    const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.status != null && updates.funnelStage === undefined) {
+      merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+    }
+    const [updated] = await db
+      .update(investmentReservations)
+      .set(merged)
+      .where(eq(investmentReservations.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Atomically claim an expired/cancelled reservation for reinstatement. The
+  // status guard lives in the WHERE clause so two concurrent reinstate requests
+  // (or a double-click) cannot both succeed and double-count sold units — only
+  // the first one matches a row; the rest get null and must abort.
+
+  async reinstateReservationIfEligible(
+    id: number,
+    updates: Partial<InvestmentReservation>,
+
+  ): Promise<InvestmentReservation | null> {
+    if ("costBasis" in updates) throw new Error("Holding cost basis is confirmation-owned and immutable.");
+    const merged: Partial<InvestmentReservation> & { updatedAt: Date } = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+    if (updates.status != null && updates.funnelStage === undefined) {
+      merged.funnelStage = deriveFunnelStageFromStatus(updates.status);
+    }
+    const [updated] = await db
+      .update(investmentReservations)
+      .set(merged)
+      .where(
+        and(
+          eq(investmentReservations.id, id),
+          inArray(investmentReservations.status, ['expired', 'cancelled']),
+        ),
+      )
+      .returning();
+    return updated ?? null;
+  }
+
+  async createReservationReminder(reminder: InsertReservationReminder): Promise<ReservationReminder> {
+    const [row] = await db.insert(reservationReminders).values(reminder).returning();
+    return row;
+  }
+
+  async getReservationReminders(reservationId: number): Promise<ReservationReminder[]> {
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(eq(reservationReminders.reservationId, reservationId))
+      .orderBy(desc(reservationReminders.sentAt));
+  }
+
+  async getReservationRemindersForReservations(reservationIds: number[]): Promise<ReservationReminder[]> {
+    if (reservationIds.length === 0) return [];
+    return await db
+      .select()
+      .from(reservationReminders)
+      .where(inArray(reservationReminders.reservationId, reservationIds))
+      .orderBy(desc(reservationReminders.sentAt));
+  }
+
+  async updatePropertyUnitCounts(propertyId: number, reservedDelta: number, soldDelta: number): Promise<void> {
+    // Get the property to determine which system to use
+    const property = await this.getProperty(propertyId);
+    if (!property) return;
+
+    if (reservedDelta < 0 && soldDelta === 0) {
+      const accountingSchema = queryRows<{ installed: boolean }>(await db.execute(sql`
+        SELECT to_regclass('public.investment_reservation_inventory') IS NOT NULL AS installed
+      `))[0]?.installed;
+      if (accountingSchema) {
+        const unitsToRelease = Math.abs(reservedDelta);
+        const released = await db.transaction(async (tx) => {
+          const release = queryRows<{
+            reservationId: number;
+            units: string;
+            reservedUnits: string;
+          }>(await tx.execute(sql`
+            SELECT r.id AS "reservationId", r.units::numeric::text AS units,
+              i.reserved_units::numeric::text AS "reservedUnits"
+            FROM investment_reservation_inventory i
+            JOIN investment_reservations r ON r.id = i.reservation_id
+            WHERE i.property_id = ${propertyId}
+              AND i.release_pending = true
+              AND r.status = 'cancelled'
+              AND r.units::numeric = ${unitsToRelease}::numeric
+            ORDER BY i.updated_at, r.id
+            LIMIT 1
+            FOR UPDATE OF i, r
+          `))[0];
+          if (!release) return false;
+
+          const currentProperty = queryRows<{ reservedUnits: number }>(await tx.execute(sql`
+            SELECT reserved_units AS "reservedUnits"
+            FROM properties WHERE id = ${propertyId} FOR UPDATE
+          `))[0];
+          if (!currentProperty) return true;
+
+          let reservedRelease = 0;
+          const markedUnits = Number(release.reservedUnits);
+          if (markedUnits > 0) {
+            if (markedUnits === unitsToRelease) reservedRelease = markedUnits;
+          } else {
+            const legacyReservations = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT r.units::numeric::text AS units
+              FROM investment_reservations r
+              WHERE r.property_id = ${propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND NOT EXISTS (
+                  SELECT 1 FROM investment_reservation_inventory i
+                  WHERE i.reservation_id = r.id AND i.reserved_units > 0
+                )
+              ORDER BY r.id
+              FOR UPDATE OF r
+            `));
+            const tracked = queryRows<{ units: string }>(await tx.execute(sql`
+              SELECT COALESCE(sum(i.reserved_units), 0)::numeric::text AS units
+              FROM investment_reservation_inventory i
+              JOIN investment_reservations r ON r.id = i.reservation_id
+              WHERE r.property_id = ${propertyId}
+                AND r.status IN ('reserved', 'payment_pending')
+                AND i.reserved_units > 0
+            `))[0];
+            const legacyDemand = legacyReservations.reduce((sum, row) => sum + Number(row.units), 0);
+            const untrackedCounter = Number(currentProperty.reservedUnits) - Number(tracked?.units ?? 0);
+            if (untrackedCounter >= legacyDemand + unitsToRelease) {
+              reservedRelease = unitsToRelease;
+            }
+          }
+
+          await tx.execute(sql`
+            UPDATE properties
+            SET reserved_units = GREATEST(0, reserved_units - ${reservedRelease}),
+                available_slots = CASE WHEN total_slots > 0
+                  THEN available_slots + ${unitsToRelease} ELSE available_slots END
+            WHERE id = ${propertyId}
+          `);
+          await tx.execute(sql`
+            UPDATE investment_reservation_inventory
+            SET reserved_units = 0, release_pending = false, updated_at = now()
+            WHERE reservation_id = ${release.reservationId}
+          `);
+          return true;
+        });
+        if (released) return;
+      }
+    }
+
+    // Calculate total delta for slots system
+    const totalDelta = reservedDelta + soldDelta;
+    
+    await db
+      .update(properties)
+      .set({
+        // Update new units system
+        reservedUnits: sql`${properties.reservedUnits} + ${reservedDelta}`,
+        soldUnits: sql`${properties.soldUnits} + ${soldDelta}`,
+        // Also update legacy slots system if it's being used
+        ...(property.totalSlots && property.totalSlots > 0 ? {
+          availableSlots: sql`${properties.availableSlots} - ${totalDelta}`,
+        } : {}),
+      })
+      .where(eq(properties.id, propertyId));
+  }
+
+  // Investment group methods
+
+  async createInvestmentGroup(group: InsertInvestmentGroup): Promise<InvestmentGroup> {
+    const [newGroup] = await db
+      .insert(investmentGroups)
+      .values(group)
+      .returning();
+    return newGroup;
+  }
+
+  async getInvestmentGroups(): Promise<InvestmentGroup[]> {
+    return await db
+      .select()
+      .from(investmentGroups)
+      .orderBy(desc(investmentGroups.createdAt));
+  }
+
+  async getInvestmentGroup(id: number): Promise<InvestmentGroup | undefined> {
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, id));
+    return group || undefined;
+  }
+
+  async getInvestmentGroupByInviteCode(inviteCode: string): Promise<InvestmentGroup | undefined> {
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.inviteCode, inviteCode));
+    return group || undefined;
+  }
+
+  async updateInvestmentGroup(id: number, updates: Partial<InvestmentGroup>): Promise<InvestmentGroup> {
+    const [updatedGroup] = await db
+      .update(investmentGroups)
+      .set(updates)
+      .where(eq(investmentGroups.id, id))
+      .returning();
+    return updatedGroup;
+  }
+
+  // Group membership methods
+
+  async createGroupMembership(membership: InsertGroupMembership): Promise<GroupMembership> {
+    const [newMembership] = await db
+      .insert(groupMemberships)
+      .values(membership)
+      .returning();
+    return newMembership;
+  }
+
+  async getGroupMemberships(groupId: number): Promise<GroupMembership[]> {
+    return await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId))
+      .orderBy(desc(groupMemberships.joinedAt));
+  }
+
+  async getMembershipsByEmail(email: string): Promise<GroupMembership[]> {
+    return await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.memberEmail, email))
+      .orderBy(desc(groupMemberships.joinedAt));
+  }
+
+  async updateGroupMembership(id: number, updates: Partial<GroupMembership>): Promise<GroupMembership> {
+    const [updatedMembership] = await db
+      .update(groupMemberships)
+      .set(updates)
+      .where(eq(groupMemberships.id, id))
+      .returning();
+    return updatedMembership;
+  }
+
+  // Market insights methods
+
+  async createMarketInsights(insights: InsertMarketInsight[]): Promise<MarketInsight[]> {
+    if (insights.length === 0) return [];
+    
+    const result = await db
+      .insert(marketInsights)
+      .values(insights)
+      .returning();
+    
+    return result;
+  }
+
+  async getMarketInsights(location?: string): Promise<MarketInsight[]> {
+    if (location) {
+      return db
+        .select()
+        .from(marketInsights)
+        .where(eq(marketInsights.location, location))
+        .orderBy(desc(marketInsights.scrapedAt));
+    }
+    
+    return db
+      .select()
+      .from(marketInsights)
+      .orderBy(desc(marketInsights.scrapedAt));
+  }
+
+  async deleteOldInsights(daysOld: number): Promise<void> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    await db
+      .delete(marketInsights)
+      .where(eq(marketInsights.scrapedAt, cutoffDate));
+  }
+
+  // Guzape listings methods
+
+  async saveGuzapeListings(listings: InsertGuzapeListing[]): Promise<GuzapeListing[]> {
+    if (listings.length === 0) return [];
+    
+    const result = await db
+      .insert(guzapeListings)
+      .values(listings)
+      .onConflictDoUpdate({
+        target: guzapeListings.listingId,
+        set: {
+          title: sql`excluded.title`,
+          priceNgnRaw: sql`excluded.price_ngn_raw`,
+          priceNgn: sql`excluded.price_ngn`,
+          city: sql`excluded.city`,
+          area: sql`excluded.area`,
+          beds: sql`excluded.beds`,
+          baths: sql`excluded.baths`,
+          toilets: sql`excluded.toilets`,
+          image: sql`excluded.image`,
+          detailUrl: sql`excluded.detail_url`,
+          scrapedAt: sql`excluded.scraped_at`,
+        }
+      })
+      .returning();
+    
+    return result;
+  }
+
+  async getGuzapeListings(limit?: number): Promise<GuzapeListing[]> {
+    const query = db
+      .select()
+      .from(guzapeListings)
+      .orderBy(desc(guzapeListings.scrapedAt));
+    
+    if (limit) {
+      return query.limit(limit);
+    }
+    
+    return query;
+  }
+
+  // Investment payments methods
+
+  async createInvestmentPayment(payment: any): Promise<any> {
+    const [newPayment] = await db
+      .insert(investmentPayments)
+      .values(payment)
+      .returning();
+    return newPayment;
+  }
+
+  async getInvestmentPayments(reservationId: number): Promise<any[]> {
+    return await db
+      .select()
+      .from(investmentPayments)
+      .where(eq(investmentPayments.reservationId, reservationId))
+      .orderBy(desc(investmentPayments.recordedAt));
+  }
+
+  // Ownership certificates methods
+
+  async createOwnershipCertificate(certificate: InsertOwnershipCertificate): Promise<OwnershipCertificate> {
+    const [newCertificate] = await db
+      .insert(ownershipCertificates)
+      .values(certificate)
+      .returning();
+    return newCertificate;
+  }
+
+  async getCertificateByReservationId(reservationId: number): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.reservationId, reservationId));
+    return certificate;
+  }
+
+  async getCertificateByVerificationToken(token: string): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.verificationToken, token));
+    return certificate;
+  }
+
+  async getCertificateByCertificateNumber(certNumber: string): Promise<OwnershipCertificate | undefined> {
+    const [certificate] = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(eq(ownershipCertificates.certificateNumber, certNumber));
+    return certificate;
+  }
+
+  async getCertificatesByUserId(userId: number): Promise<OwnershipCertificate[]> {
+    // Get certificates for reservations belonging to this user
+    const userReservations = await db
+      .select({ id: investmentReservations.id })
+      .from(investmentReservations)
+      .where(eq(investmentReservations.userId, userId));
+    
+    if (userReservations.length === 0) {
+      return [];
+    }
+
+    const reservationIds = userReservations.map(r => r.id);
+    const certificates = await db
+      .select()
+      .from(ownershipCertificates)
+      .where(inArray(ownershipCertificates.reservationId, reservationIds));
+    
+    return certificates;
+  }
+
+  async getNextCertificateNumber(): Promise<string> {
+    // Format: CERT-YYYY-NNNNN
+    const year = new Date().getFullYear();
+    const prefix = `CERT-${year}-`;
+    
+    // Get the highest certificate number for this year
+    const [latestCert] = await db
+      .select({ certificateNumber: ownershipCertificates.certificateNumber })
+      .from(ownershipCertificates)
+      .where(sql`${ownershipCertificates.certificateNumber} LIKE ${prefix + '%'}`)
+      .orderBy(desc(ownershipCertificates.certificateNumber))
+      .limit(1);
+    
+    let nextNumber = 1;
+    if (latestCert) {
+      const lastNumber = parseInt(latestCert.certificateNumber.split('-')[2], 10);
+      nextNumber = lastNumber + 1;
+    }
+    
+    return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+  }
+
+  // Payment submissions methods (user-initiated payment proof uploads)
+
+  async createPaymentSubmission(submission: InsertPaymentSubmission): Promise<PaymentSubmission> {
+    return db.transaction(async tx => {
+      const holding = queryRows<any>(await tx.execute(sql`
+        SELECT r.* FROM investment_reservations r JOIN properties p ON p.id=r.property_id
+        WHERE r.id=${submission.reservationId} FOR UPDATE OF r,p`))[0];
+      if (!holding || holding.user_id !== submission.userId || holding.status !== "reserved") {
+        throw new Error("Reservation is not eligible for payment proof.");
+      }
+      if (await hasGatewayPaymentConflict(tx, submission.reservationId)) {
+        throw new GatewayError("A collected or unresolved Flutterwave payment requires review; do not submit another payment.");
+      }
+      const [result] = await tx.insert(paymentSubmissions).values(submission).returning();
+      return result;
+    });
+  }
+
+  async getPaymentSubmissionsByReservationId(reservationId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.reservationId, reservationId))
+      .orderBy(desc(paymentSubmissions.uploadedAt));
+  }
+
+  async getPaymentSubmissionsByUserId(userId: number): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.userId, userId))
+      .orderBy(desc(paymentSubmissions.uploadedAt));
+  }
+
+  async getAllPendingPaymentSubmissions(): Promise<PaymentSubmission[]> {
+    return await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.status, 'pending_admin_review'))
+      .orderBy(desc(paymentSubmissions.uploadedAt));
+  }
+
+  async getPaymentSubmission(id: number): Promise<PaymentSubmission | undefined> {
+    const [submission] = await db.select()
+      .from(paymentSubmissions)
+      .where(eq(paymentSubmissions.id, id));
+    return submission;
+  }
+
+  async updatePaymentSubmission(id: number, updates: Partial<PaymentSubmission>): Promise<PaymentSubmission> {
+    const [result] = await db.update(paymentSubmissions)
+      .set(updates)
+      .where(eq(paymentSubmissions.id, id))
+      .returning();
+    return result;
+  }
+
+  async createPropertyValuation(valuation: InsertPropertyValuation): Promise<PropertyValuation> {
+    const [result] = await db.insert(propertyValuations).values(valuation).returning();
+    return result;
+  }
+
+  async getPropertyValuation(id: number): Promise<PropertyValuation | undefined> {
+    const [valuation] = await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.id, id));
+    return valuation;
+  }
+
+  async getPropertyValuations(propertyId: number): Promise<PropertyValuation[]> {
+    return await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.propertyId, propertyId))
+      .orderBy(propertyValuations.valuationDate);
+  }
+
+  async getLatestPropertyValuation(propertyId: number): Promise<PropertyValuation | undefined> {
+    const [result] = await db.select()
+      .from(propertyValuations)
+      .where(eq(propertyValuations.propertyId, propertyId))
+      .orderBy(desc(propertyValuations.valuationDate))
+      .limit(1);
+    return result;
+  }
+
+  async deletePropertyValuation(id: number): Promise<void> {
+    await db.delete(propertyValuations).where(eq(propertyValuations.id, id));
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async createResaleListing(listing: InsertResaleListing): Promise<ResaleListing> {
+    const [result] = await db.insert(resaleListings).values(listing).returning();
+    return result;
+  }
+
+  async getResaleListingsByUser(userId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.sellerId, userId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingsByProperty(propertyId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.propertyId, propertyId))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListing(id: number): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings).where(eq(resaleListings.id, id));
+    return result;
+  }
+
+  async updateResaleListing(id: number, updates: Partial<ResaleListing>): Promise<ResaleListing> {
+    const [result] = await db.update(resaleListings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(resaleListings.id, id))
+      .returning();
+    return result;
+  }
+
+  async getAllResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings).orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(eq(resaleListings.status, "approved"))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getActiveResaleListingsForReservation(reservationId: number): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(and(
+        eq(resaleListings.reservationId, reservationId),
+        inArray(resaleListings.status, ["pending_review", "approved"])
+      ))
+      .orderBy(desc(resaleListings.createdAt));
+  }
+
+  async getResaleListingByShareToken(shareToken: string): Promise<ResaleListing | undefined> {
+    const [result] = await db.select().from(resaleListings)
+      .where(eq(resaleListings.shareToken, shareToken));
+    return result;
+  }
+
+  async createResaleBid(bid: InsertResaleBid): Promise<ResaleBid> {
+    const [result] = await db.insert(resaleBids).values(bid).returning();
+    return result;
+  }
+
+  async getBidsByListing(listingId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.listingId, listingId))
+      .orderBy(desc(resaleBids.amount));
+  }
+
+  async getHighestBidForListing(listingId: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids)
+      .where(and(eq(resaleBids.listingId, listingId), eq(resaleBids.status, "active")))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getBidsByUser(userId: number): Promise<ResaleBid[]> {
+    return await db.select().from(resaleBids)
+      .where(eq(resaleBids.bidderId, userId))
+      .orderBy(desc(resaleBids.createdAt));
+  }
+
+  async getResaleBid(id: number): Promise<ResaleBid | undefined> {
+    const [result] = await db.select().from(resaleBids).where(eq(resaleBids.id, id));
+    return result;
+  }
+
+  async updateResaleBid(id: number, updates: Partial<ResaleBid>): Promise<ResaleBid> {
+    const [result] = await db.update(resaleBids)
+      .set(updates)
+      .where(eq(resaleBids.id, id))
+      .returning();
+    return result;
+  }
+
+  async createResalePayment(payment: InsertResalePayment): Promise<ResalePayment> {
+    const [result] = await db.insert(resalePayments).values(payment).returning();
+    return result;
+  }
+
+  async getResalePayment(id: number): Promise<ResalePayment | undefined> {
+    const [result] = await db.select().from(resalePayments).where(eq(resalePayments.id, id));
+    return result;
+  }
+
+  async getResalePaymentsByListing(listingId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.listingId, listingId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getResalePaymentsByBuyer(buyerId: number): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .where(eq(resalePayments.buyerId, buyerId))
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async getAllResalePayments(): Promise<ResalePayment[]> {
+    return await db.select().from(resalePayments)
+      .orderBy(desc(resalePayments.createdAt));
+  }
+
+  async updateResalePayment(id: number, updates: Partial<ResalePayment>): Promise<ResalePayment> {
+    const [result] = await db.update(resalePayments)
+      .set(updates)
+      .where(eq(resalePayments.id, id))
+      .returning();
+    return result;
+  }
+
+  async getNextHighestBidForListing(listingId: number, excludeBidderIds: number[]): Promise<ResaleBid | undefined> {
+    const conditions = [
+      eq(resaleBids.listingId, listingId),
+    ];
+    if (excludeBidderIds.length > 0) {
+      conditions.push(notInArray(resaleBids.bidderId, excludeBidderIds));
+    }
+    const [result] = await db.select().from(resaleBids)
+      .where(and(...conditions))
+      .orderBy(desc(resaleBids.amount))
+      .limit(1);
+    return result;
+  }
+
+  async getExpiredAwaitingPaymentListings(): Promise<ResaleListing[]> {
+    return await db.select().from(resaleListings)
+      .where(
+        and(
+          eq(resaleListings.status, "awaiting_payment"),
+          lt(resaleListings.paymentDeadline, new Date())
+        )
+      );
+  }
+
+  async createResaleAuditLog(log: InsertResaleAuditLog): Promise<ResaleAuditLog> {
+    const [result] = await db.insert(resaleAuditLogs).values(log).returning();
+    return result;
+  }
+
+  async getResaleAuditLogsByListing(listingId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.listingId, listingId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getResaleAuditLogsByProperty(propertyId: number): Promise<ResaleAuditLog[]> {
+    return await db.select().from(resaleAuditLogs)
+      .where(eq(resaleAuditLogs.propertyId, propertyId))
+      .orderBy(desc(resaleAuditLogs.createdAt));
+  }
+
+  async getAllResaleAuditLogs(limit?: number): Promise<ResaleAuditLog[]> {
+    const query = db.select().from(resaleAuditLogs).orderBy(desc(resaleAuditLogs.createdAt));
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Developer Portal methods
+  // ---------------------------------------------------------------------------
+
+  async getPropertiesByDeveloper(developerId: number): Promise<Property[]> {
+    return await db.select().from(properties)
+      .where(eq(properties.developerId, developerId))
+      .orderBy(desc(properties.createdAt));
+  }
+
+  async getDevelopers(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.role, "developer"))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async createProjectMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone> {
+    const [result] = await db.insert(projectMilestones).values(milestone).returning();
+    return result;
+  }
+
+  async getMilestonesByProperty(propertyId: number): Promise<ProjectMilestone[]> {
+    return await db.select().from(projectMilestones)
+      .where(eq(projectMilestones.propertyId, propertyId))
+      .orderBy(projectMilestones.sortOrder, projectMilestones.id);
+  }
+
+  async getMilestone(id: number): Promise<ProjectMilestone | undefined> {
+    const [result] = await db.select().from(projectMilestones).where(eq(projectMilestones.id, id));
+    return result;
+  }
+
+  async updateMilestone(id: number, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone> {
+    const [result] = await db.update(projectMilestones)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(projectMilestones.id, id))
+      .returning();
+    return result;
+  }
+
+  async reorderMilestones(propertyId: number, items: { id: number; sortOrder: number }[]): Promise<ProjectMilestone[]> {
+    if (items.length === 0) {
+      return await this.getMilestonesByProperty(propertyId);
+    }
+    const ids = items.map(i => i.id);
+    const caseChunks = sql.join(
+      items.map(i => sql`WHEN ${projectMilestones.id} = ${i.id} THEN ${i.sortOrder}`),
+      sql.raw(" "),
+    );
+    await db.update(projectMilestones)
+      .set({
+        sortOrder: sql`CASE ${caseChunks} ELSE ${projectMilestones.sortOrder} END`,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(projectMilestones.propertyId, propertyId),
+        inArray(projectMilestones.id, ids),
+      ));
+    return await this.getMilestonesByProperty(propertyId);
+  }
+
+  async deleteMilestone(id: number): Promise<void> {
+    await db.delete(projectMilestones).where(eq(projectMilestones.id, id));
+  }
+
+  async createProjectUpdate(update: InsertProjectUpdate, recipientCount: number): Promise<ProjectUpdate> {
+    const [result] = await db.insert(projectUpdates)
+      .values({ ...update, recipientCount })
+      .returning();
+    return result;
+  }
+
+  async getProjectUpdatesByProperty(propertyId: number): Promise<ProjectUpdate[]> {
+    return await db.select().from(projectUpdates)
+      .where(eq(projectUpdates.propertyId, propertyId))
+      .orderBy(desc(projectUpdates.sentAt));
+  }
+
+  async getProjectUpdatesByDeveloper(developerId: number): Promise<ProjectUpdate[]> {
+    return await db.select().from(projectUpdates)
+      .where(eq(projectUpdates.authorUserId, developerId))
+      .orderBy(desc(projectUpdates.sentAt));
+  }
+
+  async upsertDeveloperInvestorNote(note: InsertDeveloperInvestorNote): Promise<DeveloperInvestorNote> {
+    const existing = await this.getDeveloperInvestorNote(
+      note.propertyId,
+      note.developerUserId,
+      note.investorUserId
+    );
+    if (existing) {
+      const [result] = await db.update(developerInvestorNotes)
+        .set({ notes: note.notes ?? "", updatedAt: new Date() })
+        .where(eq(developerInvestorNotes.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(developerInvestorNotes).values(note).returning();
+    return result;
+  }
+
+  async getDeveloperInvestorNote(propertyId: number, developerUserId: number, investorUserId: number): Promise<DeveloperInvestorNote | undefined> {
+    const [result] = await db.select().from(developerInvestorNotes)
+      .where(and(
+        eq(developerInvestorNotes.propertyId, propertyId),
+        eq(developerInvestorNotes.developerUserId, developerUserId),
+        eq(developerInvestorNotes.investorUserId, investorUserId),
+      ));
+    return result;
+  }
+
+  // Developer CRM leads
+
+  async createDeveloperLead(lead: InsertDeveloperLead): Promise<DeveloperLead> {
+    const [result] = await db.insert(developerLeads).values(lead).returning();
+    return result;
+  }
+
+  async getDeveloperLeadsByProperty(propertyId: number): Promise<DeveloperLead[]> {
+    return await db.select().from(developerLeads)
+      .where(eq(developerLeads.propertyId, propertyId))
+      .orderBy(desc(developerLeads.createdAt));
+  }
+
+  async getDeveloperLead(id: number): Promise<DeveloperLead | undefined> {
+    const [result] = await db.select().from(developerLeads).where(eq(developerLeads.id, id));
+    return result;
+  }
+
+  async updateDeveloperLead(id: number, updates: Partial<DeveloperLead>): Promise<DeveloperLead> {
+    const [result] = await db.update(developerLeads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(developerLeads.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteDeveloperLead(id: number): Promise<void> {
+    await db.delete(developerLeads).where(eq(developerLeads.id, id));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Developer subscription / team
+  // ---------------------------------------------------------------------------
+
+  async getDeveloperOwnerId(userId: number): Promise<number> {
+    const u = await this.getUser(userId);
+    if (!u) return userId;
+    return u.parentDeveloperId ?? userId;
+  }
+
+  async getTeamMembersByDeveloper(developerId: number): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.parentDeveloperId, developerId))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async countActiveProjectsForDeveloper(developerId: number): Promise<number> {
+    const rows = await db.select({ id: properties.id }).from(properties).where(and(
+      eq(properties.developerId, developerId),
+      inArray(properties.projectStatus, ["draft", "pending_approval", "live"]),
+    ));
+    return rows.length;
+  }
+
+  async countDistinctInvestorsForDeveloper(developerId: number): Promise<number> {
+    const projects = await this.getPropertiesByDeveloper(developerId);
+    if (projects.length === 0) return 0;
+    const propertyIds = projects.map(p => p.id);
+    const rows = await db.select({
+      email: investmentReservations.email,
+    }).from(investmentReservations).where(and(
+      inArray(investmentReservations.propertyId, propertyIds),
+      eq(investmentReservations.status, "converted_to_investment"),
+    ));
+    const distinct = new Set(rows.map(r => (r.email || "").toLowerCase()).filter(Boolean));
+    return distinct.size;
+  }
+
+  async countUpdatesThisMonthForDeveloper(developerId: number): Promise<number> {
+    const projects = await this.getPropertiesByDeveloper(developerId);
+    if (projects.length === 0) return 0;
+    const propertyIds = projects.map(p => p.id);
+    const startOfMonth = new Date();
+    startOfMonth.setUTCDate(1);
+    startOfMonth.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select({ id: projectUpdates.id }).from(projectUpdates).where(and(
+      inArray(projectUpdates.propertyId, propertyIds),
+      gte(projectUpdates.sentAt, startOfMonth),
+    ));
+    return rows.length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Developer team invites
+  // ---------------------------------------------------------------------------
+
+  async createDeveloperTeamInvite(invite: InsertDeveloperTeamInvite): Promise<DeveloperTeamInvite> {
+    const [result] = await db.insert(developerTeamInvites).values(invite).returning();
+    return result;
+  }
+
+  async getDeveloperTeamInvitesByDeveloper(developerId: number): Promise<DeveloperTeamInvite[]> {
+    return await db.select().from(developerTeamInvites)
+      .where(eq(developerTeamInvites.developerId, developerId))
+      .orderBy(desc(developerTeamInvites.createdAt));
+  }
+
+  async getDeveloperTeamInviteByToken(token: string): Promise<DeveloperTeamInvite | undefined> {
+    const [result] = await db.select().from(developerTeamInvites)
+      .where(eq(developerTeamInvites.token, token));
+    return result;
+  }
+
+  async updateDeveloperTeamInvite(id: number, updates: Partial<DeveloperTeamInvite>): Promise<DeveloperTeamInvite> {
+    const [result] = await db.update(developerTeamInvites)
+      .set(updates)
+      .where(eq(developerTeamInvites.id, id))
+      .returning();
+    return result;
+  }
+
+  // --------------------------------------------------------------------------
+  // Construction stages (predefined 8-stage template per project)
+  // --------------------------------------------------------------------------
+
+  async getConstructionStagesByProperty(propertyId: number): Promise<ConstructionStage[]> {
+    return await db.select().from(constructionStages)
+      .where(eq(constructionStages.propertyId, propertyId))
+      .orderBy(constructionStages.sortOrder, constructionStages.id);
+  }
+
+  async seedDefaultConstructionStages(propertyId: number): Promise<void> {
+    const rows = DEFAULT_CONSTRUCTION_STAGES.map((s) => ({
+      propertyId,
+      stageKey: s.stageKey,
+      name: s.name,
+      sortOrder: s.sortOrder,
+    }));
+    // Idempotent: skip on conflict with the (propertyId, stageKey) unique index.
+    await db.insert(constructionStages).values(rows).onConflictDoNothing();
+  }
+
+  async updateConstructionStage(id: number, updates: Partial<InsertConstructionStage>): Promise<ConstructionStage> {
+    const [result] = await db.update(constructionStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(constructionStages.id, id))
+      .returning();
+    return result;
+  }
+
+  async upsertConstructionStage(
+    propertyId: number,
+    stageKey: string,
+    updates: Partial<InsertConstructionStage>,
+
+  ): Promise<ConstructionStage> {
+    // Look up the stage template (sortOrder + default name) so a fresh row
+    // can be created if it doesn't exist yet.
+    const template = DEFAULT_CONSTRUCTION_STAGES.find((s) => s.stageKey === stageKey);
+    const [existing] = await db.select().from(constructionStages)
+      .where(and(eq(constructionStages.propertyId, propertyId), eq(constructionStages.stageKey, stageKey)));
+    if (existing) {
+      const [result] = await db.update(constructionStages)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(constructionStages.id, existing.id))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(constructionStages).values({
+      propertyId,
+      stageKey,
+      name: updates.name ?? template?.name ?? stageKey,
+      sortOrder: updates.sortOrder ?? template?.sortOrder ?? 0,
+      ...updates,
+    }).returning();
+    return result;
+  }
+
+  // --------------------------------------------------------------------------
+  // Vendors
+  // --------------------------------------------------------------------------
+
+  async getVendorsByProperty(propertyId: number): Promise<Vendor[]> {
+    return await db.select().from(vendors)
+      .where(eq(vendors.propertyId, propertyId))
+      .orderBy(vendors.name);
+  }
+
+  async getVendor(id: number): Promise<Vendor | undefined> {
+    const [result] = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result;
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    // Guard cross-table integrity: if a stageId is provided it MUST belong to the
+    // same property as the vendor. Schema-level composite FK isn't available in
+    // Drizzle, so we enforce it here.
+    if (vendor.stageId != null) {
+      const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+        .from(constructionStages).where(eq(constructionStages.id, vendor.stageId));
+      if (!stage || stage.propertyId !== vendor.propertyId) {
+        throw new Error(`Vendor.stageId ${vendor.stageId} does not belong to propertyId ${vendor.propertyId}`);
+      }
+    }
+    const [result] = await db.insert(vendors).values(vendor).returning();
+    return result;
+  }
+
+  async updateVendor(id: number, updates: Partial<InsertVendor>): Promise<Vendor> {
+    // Mirror the createVendor guard: if propertyId and/or stageId are being
+    // changed, ensure the resulting (propertyId, stageId) pair stays
+    // consistent — the stage must belong to the same property.
+    if (updates.propertyId != null || updates.stageId != null) {
+      const [current] = await db.select().from(vendors).where(eq(vendors.id, id));
+      if (!current) throw new Error(`Vendor ${id} not found`);
+      const nextPropertyId = updates.propertyId ?? current.propertyId;
+      const nextStageId = updates.stageId !== undefined ? updates.stageId : current.stageId;
+      if (nextStageId != null) {
+        const [stage] = await db.select({ propertyId: constructionStages.propertyId })
+          .from(constructionStages).where(eq(constructionStages.id, nextStageId));
+        if (!stage || stage.propertyId !== nextPropertyId) {
+          throw new Error(`Vendor.stageId ${nextStageId} does not belong to propertyId ${nextPropertyId}`);
+        }
+      }
+    }
+    const [result] = await db.update(vendors)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(vendors.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteVendor(id: number): Promise<void> {
+    // Drop child payments first to satisfy FK
+    await db.delete(vendorPayments).where(eq(vendorPayments.vendorId, id));
+    await db.delete(vendors).where(eq(vendors.id, id));
+  }
+
+  // --------------------------------------------------------------------------
+  // Vendor payments
+  // --------------------------------------------------------------------------
+
+  async getVendorPaymentsByVendor(vendorId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.vendorId, vendorId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async getVendorPaymentsByProperty(propertyId: number): Promise<VendorPayment[]> {
+    return await db.select().from(vendorPayments)
+      .where(eq(vendorPayments.propertyId, propertyId))
+      .orderBy(desc(vendorPayments.paidAt));
+  }
+
+  async createVendorPayment(payment: InsertVendorPayment): Promise<VendorPayment> {
+    // Guard: payment.propertyId must match the parent vendor's propertyId so we
+    // never end up with orphan payments after a project delete.
+    const [vendor] = await db.select({ propertyId: vendors.propertyId })
+      .from(vendors).where(eq(vendors.id, payment.vendorId));
+    if (!vendor) {
+      throw new Error(`VendorPayment references unknown vendorId ${payment.vendorId}`);
+    }
+    if (vendor.propertyId !== payment.propertyId) {
+      throw new Error(`VendorPayment.propertyId ${payment.propertyId} does not match vendor.propertyId ${vendor.propertyId}`);
+    }
+    const [result] = await db.insert(vendorPayments).values(payment).returning();
+    return result;
+  }
+
+  async deleteVendorPayment(id: number): Promise<void> {
+    await db.delete(vendorPayments).where(eq(vendorPayments.id, id));
+  }
+
+  // --------------------------------------------------------------------------
+  // Reservation funnel / monthly conversion efficiency
+  // --------------------------------------------------------------------------
+
+  async getReservationFunnelCounts(propertyId: number): Promise<Record<string, number>> {
+    const rows = await db
+      .select({ funnelStage: investmentReservations.funnelStage, count: sql<number>`count(*)::int` })
+      .from(investmentReservations)
+      .where(eq(investmentReservations.propertyId, propertyId))
+      .groupBy(investmentReservations.funnelStage);
+
+    const counts: Record<string, number> = {
+      prospective: 0,
+      due_diligence: 0,
+      documentation: 0,
+      payment_incomplete: 0,
+      confirmed: 0,
+    };
+    for (const r of rows) {
+      // NULL funnel_stage means the reservation left the funnel entirely
+      // (expired / cancelled) — we deliberately exclude those rather than
+      // bucketing them as 'prospective' to keep the funnel honest.
+      if (r.funnelStage == null) continue;
+      if (r.funnelStage in counts) counts[r.funnelStage] += Number(r.count);
+    }
+    return counts;
+  }
+
+  async getMonthlyConversionEfficiency(
+    propertyId: number,
+    months: number = 12,
+
+  ): Promise<{ month: string; confirmedCount: number; prospectiveCount: number }[]> {
+    // Funnel-stage-driven rollup over the last `months` calendar months.
+    // - confirmedCount    = reservations with funnel_stage = 'confirmed'
+    // - prospectiveCount  = reservations still in funnel (any non-confirmed,
+    //                        non-null stage). Rows with funnel_stage IS NULL
+    //                        (left the funnel — expired/cancelled) are excluded.
+    const now = new Date();
+    const startBoundary = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const rows = await db
+      .select({
+        month: sql<string>`to_char(date_trunc('month', ${investmentReservations.createdAt}), 'YYYY-MM')`,
+        funnelStage: investmentReservations.funnelStage,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(investmentReservations)
+      .where(and(
+        eq(investmentReservations.propertyId, propertyId),
+        gte(investmentReservations.createdAt, startBoundary),
+      ))
+      .groupBy(sql`date_trunc('month', ${investmentReservations.createdAt})`, investmentReservations.funnelStage);
+
+    const byMonth = new Map<string, { confirmedCount: number; prospectiveCount: number }>();
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      byMonth.set(key, { confirmedCount: 0, prospectiveCount: 0 });
+    }
+    for (const r of rows) {
+      const slot = byMonth.get(r.month);
+      if (!slot) continue;
+      const c = Number(r.count);
+      if (r.funnelStage === "confirmed") {
+        slot.confirmedCount += c;
+      } else if (r.funnelStage != null) {
+        // any other in-funnel stage: prospective / due_diligence / documentation / payment_incomplete
+        slot.prospectiveCount += c;
+      }
+    }
+
+    return Array.from(byMonth.entries()).map(([month, v]) => ({
+      month,
+      confirmedCount: v.confirmedCount,
+      prospectiveCount: v.prospectiveCount,
+    }));
+  }
+
+  // --------------------------------------------------------------------------
+  // Funnel-stage backfill — called once on boot. Idempotent (no-op on rows
+  // that already have funnel_stage set).
+  // --------------------------------------------------------------------------
+
+  async backfillReservationFunnelStages(): Promise<number> {
+    // Mapping rules (kept in SQL so backfill is a single round-trip):
+    //   status = 'converted_to_investment'                          -> 'confirmed'
+    //   status = 'payment_pending'                                   -> 'payment_incomplete'
+    //   status = 'reserved' AND has a payment_submission row         -> 'payment_incomplete'
+    //   status = 'reserved'                                          -> 'prospective'
+    //   status IN ('expired','cancelled') or anything else           -> NULL
+    const result: { rowCount: number | null } = await db.execute(sql`
+      UPDATE investment_reservations r
+      SET funnel_stage = CASE
+        WHEN r.status = 'converted_to_investment' THEN 'confirmed'
+        WHEN r.status = 'payment_pending' THEN 'payment_incomplete'
+        WHEN r.status = 'reserved' AND EXISTS (
+          SELECT 1 FROM payment_submissions ps WHERE ps.reservation_id = r.id
+        ) THEN 'payment_incomplete'
+        WHEN r.status = 'reserved' THEN 'prospective'
+        ELSE NULL
+      END
+      WHERE r.funnel_stage IS NULL
+    `);
+    return result.rowCount ?? 0;
+  }
+
+  async addGroupContribution(contribution: InsertGroupContribution): Promise<GroupContribution> {
+    const [newContribution] = await db
+      .insert(groupContributions)
+      .values(contribution)
+      .returning();
+
+    // Update member's contributed amount
+    const [member] = await db.select().from(groupMembers).where(eq(groupMembers.id, contribution.memberId));
+    if (member) {
+      await db
+        .update(groupMembers)
+        .set({ 
+          contributedAmount: member.contributedAmount + contribution.amount
+        })
+        .where(eq(groupMembers.id, contribution.memberId));
+    }
+
+    // Update group's current amount
+    const [group] = await db.select().from(investmentGroups).where(eq(investmentGroups.id, contribution.groupId));
+    if (group) {
+      await this.updateGroupAmount(contribution.groupId, group.currentAmount + contribution.amount);
+    }
+
+    return newContribution;
+  }
+}
+
+export const storage = new DatabaseStorage();

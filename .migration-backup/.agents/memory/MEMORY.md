@@ -1,0 +1,28 @@
+- [Dev server backend reload](dev-server-reload.md) — backend runs tsx (no watch); restart the workflow before testing server/* edits via curl.
+- [Dev DB is live](dev-db-is-live.md) — dev DATABASE_URL is the real users' DB (no prod replica); treat any data-mutating script as production.
+- [Startup mutation risk](startup-mutation-risk.md) — restarting the app is not read-only; use a frontend-only server for isolated browser verification.
+- [Resale integration test cleanup](resale-integration-test-cleanup.md) — remove resale child rows before shared test cleanup deletes their referenced reservations.
+- [Post-merge database safety](post-merge-database-safety.md) — never run generic drizzle push automatically; use explicit idempotent schema scripts against the live DB.
+- [Valuation report source of truth](valuation-report-source.md) — user-facing reports must come from valuation-history entries, never legacy property-level fields.
+- [Portfolio performance scope](portfolio-performance-scope.md) — one owned-share land graph with fee-inclusive purchase line; raw growth uses each purchase baseline, excluding fees and new deposits.
+- [Brikvest email branding](resale-email-branding.md) — legal notifications match existing transactional mail; P2P emails use the current logo, no tagline and computed price labels.
+- [Vitest module mocking](vitest-module-mocking.md) — with shared forks and isolation disabled, import order can bypass later file-level mocks; run mocked email tests independently.
+- [Legal signing boundaries](legal-signing-boundaries.md) — SD118 scope requires explicit identity confirmation; investor signing is not certification of full legal execution.
+- [Legacy reservation inventory](legacy-reservation-inventory.md) — historical creation paths counted slots and units differently; never borrow another holding's allocation.
+- [Legal typography authorization](legal-typography-authorization.md) — authorized fallback changes new working copies only; pagination changes never permit bypassing placement checks.
+- [Converter font provisioning](converter-font-provisioning.md) — ship licensed fallback faces; workspace font resolution does not establish converter deployment readiness.
+- [Historical rollout authorization](historical-rollout-authorization.md) — explicit admin selection only; legal preparation does not authorize financial corrections or automatic backfill.
+- [Production legal schema verification](production-legal-schema-verification.md) — workspace may differ from production; verify target identity and trigger/function guards before operational changes.
+- [PDF review release boundary](pdf-review-release-boundary.md) — payment/template approval never releases signing mail; both exact investor PDFs require explicit admin approval.
+- [Playwright output isolation](playwright-output-isolation.md) — concurrent browser commands need separate output directories to avoid false trace/cleanup failures.
+- [Land-only consideration](land-only-consideration.md) — portfolio principal and deeds exclude acquisition fees; preserve payments and signed evidence, and re-review replacement drafts.
+- [Task release boundary](task-release-boundary.md) — merge prepared task changes into main before publishing; saved configuration does not prove live activation.
+- [Production request evidence](production-request-evidence.md) — reproducible prerequisite failures do not establish the cause of historical HTTP errors without request/response evidence.
+- [Signature browser metadata](signature-browser-metadata.md) — accept bounded colour metadata, embed verified pixels only, and preserve the original signature evidence hash.
+- [Production module interop](production-module-interop.md) — test externalized PDF dependencies under native Node ESM; test-runner namespace exports can mask production failures.
+- [Property Sell date](property-sell-date-semantics.md) — admin-managed listing information only; never infer deadlines or selling/availability automation.
+- [Property listing information](property-listing-details.md) — current price overrides listed price for NEW reservations; preserve historical purchases and independent valuation history.
+- [Vitest JSX transforms](vitest-jsx-transforms.md) — test and app runners can use different Vite generations; JSX tests need the test runner's transform settings.
+- [FAQ policy boundaries](faq-policy-boundaries.md) — preserve supplied FAQ claims; flag conflicting copy instead of changing investment rules or legal agreements.
+- [Gateway approval boundary](flutterwave-approval-boundary.md) — verified Flutterwave receipt awaits explicit admin approval; no automatic allocation, refund, or live release.
+- [Duplicate account boundary](account-consolidation-scope.md) — verified duplicates only; never rewrite retained evidence or use a merge as a general investor transfer.

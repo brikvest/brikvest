@@ -1,0 +1,192 @@
+import express from "express";
+import request from "supertest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const fixture = vi.hoisted(() => ({ rows: [] as any[], reservations: [] as any[] }));
+vi.mock("../server/storage", () => ({
+  storage: {
+    getAdminUserByUsername: async (username: string) => ({ id: 1, username, password: "fixture", role: username === "not-admin" ? "investor" : "admin", isActive: true }),
+    updateAdminUserLastLogin: async () => {},
+    createProperty: async (data: any) => { const row = { id: fixture.rows.length + 1, sellDate: null, listedDate: null, currentPricePerUnit: null, currency: "NGN", ...data }; fixture.rows.push(row); return row; },
+    updateProperty: async (id: number, data: any) => {
+      const row = fixture.rows.find(r => r.id === id);
+      for (const [key, value] of Object.entries(data)) if (value !== undefined) row[key] = value;
+      return row;
+    },
+    getProperty: async (id: number) => fixture.rows.find(r => r.id === id),
+    getProperties: async () => fixture.rows,
+    getPublicProperties: async () => fixture.rows,
+    getUser: async (id: number) => ({ id, role: "developer", subscriptionStatus: "active", plan: "starter" }),
+    getReservationsByProperty: async () => [],
+    getReservationsByEmail: async (email: string) => fixture.reservations.filter(r => r.email === email),
+    createInvestmentReservation: async (data: any) => {
+      const row = { status: "reserved", ...data, id: fixture.reservations.length + 1, createdAt: new Date().toISOString() };
+      fixture.reservations.push(row);
+      return row;
+    },
+  },
+}));
+vi.mock("../server/db", () => ({ db: {}, pool: {} }));
+vi.mock("../server/auth", () => ({
+  setupAuth: (app: any) => app.use((req: any, _res: any, next: any) => {
+    req.isAuthenticated = () => !!req.headers["x-fixture-role"];
+    req.user = req.headers["x-fixture-role"] ? { id: 2, role: req.headers["x-fixture-role"], teamRole: "owner", accountStatus: "approved" } : undefined;
+    next();
+  }),
+  comparePasswords: async () => true,
+  hashPassword: async () => "fixture",
+}));
+vi.mock("../server/startup-maintenance", () => ({ runStartupDataMaintenance: async () => {} }));
+vi.mock("../server/legal/routes", () => ({ registerLegalRoutes: () => {} }));
+vi.mock("../server/legal/approval", () => ({}));
+vi.mock("../server/marketplaceOffers", () => ({ registerMarketplaceOfferRoutes: () => {} }));
+vi.mock("../server/cloudinary", () => ({
+  upload: { single: () => (_req: any, _res: any, next: any) => next(), fields: () => (_req: any, _res: any, next: any) => next() },
+  documentUpload: { single: () => (_req: any, _res: any, next: any) => next() },
+}));
+vi.mock("../server/emailService", () => ({ sendEmail: vi.fn() }));
+vi.mock("../server/resaleEmails", () => ({}));
+vi.mock("../server/emailTemplates", () => ({
+  investmentEmailTemplate: vi.fn(data => ({ subject: "Reservation", html: JSON.stringify(data) })),
+  investmentCreatedEmailTemplate: vi.fn(data => ({ subject: "Reservation", html: JSON.stringify(data) })),
+}));
+vi.mock("../server/currencyService", () => ({
+  getExchangeRates: async () => ({ NGN: 1500, USD: 1 }),
+  convertCurrency: (value: number) => value / 1500,
+  detectUserCurrency: () => "NGN",
+}));
+
+let app: ReturnType<typeof express>;
+let token: string;
+beforeAll(async () => {
+  // Suppress route-registration timers; no backend entrypoint or workers start.
+  const interval = vi.spyOn(globalThis, "setInterval").mockReturnValue({ unref() {} } as any);
+  try {
+    const { registerRoutes } = await import("../server/routes");
+    app = express();
+    app.use(express.json());
+    await registerRoutes(app);
+  } finally { interval.mockRestore(); }
+  const response = await request(app).post("/api/admin/login").send({ username: "fixture-admin", password: "fixture-password" });
+  expect(response.status).toBe(200);
+  token = response.body.sessionId;
+});
+afterAll(() => vi.restoreAllMocks());
+const base = { name: "Fixture", location: "Abuja", description: "Fixture property",
+  totalValue: 10000, minInvestment: 1000, totalSlots: 10, availableSlots: 10, imageUrl: "/fixture.svg", currency: "NGN", projectStatus: "live" };
+const admin = (method: "post" | "put", url: string, data: any) =>
+  request(app)[method](url).set("Authorization", `Bearer ${token}`).send(data);
+
+describe("actual property routes with isolated persistence", () => {
+  it("uses current price for new reservations, ignores client prices, and preserves previous reservations", async () => {
+    const created = await admin("post", "/api/properties", { ...base, currentPricePerUnit: 3500 });
+    const id = created.body.id;
+    const body = { propertyId: id, fullName: "Test Investor", email: "pricing@example.test",
+      phone: "08012345678", units: "2", amount: "1", unitPriceSnapshot: "1", currency: "USD" };
+    const first = await request(app).post("/api/reservations").send(body);
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500", currency: "NGN" });
+    const { investmentEmailTemplate } = await import("../server/emailTemplates");
+    expect(investmentEmailTemplate).toHaveBeenLastCalledWith(expect.objectContaining({ amount: 7000 }));
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: 4500 });
+    const duplicate = await request(app).post("/api/reservations").send(body);
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body).toMatchObject({ id: first.body.id, amount: "7000", unitPriceSnapshot: "3500" });
+    const next = await request(app).post("/api/reservations").send({ ...body, email: "next@example.test" });
+    expect(next.body).toMatchObject({ amount: "9000", unitPriceSnapshot: "4500" });
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: null });
+    const fallback = await request(app).post("/api/reservations").send({ ...body, email: "fallback@example.test" });
+    expect(fallback.body).toMatchObject({ amount: "2000", unitPriceSnapshot: "1000" });
+    expect(fixture.reservations.find(r => r.id === first.body.id).amount).toBe("7000");
+    await admin("put", `/api/properties/${id}`, { ...base, currentPricePerUnit: 0 });
+    const invalid = await request(app).post("/api/reservations").send({ ...body, email: "zero@example.test" });
+    expect(invalid.status).toBe(400);
+  });
+  it("prioritizes current price over unit types and prices admin-assisted new reservations consistently", async () => {
+    const created = await admin("post", "/api/properties", { ...base, currentPricePerUnit: 3500,
+      unitTypes: [{ label: "Land", quantity: 10, price: 1000 }] });
+    const id = created.body.id;
+    const response = await request(app).post("/api/reservations").send({
+      propertyId: id, fullName: "Test Investor", email: "typed@example.test", phone: "08012345678",
+      units: "2", amount: "2000", unitPriceSnapshot: "1000", unitTypeLabel: "Land",
+    });
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500", unitTypeLabel: "Land" });
+    const assisted = await admin("post", "/api/admin/investments/create", { userId: 2, propertyId: id, units: 2 });
+    expect(assisted.status).toBe(201);
+    expect(assisted.body).toMatchObject({ amount: "7000", unitPriceSnapshot: "3500" });
+  });
+  it("persists listing metadata, converts the display price and leaves purchase pricing unchanged", async () => {
+    const created = await admin("post", "/api/properties", { ...base, listedDate: "2026-10", currentPricePerUnit: 350000, developerId: 2 });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+    const original = { minInvestment: 1000, totalValue: 10000, totalSlots: 10, availableSlots: 10 };
+    const metadata = { listedDate: "2026-10", currentPricePerUnit: 350000 };
+    expect(created.body).toMatchObject({ ...original, ...metadata });
+    const converted = await request(app).get("/api/properties-converted").query({ currency: "USD" });
+    expect(converted.body.find((r: any) => r.id === id)).toMatchObject({
+      listedDate: "2026-10", currentPricePerUnit: 350000 / 1500, originalMinInvestment: 1000,
+      originalCurrentPricePerUnit: 350000,
+    });
+    const read = await request(app).get(`/api/properties/${id}`).set("x-fixture-role", "investor");
+    expect(read.body).toMatchObject(metadata);
+    const updated = await admin("put", `/api/properties/${id}`, { ...base, listedDate: "2027-01", currentPricePerUnit: 370000 });
+    expect(updated.body).toMatchObject({ ...original, listedDate: "2027-01", currentPricePerUnit: 370000 });
+    const unrelated = await admin("put", `/api/properties/${id}`, { ...base, name: "Unrelated update" });
+    expect(unrelated.body).toMatchObject({ listedDate: "2027-01", currentPricePerUnit: 370000 });
+    const developer = await request(app).patch(`/api/developer/projects/${id}`).set("x-fixture-role", "developer").send({ name: "Developer edit" });
+    expect(developer.body).toMatchObject({ listedDate: "2027-01", currentPricePerUnit: 370000 });
+    for (const payload of [{ listedDate: "2028-01" }, { currentPricePerUnit: 1 }, { listedDate: null, currentPricePerUnit: null }]) {
+      expect((await request(app).patch(`/api/developer/projects/${id}`).set("x-fixture-role", "developer").send(payload)).status).toBe(403);
+    }
+    expect((await admin("put", `/api/properties/${id}`, { ...base, listedDate: null, currentPricePerUnit: null })).body)
+      .toMatchObject({ ...original, listedDate: null, currentPricePerUnit: null });
+  });
+  it.each([
+    { listedDate: "2026-13" }, { listedDate: "2026-10-01" }, { listedDate: "" },
+    { currentPricePerUnit: -1 }, { currentPricePerUnit: 1.5 }, { currentPricePerUnit: "350000" },
+  ])("rejects invalid listing metadata %j", async payload => {
+    expect((await admin("post", "/api/properties", { ...base, ...payload })).status).toBe(400);
+    expect((await admin("put", "/api/properties/1", { ...base, ...payload })).status).toBe(400);
+  });
+  it("supports create, update, omission, reads, conversion and clear without affecting availability", async () => {
+    const legacy = await admin("post", "/api/properties", base);
+    expect(legacy.status).toBe(201);
+    expect(legacy.body.sellDate).toBeNull();
+    const created = await admin("post", "/api/properties", { ...base, sellDate: "2028-02-29" });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+    for (const currency of ["NGN", "USD"]) {
+      const listing = await request(app).get("/api/properties-converted").query({ currency });
+      expect(listing.status).toBe(200);
+      expect(listing.body.find((r: any) => r.id === id).sellDate).toBe("2028-02-29");
+    }
+    expect((await request(app).get(`/api/properties/${id}`).set("x-fixture-role", "investor")).body.sellDate).toBe("2028-02-29");
+    expect((await request(app).get("/api/properties").set("x-fixture-role", "investor")).body.find((r: any) => r.id === id).sellDate).toBe("2028-02-29");
+    expect((await request(app).get("/api/admin/properties").set("Authorization", `Bearer ${token}`)).body.find((r: any) => r.id === id).sellDate).toBe("2028-02-29");
+    expect((await admin("put", `/api/properties/${id}`, { ...base, name: "Edited" })).body.sellDate).toBe("2028-02-29");
+    expect((await admin("put", `/api/properties/${id}`, { ...base, sellDate: "2029-01-01" })).body.sellDate).toBe("2029-01-01");
+    const cleared = await admin("put", `/api/properties/${id}`, { ...base, sellDate: null });
+    expect(cleared.body).toMatchObject({ sellDate: null, availableSlots: 10, totalSlots: 10, minInvestment: 1000 });
+  });
+  it.each(["2026-02-29", "", "2026-10-10T00:00:00Z"])("rejects invalid admin create and update: %s", async sellDate => {
+    expect((await admin("post", "/api/properties", { ...base, sellDate })).status).toBe(400);
+    expect((await admin("put", "/api/properties/1", { ...base, sellDate })).status).toBe(400);
+  });
+  it("requires admin authentication and prevents developer setting/clearing", async () => {
+    expect((await request(app).post("/api/properties").send({ ...base, sellDate: "2028-02-29" })).status).toBe(401);
+    expect((await request(app).put("/api/properties/1").set("Authorization", "Bearer invalid").send({ ...base, sellDate: null })).status).toBe(401);
+    expect((await request(app).put("/api/properties/1").set("x-fixture-role", "investor").send({ ...base, sellDate: null })).status).toBe(401);
+    for (const sellDate of ["2028-02-29", null]) {
+      expect((await request(app).post("/api/developer/projects").set("x-fixture-role", "developer").send({ ...base, sellDate })).status).toBe(403);
+      expect((await request(app).patch("/api/developer/projects/1").set("x-fixture-role", "developer").send({ sellDate })).status).toBe(403);
+    }
+  });
+  it("preserves an admin-set date when a developer updates an unrelated allowed field", async () => {
+    const created = await admin("post", "/api/properties", { ...base, developerId: 2, sellDate: "2028-02-29" });
+    const response = await request(app).patch(`/api/developer/projects/${created.body.id}`)
+      .set("x-fixture-role", "developer").send({ name: "Developer unrelated edit" });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ name: "Developer unrelated edit", sellDate: "2028-02-29" });
+  });
+});

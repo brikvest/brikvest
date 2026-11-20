@@ -1,0 +1,460 @@
+# BRIKVEST – P2P MARKETPLACE ENHANCEMENT
+
+## Objective
+
+Update the existing Brikvest P2P Marketplace to enable users to purchase land holdings from other existing Brikvest users, regardless of whether those holdings have been explicitly listed for sale.
+
+**IMPORTANT: Do not create a new marketplace or navigation tab.** Expand the existing P2P Marketplace to accommodate two distinct purchasing options:
+
+1. **Listed Land:** Land that an existing owner has voluntarily listed for sale.
+2. **Unlisted Land:** Land currently owned by Brikvest users that has not been listed for sale but for which interested buyers can submit unsolicited purchase offers.
+
+Both categories should operate within the existing P2P Marketplace while providing a clear distinction between listed holdings and holdings available to receive unsolicited offers.
+
+Preserve the existing application's architecture, visual design, database integrity, authentication, portfolio management, and other functionalities.
+
+---
+
+## 1. P2P Marketplace Interface
+
+Retain the existing P2P Marketplace tab in the application's main navigation.
+
+Within this marketplace, introduce two clearly differentiated sections:
+
+**Listed Land**
+
+Display land holdings that owners have actively listed for sale.
+
+Retain the existing listed-land purchasing functionality and integrate the updated transaction, payment, and verification requirements where applicable.
+
+**Unlisted Land**
+
+Display eligible land holdings already owned by Brikvest users, even where those users have not advertised or listed their holdings for sale.
+
+Users must not be required to list their holdings before another user can submit a purchase offer.
+
+Include a short explanation:
+
+"Explore existing land holdings and submit purchase offers directly to owners, even when their land is not listed for sale."
+
+Both sections should have a consistent interface and match Brikvest's existing branding.
+
+## 2. Unlisted Land Discovery
+
+When a buyer selects the Unlisted Land section, display the available land assets held by existing Brikvest users.
+
+Each asset should display:
+
+- Land name.
+- Location.
+- Property details.
+- Total land area.
+- Ownership unit or fractional holding information.
+- Number of existing owners, where appropriate.
+
+When the buyer selects a particular land asset, display the existing ownership positions associated with that property.
+
+For each owner, show:
+
+- Anonymous owner reference (Owner 001, Owner 002, etc.).
+- Total quantity of land owned.
+- Quantity currently available to receive offers.
+- A "Make an Offer" button.
+
+**All existing owner identities must remain anonymous.**
+
+Do not publicly display usernames, legal names, email addresses, phone numbers, KYC details, or private account information.
+
+Owners must automatically be eligible to receive purchase offers on qualifying holdings without needing to create a listing.
+
+Do not show holdings that have already been transferred, are otherwise ineligible for transfer, or are fully reserved under another accepted transaction.
+
+## 3. Offer Submission
+
+When a buyer clicks "Make an Offer", open an offer submission interface.
+
+Allow the buyer to:
+
+- Select the anonymous ownership position.
+- Specify the land quantity they wish to purchase.
+- Enter their proposed purchase price.
+- Review the proposed transaction.
+- View the applicable Brikvest transaction fee.
+- Confirm and submit their offer.
+
+The buyer must not be able to submit an offer for a quantity exceeding the owner's available holding.
+
+Generate a unique offer reference and store the offer in the database.
+
+Once submitted:
+
+- Notify the selected landowner through email.
+- Generate an in-app notification.
+- Display the offer in the buyer's transaction history.
+- Set the status to "Awaiting Seller Response".
+
+The 30-minute payment countdown should NOT begin when an initial offer is submitted. It should only begin after both parties have agreed to the transaction.
+
+## 4. Brikvest Transaction Fee – 2%
+
+Apply an additional 2% Brikvest transaction fee to every successfully negotiated purchase.
+
+The fee must be calculated using the final agreed land purchase price.
+
+Use the following calculation:
+
+**Land Purchase Price = P**
+
+**Brikvest Transaction Fee = P × 0.02**
+
+**Total Buyer Payment = P × 1.02**
+
+For example:
+
+| Description | Amount |
+|---|---:|
+| Agreed land purchase price | ₦1,000,000 |
+| Brikvest transaction fee (2%) | ₦20,000 |
+| Total amount payable by buyer | ₦1,020,000 |
+
+The 2% transaction fee must be added to the agreed purchase price, not deducted from the seller's agreed amount.
+
+Display the fee breakdown clearly during offer submission, negotiations, payment, and in transaction records.
+
+Whenever an offer or counteroffer changes the purchase price, automatically recalculate the 2% fee and total buyer payment.
+
+Use accurate monetary calculations and ensure the correct amount is stored in the database.
+
+## 5. Seller Email Notification
+
+Whenever an existing owner receives a purchase offer, automatically send an email notification.
+
+Suggested email:
+
+**Subject: New Purchase Offer Received – Brikvest**
+
+Dear [First Name],
+
+You have received a new offer from a Brikvest user interested in purchasing part or all of your existing land holding.
+
+Land: [Land Name]
+
+Quantity Requested: [Quantity]
+
+Proposed Purchase Price: [Amount]
+
+Offer Reference: [Reference Number]
+
+Please click below to review the offer.
+
+**[REVIEW OFFER]**
+
+You can accept, submit a counteroffer, or decline the offer.
+
+The review button should securely redirect the owner to the relevant offer within the Brikvest application.
+
+The recipient must be authenticated before responding.
+
+Neither party should be able to access the other's personal details.
+
+## 6. Seller Response and Negotiation
+
+After opening an offer, the owner should have three options.
+
+**A. Accept Offer**
+
+The seller accepts the proposed purchase price and land quantity.
+
+The system should:
+
+- Confirm that the seller still owns the proposed quantity.
+- Reserve the agreed quantity.
+- Notify the buyer.
+- Generate a pending purchase transaction.
+- Start the 30-minute payment countdown.
+
+**B. Counteroffer**
+
+The seller may propose a different purchase price or quantity.
+
+The buyer should receive an email and in-app notification containing the revised terms.
+
+The buyer should be able to:
+
+- Accept the counteroffer.
+- Submit another counteroffer.
+- Decline the offer.
+
+Allow negotiations to continue until both parties reach an agreement or either party declines.
+
+Recalculate the 2% Brikvest fee whenever the negotiated purchase price changes.
+
+**C. Decline Offer**
+
+The seller declines the proposed transaction.
+
+Update the offer status to "Declined" and notify the buyer.
+
+No payment or ownership transfer should occur.
+
+Maintain a complete negotiation history for administrative and audit purposes.
+
+## 7. Land Reservation and Double-Selling Prevention
+
+Once an offer is accepted, the agreed land quantity must immediately be reserved.
+
+For example, if an owner holds 500 sqm and accepts an offer to sell 300 sqm:
+
+| Holding | Quantity |
+|---|---:|
+| Total ownership | 500 sqm |
+| Reserved for accepted offer | 300 sqm |
+| Remaining available holding | 200 sqm |
+
+Other buyers may submit offers for the remaining 200 sqm but must not be able to complete a transaction involving the reserved 300 sqm.
+
+The system must prevent the same quantity from being reserved or sold through multiple simultaneous transactions.
+
+If the accepted transaction expires, is cancelled, or is rejected without proceeding to completion, the reserved quantity should be released.
+
+Use database-level transaction controls to ensure accurate ownership and reservation balances.
+
+## 8. Mandatory 30-Minute Payment Window
+
+Once the buyer and seller agree to a purchase, activate a 30-minute payment window.
+
+The countdown must begin at the exact time the final offer is accepted.
+
+Direct the buyer to their portfolio, where the pending transaction should be displayed.
+
+Show:
+
+- Land name.
+- Quantity being purchased.
+- Agreed purchase price.
+- Brikvest transaction fee (2%).
+- Total amount payable.
+- Official Brikvest bank account details.
+- Unique payment reference.
+- Payment deadline.
+- Live 30-minute countdown.
+- Upload Payment Receipt button.
+
+The countdown must be calculated and enforced on the server.
+
+**The buyer must pay and submit proof of payment within 30 minutes.**
+
+If proof of payment is successfully uploaded before the deadline, update the transaction status to "Payment Under Review".
+
+Keep the land reserved while the administrator verifies payment.
+
+Uploading a receipt does not automatically constitute payment approval.
+
+## 9. Automatic Expiry and New Offer Requirement
+
+If the buyer fails to submit proof of payment before the 30-minute deadline:
+
+- Automatically expire the transaction.
+- Cancel the existing payment instructions.
+- Release the reserved land.
+- Return the quantity to the owner's available holding.
+- Update the transaction status to "Expired – Payment Deadline Missed".
+- Notify the buyer and seller.
+
+**The buyer must submit an entirely new offer if they still wish to purchase the land.**
+
+Do not allow the buyer to reactivate the expired transaction or automatically extend the payment window.
+
+The seller must independently accept the new offer.
+
+Upon acceptance, generate a new transaction reference and a new 30-minute payment window.
+
+If money is received after expiry, flag it for administrative review and reconciliation rather than automatically transferring land ownership.
+
+Ensure expiry works even when users have closed their browsers or logged out.
+
+## 10. Payment Instructions and Receipt Upload
+
+All payments must be made directly into Brikvest's designated bank account.
+
+Do not facilitate direct buyer-to-seller payment.
+
+The buyer must transfer the full amount, including the additional 2% Brikvest fee.
+
+Once the buyer uploads their payment receipt:
+
+- Save the receipt securely.
+- Record its submission timestamp.
+- Mark the transaction as "Payment Under Review".
+- Notify the administrator.
+- Retain the reservation pending verification.
+
+Administrators must verify that the full transaction amount has actually been received.
+
+A receipt upload alone must never trigger ownership transfer.
+
+## 11. Admin Payment Verification
+
+Expand the existing admin dashboard to accommodate P2P Marketplace transactions.
+
+Administrators should be able to:
+
+- Review listed and unlisted land transactions.
+- Access buyer and seller identities.
+- Review the offer and negotiation history.
+- View the agreed purchase price.
+- View the additional 2% fee.
+- Confirm the total amount payable.
+- View uploaded payment receipts.
+- Verify that funds have been received.
+- Approve or reject payment submissions.
+- Review the buyer's KYC status.
+- Authorise ownership transfers.
+- Investigate expired transactions and disputed payments.
+
+Payment verification must be based on actual funds received, not solely on uploaded receipts.
+
+## 12. Buyer KYC Verification
+
+Before completing an ownership transfer, verify the buyer's KYC status.
+
+If the buyer has already completed KYC, proceed once the payment and administrative requirements have been satisfied.
+
+If the buyer has not completed KYC, direct them to Brikvest's existing verification process.
+
+Display:
+
+**KYC Verification Required – Ownership Transfer Pending**
+
+This applies to newly registered users and existing users with incomplete KYC.
+
+KYC processing should not reset or extend the 30-minute payment deadline. The buyer must still submit proof of payment within the required window.
+
+Once payment evidence is submitted on time, the transaction may remain pending while KYC is completed.
+
+Do not transfer ownership until KYC has been approved.
+
+## 13. Ownership Transfer
+
+Once the following requirements are satisfied:
+
+- Both parties have agreed to the purchase.
+- Proof of payment was submitted before the deadline.
+- The full payment, including the 2% fee, has been independently verified.
+- The buyer has successfully completed KYC.
+- The agreed land quantity remains reserved.
+- The administrator has approved the transfer.
+
+Automatically:
+
+1. Deduct the sold land quantity from Seller A's portfolio.
+2. Credit the exact quantity to Buyer B's portfolio.
+3. Update the underlying ownership records.
+4. Record the transaction value and Brikvest's 2% fee separately.
+5. Record the total payment received.
+6. Update both users' transaction histories.
+7. Mark the transaction as "Completed".
+8. Notify both parties.
+
+If the seller transfers their entire holding, remove that holding from their active portfolio but preserve its historical record.
+
+If the seller transfers only part of their holding, retain the remaining balance.
+
+The transfer must be atomic and idempotent to prevent duplicate ownership credits or deductions.
+
+## 14. Transaction Tracking
+
+Both buyers and sellers should have access to transaction tracking within their portfolios.
+
+Include the following statuses:
+
+- Offer Submitted
+- Awaiting Seller Response
+- Counteroffer Received
+- Offer Accepted
+- Payment Pending
+- Payment Under Review
+- Payment Verified
+- KYC Verification Required
+- Transfer Pending
+- Completed
+- Declined
+- Expired – Payment Deadline Missed
+- Payment Rejected
+- Cancelled
+
+Each transaction must display the relevant land, quantity, final agreed price, transaction fee, total payable, date, and reference number.
+
+Preserve a permanent audit trail of offers, counteroffers, payment verification, administrative actions, and ownership changes.
+
+## 15. Privacy and Security
+
+Maintain anonymity between buyers and sellers, particularly within the Unlisted Land section.
+
+Never disclose another user's:
+
+- Full name.
+- Email address.
+- Phone number.
+- KYC documentation.
+- Bank information.
+- Private account identifiers.
+
+Only authorised Brikvest administrators should access sensitive transaction information.
+
+All offer-related actions must require authentication and appropriate authorisation.
+
+Protect offer links, payment receipts, ownership data, and transaction history from unauthorised access.
+
+Ensure users cannot manipulate offer quantities, fee calculations, payment statuses, or ownership balances through frontend requests.
+
+## 16. User Experience and Navigation
+
+Maintain the existing P2P Marketplace tab.
+
+Within the marketplace, display two clear purchasing categories:
+
+**Listed Land | Unlisted Land**
+
+For Unlisted Land, the intended transaction journey is:
+
+P2P Marketplace → Unlisted Land → Select Land → View Anonymous Owners → Select Owner → Make Offer → Seller Accepts / Counters / Declines → Offer Agreed → Land Reserved → 30-Minute Payment Window → Buyer Pays Purchase Price + 2% Fee → Upload Payment Receipt → Admin Payment Verification → Buyer KYC Check → Admin Approval → Ownership Transfer Completed.
+
+If the payment deadline is missed:
+
+Transaction Expires → Land Reservation Released → Buyer Must Submit a New Offer.
+
+The interface should remain intuitive, responsive, and consistent with Brikvest's existing design.
+
+## 17. Technical Implementation and Testing
+
+Before implementation, inspect the existing Brikvest codebase, database relationships, portfolio functionality, authentication, notification service, payment infrastructure, KYC workflow, and administrative dashboard.
+
+Reuse existing components wherever possible.
+
+Do not rebuild the application or remove existing functionality.
+
+Implement and test:
+
+- Separation of Listed Land and Unlisted Land within the existing marketplace.
+- Unsolicited offers to existing landowners without requiring listings.
+- Anonymous ownership displays.
+- Offer submission and counteroffer negotiations.
+- Automatic calculation of the additional 2% transaction fee.
+- Fee recalculation following counteroffers.
+- Automatic land reservation.
+- Prevention of double-selling.
+- Server-enforced 30-minute payment deadlines.
+- Automatic transaction expiry.
+- Mandatory new offers following expiry.
+- Receipt submission and secure storage.
+- Admin payment verification.
+- Buyer KYC enforcement.
+- Accurate portfolio ownership transfers.
+- Transaction history and audit logs.
+- Late-payment reconciliation.
+- Email and in-app notifications.
+
+Do not implement placeholder buttons, fabricated payment confirmations, or simulated ownership transfers.
+
+The completed update should provide a fully operational secondary land marketplace within Brikvest's existing P2P Marketplace, allowing users to acquire both actively listed and unlisted land holdings through secure, transparent, and administratively verified transactions.

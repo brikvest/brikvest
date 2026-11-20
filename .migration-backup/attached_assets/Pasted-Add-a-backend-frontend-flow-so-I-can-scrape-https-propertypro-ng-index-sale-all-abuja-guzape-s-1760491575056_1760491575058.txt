@@ -1,0 +1,158 @@
+Add a backend + frontend flow so I can scrape https://propertypro.ng/index/sale/all/abuja/guzape
+, save the raw HTML to public/guzape.html, and display that HTML by default in a React route. Include a Refresh button that re-scrapes and reloads the HTML.
+
+Stack
+
+Backend: TypeScript, Express, Cheerio/got (no headless browser).
+
+Frontend: React (Vite), TypeScript, Wouter, Tailwind.
+
+Create these files/changes:
+
+Scraper module: src/server/scrape/guzapeHtml.ts
+
+import got from 'got';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+const SRC = 'https://propertypro.ng/index/sale/all/abuja/guzape';
+const UA  = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36';
+
+export async function fetchGuzapeRawHtml(): Promise<string> {
+  await new Promise(r => setTimeout(r, 800 + Math.random()*400)); // small politeness delay
+  return got(SRC, {
+    headers: { 'user-agent': UA, 'accept': 'text/html,*/*' },
+    timeout: { request: 15000 },
+    retry: { limit: 1 }
+  }).text();
+}
+
+export async function persistGuzapeHtml(html: string) {
+  const outPath = path.resolve(process.cwd(), 'public', 'guzape.html');
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await fs.writeFile(outPath, html, 'utf-8');
+  return outPath;
+}
+
+
+Express route: src/server/routes/scrape.ts
+(If this router already exists, just add the endpoint and export.)
+
+import { Router } from 'express';
+import { fetchGuzapeRawHtml, persistGuzapeHtml } from '../scrape/guzapeHtml';
+
+export const scrapeRouter = Router();
+
+// GET /api/scrape/guzape-html?persist=1
+scrapeRouter.get('/guzape-html', async (req, res) => {
+  try {
+    const persist = req.query.persist === '1';
+    const html = await fetchGuzapeRawHtml();
+    if (persist) await persistGuzapeHtml(html);
+    res.type('text/html').status(200).send(html);
+  } catch (err: any) {
+    res.status(503).json({ error: err?.message || 'scrape failed', hint: 'network/selectors/robots' });
+  }
+});
+
+
+Wire the router in your Express app (e.g., src/server/index.ts):
+
+import { scrapeRouter } from './routes/scrape';
+app.use('/api/scrape', scrapeRouter);
+
+
+One-off script to build the file during dev/CI: scripts/scrape-guzape-html.ts
+
+import { fetchGuzapeRawHtml, persistGuzapeHtml } from '../src/server/scrape/guzapeHtml';
+(async () => {
+  const html = await fetchGuzapeRawHtml();
+  const out = await persistGuzapeHtml(html);
+  console.log('Wrote:', out);
+})().catch(err => { console.error(err); process.exit(1); });
+
+
+NPM scripts in package.json:
+
+{
+  "scripts": {
+    "scrape:guzape:html": "ts-node scripts/scrape-guzape-html.ts"
+  }
+}
+
+
+(If not using ts-node, compile or switch to plain JS.)
+
+Frontend page to display the HTML by default via iframe (prevents CSS conflicts):
+src/pages/GuzapeHtmlPage.tsx
+
+import { useEffect, useState, useRef } from 'react';
+
+export default function GuzapeHtmlPage() {
+  const [src, setSrc] = useState('/guzape.html'); // served from /public by default
+  const [loading, setLoading] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const refresh = async () => {
+    try {
+      setLoading(true);
+      // re-scrape + persist server-side, then cache-bust iframe
+      await fetch('/api/scrape/guzape-html?persist=1', { method: 'GET' });
+      const bust = `/guzape.html?ts=${Date.now()}`;
+      setSrc(bust);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // ensure it fills viewport height nicely
+    if (iframeRef.current) {
+      iframeRef.current.style.height = 'calc(100vh - 5rem)'; // adjust if you have a header
+      iframeRef.current.style.width = '100%';
+      iframeRef.current.style.border = '1px solid #e5e7eb';
+      iframeRef.current.style.borderRadius = '0.75rem';
+      iframeRef.current.style.background = 'white';
+    }
+  }, []);
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Guzape (Raw HTML)</h1>
+        <button
+          onClick={refresh}
+          disabled={loading}
+          className="px-4 py-2 rounded-lg bg-black text-white disabled:opacity-50"
+        >
+          {loading ? 'Refreshing…' : 'Refresh from Source'}
+        </button>
+      </div>
+      <iframe ref={iframeRef} title="Guzape HTML" src={src} />
+    </div>
+  );
+}
+
+
+Wouter route (where you define routes):
+
+import GuzapeHtmlPage from './pages/GuzapeHtmlPage';
+// ...
+<Route path="/guzape" component={GuzapeHtmlPage} />
+
+
+Usage
+
+Run once to create the file: npm run scrape:guzape:html (writes public/guzape.html)
+
+Start dev: npm run dev and open /guzape
+
+Click Refresh from Source anytime to re-scrape + reload the HTML.
+
+Notes
+
+Using an iframe avoids your Tailwind/shadcn styles bleeding into the scraped content.
+
+If you prefer inline render, fetch /guzape.html and use dangerouslySetInnerHTML, but be aware of style collisions.
+
+Keep this single-page only (no pagination). You can add a paginated variant later if needed.

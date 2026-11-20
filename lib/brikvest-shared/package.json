@@ -1,0 +1,12 @@
+{
+  "name": "@workspace/brikvest-shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": { "./*": "./src/*.ts" },
+  "dependencies": {
+    "drizzle-orm": "^0.39.1",
+    "drizzle-zod": "^0.7.0",
+    "zod": "^3.24.2"
+  }
+}

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Brikvest"
+description = "Brikvest’s existing real-estate investment platform for investors, developers, contractors and administrators, preserved in the multi-app workspace."
+version = "1.0.0"
+id = "artifacts/brikvest"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25207
+
+[services.development]
+run = "pnpm --filter @workspace/brikvest run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/brikvest", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/brikvest/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25207"
+BASE_PATH = "/"

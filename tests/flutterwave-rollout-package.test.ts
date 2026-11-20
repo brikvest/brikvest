@@ -19,7 +19,10 @@ describe("Disabled Flutterwave main-project handoff", () => {
     const config = await fs.readFile(".replit", "utf8");
     const postMerge = await fs.readFile("scripts/post-merge.sh", "utf8");
     expect(config).toMatch(/SKIP_POST_MERGE_DATABASE_MUTATIONS\s*=\s*"true"/);
-    expect(postMerge.indexOf("exit 0")).toBeLessThan(postMerge.indexOf("npx tsx"));
+    expect(postMerge).toContain("exit 0");
+    // The workspace port made merge setup install-only, removing all automatic
+    // rollout commands rather than relying solely on their position after a flag.
+    expect(postMerge).not.toMatch(/^\s*(?:npx tsx|psql|pnpm.*(?:db:push|db push))/m);
     expect(postMerge).not.toContain("ensure-flutterwave");
     const app = await fs.readFile("server/index.ts", "utf8");
     expect(app).not.toContain("ensure-flutterwave");
