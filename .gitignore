@@ -57,6 +57,7 @@ Thumbs.db
 /test-results/
 /playwright-report/
 /cookies*.txt
+/.migration-backup/cookies*.txt
 .env
 .env.*
 /.migration-backup/.scaffold-applied
