@@ -120,7 +120,7 @@ bounded verification; queued work stays stored when the provider is unavailable.
 | --- | --- |
 | Payment started | A server reference exists. Do not start another payment for it. |
 | Verification pending | Provider creation or outcome is uncertain. Recheck; never assume failure means safe repayment. |
-| Payment failed/cancelled | Only a verified provider response can set this. The existing hosted session must expire before a replacement is allowed. |
+| Payment failed/cancelled | Only a verified provider response can set this. Recheck and disable the terminal test link. Evidence is retained against late settlement; no replacement is allowed on the same reservation. |
 | Payment received — awaiting admin approval | Exact amount/currency was server-verified. It is **not ownership**. This sandbox has no approval action. |
 | Reconciliation | Mismatched/late/competing evidence needs investigation; no allocation or refund. Do not pay again. |
 
@@ -133,8 +133,46 @@ rules. The database prohibits approval, sold units and real customer identities.
 The **Reset** button requires typing `RESET SYNTHETIC RECORDS`.
 It removes only this browser session's synthetic reservations and related
 evidence, then makes one fresh fixed reservation. It never affects another
-session or any real database. Reset refuses unexpired hosted links, unresolved
-verification and reconciliation. Reset is not a refund or provider cancellation.
+session or any real database. Reset is now limited to sessions with **no checkout
+attempts**. All attempted-payment evidence is retained, including failed/cancelled
+transactions and disabled links: the current provider APIs do not guarantee that
+an earlier in-flight submission cannot settle later. Neither link closure nor
+an elapsed deadline establishes that finality. Reset is not a refund or provider
+cancellation.
+
+### Recover an abandoned hosted test checkout
+
+1. Return in the same browser/profile. The recovery panel shows the retained
+   reference, whether a link was saved, recorded charge count and verified
+   receipt status. Zero local charge records does not prove no provider charge.
+2. Use **Recheck receipt**. Only authenticated server-to-provider verification
+   changes payment evidence. Missing dashboard entries, not-found responses,
+   network errors, browser cancellation and elapsed local deadlines do **not**
+   prove failure or authorize repayment/reset. Refresh only reloads local state.
+3. If unresolved, retain the reference and ask Flutterwave test support to trace
+   it. Same-link resume is intentionally unavailable: the v3 transaction APIs
+   used here provide no explicit safe-to-resume guarantee for an abandoned
+   hosted link. A saved URL or pending transaction is insufficient eligibility.
+   The earlier reference beginning `brk_4d04bc40` therefore remains protected;
+   this feature does not rewrite, delete, reopen or charge it.
+4. Only matching provider-verified failed/cancelled evidence makes **Disable
+   terminal test link** available. That action rechecks with the provider again,
+   locks the reservation/attempt, then requests disable of the exact stored URL.
+   Only an explicit success with `data: true` or the provider's exact authenticated
+   “This payment link is currently inactive” response records closure. Not-found,
+   truthy objects and timeouts do not. Closure retains all payment/audit evidence.
+5. Even after confirmed closure and the original deadline, Reset remains blocked
+   for attempted payments. A failed transaction can later become successful;
+   disabling the link does not establish that earlier submissions are settled.
+   Terminal reset would require a separately established provider-backed
+   finality guarantee, which is not available in this adapter. Rechecks and
+   authenticated webhook verification continue to retain late payment evidence.
+   There is no approval/refund/reconciliation bypass.
+
+No second checkout is created on an existing reservation, including terminal
+ones. **New synthetic reservation** is for an independent test, not recovery or
+repayment of the earlier reservation. Do not clear browser storage or delete
+the database directory to bypass an unresolved record.
 
 Embedded data persists across workflow restarts under
 `generated-artifacts/brikvest-test-checkout/database/`. This path is fixed at
@@ -142,15 +180,12 @@ build time and is excluded from Git/deployment. Startup validates the disk
 marker, database purpose and synthetic records and rejects symlink paths or
 unknown stores; it never accepts a database URL.
 
-Do not delete the store just to clear an unresolved checkout. For an exceptional
-full disposable-store reset, first have the operator resolve/disable **all**
-test checkout links in the separate provider test configuration and retain
-whatever test evidence they need. Stop the sandbox workflow, verify the
-`sandbox-identity.json` marker identifies `brikvest-synthetic-checkout-v1`,
-then remove **only that exact sandbox database directory** and restart the
-sandbox workflow. This loses all test sessions, and is intentionally not an
-HTTP operation. Never substitute a connection string, a main data directory,
-a production database, or a generic database reset/migration command.
+Do not delete the store to clear checkout evidence. Exceptional full-store
+retirement requires separate operator authorization, retained evidence for
+all sessions, and a provider-backed finality guarantee covering prior submissions,
+not merely disabled links. No automated or manual deletion procedure is
+authorized by this recovery feature. Never substitute a connection string,
+a main data directory, a production database, or a generic reset/migration.
 
 ## Isolation design
 
@@ -181,6 +216,19 @@ a production database, or a generic database reset/migration command.
   neither the sandbox nor its database ships with the real site.
 
 ## Verification record
+
+Recovery changes verified on 2026-11-21:
+- 39 isolation/lifecycle tests passed with provider responses mocked and real
+  outbound network calls refused, including old saved-link/not-found recovery,
+  strict closure acknowledgements, late settlement, retained terminal evidence,
+  equivalent numeric/string monetary formats, mismatched amount refusal,
+  session boundaries and setup fences.
+- Sandbox TypeScript check and whitespace checks passed. The sandbox workflow
+  restarted cleanly and the preview rendered without browser errors.
+- No genuine provider collection or link-disable request was made for these
+  recovery changes. This task copy's preview reports a return-origin mismatch,
+  so genuine provider actions remain blocked; no settings were changed to bypass
+  that fence. Historical payment evidence below is not a new recovery test.
 
 Run from the workspace root:
 

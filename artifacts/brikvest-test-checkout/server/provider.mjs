@@ -98,6 +98,13 @@ export async function providerRequest(route, body) {
   }
   if (route === "payments/link/disable" && response.status === 400 &&
       payload.status === "error" && payload.message === "This payment link is currently inactive") return true;
+  // Only an explicit authenticated disable acknowledgement counts as closure.
+  // Missing/not-found, arbitrary truthy data and transport errors never do.
+  if (route === "payments/link/disable") {
+    if (response.ok && payload.status === "success" && payload.data === true) return true;
+    diagnostic("link_closure_uncertain", response.status);
+    throw new GatewayError("Provider link closure is uncertain. Keep the evidence; do not pay again.", 503);
+  }
   if (!response.ok || payload.status !== "success" || !payload.data) {
     // Static categories only. Never log the raw response, which might echo
     // customer data or authentication material supplied by an upstream service.

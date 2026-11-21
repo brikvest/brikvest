@@ -34,6 +34,14 @@ function mockProvider(data) {
   };
 }
 const post = (route, body = {}, session = token) => request(app).post(`${api}${route}`).set("Origin", origin).set("Authorization", `Bearer ${session}`).send(body);
+const state = async () => (await request(app).get(`${api}/state`).set("Authorization", `Bearer ${token}`)).body;
+const link = "https://checkout.flutterwave.com/v3/hosted/pay/offline";
+async function terminalAttempt(status = "failed") {
+  await seedAttempt();
+  await pg.query("UPDATE flutterwave_attempts SET checkout_url=$1,checkout_expires_at=now()-interval '1 minute'", [link]);
+  mockProvider(fixture({ status }));
+  await runtime.verifyTransaction("101", ref);
+}
 async function scalar(sql, params = []) { return (await pg.query(sql, params)).rows[0]; }
 async function seedAttempt() {
   await pg.query(`INSERT INTO flutterwave_attempts(reservation_id,user_id,tx_ref,expected_amount,expected_currency,mode,checkout_expires_at)
@@ -388,5 +396,141 @@ describe("Existing lifecycle verification, replay and uncertainty", () => {
     const otherState = (await request(app).get(`${api}/state`).set("Authorization", `Bearer ${other}`)).body;
     assert.equal(ownState.reservations.length, 1); assert.equal(otherState.reservations.length, 1);
     assert.notEqual(ownState.reservations[0].id, otherState.reservations[0].id);
+  });
+});
+
+describe("Guided abandoned-checkout recovery", () => {
+  it("preserves an old saved link with no transaction, receipt or charge despite repeated not-found responses", async () => {
+    await seedAttempt();
+    await pg.query("UPDATE flutterwave_attempts SET state='verification_pending',checkout_url=$1,checkout_expires_at=now()-interval '1 day'", [link]);
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options });
+      return { ok: false, status: 404, json: async () => ({ status: "error", message: "Transaction not found" }) };
+    };
+    for (let i = 0; i < 2; i++) assert.equal((await post("/attempts/1/recheck")).status, 503);
+    assert.equal((await post("/attempts/1/close")).status, 503);
+    assert.equal((await post(`/reservations/${id}/checkout`)).status, 409);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+    const a = await scalar("SELECT * FROM flutterwave_attempts");
+    assert.equal(a.checkout_url, link);
+    assert.equal(a.tx_ref, ref);
+    assert.equal(a.state, "verification_pending");
+    assert.equal(a.provider_transaction_id, null);
+    assert.equal(a.verified_at, null);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 0);
+    const safe = (await state()).reservations[0].attempts[0];
+    assert.equal(safe.recovery.hasSavedLink, true);
+    assert.equal(safe.recovery.chargeCount, 0);
+    assert.equal(safe.recovery.canClose, false);
+    assert.equal(safe.recovery.resetEligible, false);
+    assert.equal(safe.recovery.resumeAllowed, false);
+    assert.match(safe.recovery.explanation, /not-found/);
+    assert.equal(safe.checkoutUrl, undefined);
+    assert.ok(calls.every(c => c.options.method === "GET"));
+  });
+  for (const status of ["failed", "cancelled"]) it(`allows provider closure but retains verified ${status} evidence against late settlement`, async () => {
+    await terminalAttempt(status);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+    assert.equal((await post(`/reservations/${id}/checkout`)).status, 409);
+    assert.equal((await state()).reservations[0].attempts[0].recovery.canClose, true);
+    mockProvider(url => url.endsWith("/payments/link/disable") ? true : fixture({ status }));
+    assert.equal((await post("/attempts/1/close")).status, 200);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 1);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit WHERE event='sandbox_terminal_link_closed'")).n, 1);
+    assert.equal((await state()).reservations[0].attempts[0].recovery.resetEligible, false);
+    assert.equal((await post(`/reservations/${id}/checkout`)).status, 409);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_attempts")).n, 1);
+    assert.equal((await state()).reservations.length, 1);
+  });
+  it("does not trust an elapsed timer or a locally assigned terminal state without charge evidence", async () => {
+    await seedAttempt();
+    await pg.query("UPDATE flutterwave_attempts SET state='failed',checkout_url=$1,checkout_expires_at=now()-interval '1 day'", [link]);
+    assert.equal((await state()).reservations[0].attempts[0].recovery.canClose, false);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+    assert.equal((await post(`/reservations/${id}/checkout`)).status, 409);
+    assert.equal(calls.length, 0);
+  });
+  for (const amount of [1200.1, "1200.1", "1200.11", 1200.11]) it(`uses exact monetary equality for terminal recovery amount ${JSON.stringify(amount)}`, async () => {
+    await terminalAttempt();
+    const eligible = Number(amount) === 1200.1;
+    mockProvider(fixture({ status: "failed", amount }));
+    await runtime.verifyTransaction("101", ref);
+    assert.equal((await state()).reservations[0].attempts[0].recovery.canClose, eligible);
+    mockProvider(url => url.endsWith("/payments/link/disable") ? true : fixture({ status: "failed", amount }));
+    assert.equal((await post("/attempts/1/close")).status, eligible ? 200 : 409);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_checkout_closures")).n, eligible ? 1 : 0);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+  });
+  for (const data of [{ closed: true }, "true", null]) it(`does not record closure for non-explicit acknowledgement ${JSON.stringify(data)}`, async () => {
+    await terminalAttempt();
+    mockProvider(url => url.endsWith("/payments/link/disable") ? data : fixture({ status: "failed" }));
+    assert.equal((await post("/attempts/1/close")).status, 503);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_checkout_closures")).n, 0);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+  });
+  it("accepts only the exact authenticated already-inactive provider error as closure", async () => {
+    await terminalAttempt();
+    const inactive = "This payment link is currently inactive";
+    for (const message of ["Payment link not found", inactive]) {
+      globalThis.fetch = async url => url.endsWith("/payments/link/disable")
+        ? { ok: false, status: 400, json: async () => ({ status: "error", message }) }
+        : { ok: true, status: 200, json: async () => ({ status: "success", data: fixture({ status: "failed" }) }) };
+      assert.equal((await post("/attempts/1/close")).status, message === inactive ? 200 : 503);
+    }
+  });
+  it("keeps terminal evidence locked until the original deadline even after closure", async () => {
+    await terminalAttempt();
+    await pg.query("UPDATE flutterwave_attempts SET checkout_expires_at=now()+interval '10 minutes'");
+    mockProvider(url => url.endsWith("/payments/link/disable") ? true : fixture({ status: "failed" }));
+    assert.equal((await post("/attempts/1/close")).status, 200);
+    assert.equal((await state()).reservations[0].attempts[0].recovery.resetEligible, false);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+  });
+  it("rechecks before closure and preserves a late successful receipt instead of disabling or resetting", async () => {
+    await terminalAttempt();
+    mockProvider(fixture({}));
+    assert.equal((await post("/attempts/1/close")).status, 409);
+    assert.equal((await scalar("SELECT state FROM flutterwave_attempts")).state, "awaiting_admin");
+    assert.ok(calls.every(c => !c.url.endsWith("/payments/link/disable")));
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+  });
+  it("does not reuse old terminal evidence when the fresh transaction verification times out", async () => {
+    await terminalAttempt(); calls = [];
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, options });
+      if (url.includes("verify_by_reference")) return {
+        ok: true, status: 200, json: async () => ({ status: "success", data: fixture({ status: "failed" }) }),
+      };
+      throw new Error("Offline timeout");
+    };
+    assert.equal((await post("/attempts/1/close")).status, 503);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_checkout_closures")).n, 0);
+    assert.ok(calls.every(c => c.options.method === "GET"));
+  });
+  it("rejects a reference lookup that identifies a different checkout", async () => {
+    await terminalAttempt(); calls = [];
+    mockProvider(fixture({ tx_ref: "brk_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", status: "failed" }));
+    assert.equal((await post("/attempts/1/close")).status, 503);
+    assert.equal(calls.length, 1);
+  });
+  it("blocks reset if a success arrives after terminal closure", async () => {
+    await terminalAttempt();
+    mockProvider(url => url.endsWith("/payments/link/disable") ? true : fixture({ status: "failed" }));
+    assert.equal((await post("/attempts/1/close")).status, 200);
+    mockProvider(fixture({}));
+    await runtime.verifyTransaction("101", ref);
+    assert.equal((await post("/reset", { confirmation: "RESET SYNTHETIC RECORDS" })).status, 409);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 1);
+  });
+  it("rejects closure from other sessions, forged input and cross-origin callers before provider access", async () => {
+    await terminalAttempt(); calls = [];
+    const other = (await request(app).post(`${api}/session`).set("Origin", origin).send({})).body.token;
+    assert.equal((await post("/attempts/1/close", {}, other)).status, 404);
+    assert.equal((await post("/attempts/1/close", { link, status: "failed" })).status, 400);
+    assert.equal((await request(app).post(`${api}/attempts/1/close`).set("Origin", "https://evil.test").set("Authorization", `Bearer ${token}`).send({})).status, 403);
+    delete process.env.BRIKVEST_TEST_FLW_SECRET_KEY;
+    assert.equal((await post("/attempts/1/close")).status, 503);
+    assert.equal(calls.length, 0);
   });
 });

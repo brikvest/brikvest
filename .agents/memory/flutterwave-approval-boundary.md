@@ -17,6 +17,16 @@ Collected unresolved payments must not invite repayment, including after rejecti
 Apply the same financial-resolution boundary to explicit cancellation, not only
 ordinary expiry. A superseded external checkout remains a collection risk until
 the provider confirms it disabled; an internal status change alone is insufficient.
+Provider-confirmed link disable is not, by itself, transaction finality: earlier
+submissions can still settle. Do not erase attempted-payment evidence or enable
+same-link resume without a provider-backed guarantee covering those submissions.
+
+**Why:** Transaction verification describes known transactions; it does not
+establish that a hosted link has no other in-flight collections. The sandbox's
+guided recovery must not turn missing evidence into permission to pay or delete.
+
+**How to apply:** Retain unresolved and terminal checkout evidence unless a
+separately established provider finality contract explicitly permits retirement.
 An unresolved hosted checkout also blocks switching to bank transfer/proof;
 warnings alone do not prevent double payment while an external page can collect.
 Live collection, real test charges, schema rollout, publishing and investor mail

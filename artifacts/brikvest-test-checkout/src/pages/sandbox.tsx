@@ -9,7 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   type Attempt, type SandboxState, getSandboxState, handleProviderReturn, newReservation,
-  recheckAttempt, resetRecords, startCheckout,
+  recheckAttempt, resetRecords, startCheckout, closeTerminalLink,
 } from "@/sandbox-api";
 
 const KEY = ["sandbox-state"] as const;
@@ -35,10 +35,6 @@ function primaryAttempt(a: Attempt[]) {
     || a.find(x => COLLECTED.includes(x.state))
     || a.find(x => OPEN.includes(x.state))
     || a[0];
-}
-function blocksPayment(a: Attempt[]) {
-  return a.some(x => !!x.verifiedAt || OPEN.includes(x.state) || COLLECTED.includes(x.state)
-    || (!!x.checkoutExpiresAt && Date.parse(x.checkoutExpiresAt) > Date.now()));
 }
 const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleString() : "—");
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Request failed. Retry; do not pay again.");
@@ -110,8 +106,7 @@ function ReservationCard({ r, available, onChanged }: { r: SandboxState["reserva
   const [error, setError] = useState("");
   const primary = primaryAttempt(r.attempts);
   const current = primary && !["failed", "cancelled"].includes(primary.state) ? primary : undefined;
-  const coolingDown = !!primary && ["failed", "cancelled"].includes(primary.state) && !!primary.checkoutExpiresAt && Date.parse(primary.checkoutExpiresAt) > Date.now();
-  const canStart = available && !current && !blocksPayment(r.attempts);
+  const canStart = available && r.attempts.length === 0;
   const checkout = useMutation({
     mutationFn: () => startCheckout(r.id),
     onSuccess: ({ checkoutUrl }) => {
@@ -132,6 +127,11 @@ function ReservationCard({ r, available, onChanged }: { r: SandboxState["reserva
   });
   const recheck = useMutation({
     mutationFn: (id: number) => recheckAttempt(id),
+    onError: e => setError(errMsg(e)),
+    onSettled: onChanged,
+  });
+  const close = useMutation({
+    mutationFn: (id: number) => closeTerminalLink(id),
     onError: e => setError(errMsg(e)),
     onSettled: onChanged,
   });
@@ -163,20 +163,40 @@ function ReservationCard({ r, available, onChanged }: { r: SandboxState["reserva
             {OPEN.includes(current.state) && <p className="mt-1">A checkout link alone is not a payment. Recheck receipt only checks status; it does not submit a payment. If you already paid on Flutterwave, do not pay again. No additional checkout can start while verification is unresolved.</p>}
             {current.reason && <p className="mt-1 text-xs">{current.reason}</p>}
             <p className="mt-1 break-all font-mono text-[11px] opacity-80" data-testid={`text-txref-${current.id}`}>{current.txRef}</p>
-            <Button size="sm" variant="outline" className="mt-3 bg-white" data-testid={`button-recheck-${current.id}`} disabled={recheck.isPending}
-              onClick={() => { setError(""); recheck.mutate(current.id); }}>
-              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${recheck.isPending ? "animate-spin" : ""}`} />Recheck receipt
-            </Button>
-            {recheck.isSuccess && <p className="mt-2 text-xs">{recheck.data.message}</p>}
           </div>
         )}
 
         {!current && primary && ["failed", "cancelled"].includes(primary.state) && (
           <div className="rounded-md border border-slate-200 p-3 text-sm text-slate-700">
-            <strong>{label(primary.state)}.</strong> The provider reports the previous payment did not complete.
-            {coolingDown ? ` Wait until ${fmtDate(primary.checkoutExpiresAt)} for the hosted session to expire before retrying; do not pay twice.` : " You may start a new test checkout."}
+            <strong>{label(primary.state)}.</strong> A failed/cancelled transaction alone does not establish that its hosted link cannot collect. No replacement checkout is allowed for this reservation.
             {primary.reason && <p className="mt-1 text-xs">{primary.reason}</p>}
           </div>
+        )}
+
+        {primary && (
+          <section aria-label="Sandbox checkout recovery" className="space-y-2 rounded-md border bg-muted p-3 text-sm" data-testid={`recovery-${primary.id}`}>
+            <h3 className="font-semibold">Recover this test checkout safely</h3>
+            <p>{primary.recovery.explanation}</p>
+            <dl className="text-xs text-muted-foreground">
+              <div>Saved hosted link: {primary.recovery.hasSavedLink ? "retained, not reopened" : "none recorded"}</div>
+              <div>Provider charge records: {primary.recovery.chargeCount} · Verified receipt: {primary.verifiedAt ? "recorded" : "none recorded"}</div>
+              <div>Original checkout deadline: {fmtDate(primary.checkoutExpiresAt)} — not proof of failure.</div>
+              <div className="break-all font-mono">Reference: {primary.txRef}</div>
+            </dl>
+            <p className="text-xs">{primary.recovery.resumeExplanation}</p>
+            <Button size="sm" variant="outline" data-testid={`button-recheck-${primary.id}`} disabled={recheck.isPending || close.isPending}
+              onClick={() => { setError(""); recheck.mutate(primary.id); }}>
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${recheck.isPending ? "animate-spin" : ""}`} />Recheck receipt
+            </Button>
+            {primary.recovery.canClose && <Button size="sm" variant="outline" className="ml-2" data-testid={`button-close-${primary.id}`}
+              disabled={close.isPending || recheck.isPending}
+              onClick={() => { setError(""); close.mutate(primary.id); }}>
+              {close.isPending ? "Confirming closure…" : "Disable terminal test link"}
+            </Button>}
+            {recheck.isSuccess && <p role="status" className="text-xs">{recheck.data.message}</p>}
+            {close.isSuccess && <p role="status" className="text-xs">{close.data.message}</p>}
+            <p className="text-xs">If still unresolved, retain this reference and ask Flutterwave test support to trace it. Do not clear browser storage, reset the store, or pay again to clear this reservation. A new synthetic reservation is a separate test, not recovery of this one.</p>
+          </section>
         )}
 
         {error && <p role="alert" className="text-sm text-red-700" data-testid={`text-error-${r.id}`}>{error}</p>}
@@ -214,7 +234,8 @@ function Help({ state }: { state?: SandboxState }) {
         <li>With owner approval only, point the Flutterwave <strong>test</strong> webhook to this preview origin plus <span className="font-mono text-xs">/brikvest-test-checkout/api/webhook</span>. A private preview may block provider delivery; no access controls have been changed.</li>
         <li>Reload this page. When no blockers remain, create a synthetic reservation and continue to Flutterwave. Select Card and use only Flutterwave's documented test-card details, then complete its PIN and OTP prompts. Never enter API keys or real card details on the hosted page, and never enter any card details in Brikvest.</li>
         <li>After returning in the same browser, the server rechecks the provider. Use Recheck receipt if the state is still pending. Only use instruments from <a href="https://developer.flutterwave.com/docs/testing" target="_blank" rel="noreferrer" className="underline">Flutterwave's official test documentation</a> on Flutterwave's hosted page — never a real card.</li>
-        <li>Reset only works once no hosted session is unresolved or unexpired. It removes this browser session's synthetic records only.</li>
+        <li>Abandoned checkout? Read its recovery panel and recheck the receipt. No missing dashboard entry or not-found response proves failure. Saved links are retained but cannot be resumed without provider-backed safety evidence.</li>
+        <li>For a provider-verified failed/cancelled transaction, use Disable terminal test link. Closure does not prove an earlier submission cannot settle. All checkout evidence stays protected; Reset only removes reservations that have never started checkout.</li>
       </ol>
       {state && (
         <dl className="mt-4 grid gap-2 rounded-md bg-muted p-3 text-xs sm:grid-cols-3">
@@ -260,6 +281,7 @@ export default function SandboxPage() {
 
   const d = q.data;
   const pendingCount = d?.reservations.filter(r => r.attempts.some(a => OPEN.includes(a.state))).length ?? 0;
+  const resetEligible = !!d?.reservations.length && d.reservations.every(r => r.attempts.every(a => a.recovery.resetEligible));
 
   return (
     <div className="min-h-[100dvh] bg-muted">
@@ -336,11 +358,12 @@ export default function SandboxPage() {
                   <Button size="sm" data-testid="button-new-reservation" disabled={create.isPending} onClick={() => { setActionMsg(null); create.mutate(); }}>
                     <Plus className="mr-2 h-3.5 w-3.5" />{create.isPending ? "Creating…" : "New synthetic reservation"}
                   </Button>
-                  <Button size="sm" variant="outline" data-testid="button-open-reset" className="border-red-200 text-red-700 hover:bg-red-50" disabled={!d.reservations.length} onClick={() => setResetOpen(true)}>
+                  <Button size="sm" variant="outline" data-testid="button-open-reset" className="border-red-200 text-red-700 hover:bg-red-50" disabled={!resetEligible} onClick={() => setResetOpen(true)}>
                     <Trash2 className="mr-2 h-3.5 w-3.5" />Reset
                   </Button>
                 </div>
               </div>
+              {!resetEligible && <p className="text-xs text-muted-foreground">Reset is locked because checkout evidence must be retained, even after terminal link closure. Use the recovery panel below.</p>}
 
               {actionMsg && <p role={actionMsg.kind === "err" ? "alert" : "status"} data-testid="text-action-message" className={`text-sm ${actionMsg.kind === "err" ? "text-red-700" : "text-[hsl(158_64%_28%)]"}`}>{actionMsg.text}</p>}
 
@@ -370,7 +393,7 @@ export default function SandboxPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this session's synthetic records?</AlertDialogTitle>
             <AlertDialogDescription>
-              Removes only the disposable reservations and attempts owned by this browser session. It is refused while any hosted checkout is unresolved or unexpired. Type <span className="font-mono font-semibold text-slate-900">{RESET_PHRASE}</span> to confirm.
+              Removes only this session's reservations that have never started checkout. Any checkout attempt blocks this session reset: terminal status, link closure and an elapsed deadline cannot establish that a prior submission will never settle. Payment evidence cannot be deleted. This is not cancellation or a refund. Type <span className="font-mono font-semibold text-slate-900">{RESET_PHRASE}</span> to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Input value={phrase} onChange={e => setPhrase(e.target.value)} placeholder={RESET_PHRASE} className="font-mono" data-testid="input-reset-phrase" autoComplete="off" />

@@ -3,6 +3,10 @@ export type Attempt = {
   id: number; reservationId: number; txRef: string; state: string;
   expectedAmount: string; expectedCurrency: string; verifiedAt?: string | null;
   verifiedAmount?: string | null; reason?: string | null; checkoutExpiresAt?: string;
+  recovery: {
+    hasSavedLink: boolean; chargeCount: number; resumeAllowed: false;
+    canClose: boolean; resetEligible: boolean; explanation: string; resumeExplanation: string;
+  };
 };
 export type SandboxState = {
   synthetic: true;
@@ -45,6 +49,7 @@ export const getSandboxState = () => call<SandboxState>("/state");
 export const newReservation = () => call<{ id: number }>("/reservations", {});
 export const startCheckout = (id: number) => call<{ checkoutUrl: string }>(`/reservations/${id}/checkout`, {});
 export const recheckAttempt = (id: number) => call<{ message: string }>(`/attempts/${id}/recheck`, {});
+export const closeTerminalLink = (id: number) => call<{ message: string }>(`/attempts/${id}/close`, {});
 export const handleProviderReturn = (txRef: string, transactionId?: string) =>
   call<{ message: string }>("/return", { txRef, ...(transactionId ? { transactionId } : {}) });
 export const resetRecords = () => call<{ message: string }>("/reset", { confirmation: "RESET SYNTHETIC RECORDS" });

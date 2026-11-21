@@ -1,6 +1,7 @@
 import express from "express";
 import { createHash, randomBytes } from "node:crypto";
 import { BASE, FIXTURE, setupStatus } from "./config.mjs";
+import { recoveryStatus } from "./recovery.mjs";
 
 const hash = token => createHash("sha256").update(token).digest("hex");
 const emptyBody = body => body && typeof body === "object" && !Array.isArray(body) && Object.keys(body).length === 0;
@@ -112,12 +113,15 @@ export async function createSandboxApp(runtime) {
   app.get(`${api}/state`, wrap(async (req, res) => {
     const reservations = (await pg.query("SELECT * FROM investment_reservations WHERE user_id=$1 ORDER BY id DESC", [req.syntheticUserId])).rows;
     const attempts = (await pg.query("SELECT * FROM flutterwave_attempts WHERE user_id=$1 ORDER BY id DESC", [req.syntheticUserId])).rows;
+    const safeAttempts = await Promise.all(attempts.map(async a => ({
+      ...runtime.safeAttempt(a), recovery: await recoveryStatus(pg, a, runtime.exactAmount),
+    })));
     res.json({
       synthetic: true, setup: setupStatus(),
       property: { name: FIXTURE.name, location: FIXTURE.location, units: FIXTURE.units, area: FIXTURE.area, unitPrice: FIXTURE.amount },
       reservations: reservations.map(r => ({
         id: r.id, amount: r.amount, currency: r.currency, status: r.status, createdAt: r.created_at,
-        attempts: attempts.filter(a => a.reservation_id === r.id).map(runtime.safeAttempt),
+        attempts: safeAttempts.filter(a => a.reservationId === r.id),
       })),
       safety: { database: "Isolated disposable local PGlite only", mail: "Brikvest delivery disabled — no mail transport or SMS. Flutterwave's separate test-email policy is shown above.", ownership: "Disabled — no holdings, legal documents or refunds" },
     });
@@ -131,7 +135,40 @@ export async function createSandboxApp(runtime) {
   }));
   app.post(`${api}/reservations/:id/checkout`, wrap(async (req, res) => {
     if (!validId(req.params.id) || !emptyBody(req.body)) throw new GatewayError("Checkout accepts only a reservation ID, not amounts, currencies, redirects or customer data.", 400);
+    // Never replace an existing sandbox attempt, even after terminal recovery.
+    // The shared lifecycle retains its own lock/unique-index concurrency guards.
+    const existing = (await pg.query("SELECT id FROM flutterwave_attempts WHERE reservation_id=$1 AND user_id=$2 LIMIT 1",
+      [req.params.id, req.syntheticUserId])).rows[0];
+    if (existing) throw new GatewayError("This synthetic reservation already has checkout evidence. Recheck it; no replacement payment is allowed. Use a separate reservation only for an independent test.");
     res.json(await runtime.initiateCheckout(Number(req.params.id), req.syntheticUserId));
+  }));
+  app.post(`${api}/attempts/:id/close`, wrap(async (req, res) => {
+    if (!emptyBody(req.body)) throw new GatewayError("Link closure accepts no provider URL or status.", 400);
+    const a = await ownAttempt(req.params.id, req.syntheticUserId);
+    // Recheck first. An uncertain result must never reach the disable request.
+    const candidate = await runtime.providerRequest(`transactions/verify_by_reference?tx_ref=${encodeURIComponent(a.tx_ref)}`);
+    if (!candidate || candidate.tx_ref !== a.tx_ref || !/^[1-9]\d{0,19}$/.test(String(candidate.id)))
+      throw new GatewayError("Provider transaction identity is uncertain. Evidence retained; do not pay again.", 503);
+    // Unlike queued best-effort rechecks, terminal recovery must propagate any
+    // verification failure rather than rely on an older stored terminal result.
+    if (!await runtime.verifyTransaction(String(candidate.id), a.tx_ref))
+      throw new GatewayError("Provider reference did not match. Evidence retained; do not pay again.", 503);
+    await pg.transaction(async tx => {
+      await tx.query("SELECT id FROM investment_reservations WHERE id=$1 FOR UPDATE", [a.reservation_id]);
+      const current = (await tx.query("SELECT * FROM flutterwave_attempts WHERE id=$1 FOR UPDATE", [a.id])).rows[0];
+      const recovery = await recoveryStatus(tx, current, runtime.exactAmount);
+      if (!recovery.canClose) throw new GatewayError("Provider-backed terminal eligibility is not established, or the link is already closed. Evidence retained; do not pay again.");
+      // Hold the same reservation/attempt locks as receipt verification. A late
+      // success is still accepted afterwards and will block destructive reset.
+      const closed = await runtime.providerRequest("payments/link/disable", { link: runtime.safeCheckoutUrl(current.checkout_url) });
+      if (closed !== true) throw new GatewayError("Provider link closure is uncertain. Evidence retained; do not pay again.", 503);
+      await tx.query(`INSERT INTO flutterwave_checkout_closures(attempt_id,checkout_url,status)
+        VALUES($1,$2,'done') ON CONFLICT(attempt_id) DO UPDATE SET
+        checkout_url=EXCLUDED.checkout_url,status='done',updated_at=now()`, [a.id, current.checkout_url]);
+      await tx.query("INSERT INTO flutterwave_audit(attempt_id,event,reason) VALUES($1,'sandbox_terminal_link_closed',$2)",
+        [a.id, "Provider confirmed hosted link disabled after terminal verification; no replacement checkout authorized."]);
+    });
+    res.json({ message: "Provider confirmed the test link is disabled. Evidence is preserved because prior submissions could still settle. Reset and another payment for this reservation remain blocked." });
   }));
   app.post(`${api}/attempts/:id/recheck`, wrap(async (req, res) => {
     if (!emptyBody(req.body)) throw new GatewayError("Recheck accepts no provider operation or customer input.", 400);
@@ -157,9 +194,11 @@ export async function createSandboxApp(runtime) {
       // Never erase evidence while a hosted link could still collect, or a
       // verification result is uncertain. No main database is involved.
       await tx.query("SELECT id FROM investment_reservations WHERE user_id=$1 FOR UPDATE", [req.syntheticUserId]);
-      const blocked = (await tx.query(`SELECT id FROM flutterwave_attempts WHERE user_id=$1
-        AND (checkout_expires_at>now() OR state IN ('initiated','verification_pending','reconciliation')) LIMIT 1`, [req.syntheticUserId])).rows[0];
-      if (blocked) throw new GatewayError("Reset blocked: hosted checkout is unexpired, uncertain or needs reconciliation. Recheck first; do not erase unresolved evidence.");
+      const attempts = (await tx.query("SELECT * FROM flutterwave_attempts WHERE user_id=$1 ORDER BY id FOR UPDATE", [req.syntheticUserId])).rows;
+      for (const a of attempts) {
+        if (!(await recoveryStatus(tx, a, runtime.exactAmount)).resetEligible)
+          throw new GatewayError("Reset blocked: checkout evidence must be retained. Missing/not-found results, terminal transaction status, link closure and elapsed deadlines do not prove prior submissions cannot settle. Only reservations with no checkout attempts can reset.");
+      }
       await tx.query(`DELETE FROM flutterwave_verification_jobs WHERE tx_ref IN
         (SELECT tx_ref FROM flutterwave_attempts WHERE user_id=$1)`, [req.syntheticUserId]);
       for (const table of ["flutterwave_audit", "flutterwave_charges", "flutterwave_checkout_closures"])

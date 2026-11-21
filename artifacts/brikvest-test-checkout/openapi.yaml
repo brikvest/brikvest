@@ -39,6 +39,16 @@ paths:
         - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
       responses:
         "200": { description: Rechecked; read state for authoritative lifecycle outcome }
+  /attempts/{id}/close:
+    post:
+      operationId: closeTerminalSyntheticLink
+      description: Empty JSON object only. Fresh reference and transaction verification must establish matching terminal evidence before the exact stored provider link is disabled. No replacement checkout is authorized.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Provider confirmed link closure; payment and audit evidence retained }
+        "409": { description: Terminal eligibility absent or closure already recorded }
+        "503": { description: Verification or closure uncertain; evidence retained }
   /return:
     post:
       operationId: verifySyntheticReturn
@@ -57,7 +67,7 @@ paths:
             schema: { $ref: "#/components/schemas/ResetInput" }
       responses:
         "200": { description: Only the requesting session's disposable records were removed }
-        "409": { description: Unresolved or unexpired hosted sessions prevent reset }
+        "409": { description: Checkout attempts exist. Terminal transaction status, link closure and elapsed deadline do not prove absence of later settlement. All checkout evidence is retained; only sessions without attempts may reset. }
   /webhook:
     post:
       operationId: receiveSyntheticWebhook
