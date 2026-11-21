@@ -20,6 +20,7 @@ import { upload, uploadToObjectStorage } from "./cloudinary";
 import { objectStorageClient } from "./objectStorage";
 import { getPaymentInstructions } from "./paymentInstructions";
 import { sendMarketplaceOfferEmail } from "./resaleEmails";
+import { emailDispatchPaused } from "./email-dispatch-state";
 import {
   assertResaleTransferPreconditions,
   calculateResalePaymentTerms,
@@ -1397,6 +1398,10 @@ export function registerMarketplaceOfferRoutes(app: Express, auth: AuthOptions) 
       if (!Number.isSafeInteger(retryId) || retryId <= 0) {
         return res.status(400).json({ message: "Invalid seller alert" });
       }
+      if (emailDispatchPaused()) return res.status(503).json({
+        code: "EMAIL_DISPATCH_PAUSED",
+        message: "Notification delivery is paused. This alert has not been claimed or changed; retry after maintenance.",
+      });
 
       const [existing] = await db.select().from(resaleMarketplaceAlertRetries)
         .where(eq(resaleMarketplaceAlertRetries.id, retryId))
@@ -1832,6 +1837,9 @@ export async function processMarketplaceAlertRetries(
 ) {
   const processed = { completed: 0, retrying: 0, exhausted: 0, lostClaim: 0 };
   for (let index = 0; index < batchSize; index += 1) {
+    // The queue contains both channels: hold all retries rather than claiming
+    // an email just to defer it, modify its lease or consume an attempt.
+    if (emailDispatchPaused()) return { ...processed, paused: true as const };
     const alert = await dependencies.claimNext();
     if (!alert) break;
 

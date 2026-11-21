@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { emailDispatchPaused } from "../email-dispatch-state";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { assertActiveConfirmedHolding } from "./holding-state";
@@ -73,6 +74,12 @@ export async function claimExistingLegalNotification(input: NotificationRecovery
   NotificationRecoveryResult | { state: "claimed"; claim: LegalJobClaim }
 > {
   validateInput(input);
+  if (emailDispatchPaused()) return {
+    state: "maintenance",
+    jobId: input.jobId,
+    cycleId: input.cycleId,
+    message: "Application email is paused. The existing notification and retry allowance are unchanged.",
+  };
   return db.transaction(async tx => {
     const reference = rows(await tx.execute(sql`SELECT reservation_id,user_id,property_id
       FROM legal_document_pairs WHERE id=${input.pairId} AND property_id=${input.propertyId}`))[0];

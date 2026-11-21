@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { emailDispatchPaused } from "./email-dispatch-state";
 
 // Gmail SMTP configuration
 const transporter = nodemailer.createTransport({
@@ -20,7 +21,7 @@ interface EmailParams {
 export async function sendEmail(params: EmailParams): Promise<boolean> {
   // A staged payment release must not activate unrelated application mail.
   // Return an explicit failure, never a fabricated successful delivery.
-  if (process.env.BRIKVEST_EMAIL_DISPATCH_PAUSED === "true") return false;
+  if (emailDispatchPaused()) return false;
   try {
     const mailOptions = {
       from: `"Brikvest" <${process.env.SMTP_USER || 'info@thepartybank.com'}>`,

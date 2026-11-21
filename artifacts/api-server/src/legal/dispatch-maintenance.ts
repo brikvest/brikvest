@@ -1,5 +1,6 @@
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { emailDispatchPaused } from "../email-dispatch-state";
 
 // Session-level shared permits cover the entire dispatch, including external
 // work. A controlled migration takes the exclusive counterpart on its verified
@@ -7,7 +8,8 @@ import ws from "ws";
 export const LEGAL_DISPATCH_LOCK = [1279608641, 1] as const;
 export const LEGAL_DISPATCH_PROTOCOL = "exact-pdf-review-dispatch-maintenance-v1";
 export const LEGAL_DISPATCH_PAUSE_PROTOCOL = "persistent-legal-dispatch-pause-v1";
-export const legalDispatchPaused = () => process.env.LEGAL_DISPATCH_PAUSED === "true";
+export const legalDispatchPaused = () =>
+  process.env.LEGAL_DISPATCH_PAUSED === "true" || emailDispatchPaused();
 
 type PermitClient = {
   query(text: string, values: number[]): Promise<{ rows: Array<{ acquired?: boolean; released?: boolean }> }>;

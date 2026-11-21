@@ -145,6 +145,27 @@ describe("Flutterwave configuration and trust boundaries", () => {
     await pg.exec(`UPDATE users SET kyc_status='approved'; UPDATE investment_reservations SET currency='GBP'`); await expect(initiateCheckout(1,1)).rejects.toThrow("GBP");
     await pg.exec(`UPDATE investment_reservations SET currency='NGN',expires_at=now()-interval '1 hour'`); await expect(initiateCheckout(1,1)).rejects.toThrow("eligible");
   });
+  it("preserves a queued confirmation across mail-paused ticks and sends once after resuming", async () => {
+    await seedAttempt(); mockResponse(provider());
+    await verifyTransaction("101",txRef); await reviewGateway(1,1,"approve");
+    const before = await scalar("SELECT row_to_json(j) AS job FROM flutterwave_confirmation_jobs j");
+    expect(before.job.state).toBe("queued");
+    vi.stubEnv("NODE_ENV","production");
+    vi.stubEnv("FLW_NOTIFICATION_DISPATCH","true");
+    vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED","true");
+    for(let tick=0;tick<3;tick++) {
+      expect(await dispatchGatewayConfirmation(1)).toEqual({state:"paused"});
+    }
+    expect(await scalar("SELECT row_to_json(j) AS job FROM flutterwave_confirmation_jobs j")).toEqual(before);
+    expect(sendEmail).not.toHaveBeenCalled();
+    vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED","false");
+    vi.mocked(sendEmail).mockResolvedValueOnce(true);
+    await dispatchGatewayConfirmation(1);
+    expect(sendEmail).toHaveBeenCalledOnce();
+    expect((await scalar("SELECT state FROM flutterwave_confirmation_jobs")).state).toBe("sent");
+    await dispatchGatewayConfirmation(1);
+    expect(sendEmail).toHaveBeenCalledOnce();
+  });
   it("does not trust forged webhook or browser success", async () => {
     await seedAttempt(); vi.stubGlobal("fetch",vi.fn(() => Promise.reject(new Error("offline"))));
     expect((await request(app).post("/api/payments/flutterwave/webhook").set("verif-hash","forged").send({event:"charge.completed", data:{id:101,tx_ref:txRef}})).status).toBe(401);

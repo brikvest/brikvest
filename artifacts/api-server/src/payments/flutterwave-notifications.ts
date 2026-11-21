@@ -2,11 +2,13 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { resultRows as rows } from "./gateway-guards";
 import { sendEmail } from "../emailService";
+import { emailDispatchPaused } from "../email-dispatch-state";
 import { investmentConfirmedEmailTemplate } from "../emailTemplates";
 
 /** Claim-before-send: SMTP has no idempotency key. A crashed/ambiguous delivery
  * is quarantined as 'sending'/'uncertain', never automatically sent twice. */
 export async function dispatchGatewayConfirmation(reservationId: number) {
+  if (emailDispatchPaused()) return { state: "paused" as const };
   if (process.env.NODE_ENV === "test" || process.env.FLW_NOTIFICATION_DISPATCH !== "true") return;
   const job = rows(await db.execute(sql`UPDATE flutterwave_confirmation_jobs SET state='sending',updated_at=now()
     WHERE reservation_id=${reservationId} AND state='queued' RETURNING reservation_id`))[0];

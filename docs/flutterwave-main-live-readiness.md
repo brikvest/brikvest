@@ -31,9 +31,21 @@ private, synthetic-only and on its dedicated test credentials.
   disabling recovery, provided the separately configured provider mode,
   live authorization and recovery switch remain valid.
 - Added an explicit application-mail transport fence. A paused send returns
-  failure rather than falsely recording successful delivery. Keep queue dispatch
-  separately paused; this transport fence is not a maintenance lock or proof
-  that pending retries cannot consume attempts.
+  failure rather than falsely recording successful delivery.
+- The same pause now stops Flutterwave confirmation dispatch, scheduled legal
+  work, legal notification recovery and marketplace alert retries **before**
+  claiming work. Manual seller-alert retry requests return an authenticated
+  maintenance response without changing the alert. While held, queue states,
+  leases, retry allowances, failure evidence and delivery timestamps remain
+  untouched. The mixed marketplace retry queue holds both email and in-app
+  channels to avoid claiming email work just to defer it.
+- Explicit mail-free legal draft generation remains available through its
+  existing manual-generation permit; it does not resume scheduled notifications.
+  Resuming queue processing requires a separately authorized pause release.
+- This is not cancellation of an already executing SMTP request, a distributed
+  maintenance lock, or permission to reset quarantined/uncertain deliveries.
+  Drain or inspect pre-existing in-flight work before maintenance, and require
+  every active instance to adopt the updated pause protocol.
 
 ## Saved production configuration (not proof of running adoption)
 
@@ -131,7 +143,9 @@ but its required trigger was absent. No production guards were installed here.
    `/api/healthz`; main web routes and `/api` are handled by their own artifacts.
 4. On `https://brikvest.net/api/healthz`, require release
    `flutterwave-live-preparation-2026-11-21`, collection/recovery/payment mail
-   false and legal/application mail paused true. This response verifies code
+   false, legal/application mail paused true, and
+   `notificationQueuePauseProtocol=preclaim-notification-pause-v1`.
+   This response verifies code
    and switch adoption, not database guards, provider validity or global
    maintenance-lock ownership. Do not accept the old `{status:"ok"}` alone.
    The preparation-time public GET returned HTTP 200 but not the expected JSON;

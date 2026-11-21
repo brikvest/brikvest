@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import { sendEmail as defaultSendEmail } from "../emailService";
+import { emailDispatchPaused } from "../email-dispatch-state";
 import { legalDocumentsReadyEmailTemplate } from "../emailTemplates";
 import { buildLegalTemplateValues } from "./values";
 import {
@@ -833,6 +834,9 @@ export function createLegalWorker(
     const pending = new Set<Promise<unknown>>();
     try {
       for (let index = 0; index < boundedLimit; index += 1) {
+        // Hold the entire scheduled batch before claiming, including when the
+        // worker is invoked directly rather than through the permit wrapper.
+        if (emailDispatchPaused()) break;
         if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");
         const claim = await dependencies.claimNextLegalJob();
         if (!claim) break;
@@ -855,6 +859,10 @@ export function createLegalWorker(
     input: NotificationRecoveryInput,
     isPermitLive: () => boolean = () => true,
   ): Promise<NotificationRecoveryResult> {
+    if (emailDispatchPaused()) return {
+      state: "maintenance",
+      message: "Application email is paused. No notification was claimed or retry consumed.",
+    };
     // A missing/invalid origin must not consume another retry or create send intent.
     validateAppBaseUrl();
     if (!isPermitLive()) throw new Error("Legal dispatch maintenance permit was lost.");

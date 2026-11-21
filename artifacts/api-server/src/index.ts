@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic, log } from "./vite";
 import { rejectLegalTemplateSourcePaths } from "./legal/source-access";
+import { EMAIL_QUEUE_PAUSE_PROTOCOL, emailDispatchPaused } from "./email-dispatch-state";
 
 const app = express();
 // Vite's development static-file middleware must not expose the source Word
@@ -23,7 +24,8 @@ app.get("/api/healthz", (_req, res) => {
       recoveryEnabled: process.env.FLW_WORKER_ENABLED === "true",
       paymentMailEnabled: process.env.FLW_NOTIFICATION_DISPATCH === "true",
       legalMailPaused: process.env.LEGAL_DISPATCH_PAUSED === "true",
-      applicationMailPaused: process.env.BRIKVEST_EMAIL_DISPATCH_PAUSED === "true",
+      applicationMailPaused: emailDispatchPaused(),
+      notificationQueuePauseProtocol: EMAIL_QUEUE_PAUSE_PROTOCOL,
     },
   });
 });

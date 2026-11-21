@@ -91,6 +91,19 @@ function adminApp() {
 }
 
 describe("marketplace email transport failure contract (isolated)", () => {
+  it("holds authenticated manual retries before any alert lookup, lease or attempt change", async () => {
+    vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+    const app = adminApp();
+    expect((await request(app).post(`/api/admin/marketplace-alert-retries/${alert.id}/retry`)).status).toBe(401);
+    const response = await request(app).post(`/api/admin/marketplace-alert-retries/${alert.id}/retry`)
+      .set("Authorization", "Bearer isolated-admin");
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("EMAIL_DISPATCH_PAUSED");
+    expect(mocks.db.select).not.toHaveBeenCalled();
+    expect(mocks.db.update).not.toHaveBeenCalled();
+    expect(mocks.db.execute).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
   it("keeps unrelated background claims and expiry work held during publication recovery", () => {
     const intervals = vi.spyOn(globalThis, "setInterval");
     adminApp();

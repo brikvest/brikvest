@@ -158,9 +158,11 @@ described as having paused every notification queue.
 mail, while a transport-level failure can still consume an existing worker's
 retry allowance or mark delivery uncertain.
 
-**How to apply:** Keep the application-mail fence in place during preparation,
-verify it in the active release, and separately stop or safely defer queue
-dispatch before promising preservation of pending notification retries.
+**How to apply:** Keep the application-mail fence in place during preparation
+and require every scheduled and manual queue-claim path to honor it before
+changing leases, attempts or delivery evidence. Verify the pre-claim protocol in
+every active release instance; do not reset ambiguous in-flight deliveries or
+confuse mail-free manual document generation with permission to send mail.
 
 Changes to the shared payment/provider interface must be checked against both
 the main integration and the isolated checkout's compiled bundle.

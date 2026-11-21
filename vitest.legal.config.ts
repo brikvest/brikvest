@@ -22,6 +22,9 @@ export default defineConfig({
     reporters: ["default"],
     env: {
       NODE_ENV: "test",
+      // Isolated suites opt into the mail pause explicitly; never inherit a
+      // workspace maintenance switch that silently skips their normal paths.
+      BRIKVEST_EMAIL_DISPATCH_PAUSED: "false",
       // Tests use disposable PGlite or explicit mocks. Any accidental default
       // pool access must fail against a non-serving endpoint, never live data.
       TEST_DATABASE_URL: "postgresql://isolated:isolated@127.0.0.1:9/isolated",

@@ -19,6 +19,16 @@ function client(acquired: boolean) {
 }
 
 describe("legal dispatch maintenance permits", () => {
+  it("honors the application mail pause before acquiring a permit while allowing mail-free manual generation", async () => {
+    vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+    const connect = vi.fn(async () => client(true));
+    const operation = vi.fn(async () => "generated");
+    expect(await withLegalDispatchPermit(operation, connect)).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+    expect(operation).not.toHaveBeenCalled();
+    expect(await withLegalDispatchPermit(operation, connect, "manual-generation")).toBe("generated");
+    expect(operation).toHaveBeenCalledOnce();
+  });
   it("allows explicit generation maintenance permits without resuming scheduled mail", async () => {
     vi.stubEnv("LEGAL_DISPATCH_PAUSED", "true");
     const connection = client(true);
@@ -136,6 +146,9 @@ describe("schema-only publication startup", () => {
       writeFileSync(path.join(dir, ".replit"),
         `[userenv.production]\nSKIP_POST_MERGE_DATABASE_MUTATIONS = "false"\n[userenv.development]\nSKIP_POST_MERGE_DATABASE_MUTATIONS = "${mode === "merged configuration"}"\n`);
       writeFileSync(path.join(dir, "npm"), "#!/bin/sh\necho MOCK_DEPENDENCY_INSTALL\n", { mode: 0o755 });
+      writeFileSync(path.join(dir, "pnpm"),
+        '#!/bin/sh\nif [ "$*" = "install --frozen-lockfile" ]; then echo MOCK_DEPENDENCY_INSTALL; exit 0; fi\necho UNEXPECTED_DATABASE_COMMAND >&2\nexit 91\n',
+        { mode: 0o755 });
       for (const command of ["npx", "psql"]) {
         writeFileSync(path.join(dir, command), "#!/bin/sh\necho UNEXPECTED_DATABASE_COMMAND >&2\nexit 91\n", { mode: 0o755 });
       }

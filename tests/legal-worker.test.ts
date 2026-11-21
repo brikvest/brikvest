@@ -251,6 +251,26 @@ function createGenerationDependencies(overrides: Record<string, unknown> = {}) {
 }
 
 describe("legal durable job worker", () => {
+  it("holds direct scheduled dispatch and recovery without claiming or consuming notification work", async () => {
+    const claimSelected = vi.fn();
+    const claimNext = vi.fn().mockResolvedValue(null);
+    const { dependencies } = createGenerationDependencies({
+      claimNextLegalJob: claimNext, claimExistingLegalNotification: claimSelected,
+    });
+    const worker = createLegalWorker(dependencies);
+    try {
+      vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+      expect(await worker.dispatchLegalJobs(1)).toEqual({claimed:0,completed:0,failed:0,quarantined:0});
+      expect(await worker.recoverLegalNotification({pairId:60,propertyId:7,jobId:10,cycleId:99,adminId:1}))
+        .toMatchObject({state:"maintenance"});
+      expect(claimNext).not.toHaveBeenCalled();
+      expect(claimSelected).not.toHaveBeenCalled();
+      expect(dependencies.sendEmail).not.toHaveBeenCalled();
+      vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "false");
+      await worker.dispatchLegalJobs(1);
+      expect(claimNext).toHaveBeenCalledOnce();
+    } finally {vi.unstubAllEnvs();}
+  });
   beforeEach(() => {
     process.env.APP_BASE_URL = "https://brikvest.example";
   });

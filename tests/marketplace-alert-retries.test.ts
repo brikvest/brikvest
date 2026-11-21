@@ -39,6 +39,24 @@ function createDependencies(overrides: Partial<MarketplaceAlertRetryDependencies
 }
 
 describe("marketplace offer alert retries", () => {
+  it("leaves queued claims and retries untouched across paused ticks and resumes normally", async () => {
+    const dependencies = createDependencies();
+    try {
+      vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+      for (let tick = 0; tick < 3; tick++) {
+        expect(await processMarketplaceAlertRetries(dependencies)).toEqual({
+          completed: 0, retrying: 0, exhausted: 0, lostClaim: 0, paused: true,
+        });
+      }
+      for (const dependency of Object.values(dependencies)) expect(dependency).not.toHaveBeenCalled();
+      vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "false");
+      expect(await processMarketplaceAlertRetries(dependencies)).toEqual({
+        completed: 1, retrying: 0, exhausted: 0, lostClaim: 0,
+      });
+      expect(dependencies.deliverEmail).toHaveBeenCalledExactlyOnceWith(alert);
+      expect(dependencies.markFailed).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("marks a successfully delivered alert complete", async () => {
     const dependencies = createDependencies();
 
