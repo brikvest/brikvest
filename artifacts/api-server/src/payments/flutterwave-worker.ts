@@ -32,7 +32,7 @@ export async function recoverGatewayWork() {
 export function startGatewayWorker() {
   // Explicitly separate from collecting funds and from enabling mail. Never
   // start against the development/live database as an implementation test.
-  if (process.env.FLW_WORKER_ENABLED !== "true" || process.env.FLW_ENABLED !== "true" || process.env.NODE_ENV === "test") return;
+  if (process.env.FLW_WORKER_ENABLED !== "true" || process.env.NODE_ENV === "test") return;
   const tick = () => void recoverGatewayWork().catch(() => console.error("[PAYMENTS] Recovery deferred; durable work retained."));
   const timer = setInterval(tick, 60_000);
   timer.unref();

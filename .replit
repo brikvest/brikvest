@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "postgresql-16"]
+modules = ["nodejs-24", "postgresql-16", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -29,6 +29,10 @@ FLW_ENABLED = "false"
 FLW_LIVE_AUTHORIZED = "false"
 FLW_NOTIFICATION_DISPATCH = "false"
 FLW_WORKER_ENABLED = "false"
+BRIKVEST_EMAIL_DISPATCH_PAUSED = "true"
+FLW_CURRENCIES = "NGN,USD,GBP,EUR"
+FLW_MODE = "live"
+FLW_RETURN_ORIGIN = "https://brikvest.net"
 
 [userenv.development]
 SKIP_POST_MERGE_DATABASE_MUTATIONS = "true"
@@ -43,6 +47,7 @@ BRIKVEST_TEST_RETURN_ORIGIN = "https://c9cabec7-4e6a-44ae-a612-5bcfc878158e-00-3
 BRIKVEST_TEST_CALLBACK_APPROVED = "true"
 BRIKVEST_TEST_CALLBACK_MODE = "private-browser-return"
 BRIKVEST_TEST_PORT_REVIEW_WAIVED = "true"
+BRIKVEST_EMAIL_DISPATCH_PAUSED = "true"
 
 [nix]
 channel = "stable-25_05"

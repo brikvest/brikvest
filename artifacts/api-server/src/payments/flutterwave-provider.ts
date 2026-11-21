@@ -6,9 +6,13 @@ export class GatewayError extends Error {
   constructor(message: string, public httpStatus = 409) { super(message); }
 }
 export function gatewayConfig() {
+  if (process.env.FLW_ENABLED !== "true") throw new GatewayError("Flutterwave is not enabled. Bank transfer remains available.", 503);
+  return gatewayVerificationConfig();
+}
+/** Pausing new collection must not prevent verification or closing existing checkouts. */
+export function gatewayVerificationConfig() {
   const mode = process.env.FLW_MODE || "test";
   const key = process.env.FLW_SECRET_KEY || "";
-  if (process.env.FLW_ENABLED !== "true") throw new GatewayError("Flutterwave is not enabled. Bank transfer remains available.", 503);
   if (!["test", "live"].includes(mode) || (mode === "test" && !key.startsWith("FLWSECK_TEST-")) ||
       (mode === "live" && (process.env.FLW_LIVE_AUTHORIZED !== "true" || !key.startsWith("FLWSECK-") || key.startsWith("FLWSECK_TEST-")))) {
     throw new GatewayError("Flutterwave merchant configuration is not authorized.", 503);
@@ -35,7 +39,7 @@ export function transactionId(value: unknown): string {
   return String(value);
 }
 export async function providerRequest(path: string, body?: unknown): Promise<any> {
-  const config = gatewayConfig();
+  const config = path === "payments" ? gatewayConfig() : gatewayVerificationConfig();
   const response = await fetch(`https://api.flutterwave.com/v3/${path}`, {
     method: body ? "POST" : "GET",
     headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },

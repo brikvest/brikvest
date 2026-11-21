@@ -8,7 +8,7 @@ import request from "supertest";
 const ref = vi.hoisted(() => ({ db: null as any }));
 vi.mock("../server/db", () => ({ get db() { return ref.db; } }));
 vi.mock("../server/emailService", () => ({ sendEmail: vi.fn(() => { throw new Error("No mail allowed"); }) }));
-import { exactAmount, gatewayConfig, webhookAuthenticated } from "../server/payments/flutterwave-provider";
+import { exactAmount, gatewayConfig, providerRequest, webhookAuthenticated } from "../server/payments/flutterwave-provider";
 import { initiateCheckout, queueVerification, runVerification, verifyTransaction, reviewGateway } from "../server/payments/flutterwave";
 import { registerFlutterwaveRoutes } from "../server/payments/flutterwave-routes";
 import { confirmInvestmentAtomically, approvePaymentSubmissionAtomically, cancelUnconfirmedInvestmentAtomically, cancelConfirmedInvestmentAtomically } from "../server/legal/approval";
@@ -75,6 +75,30 @@ beforeEach(async () => {
 afterAll(async () => { await pg.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("Flutterwave configuration and trust boundaries", () => {
+  it("pauses new checkouts without blocking verification, reference recovery or link closure", async () => {
+    await seedAttempt();
+    mockResponse(provider());
+    vi.stubEnv("FLW_ENABLED", "false");
+    const checkout = await request(app).post("/api/payments/flutterwave/reservations/1/checkout").send({});
+    expect(checkout.status).toBe(503);
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(providerRequest("payments", {})).rejects.toThrow("not enabled");
+    expect(fetch).not.toHaveBeenCalled();
+    await verifyTransaction("101", txRef);
+    expect((await scalar("SELECT state FROM flutterwave_attempts WHERE id=1")).state).toBe("awaiting_admin");
+    await providerRequest(`transactions/verify_by_reference?tx_ref=${txRef}`);
+    mockResponse(true);
+    await expect(providerRequest("payments/link/disable", {link:"https://checkout.flutterwave.com/v3/hosted/pay/fixture"})).resolves.toBe(true);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+  it("still refuses unauthorized live verification even when collection is paused", async () => {
+    mockResponse(provider());
+    vi.stubEnv("FLW_ENABLED", "false");
+    vi.stubEnv("FLW_MODE", "live");
+    vi.stubEnv("FLW_LIVE_AUTHORIZED", "false");
+    await expect(providerRequest("transactions/101/verify")).rejects.toThrow("not authorized");
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("is disabled by default, gates live keys and validates origin", () => {
     vi.stubEnv("FLW_ENABLED", "false"); expect(() => gatewayConfig()).toThrow("not enabled");
     vi.stubEnv("FLW_ENABLED", "true"); vi.stubEnv("FLW_MODE", "live"); expect(() => gatewayConfig()).toThrow("not authorized");

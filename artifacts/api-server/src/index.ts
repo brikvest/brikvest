@@ -13,7 +13,20 @@ app.use(express.json({
   limit: "1mb",
 }));
 app.use(express.urlencoded({ extended: false }));
-app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
+app.get("/api/healthz", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    status: "ok",
+    release: "flutterwave-live-preparation-2026-11-21",
+    paymentSafety: {
+      collectionEnabled: process.env.FLW_ENABLED === "true",
+      recoveryEnabled: process.env.FLW_WORKER_ENABLED === "true",
+      paymentMailEnabled: process.env.FLW_NOTIFICATION_DISPATCH === "true",
+      legalMailPaused: process.env.LEGAL_DISPATCH_PAUSED === "true",
+      applicationMailPaused: process.env.BRIKVEST_EMAIL_DISPATCH_PAUSED === "true",
+    },
+  });
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

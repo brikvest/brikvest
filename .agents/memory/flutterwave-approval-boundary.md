@@ -149,3 +149,15 @@ establish production schema readiness or authorize real charges.
 **How to apply:** Resolve the provider's initial collection and expiry/closure
 contract before replacing checkout; inspect versioned HTML/schema when Markdown
 or code samples disagree.
+
+For staged payment releases, application-wide mail suppression and queue
+maintenance are separate controls. A transport refusing delivery must not be
+described as having paused every notification queue.
+
+**Why:** Payment and legal dispatch switches do not cover unrelated application
+mail, while a transport-level failure can still consume an existing worker's
+retry allowance or mark delivery uncertain.
+
+**How to apply:** Keep the application-mail fence in place during preparation,
+verify it in the active release, and separately stop or safely defer queue
+dispatch before promising preservation of pending notification retries.

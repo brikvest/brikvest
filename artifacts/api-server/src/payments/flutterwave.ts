@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { confirmInvestmentWithinTransaction } from "../legal/approval";
 import { gatewayInstalled, resultRows as rows } from "./gateway-guards";
-import { exactAmount, GatewayError, gatewayConfig, providerRequest, safeCheckoutUrl, transactionId } from "./flutterwave-provider";
+import { exactAmount, GatewayError, gatewayConfig, gatewayVerificationConfig, providerRequest, safeCheckoutUrl, transactionId } from "./flutterwave-provider";
 import { closeQueuedCheckouts, enqueueCheckoutClosure } from "./flutterwave-checkout-closure";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -108,7 +108,7 @@ export async function verifyTransaction(id: string, claimedRef: string) {
   await db.transaction(async tx => {
     const holding = preview ? await lockHolding(tx, preview.reservation_id) : null;
     const a = preview ? rows(await tx.execute(sql`SELECT * FROM flutterwave_attempts WHERE id=${preview.id} FOR UPDATE`))[0] : null;
-    if (a && a.mode !== gatewayConfig().mode) throw new GatewayError("Provider mode does not match this checkout.");
+    if (a && a.mode !== gatewayVerificationConfig().mode) throw new GatewayError("Provider mode does not match this checkout.");
     const oldCharge = rows(await tx.execute(sql`SELECT * FROM flutterwave_charges WHERE transaction_id=${id}`))[0];
     // A pending/failed provider result may later become successful.
     if (oldCharge?.provider_status === "successful") {
