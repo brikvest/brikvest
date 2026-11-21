@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import { SQL } from "drizzle-orm";
 import { flutterwaveAttempts } from "../shared/schema";
+import { legalTemplates as mainLegalTemplates } from "../lib/db/src/schema/legal-schema";
+import { legalTemplates as sharedLegalTemplates } from "../lib/brikvest-shared/src/legal-schema";
 
 describe("Flutterwave declarative rollout guards", () => {
+  it.each([mainLegalTemplates, sharedLegalTemplates])("preserves production's template default outside the payment migration", table => {
+    const column = table.requiredPlaceholders;
+    expect(column.notNull).toBe(true);
+    expect(column.default).toBeInstanceOf(SQL);
+    expect(new PgDialect().sqlToQuery(column.default as SQL).sql).toBe("'{}'::text[]");
+  });
   it("includes the SQL rollout's positive amount and environment constraints", () => {
     const { checks } = getTableConfig(flutterwaveAttempts);
     const dialect = new PgDialect();

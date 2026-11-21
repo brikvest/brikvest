@@ -60,7 +60,8 @@ hash, not a browser public key.
 
 ## Actual managed publication review
 
-After the authorized development changes, the publishing diff contained:
+After the authorized development changes and the owner's requested exclusion
+of the unrelated template-default change, the publishing diff contains:
 
 - Six `CREATE TABLE` statements for the approved payment tables, including the
   expected primary/unique/check constraints.
@@ -68,17 +69,19 @@ After the authorized development changes, the publishing diff contained:
   payment-attempt relations.
 - The partial one-open-checkout unique index.
 - One nullable `cost_basis` column addition.
-- One **pre-existing extra statement** changing the legal-template
-  `required_placeholders` default from `'{}'::text[]` to `ARRAY[]::text[]`.
 
-This is 17 statements. No drops, truncation, column removal, overwrites,
-historical updates or backfill were listed. The platform flags possible
-backwards incompatibility because it changes a definition on the existing
-legal-template table (14 rows). Both inspected defaults are the empty `text[]`,
-with unchanged type/nullability; the statement changes the default for future
-inserts, not existing template rows. It is outside the payment-table inventory:
-the owner must explicitly accept this equivalent normalization in the publish
-review, or have it separately aligned before publishing. Do not hide it.
+This is **16 statements**, with no warnings, structural-data-loss flags or
+possible-backwards-incompatibility flags. No drops, truncation, column removal,
+overwrites, historical updates or backfill are listed.
+
+The earlier 17-statement plan included a pre-existing change between equivalent
+empty-array defaults on `legal_templates.required_placeholders`. The owner
+explicitly excluded it. A bounded, identity-checked development-only transaction
+aligned that default to production's unchanged `'{}'::text[]` representation.
+Both schema declarations now preserve that representation rather than
+reintroducing the unrelated change on a later schema synchronization.
+No template records or production objects were changed. The fresh publication
+plan contains no `legal_templates` statement.
 
 The diff is a reviewed snapshot, not a permanent authorization for future
 statements. Recompute immediately before publishing and stop for unexpected
@@ -119,8 +122,8 @@ but its required trigger was absent. No production guards were installed here.
 1. Confirm the owner-reported seven-day PITR window and note an available
    pre-change recovery time in the production database settings. No restore or
    database copy is part of this rollout.
-2. Review/accept only the fresh managed SQL plan described above, including the
-   separately identified default normalization. Publish through the supported
+2. Review/accept only the fresh managed SQL plan described above, with no
+   unrelated template-default change. Publish through the supported
    user-operated flow with collection, recovery and all app mail still fenced.
 3. Confirm the real API artifact and main web artifact are in the published
    release. The private sandbox is excluded by `.replitignore`; never publish

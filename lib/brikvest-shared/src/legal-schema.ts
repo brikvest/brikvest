@@ -33,7 +33,7 @@ export const legalTemplates = pgTable("legal_templates", {
   storageKey: text("storage_key").notNull(),
   sha256: text("sha256").notNull(),
   byteSize: integer("byte_size").notNull(),
-  requiredPlaceholders: text("required_placeholders").array().notNull().default([]),
+  requiredPlaceholders: text("required_placeholders").array().notNull().default(sql`'{}'::text[]`),
   validationStatus: text("validation_status").notNull().default("pending"),
   isActive: boolean("is_active").notNull().default(false),
   createdByAdminId: integer("created_by_admin_id").notNull(),
