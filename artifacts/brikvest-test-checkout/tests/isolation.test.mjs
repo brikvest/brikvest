@@ -65,6 +65,13 @@ beforeEach(async () => {
 after(async () => { await pg?.close(); });
 
 describe("Sandbox environment and import isolation", () => {
+  it("keeps the shared verification helper behind the complete test-only fence", () => {
+    assert.equal(runtime.gatewayVerificationConfig, runtime.gatewayConfig);
+    assert.equal(runtime.gatewayVerificationConfig().mode, "test");
+    process.env.BRIKVEST_TEST_FLW_SECRET_KEY = "FLWSECK-not-a-real-key";
+    assert.throws(() => runtime.gatewayVerificationConfig(), /test/i);
+    assert.equal(calls.length, 0);
+  });
   it("builds the existing lifecycle without normal DB, mail, approval, workers or original config", async () => {
     const imports = await fs.readFile("generated-artifacts/brikvest-test-checkout-regression/imports.json", "utf8");
     assert.match(imports, /api-server\/src\/payments\/flutterwave\.ts/);

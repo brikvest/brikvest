@@ -30,6 +30,9 @@ export function gatewayConfig() {
     origin: `${approvedOrigin()}${BASE}`, currencies: ["NGN"],
   };
 }
+// Shared recovery uses this helper too; sandbox verification retains every
+// test-only fence instead of adopting the main application's live config.
+export { gatewayConfig as gatewayVerificationConfig };
 export function webhookAuthenticated(value) {
   const secret = process.env.BRIKVEST_TEST_FLW_SECRET_HASH;
   if (!secret || typeof value !== "string" || value.length > 1024) return false;

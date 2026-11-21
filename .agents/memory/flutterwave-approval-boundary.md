@@ -161,3 +161,14 @@ retry allowance or mark delivery uncertain.
 **How to apply:** Keep the application-mail fence in place during preparation,
 verify it in the active release, and separately stop or safely defer queue
 dispatch before promising preservation of pending notification retries.
+
+Changes to the shared payment/provider interface must be checked against both
+the main integration and the isolated checkout's compiled bundle.
+
+**Why:** The sandbox substitutes its own provider adapter, so a main-side
+regression suite can pass while the sandbox lacks a newly required export.
+
+**How to apply:** Validate both implementations with isolated, mocked-network
+checks. New sandbox adapter methods must retain the complete test-key,
+synthetic-data and environment fences, even when main-side recovery has
+different collection-pause semantics.

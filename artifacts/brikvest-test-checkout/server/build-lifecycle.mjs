@@ -23,7 +23,7 @@ export async function buildLifecycle({ regression = false } = {}) {
           verifyTransaction, safeAttempt } from "${main}/payments/flutterwave.ts";
         export { closeQueuedCheckouts } from "${main}/payments/flutterwave-checkout-closure.ts";
         export { initializeDatabase, database, db } from "${here}database.mjs";
-        export { gatewayConfig, webhookAuthenticated, GatewayError, providerRequest, safeCheckoutUrl, exactAmount } from "${here}provider.mjs";
+        export { gatewayConfig, gatewayVerificationConfig, webhookAuthenticated, GatewayError, providerRequest, safeCheckoutUrl, exactAmount } from "${here}provider.mjs";
       `,
       resolveDir: root, loader: "ts",
     },
