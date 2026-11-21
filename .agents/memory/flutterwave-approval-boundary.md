@@ -50,6 +50,49 @@ when asked about callback access.
 report it separately from browser-return or mocked regression results. Continue
 safe synthetic inspection without relaxing access controls.
 
+On 2026-11-21 the owner separately approved preparing a sandbox-only private
+webhook access arrangement, including investigation of a separate private
+development workspace. This does not authorize publishing, exposing the main
+site, a public relay, or tokens in redirects or logs.
+
+**Why:** Approval was explicitly requested because the existing browser-return
+scope did not cover external webhook access. Project-level access tokens in
+the shared project would also grant access to the main site.
+
+**How to apply:** Keep that preparation separate from activation and proof of
+delivery. Establish provider-compatible private access without broadening
+main-site access before claiming closed-tab webhook verification. A new
+sandbox artifact in the same project does not isolate a project-level token.
+
+Probe the actual sandbox webhook externally without cookies or bypass tokens
+before deciding private-preview access requires a new project, relay or custom
+provider header.
+
+**Why:** An access restriction had been assumed from the owner's private-preview
+choice, but an actual unauthenticated external POST reached the sandbox's own
+signature rejection. Documentation about private access alone did not establish
+the active route's behavior.
+
+**How to apply:** Distinguish platform access rejection from application-level
+HTTP 401. Never infer genuine provider delivery or the privacy of other routes
+from that probe; still require an authentic provider event and server-verified
+receipt. Recheck the configured return origin against the current preview host
+when the workspace preview changes.
+
+For webhook-only payment proof, explicitly block automatic browser verification
+on the server when browser tooling cannot intercept the return navigation.
+Restore normal return/recheck behavior after the trial.
+
+**Why:** The hosted provider can auto-redirect immediately after OTP success,
+before the tester can close the tab. Merely avoiding a Return button does not
+exclude browser-triggered verification as the receipt source.
+
+**How to apply:** Reject callback HTML before application scripts load and
+reject the return/recheck APIs before side effects. Correlate authenticated
+webhook evidence, provider delivery logs and the persisted receipt. Describe
+auto-return to a blocked page honestly rather than claiming the tab closed
+before webhook delivery.
+
 The owner subsequently approved private browser-return checkout testing and
 explicitly waived the main-site migration-review prerequisite for this isolated
 sandbox.

@@ -19,6 +19,16 @@ export async function createSandboxApp(runtime) {
       "X-Robots-Tag": "noindex, nofollow",
     });
     if (!req.path.startsWith(`${BASE}/`)) return res.status(404).json({ error: "Not a sandbox route." });
+    // An operator-only trial guard proves a receipt did not come from the
+    // browser. Stop callback HTML before Vite/React can run, and stop both
+    // verification APIs before any session lookup or provider operation.
+    if (process.env.BRIKVEST_TEST_WEBHOOK_ONLY === "true") {
+      res.set("X-Brikvest-Webhook-Only", "true");
+      if (req.path === `${BASE}/dashboard`)
+        return res.status(409).type("text/plain").send("Webhook-only test: browser-return verification is disabled. Close this tab. Do not pay again.");
+      if (req.path === `${BASE}/api/return` || new RegExp(`^${BASE}/api/attempts/[^/]+/recheck$`).test(req.path))
+        return res.status(409).json({ error: "Webhook-only test: browser returns and manual rechecks are disabled. Do not pay again." });
+    }
     next();
   });
   app.use(express.json({ limit: "4kb", strict: true }));
@@ -71,6 +81,13 @@ export async function createSandboxApp(runtime) {
     const a = (await pg.query("SELECT id FROM flutterwave_attempts WHERE tx_ref=$1 AND mode='test'", [ref])).rows[0];
     if (!a) throw new GatewayError("Synthetic checkout not found.", 404);
     runtime.gatewayConfig(); // blocked setup cannot acknowledge fake verification
+    // Keep only bounded, validated evidence of this authenticated delivery.
+    // Never persist raw payloads, signature headers, customer or card data.
+    const receiptIdentity = `transaction:${String(req.body.data.id)}`;
+    await pg.query(`INSERT INTO flutterwave_audit(attempt_id,event,reason)
+      SELECT $1,'sandbox_webhook_received',$2 WHERE NOT EXISTS (
+        SELECT 1 FROM flutterwave_audit WHERE attempt_id=$1
+          AND event='sandbox_webhook_received' AND reason=$2)`, [a.id, receiptIdentity]);
     await runtime.queueVerification(String(req.body.data.id), ref);
     await runtime.runVerification(String(req.body.data.id), ref);
     res.json({ accepted: true, message: "Evidence queued for provider verification, not ownership." });

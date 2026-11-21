@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "yzP6R1nWacosn2fsW6QAW"
+uri = "file://attached_assets/testing_screenshot/jk1ldi.jpg"
+type = "image"
+title = "Verified sandbox webhook receipt"
+description = "The genuine TEST receipt reached awaiting admin approval while browser-return verification and manual rechecks were blocked."
+logical_id = "fee45e69-12f5-4fd4-b20a-4024b9ef38cb"
+content_hash = "sha256:75585617a54c962aa65af7518581d3d43253d7a324a871b3e8ab6947f96ef6f6"
+size = 263645
+mtime_ms = 1795299792566
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/fee45e69-12f5-4fd4-b20a-4024b9ef38cb/e05bf48c-ab46-4ded-80b7-099988d5f1ed"
+storage_version_token = "1795300145623816"
+content_type = "image/jpeg"

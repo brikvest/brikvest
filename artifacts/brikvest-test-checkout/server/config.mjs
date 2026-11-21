@@ -54,9 +54,12 @@ export function setupStatus() {
   return {
     available: blockers.length === 0, blockers,
     scopeNotice: [
+      process.env.BRIKVEST_TEST_WEBHOOK_ONLY === "true"
+        ? "Webhook-only verification trial: browser returns and manual receipt rechecks are blocked by the server."
+        : "",
       reviewWaived ? "Owner waived the main-site migration review for isolated testing." : "",
       process.env.BRIKVEST_TEST_CALLBACK_MODE === "private-browser-return"
-        ? "Private browser-return testing and explicit server rechecks only. Automatic webhook delivery remains unverified."
+        ? "Existing preview with browser returns and explicit server rechecks. Webhook delivery must be verified independently; setup readiness is not delivery evidence."
         : "Webhook delivery requires independent evidence; setup readiness does not establish it.",
     ].filter(Boolean).join(" "),
     providerEmailPolicy: providerEmailsAuthorized

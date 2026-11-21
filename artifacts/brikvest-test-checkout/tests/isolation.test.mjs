@@ -17,6 +17,7 @@ function ready() {
   delete process.env.BRIKVEST_TEST_PROVIDER_EMAILS_AUTHORIZED;
   delete process.env.BRIKVEST_TEST_PORT_REVIEW_WAIVED;
   delete process.env.BRIKVEST_TEST_CALLBACK_MODE;
+  delete process.env.BRIKVEST_TEST_WEBHOOK_ONLY;
   Object.assign(process.env, {
     BRIKVEST_SANDBOX_RUNTIME: "synthetic-only-v1", BRIKVEST_TEST_MODE: "test",
     BRIKVEST_TEST_FLW_SECRET_KEY: fixtureKey, BRIKVEST_TEST_FLW_SECRET_HASH: "offline-fixture-hash",
@@ -110,7 +111,7 @@ describe("Sandbox environment and import isolation", () => {
     const setup = setupStatus();
     assert.equal(setup.available, true);
     assert.match(setup.scopeNotice, /waived the main-site migration review/);
-    assert.match(setup.scopeNotice, /Automatic webhook delivery remains unverified/);
+    assert.match(setup.scopeNotice, /Webhook delivery must be verified independently/);
     assert.equal(process.env.BRIKVEST_TEST_PORT_REVIEWED, undefined);
     process.env.BRIKVEST_TEST_CALLBACK_MODE = "public";
     assert.equal(setupStatus().available, false);
@@ -253,6 +254,93 @@ describe("Existing lifecycle verification, replay and uncertainty", () => {
     const valid = () => request(app).post(`${api}/webhook`).set("verif-hash", "offline-fixture-hash").send({ event: "charge.completed", data: { id: 101, tx_ref: ref } });
     assert.equal((await valid()).status, 200); assert.equal((await valid()).status, 200);
     assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 1);
+  });
+  it("rejects missing, wrong, equal-length and oversized webhook hashes without queuing or changing receipts", async () => {
+    await seedAttempt(); mockProvider(fixture({}));
+    for (const signature of [undefined, "", "wrong", "x".repeat("offline-fixture-hash".length), "x".repeat(1025)]) {
+      const req = request(app).post(`${api}/webhook`);
+      if (signature !== undefined) req.set("verif-hash", signature);
+      const response = await req.send({ event: "charge.completed", data: { id: 101, tx_ref: ref } });
+      assert.equal(response.status, 401);
+      assert.doesNotMatch(JSON.stringify(response.body), /offline-fixture-hash/);
+    }
+    assert.equal(calls.length, 0);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_verification_jobs")).n, 0);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 0);
+    assert.equal((await scalar("SELECT state,verified_at FROM flutterwave_attempts")).verified_at, null);
+    assert.equal((await scalar("SELECT state FROM flutterwave_attempts")).state, "initiated");
+  });
+  it("verifies sessionless webhook deliveries and concurrent replays without a browser return, ownership or mail", async () => {
+    await seedAttempt(); mockProvider(fixture({}));
+    const deliver = () => request(app).post(`${api}/webhook`)
+      .set("verif-hash", "offline-fixture-hash")
+      .send({ event: "charge.completed", data: { id: 101, tx_ref: ref } });
+    // No bearer session, cookie, Origin, /return or /recheck request is sent.
+    const responses = await Promise.all([deliver(), deliver(), deliver()]);
+    for (const response of responses) assert.equal(response.status, 200);
+    assert.ok(calls.length > 0);
+    assert.ok(calls.every(call => call.url === "https://api.flutterwave.com/v3/transactions/101/verify"));
+    const attempt = await scalar("SELECT * FROM flutterwave_attempts");
+    assert.equal(attempt.state, "awaiting_admin");
+    assert.equal(attempt.provider_transaction_id, "101");
+    assert.equal(Number(attempt.verified_amount), 1200.10);
+    assert.equal(attempt.verified_currency, "NGN");
+    assert.ok(attempt.verified_at);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 1);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_verification_jobs")).n, 1);
+    assert.equal((await scalar("SELECT status FROM flutterwave_verification_jobs")).status, "done");
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit WHERE event='charge_verified'")).n, 1);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit WHERE event='sandbox_webhook_received'")).n, 1);
+    assert.equal((await scalar("SELECT sold_units FROM properties")).sold_units, 0);
+    assert.equal((await scalar("SELECT status FROM investment_reservations")).status, "reserved");
+    assert.equal((await scalar("SELECT to_regclass('ownership_certificates') AS t")).t, null);
+    assert.equal((await scalar("SELECT to_regclass('flutterwave_confirmation_jobs') AS t")).t, null);
+    // A new app instance can read the receipt; the webhook did not rely on UI state.
+    const reopened = await createSandboxApp(runtime);
+    const state = await request(reopened).get(`${api}/state`).set("Authorization", `Bearer ${token}`);
+    assert.equal(state.body.reservations[0].attempts[0].state, "awaiting_admin");
+  });
+  it("blocks return HTML and all manual verification before side effects during a webhook-only trial", async () => {
+    await seedAttempt(); mockProvider(fixture({}));
+    process.env.BRIKVEST_TEST_WEBHOOK_ONLY = "true";
+    const callback = await request(app).get("/brikvest-test-checkout/dashboard?flutterwaveReturn=1&status=successful");
+    assert.equal(callback.status, 409);
+    assert.equal(callback.headers["x-brikvest-webhook-only"], "true");
+    assert.match(callback.headers["content-type"], /text\/plain/);
+    assert.doesNotMatch(callback.text, /<script/);
+    assert.equal((await post("/return", { txRef: ref })).status, 409);
+    assert.equal((await post("/attempts/1/recheck")).status, 409);
+    assert.equal(calls.length, 0);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_verification_jobs")).n, 0);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit")).n, 0);
+    assert.equal((await request(app).post(`${api}/webhook`).send({})).status, 401);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit")).n, 0);
+    const delivered = await request(app).post(`${api}/webhook`).set("verif-hash", "offline-fixture-hash")
+      .send({ event: "charge.completed", data: { id: 101, tx_ref: ref } });
+    assert.equal(delivered.status, 200);
+    assert.equal((await scalar("SELECT state FROM flutterwave_attempts")).state, "awaiting_admin");
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_audit WHERE event='sandbox_webhook_received'")).n, 1);
+    assert.equal((await request(app).get(`${api}/state`).set("Authorization", `Bearer ${token}`)).status, 200);
+    delete process.env.BRIKVEST_TEST_WEBHOOK_ONLY;
+    assert.equal((await post("/return", { txRef: ref })).status, 200);
+  });
+  it("persists an unavailable-provider webhook job and reconciles a mismatched receipt on redelivery", async () => {
+    await seedAttempt();
+    const deliver = () => request(app).post(`${api}/webhook`)
+      .set("verif-hash", "offline-fixture-hash")
+      .send({ event: "charge.completed", data: { id: 101, tx_ref: ref, status: "successful", amount: "1200.10", currency: "NGN" } });
+    // runVerification intentionally acknowledges durable queued evidence on
+    // provider failure. HTTP 200 must not be mistaken for a verified receipt.
+    assert.equal((await deliver()).status, 200);
+    assert.equal((await scalar("SELECT status FROM flutterwave_verification_jobs")).status, "queued");
+    assert.equal((await scalar("SELECT attempts FROM flutterwave_verification_jobs")).attempts, 1);
+    assert.equal((await scalar("SELECT verified_at FROM flutterwave_attempts")).verified_at, null);
+    assert.equal((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n, 0);
+    mockProvider(fixture({ amount: "1200.11" }));
+    assert.equal((await deliver()).status, 200);
+    assert.equal((await scalar("SELECT state FROM flutterwave_attempts")).state, "reconciliation");
+    assert.equal((await scalar("SELECT sold_units FROM properties")).sold_units, 0);
+    assert.equal((await scalar("SELECT status FROM investment_reservations")).status, "reserved");
   });
   it("does not trust redirect success/cancellation and retains uncertain evidence for recheck", async () => {
     await seedAttempt();
