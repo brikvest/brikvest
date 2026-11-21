@@ -42,3 +42,15 @@ FLW_WORKER_ENABLED = "false"
 [nix]
 channel = "stable-25_05"
 packages = ["libreoffice", "poppler-utils", "liberation_ttf", "dejavu_fonts", "chromium"]
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
