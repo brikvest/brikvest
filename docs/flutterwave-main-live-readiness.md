@@ -179,5 +179,73 @@ SMTP suppression. The production API and main frontend compile independently
 with the artifact build environment; no backend startup or provider call is
 needed for a compile.
 
-These checks do not replace authenticated production webhook evidence, real
-PostgreSQL multi-connection concurrency tests or an authorized live transaction.
+### Real PostgreSQL concurrency evidence (2026-11-21)
+
+Run from the workspace root:
+
+```sh
+pnpm test:flutterwave:postgres
+```
+
+Requires PostgreSQL's `initdb`, `pg_ctl` and `createdb` on `PATH`, Node and pnpm.
+The runner creates its **own fresh disposable PostgreSQL cluster** in a private
+temporary directory, disables TCP listening and connects only through that
+cluster's Unix socket. It never accepts a database URL. Child processes receive
+an allowlisted environment, invalid application database URLs and no inherited
+provider, SMTP or database secrets. Before any fixture DDL, tests verify the
+runner's marker, database name, Unix-socket connection and exact server data
+directory. The runner stops and deletes its cluster on completion or test failure.
+Do not run these fixtures against an existing development, sandbox or production
+database. A missing PostgreSQL binary fails the command; it never falls back to
+PGlite or a configured investor database.
+
+`tests/postgres/flutterwave-concurrency.test.ts` exercises the actual payment,
+route, checkout-closure and approval functions through a real `pg` pool and
+Drizzle transactions. Only the database binding, provider HTTP and mail transport
+are replaced. Synthetic schema comes from `flutterwave-fixture.sql`, the actual
+payment table/index DDL and inventory-ledger DDL. The two payment/cost guards
+come directly from the reviewed SQL-console draft; only its database identity
+assertion is changed. Both enabled trigger body hashes must match the reviewed
+values above.
+
+For holding races, the first transaction pauses **after** taking real
+reservation/property row locks. The contender runs on a distinct PostgreSQL
+backend; `pg_blocking_pids()` must show it waiting on the first before release.
+Both lock-acquisition orders are exercised where the order changes the result.
+Assertions reject deadlocks, lock timeouts and hidden verification failures.
+
+Verified on PostgreSQL 16.10: **19 tests passed**:
+
+| Interleaving / failure | Required result |
+| --- | --- |
+| Authenticated synthetic webhook vs browser return | One receipt and verification audit; no allocation; recovery job completed |
+| Two admin approvals | One succeeds; exactly one inventory conversion, certificate, approval audit and queued confirmation |
+| Duplicate receipt verification vs approval, both orders | Approval remains final; no duplicate receipt or allocation |
+| A second actual charge vs approval, both orders | Both charges retained in reconciliation; at most one allocation, never silently erased evidence |
+| Manual proof vs new receipt, both orders | Proof remains pending; gateway reconciles; neither allocates |
+| Manual proof vs gateway approval, both orders | Competing evidence blocks both approvals |
+| Two manual proof approvals without a gateway | Only one submission approval and inventory conversion |
+| Direct manual confirmation vs gateway approval, both orders | Manual bypass refused; gateway allocates only once |
+| Cancellation vs verification, both orders | Unresolved/received payment prevents releasing held inventory |
+| Late receipt with replacement checkout and duplicate verification | Replacement quarantined and closure completed while collection stays off |
+| Concurrent link closure success vs delayed failure | Confirmed `done` is not overwritten or counted as a failed retry |
+| Certificate insertion failure | Receipt remains reviewable; inventory, cost basis, approval audit and confirmation job all roll back; retry succeeds once |
+| Guard enforcement | Checkout expectations and confirmed purchase costs cannot be rewritten |
+
+All cases keep `FLW_ENABLED=false`, payment workers and notification dispatch off,
+and legal/application mail paused. HTTP is mocked with an exact endpoint
+allowlist: no charge or external provider request occurs; application mail is
+forbidden and asserted unused. Successful approval creates only a synthetic
+queued notification intent, never sends it. The existing
+`pnpm test:flutterwave` suite also passed (51 tests).
+
+Scope: the minimal fixture deliberately leaves the legal document workflow
+uninstalled, so this suite checks payment/inventory/cost atomicity, not PDF
+generation or exact-PDF review interleavings. Existing exact-PDF safeguard tests
+remain separate. This is not evidence that production has these guards or that
+a real webhook, provider link disable or live transaction works. Main's payment
+implementation did not need changing for these tested schedules.
+
+These checks do not replace authenticated production webhook evidence or an
+authorized live transaction. All collection and publication release gates above
+remain unchanged.

@@ -7,6 +7,7 @@
   "scripts": {
     "test:consolidation": "vitest run --config vitest.consolidation.config.ts",
     "test:flutterwave": "vitest run --config vitest.flutterwave.config.ts",
+    "test:flutterwave:postgres": "node scripts/test-flutterwave-postgres.mjs",
     "test:flutterwave:preparation": "vitest run --config vitest.flutterwave.config.ts && vitest run --config vitest.legal.config.ts tests/legal-pdf-safeguard-plan.test.ts tests/legal-pdf-review.test.ts",
     "test:flutterwave:browser": "LEGAL_FRONTEND_ONLY_BASE_URL=http://127.0.0.1:5173 playwright test --config playwright.flutterwave.config.ts",
     "test:faqs": "vitest run --config vitest.faqs.config.ts",
@@ -153,6 +154,7 @@
     "@types/node": "20.16.11",
     "@types/passport": "^1.0.16",
     "@types/passport-local": "^1.0.38",
+    "@types/pg": "8.23.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
@@ -161,6 +163,7 @@
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.4",
     "esbuild": "^0.25.0",
+    "pg": "8.23.1",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.1",

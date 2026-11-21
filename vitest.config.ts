@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "path";
 
 export default defineConfig({
@@ -11,6 +11,8 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
+    // This suite owns a fresh PostgreSQL cluster; it must use its safe runner.
+    exclude: [...configDefaults.exclude, "tests/postgres/**"],
     environment: "node",
     globals: false,
     testTimeout: 60_000,
