@@ -12,3 +12,5 @@ cookies*.txt
 .env.*
 /screenshots/
 /tests/
+# The authorized checkout sandbox is workspace-only, never part of the real site.
+/artifacts/brikvest-test-checkout/

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/brikvest-test-checkout/"
+title = "Brikvest Test Checkout"
+description = "Isolated synthetic-only Flutterwave v3 test checkout. No real holdings, mail, live payments, or production database connections."
+version = "1.0.0"
+id = "artifacts/brikvest-test-checkout"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/brikvest-test-checkout/" ]
+localPort = 18197
+
+[services.development]
+run = "pnpm --filter @workspace/brikvest-test-checkout run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/brikvest-test-checkout", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/brikvest-test-checkout/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18197"
+BASE_PATH = "/brikvest-test-checkout/"

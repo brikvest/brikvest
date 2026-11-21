@@ -22,6 +22,19 @@ Post-merge setup installs dependencies only and retains the saved database skip
 fence; the original legacy rollout script is retained for reference, not invoked.
 No deployment or new checkout implementation is authorized by this port.
 
+## Separate checkout sandbox
+
+The separately authorized **Brikvest Test Checkout** artifact is workspace-only
+at `/brikvest-test-checkout/`. Its own workflow runs the isolated local PGlite
+service, not the main API. See
+`artifacts/brikvest-test-checkout/README.md` for safe run/reset instructions,
+dedicated test settings and the genuine-provider testing blockers. Never start
+the real backend, use existing gateway secrets, enable Brikvest notifications or publish
+the real gateway to test this app. Its artifact and generated store are excluded
+from deployment. All port-review and real-data safety rules above still apply.
+The owner's later exception permits only Flutterwave's test-payment emails to
+the business address; application mail and SMS remain disabled.
+
 # [Project name]
 
 _Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._

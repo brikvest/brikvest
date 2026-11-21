@@ -1,0 +1,84 @@
+openapi: 3.1.0
+info:
+  title: Brikvest isolated checkout API
+  version: 1.0.0
+  description: Sandbox-only service. Never mounted on the main API. See src/sandbox-api.ts for the typed browser adapter.
+servers:
+  - url: /brikvest-test-checkout/api
+security:
+  - syntheticSession: []
+paths:
+  /session:
+    post:
+      operationId: startSyntheticSession
+      security: []
+      responses:
+        "200": { description: New synthetic session bearer capability; never a Brikvest login }
+  /state:
+    get:
+      operationId: getSandboxState
+      responses:
+        "200": { description: Synthetic property, session-owned reservations and safe payment attempts, setup blockers and safety boundaries }
+  /reservations:
+    post:
+      operationId: newSyntheticReservation
+      responses:
+        "200": { description: Synthetic reservation ID; fixed NGN 1200.10, one unit, 10 square metres }
+  /reservations/{id}/checkout:
+    post:
+      operationId: startSyntheticCheckout
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Server-created HTTPS Flutterwave checkoutUrl }
+        "503": { description: Missing secure setup or uncertain provider creation; never success }
+  /attempts/{id}/recheck:
+    post:
+      operationId: recheckSyntheticAttempt
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Rechecked; read state for authoritative lifecycle outcome }
+  /return:
+    post:
+      operationId: verifySyntheticReturn
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReturnInput" }
+      responses:
+        "200": { description: Provider was rechecked; redirect status was never trusted }
+  /reset:
+    post:
+      operationId: resetSyntheticRecords
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetInput" }
+      responses:
+        "200": { description: Only the requesting session's disposable records were removed }
+        "409": { description: Unresolved or unexpired hosted sessions prevent reset }
+  /webhook:
+    post:
+      operationId: receiveSyntheticWebhook
+      security: []
+      responses:
+        "200": { description: Authenticated known synthetic reference reverified server-side }
+        "401": { description: Invalid verif-hash }
+components:
+  securitySchemes:
+    syntheticSession: { type: http, scheme: bearer }
+  schemas:
+    ReturnInput:
+      type: object
+      additionalProperties: false
+      required: [txRef]
+      properties:
+        txRef: { type: string, pattern: "^brk_[a-f0-9-]{36}$" }
+        transactionId: { type: string, pattern: "^[1-9][0-9]{0,19}$" }
+    ResetInput:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: { type: string, const: RESET SYNTHETIC RECORDS }

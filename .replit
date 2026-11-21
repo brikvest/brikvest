@@ -38,6 +38,11 @@ FLW_ENABLED = "false"
 FLW_LIVE_AUTHORIZED = "false"
 FLW_NOTIFICATION_DISPATCH = "false"
 FLW_WORKER_ENABLED = "false"
+BRIKVEST_TEST_PROVIDER_EMAILS_AUTHORIZED = "true"
+BRIKVEST_TEST_RETURN_ORIGIN = "https://c9cabec7-4e6a-44ae-a612-5bcfc878158e-00-396cm9lmzx1ff-raemnoa5.kirk.replit.dev"
+BRIKVEST_TEST_CALLBACK_APPROVED = "true"
+BRIKVEST_TEST_CALLBACK_MODE = "private-browser-return"
+BRIKVEST_TEST_PORT_REVIEW_WAIVED = "true"
 
 [nix]
 channel = "stable-25_05"

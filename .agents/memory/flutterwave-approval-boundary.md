@@ -39,6 +39,56 @@ returning the shared integration to the production rollout.
 dependencies isolated. This authorization does not enable real charges, live
 collection, production schema changes or publishing the live gateway.
 
+Keep the existing checkout preview private unless the owner explicitly changes
+that instruction. Do not expose it, add an access bypass or publish a separate
+callback origin merely to make webhooks reachable.
+
+**Why:** On 2026-11-20 the owner selected keeping the current preview private
+when asked about callback access.
+
+**How to apply:** Treat external webhook reachability as unestablished and
+report it separately from browser-return or mocked regression results. Continue
+safe synthetic inspection without relaxing access controls.
+
+The owner subsequently approved private browser-return checkout testing and
+explicitly waived the main-site migration-review prerequisite for this isolated
+sandbox.
+
+**Why:** The owner chose to proceed with the synthetic checkout without coupling
+it to a separate main-site review. They did not authorize a public preview.
+
+**How to apply:** Record a waiver rather than falsely recording that the main
+site was reviewed. Permit private browser returns and explicit server rechecks,
+but continue reporting automatic webhook delivery as unverified until evidenced.
+This does not waive dedicated test credentials or any real-data safety fence.
+
+Flutterwave's authenticated v3 TEST API can return a hosted checkout on
+`checkout-v2.dev-flutterwave.com`, even though the public Standard API examples
+use `checkout.flutterwave.com`.
+
+**Why:** Genuine test-session creation succeeded but the older URL guard
+rejected the provider's sandbox host. Mocked links on the documented host did
+not reveal this difference.
+
+**How to apply:** Validate the origin returned by the fixed authenticated
+provider API, and use an exact sandbox-only host/path allowlist. Do not broaden
+the real site's allowlist or trust arbitrary URLs supplied by the browser.
+
+The owner authorized Flutterwave's test-payment emails to the business address
+on 2026-11-20 after being told that the provider can email even in test mode.
+This is a narrow exception to the original no-email sandbox requirement:
+Brikvest's own email/SMS, real customer notifications and live payments remain
+prohibited.
+
+**Why:** Flutterwave's v3 testing documentation says test receipts go to the
+business email. The owner explicitly accepted those provider-generated emails,
+not activation of the application's delivery infrastructure.
+
+**How to apply:** Record provider test-email consent separately from a claim
+that notifications are disabled. Keep application mail disconnected and retain
+the private-preview, dedicated-test-key, synthetic-data and live-payment fences.
+Do not alter production notification settings to implement this exception.
+
 **Why:** This is an explicit replacement of the earlier v4-only requirement, not
 a silent version fallback. It resolves the hosted-flow selection, but does not
 establish production schema readiness or authorize real charges.
