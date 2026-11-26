@@ -190,3 +190,74 @@ real investor record.
 After publishing, **Admin → Payment Reviews → Flutterwave payments → Live
 readiness** shows the same three safeguards as "Installed" when the running
 application can see them.
+
+## Gap report — why investors see "Flutterwave is temporarily unavailable" (2026-11-26)
+
+That exact sentence ("Flutterwave is temporarily unavailable. Bank transfer
+remains available.") is produced in one place only: the live safeguard gate
+(`requireLiveSafeguards`). Every other failure uses a different message (not
+enabled, merchant configuration not authorized, webhook not configured, return
+origin not configured). So the message itself shows that mode, live
+authorization, key format, hash, origin, collection switch and payment tables
+passed, and that **the three database safeguard triggers are not all present and
+exact** (or the catalog check could not run, which also counts as not ready).
+
+Status was determined by reading code and docs only. No production SQL, no
+production setting and no payment data was touched. Production state cannot be
+read from the agent workspace, so "unknown" means: confirm in Admin → Payment
+Reviews → Flutterwave payments → Live readiness (or the admin-only readiness
+endpoint `/api/admin/payments/flutterwave/readiness`).
+
+| Requirement | Status | Basis / owner action |
+| --- | --- | --- |
+| Mode `live` | Met (inferred) | Gate only runs in live mode. Confirm readiness shows `live`. |
+| Live authorization (`FLW_LIVE_AUTHORIZED=true`) | Met (inferred) | A failure would give "merchant configuration is not authorized". |
+| Secret key format (`FLWSECK-`, not `FLWSECK_TEST-`) | Met (inferred) | Same check as above. Confirm readiness shows key format `live`. |
+| Webhook hash (`FLW_SECRET_HASH`) | Met (inferred) | A failure would give "webhook is not configured". Must equal the hash set in the live Flutterwave dashboard. |
+| Return origin / currencies | Met (inferred) | Origin failure has its own message. |
+| Collection switch (`FLW_ENABLED=true`) | Met (inferred) | Off gives "Flutterwave is not enabled". |
+| Recovery worker (`FLW_WORKER_ENABLED=true`) | Unknown | Does not block checkout. Confirm in readiness. |
+| Payment mail (`FLW_NOTIFICATION_DISPATCH`) | Unknown, not blocking | Intentionally `false` until separately authorized. |
+| Payment schema tables | Met (inferred) | Missing tables give a different schema message. |
+| `flutterwave_expected_immutable` | **Absent or mismatch (blocking)** | Last verified read-only on 2026-11-26: not installed. Run Block 1. |
+| `holding_cost_basis_guard` | **Absent or mismatch (blocking)** | Same: installed by Block 1. |
+| `legal_pdf_review_append_only` | **Absent or mismatch (blocking)** | Same: installed by Block 2. |
+
+Blocking item: the three safeguard triggers. Nothing else needs to change if the
+readiness screen confirms the rows marked "inferred".
+
+### Exact owner actions
+
+1. Environment settings (only if readiness shows a wrong value): change them
+   through Replit Secrets/settings for production, then republish. Do not paste
+   values into chat or documents.
+2. Triggers: follow "Before you start" above (recovery point, no approvals
+   during the run, mail still paused, maintenance controls effective, reviewed
+   table publication already in production). Then in Database → Production →
+   SQL console run **Block 1 completely, then Block 2 completely, then the
+   Step 3 acceptance check**. Block 2 requires `legal_guard_pdf_review()` to
+   already exist with the reviewed hash; Block 1 requires the six payment tables
+   and `investment_reservations.cost_basis`. Use the original reviewed SQL in
+   [flutterwave-production-guards-console.md](flutterwave-production-guards-console.md)
+   and [pdf-approval-safeguard-review.md](pdf-approval-safeguard-review.md);
+   nothing is applied automatically.
+3. No republish is needed for the triggers themselves: the application reads
+   the catalogs on each checkout, so checkout recovers as soon as all three rows
+   match. If any error appears, `ROLLBACK;`, stop and report the message.
+
+### After installing: confirm success
+
+1. The Step 3 query returns exactly the three rows in the table above.
+2. Admin → Payment Reviews → Flutterwave payments → Live readiness shows all
+   three safeguards "Installed" and checkout available (readiness
+   `checkoutAvailable: true`).
+3. Make one small live-mode test checkout with an approved test investor
+   account and a small reservation, ideally while collection is otherwise
+   closed to the public. It must reach the hosted Flutterwave page without the
+   "temporarily unavailable" message. Only pay if you accept a real charge.
+4. After payment, the attempt must appear under Flutterwave payments as
+   awaiting admin approval. Nothing is allocated, certified or refunded until an
+   admin explicitly approves it. Payment mail stays off until separately
+   authorized.
+5. If anything differs, set `FLW_ENABLED=false` for production and republish to
+   pause new checkouts; leave recovery, authorization and credentials in place.
