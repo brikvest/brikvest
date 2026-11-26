@@ -14,3 +14,31 @@ mtime_ms = 1795299792566
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/fee45e69-12f5-4fd4-b20a-4024b9ef38cb/e05bf48c-ab46-4ded-80b7-099988d5f1ed"
 storage_version_token = "1795300145623816"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "AzuhR6ff8ctHudqDx3ifD"
+uri = "file://.local/reports/2026-11-25-flutterwave-readiness-audit.md"
+type = "text"
+title = "Flutterwave readiness audit — 25 November 2026"
+description = "Evidence-backed NO-GO decision, configuration inventory, main-app test matrix, operational recommendations and ordered activation gates."
+logical_id = "f9d4b7e6-3cff-4549-bdc4-fff5fe3c0aec"
+content_hash = "sha256:d32fb45f316e16cd7f1454741da378b7535eac0fc318ac7b859368ae7b9d789c"
+size = 51639
+mtime_ms = 1795650322659
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/f9d4b7e6-3cff-4549-bdc4-fff5fe3c0aec/4e7f91d2-2c01-43cc-9f47-548925747420"
+storage_version_token = "1795650344999067"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "ICubYuRMCuPOJlpURRDA_"
+uri = "file://.local/reports/2026-11-25-flutterwave-sql-review.md"
+type = "text"
+title = "Review-only SQL appendix"
+description = "Source-derived schema reference, exact reviewed safeguard transactions, read-only acceptance queries and preservation guidance. Not executed."
+logical_id = "e4e938b7-0a18-41fc-8894-232d2eda76f9"
+content_hash = "sha256:03abdd6e252b69b34d3e07b25abbbde36d120baae91c0bd44758c16f46c67a51"
+size = 31339
+mtime_ms = 1795650323687
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:c9cabec7-4e6a-44ae-a612-5bcfc878158e/e4e938b7-0a18-41fc-8894-232d2eda76f9/5c51948f-805c-43ef-bf9c-ddaae6f56b2d"
+storage_version_token = "1795650345427101"
+content_type = "text/markdown"
