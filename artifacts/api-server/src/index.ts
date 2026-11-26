@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic, log } from "./vite";
 import { rejectLegalTemplateSourcePaths } from "./legal/source-access";
 import { EMAIL_QUEUE_PAUSE_PROTOCOL, emailDispatchPaused } from "./email-dispatch-state";
+import { RELEASE_ID } from "./release";
 
 const app = express();
 // Vite's development static-file middleware must not expose the source Word
@@ -18,7 +19,7 @@ app.get("/api/healthz", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json({
     status: "ok",
-    release: "flutterwave-live-preparation-2026-11-21",
+    release: RELEASE_ID,
     paymentSafety: {
       collectionEnabled: process.env.FLW_ENABLED === "true",
       recoveryEnabled: process.env.FLW_WORKER_ENABLED === "true",

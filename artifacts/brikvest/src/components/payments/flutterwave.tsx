@@ -202,6 +202,84 @@ type AdminAttempt = FlutterwaveAttempt & {
   checkoutClosure?: { status: string; attempts: number } | null;
 };
 
+type Readiness = {
+  release: string;
+  mode: "test" | "live" | "invalid";
+  liveAuthorized: boolean;
+  secretKeyFormat: "live" | "test" | "missing" | "unrecognized";
+  webhookHashConfigured: boolean;
+  schemaInstalled: boolean;
+  safeguards: { name: string; label: string; state: "present" | "absent" | "mismatch" }[] | null;
+  safeguardsRequired: boolean;
+  collectionEnabled: boolean;
+  recoveryEnabled: boolean;
+  paymentMailEnabled: boolean;
+  legalMailPaused: boolean;
+  applicationMailPaused: boolean;
+  lastRecoveryCompletedAt: string | null;
+  checkoutAvailable: boolean;
+};
+export const flutterwaveReadinessKey = ["/api/admin/payments/flutterwave/readiness"] as const;
+
+/** Shows configuration states only. The server never sends key or webhook-hash values. */
+function FlutterwaveReadiness({ authenticatedRequest }: { authenticatedRequest: (url: string, options?: any) => Promise<any> }) {
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<Readiness>({
+    queryKey: flutterwaveReadinessKey,
+    queryFn: async () => {
+      const response = await authenticatedRequest("/api/admin/payments/flutterwave/readiness");
+      if (!response || typeof response.mode !== "string") throw new Error("Invalid readiness response.");
+      return response;
+    },
+    retry: false,
+  });
+  if (isLoading) return <div className="h-28 rounded-lg bg-slate-100 animate-pulse" aria-label="Loading live readiness" />;
+  if (isError || !data) return <Alert><AlertTriangle className="h-4 w-4" /><AlertDescription>Live readiness could not be loaded. Payment reviews below are unaffected.<Button size="sm" variant="outline" className="ml-3" onClick={() => void refetch()}>Retry</Button></AlertDescription></Alert>;
+  const ok = "border-green-300 bg-green-50 text-green-900", bad = "border-red-200 bg-red-50 text-red-800", neutral = "border-slate-200 bg-slate-50 text-slate-700";
+  const live = data.mode === "live";
+  const keyOk = live ? data.secretKeyFormat === "live" : data.secretKeyFormat === "test";
+  const keyLabel = { live: "Live format", test: "Test format", missing: "Not entered", unrecognized: "Unrecognised format" }[data.secretKeyFormat];
+  const safeguardLabel = { present: "Installed", absent: "Not installed", mismatch: "Does not match the reviewed version" } as const;
+  const item = (label: string, value: string, tone: string) => (
+    <div className="flex items-center justify-between gap-3 py-1.5"><dt className="text-sm text-slate-600">{label}</dt><dd><Badge variant="outline" className={tone}>{value}</Badge></dd></div>
+  );
+  return (
+    <Card data-testid="flutterwave-readiness"><CardContent className="space-y-4 p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-slate-900">Live readiness</h3>
+          <p className="mt-1 text-sm text-slate-600">{data.checkoutAvailable
+            ? "Investors can start a Flutterwave checkout. Verified payments still wait for your approval."
+            : "Flutterwave checkout is currently unavailable to investors. Bank transfer is unaffected, and payments already made are still verified and recovered."}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={data.checkoutAvailable ? ok : neutral}>{data.checkoutAvailable ? "Checkout available" : "Checkout unavailable"}</Badge>
+          <Button variant="ghost" size="sm" disabled={isFetching} onClick={() => void refetch()} aria-label="Refresh live readiness"><RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /></Button>
+        </div>
+      </div>
+      <div className="grid gap-x-8 gap-y-4 md:grid-cols-3">
+        <div><p className="pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Provider</p><dl className="divide-y divide-slate-100">
+          {item("Mode", live ? (data.liveAuthorized ? "Live, authorised" : "Live, not authorised") : data.mode === "test" ? "Test" : "Invalid", live && data.liveAuthorized ? ok : live || data.mode === "invalid" ? bad : neutral)}
+          {item("Secret key", keyLabel, keyOk ? ok : bad)}
+          {item("Webhook hash", data.webhookHashConfigured ? "Configured" : "Not entered", data.webhookHashConfigured ? ok : bad)}
+        </dl></div>
+        <div><p className="pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Database safeguards</p><dl className="divide-y divide-slate-100">
+          {!data.schemaInstalled ? item("Payment tables", "Not installed", bad)
+            : data.safeguards ? data.safeguards.map(s => <div key={s.name}>{item(s.label, safeguardLabel[s.state], s.state === "present" ? ok : data.safeguardsRequired ? bad : neutral)}</div>)
+            : item("Safeguards", "Could not be checked", bad)}
+        </dl></div>
+        <div><p className="pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Switches</p><dl className="divide-y divide-slate-100">
+          {item("New collection", data.collectionEnabled ? "On" : "Paused", data.collectionEnabled ? ok : neutral)}
+          {item("Recovery", data.recoveryEnabled ? "On" : "Off", data.recoveryEnabled ? ok : neutral)}
+          {item("Payment confirmation mail", data.paymentMailEnabled ? "On" : "Off", neutral)}
+          {item("Legal mail", data.legalMailPaused ? "Paused" : "Sending", neutral)}
+          {item("Application mail", data.applicationMailPaused ? "Paused" : "Sending", neutral)}
+        </dl></div>
+      </div>
+      <p className="text-xs text-slate-500">Last completed recovery pass on this server: {data.lastRecoveryCompletedAt ? new Date(data.lastRecoveryCompletedAt).toLocaleString() : "none since it started"}. Release: <span className="font-mono">{data.release}</span></p>
+    </CardContent></Card>
+  );
+}
+
 export function FlutterwavePaymentReviews({ authenticatedRequest, queryClient, toast }: {
   authenticatedRequest: (url: string, options?: any) => Promise<any>;
   queryClient: any;
@@ -247,10 +325,11 @@ export function FlutterwavePaymentReviews({ authenticatedRequest, queryClient, t
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 id="flutterwave-reviews-title" className="text-xl font-bold text-slate-900">Flutterwave payments</h2><p className="text-sm text-slate-600">Verified gateway payments remain reservations until you approve them.</p></div>
         <div className="flex gap-2"><Button variant="outline" size="sm" onClick={async () => {
-          try { await authenticatedRequest("/api/admin/payments/flutterwave/recover", { method: "POST", body: "{}" }); await refetch(); }
+          try { await authenticatedRequest("/api/admin/payments/flutterwave/recover", { method: "POST", body: "{}" }); await refetch(); await queryClient.invalidateQueries({ queryKey: flutterwaveReadinessKey }); }
           catch (e: any) { toast({ title: "Recovery unavailable", description: e.message, variant: "destructive" }); }
         }}>Recover pending work</Button><Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}><RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />Refresh</Button></div>
       </div>
+      <FlutterwaveReadiness authenticatedRequest={authenticatedRequest} />
       {isLoading ? <div className="space-y-3"><div className="h-24 rounded-lg bg-slate-100 animate-pulse" /><div className="h-24 rounded-lg bg-slate-100 animate-pulse" /></div>
         : isError ? <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertDescription>Could not load Flutterwave reviews: {error instanceof Error ? error.message : "Please retry."}<Button size="sm" variant="outline" className="ml-3" onClick={() => void refetch()}>Retry</Button></AlertDescription></Alert>
         : attempts.length === 0 ? <Card><CardContent className="p-8 text-center text-sm text-slate-600">No Flutterwave payment attempts yet.</CardContent></Card>

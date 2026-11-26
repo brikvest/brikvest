@@ -15,6 +15,8 @@ import { confirmInvestmentAtomically, approvePaymentSubmissionAtomically, cancel
 import { DatabaseStorage } from "../server/storage";
 import { dispatchGatewayConfirmation } from "../server/payments/flutterwave-notifications";
 import { sendEmail } from "../server/emailService";
+import { lastRecoveryCompletedAt, RECOVERY_START_DELAY_MS, startGatewayWorker } from "../server/payments/flutterwave-worker";
+import { RELEASE_ID } from "../server/release";
 
 let pg: PGlite;
 let app: express.Express;
@@ -408,5 +410,175 @@ describe("Verification, reconciliation and explicit review", () => {
     await expect(pg.exec("UPDATE flutterwave_attempts SET expected_amount=1")).rejects.toThrow("immutable");
     await pg.exec(await fs.readFile("scripts/ensure-flutterwave.sql","utf8"));
     expect((await scalar("SELECT expected_amount FROM flutterwave_attempts")).expected_amount).toBe("1200.10");
+  });
+});
+
+describe("Live launch: database safeguard gate, readiness and recovery on start", () => {
+  const liveRef = "brk_cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const admin = (r: request.Test) => r.set("x-admin", "yes");
+  const live = () => {
+    vi.stubEnv("FLW_MODE", "live"); vi.stubEnv("FLW_LIVE_AUTHORIZED", "true");
+    vi.stubEnv("FLW_SECRET_KEY", "FLWSECK-fixture-live-only"); vi.stubEnv("FLW_CURRENCIES", "NGN");
+  };
+  const seedLiveAttempt = () => pg.exec(`INSERT INTO flutterwave_attempts(reservation_id,user_id,tx_ref,expected_amount,expected_currency,mode,checkout_expires_at)
+    VALUES (1,1,'${liveRef}',1200.10,'NGN','live',now()+interval '10 minutes')`);
+  const safeguards = async () => Object.fromEntries((await admin(request(app).get("/api/admin/payments/flutterwave/readiness"))).body.safeguards.map((s: any) => [s.name, s.state]));
+  /** Synthetic equivalent of the owner's two run-sheet blocks, in disposable PGlite only. */
+  async function installReviewedSafeguards() {
+    const [block1] = [...(await fs.readFile("docs/flutterwave-owner-run-sheet.md", "utf8")).matchAll(/```sql\n([\s\S]*?)```/g)].map(m => m[1]);
+    await pg.exec(`DROP TRIGGER IF EXISTS flutterwave_expected_immutable ON flutterwave_attempts;
+      DROP FUNCTION IF EXISTS protect_flutterwave_expected();
+      CREATE TABLE IF NOT EXISTS legal_document_pairs(id integer PRIMARY KEY,documents_ready_at timestamptz,
+        deed_template_id integer,transfer_template_id integer);
+      CREATE TABLE IF NOT EXISTS legal_documents(id integer PRIMARY KEY,pair_id integer,document_type text,
+        template_id integer,unsigned_pdf_sha256 text,unsigned_pdf_key text,
+        signature_placement jsonb,superseded_at timestamptz);`);
+    await pg.exec(block1.replace("current_database() <> 'neondb'", "current_database() <> 'postgres'"));
+    await pg.exec(await fs.readFile("scripts/ensure-legal-pdf-review.sql", "utf8"));
+  }
+  async function removeSafeguards() {
+    await pg.exec(`DROP TRIGGER IF EXISTS holding_cost_basis_guard ON investment_reservations;
+      DROP FUNCTION IF EXISTS guard_holding_cost_basis();
+      DROP TABLE IF EXISTS legal_pdf_review_approvals;`);
+    await pg.exec(await fs.readFile("scripts/ensure-flutterwave.sql", "utf8"));
+  }
+
+  it("refuses live checkout and approval without the safeguards, but still records verified money", async () => {
+    live();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await safeguards()).toMatchObject({ holding_cost_basis_guard: "absent", legal_pdf_review_append_only: "absent" });
+      mockResponse({ link: "https://checkout.flutterwave.com/v3/hosted/pay/fixture" });
+      const availability = await request(app).get("/api/payments/flutterwave/reservations/1");
+      expect(availability.body).toMatchObject({ available: false, reason: "Flutterwave is temporarily unavailable. Bank transfer remains available." });
+      const checkout = await request(app).post("/api/payments/flutterwave/reservations/1/checkout").send({});
+      expect(checkout.status).toBe(503);
+      expect(checkout.body.error).toBe("Flutterwave is temporarily unavailable. Bank transfer remains available.");
+      expect(fetch).not.toHaveBeenCalled();
+      expect((await scalar("SELECT count(*)::int AS n FROM flutterwave_attempts")).n).toBe(0);
+
+      // An existing live checkout: webhook intake and server verification are not gated.
+      await seedLiveAttempt();
+      mockResponse(provider(101, { tx_ref: liveRef }));
+      const forged = await request(app).post("/api/payments/flutterwave/webhook").set("verif-hash", "forged").send({ event: "charge.completed", data: { id: 101, tx_ref: liveRef } });
+      expect(forged.status).toBe(401);
+      expect((await scalar("SELECT count(*)::int AS n FROM flutterwave_charges")).n).toBe(0);
+      const webhook = await request(app).post("/api/payments/flutterwave/webhook").set("verif-hash", "fixture-hash").send({ event: "charge.completed", data: { id: 101, tx_ref: liveRef } });
+      expect(webhook.status).toBe(200);
+      expect((await scalar("SELECT state FROM flutterwave_attempts")).state).toBe("awaiting_admin");
+      expect(warn.mock.calls.flat()).toEqual(["[PAYMENTS] Webhook rejected: authentication failed."]);
+      expect(info.mock.calls.flat()).toContain("[PAYMENTS] Webhook accepted: authentication passed.");
+      expect(JSON.stringify([...info.mock.calls, ...warn.mock.calls])).not.toMatch(/fixture-hash|forged|FLWSECK|brk_|1200/);
+
+      // Approval would allocate: refused, with the receipt retained for later.
+      const approve = await admin(request(app).put("/api/admin/payments/flutterwave/1/approve"));
+      expect(approve.status).toBe(503);
+      expect(approve.body.error).toContain("payment evidence is retained");
+      expect((await scalar("SELECT state FROM flutterwave_attempts")).state).toBe("awaiting_admin");
+      expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("reserved");
+      expect((await scalar("SELECT count(*)::int AS n FROM ownership_certificates")).n).toBe(0);
+      expect((await scalar("SELECT sold_units FROM properties")).sold_units).toBe(0);
+      // Recovery remains available too.
+      expect((await admin(request(app).post("/api/admin/payments/flutterwave/recover"))).status).toBe(200);
+      expect(sendEmail).not.toHaveBeenCalled();
+    } finally { info.mockRestore(); warn.mockRestore(); }
+  });
+
+  it("allows live checkout and explicit approval once all three reviewed safeguards are installed, and closes again on a mismatch", async () => {
+    live();
+    await installReviewedSafeguards();
+    try {
+      expect(await safeguards()).toEqual({ flutterwave_expected_immutable: "present", holding_cost_basis_guard: "present", legal_pdf_review_append_only: "present" });
+      mockResponse({ link: "https://checkout.flutterwave.com/v3/hosted/pay/fixture" });
+      expect((await request(app).get("/api/payments/flutterwave/reservations/1")).body.available).toBe(true);
+      const checkout = await request(app).post("/api/payments/flutterwave/reservations/1/checkout").send({});
+      expect(checkout.status).toBe(200);
+      const attempt = await scalar("SELECT tx_ref,mode,state FROM flutterwave_attempts");
+      expect(attempt).toMatchObject({ mode: "live", state: "initiated" });
+      mockResponse(provider(101, { tx_ref: attempt.tx_ref }));
+      await verifyTransaction("101", attempt.tx_ref);
+      // Verified receipt alone never allocates.
+      expect((await scalar("SELECT state FROM flutterwave_attempts")).state).toBe("awaiting_admin");
+      expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("reserved");
+
+      await pg.exec("ALTER TABLE investment_reservations DISABLE TRIGGER holding_cost_basis_guard");
+      expect((await safeguards()).holding_cost_basis_guard).toBe("mismatch");
+      expect((await admin(request(app).put("/api/admin/payments/flutterwave/1/approve"))).status).toBe(503);
+      expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("reserved");
+      await pg.exec("ALTER TABLE investment_reservations ENABLE TRIGGER holding_cost_basis_guard");
+
+      expect((await admin(request(app).put("/api/admin/payments/flutterwave/1/approve"))).status).toBe(200);
+      expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("converted_to_investment");
+      expect((await scalar("SELECT count(*)::int AS n FROM ownership_certificates")).n).toBe(1);
+      expect(sendEmail).not.toHaveBeenCalled();
+    } finally { await removeSafeguards(); }
+  });
+
+  it("leaves test-mode checkout and bank-transfer handling independent of the live safeguards", async () => {
+    mockResponse({ link: "https://checkout.flutterwave.com/v3/hosted/pay/fixture" });
+    expect((await request(app).post("/api/payments/flutterwave/reservations/1/checkout").send({})).status).toBe(200);
+    await pg.exec("DELETE FROM flutterwave_audit; DELETE FROM flutterwave_attempts");
+    live();
+    await new DatabaseStorage().createPaymentSubmission({ reservationId: 1, userId: 1, proofUrl: "/fixture", amount: "1200.10", currency: "NGN" });
+    await approvePaymentSubmissionAtomically(1, 1);
+    expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("converted_to_investment");
+  });
+
+  it("gives administrators a secret-free readiness summary", async () => {
+    expect((await request(app).get("/api/admin/payments/flutterwave/readiness")).status).toBe(401);
+    live();
+    vi.stubEnv("FLW_WORKER_ENABLED", "true"); vi.stubEnv("FLW_NOTIFICATION_DISPATCH", "false");
+    vi.stubEnv("LEGAL_DISPATCH_PAUSED", "true"); vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+    const response = await admin(request(app).get("/api/admin/payments/flutterwave/readiness"));
+    expect(response.status).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toMatchObject({
+      release: RELEASE_ID, mode: "live", liveAuthorized: true, secretKeyFormat: "live", webhookHashConfigured: true,
+      schemaInstalled: true, safeguardsRequired: true, collectionEnabled: true, recoveryEnabled: true,
+      paymentMailEnabled: false, legalMailPaused: true, applicationMailPaused: true, checkoutAvailable: false,
+    });
+    expect(response.body.safeguards.map((s: any) => s.name)).toEqual(["flutterwave_expected_immutable", "holding_cost_basis_guard", "legal_pdf_review_append_only"]);
+    expect(response.text).not.toMatch(/FLWSECK|fixture-live-only|fixture-hash|postgres(?:ql)?:\/\/|checkout\.flutterwave/);
+    vi.stubEnv("FLW_SECRET_KEY", "FLWSECK_TEST-fixture-only");
+    expect((await admin(request(app).get("/api/admin/payments/flutterwave/readiness"))).body).toMatchObject({ secretKeyFormat: "test", checkoutAvailable: false });
+    vi.stubEnv("FLW_SECRET_KEY", ""); vi.stubEnv("FLW_SECRET_HASH", "");
+    expect((await admin(request(app).get("/api/admin/payments/flutterwave/readiness"))).body).toMatchObject({ secretKeyFormat: "missing", webhookHashConfigured: false });
+  });
+
+  it("runs one recovery pass shortly after start when enabled, without claiming paused mail", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "clearTimeout", "clearInterval"] });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("FLW_WORKER_ENABLED", "false");
+      startGatewayWorker();
+      expect(vi.getTimerCount()).toBe(0);
+
+      // New collection paused; recovery separately enabled; all mail held.
+      vi.stubEnv("FLW_ENABLED", "false"); vi.stubEnv("FLW_WORKER_ENABLED", "true");
+      vi.stubEnv("FLW_NOTIFICATION_DISPATCH", "true"); vi.stubEnv("BRIKVEST_EMAIL_DISPATCH_PAUSED", "true");
+      await seedAttempt(); await queueVerification("101", txRef);
+      await pg.exec("INSERT INTO flutterwave_confirmation_jobs(reservation_id) VALUES (1)");
+      const queuedMail = await scalar("SELECT row_to_json(j) AS job FROM flutterwave_confirmation_jobs j");
+      mockResponse(provider());
+      const before = lastRecoveryCompletedAt();
+      startGatewayWorker();
+      expect(vi.getTimerCount()).toBe(2);
+      vi.advanceTimersByTime(RECOVERY_START_DELAY_MS - 1);
+      expect(fetch).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(lastRecoveryCompletedAt()).not.toBe(before), { timeout: 10_000 });
+      expect((await scalar("SELECT status FROM flutterwave_verification_jobs")).status).toBe("done");
+      expect((await scalar("SELECT state FROM flutterwave_attempts")).state).toBe("awaiting_admin");
+      expect((await scalar("SELECT status FROM investment_reservations")).status).toBe("reserved");
+      expect(await scalar("SELECT row_to_json(j) AS job FROM flutterwave_confirmation_jobs j")).toEqual(queuedMail);
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(info.mock.calls.flat()).toContain("[PAYMENTS] Recovery pass completed: 1 queued verification(s), 0 unresolved checkout(s) rechecked.");
+      vi.stubEnv("NODE_ENV", "test");
+      const readiness = await admin(request(app).get("/api/admin/payments/flutterwave/readiness"));
+      expect(new Date(readiness.body.lastRecoveryCompletedAt).getTime()).toBe(lastRecoveryCompletedAt()!.getTime());
+    } finally { vi.useRealTimers(); info.mockRestore(); }
   });
 });

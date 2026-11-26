@@ -21,7 +21,7 @@
     "test:legal:browser": "playwright test --config=playwright.legal.config.ts",
     "legal:readiness": "bash scripts/legal-font-env.sh tsx scripts/legal-readiness.ts",
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "build": "vite build --config vite.config.ts",
+    "build": "vite build --config vite.config.ts && node ../../scripts/check-frontend-payment-secrets.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "check": "tsc",

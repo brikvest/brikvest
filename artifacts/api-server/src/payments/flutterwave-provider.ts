@@ -24,6 +24,13 @@ export function gatewayVerificationConfig() {
   const currencies = (process.env.FLW_CURRENCIES || "").split(",").map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{3}$/.test(s));
   return { mode, key, origin, currencies };
 }
+/** Format only; never returns, logs or hashes any part of the key. */
+export function secretKeyFormat(): "live" | "test" | "missing" | "unrecognized" {
+  const key = process.env.FLW_SECRET_KEY || "";
+  if (!key) return "missing";
+  if (key.startsWith("FLWSECK_TEST-")) return "test";
+  return key.startsWith("FLWSECK-") ? "live" : "unrecognized";
+}
 export function webhookAuthenticated(value: unknown) {
   const secret = process.env.FLW_SECRET_HASH;
   if (!secret || typeof value !== "string" || value.length > 1024) return false;

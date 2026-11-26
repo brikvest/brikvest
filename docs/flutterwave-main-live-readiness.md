@@ -1,6 +1,95 @@
 # Flutterwave main-project live readiness
 
-## Current release boundary
+## Live-launch preparation (2026-11-26) — current state
+
+This section supersedes the older statements below wherever they differ.
+**Nothing has been published and no production SQL has been run by the agent.**
+Saved settings are not active until the owner publishes.
+
+Observed read-only on 2026-11-26 before any change:
+
+- `https://brikvest.net/api/healthz` answered from the real backend with
+  release `flutterwave-live-preparation-2026-11-21`, collection, recovery and
+  payment mail off, legal and application mail paused.
+- Production database `neondb`: all six payment tables present and empty,
+  nullable `investment_reservations.cost_basis` present,
+  `legal_guard_pdf_review()` body hash `f237ff6a023253ca2c2088724776c630`,
+  `legal_pdf_review_approvals` present. Neither payment guard function and
+  none of the three triggers existed, so the reviewed SQL's preflight
+  conditions were satisfied.
+- `FLW_SECRET_KEY` and `FLW_SECRET_HASH` exist by name. Values were not read;
+  whether they are live values is confirmed only by the admin readiness
+  summary after publishing (format only).
+
+Prepared in this release (`flutterwave-live-launch-2026-11-26`):
+
+- **Owner SQL run sheet:** [flutterwave-owner-run-sheet.md](flutterwave-owner-run-sheet.md)
+  reproduces the two reviewed transactions and the acceptance query
+  byte-for-byte; a regression test enforces equality with the reviewed sources.
+- **Fail-closed safeguard gate:** in live mode, creating a checkout and
+  approving a gateway payment require all three triggers to be present,
+  enabled, on the expected table and events, and bound to functions with the
+  reviewed body hashes. Verification, webhook intake, recovery, link closure,
+  rejection and bank transfer do not depend on the gate, so evidence of money
+  received is never dropped. Investors see only "Flutterwave is temporarily
+  unavailable. Bank transfer remains available."
+- **Admin readiness summary:** Admin → Payment Reviews → Flutterwave payments →
+  Live readiness. Shows mode, secret-key format (never the value), whether a
+  webhook hash is configured, each safeguard's state, the switches, mail pause
+  state and the last completed recovery pass on that server instance.
+- **Logs:** `[PAYMENTS] Webhook accepted: authentication passed.`,
+  `[PAYMENTS] Webhook rejected: authentication failed.`,
+  `[PAYMENTS] Recovery pass completed: …` (counts only) and
+  `[PAYMENTS] Recovery pass deferred; durable work retained.`
+- **Recovery on start:** when recovery is enabled, one pass runs about 15
+  seconds after the server starts, then every minute while the instance is awake.
+- **Frontend check:** the web build fails if the bundle contains a Flutterwave
+  key prefix or any server-only payment setting name.
+
+Saved production settings (development is unchanged: everything off):
+
+```text
+FLW_MODE=live
+FLW_RETURN_ORIGIN=https://brikvest.net
+FLW_CURRENCIES=NGN,USD,GBP,EUR
+FLW_LIVE_AUTHORIZED=true
+FLW_WORKER_ENABLED=true
+FLW_ENABLED=true
+FLW_NOTIFICATION_DISPATCH=false
+LEGAL_DISPATCH_PAUSED=true
+BRIKVEST_EMAIL_DISPATCH_PAUSED=true
+```
+
+### Remaining owner actions, in order
+
+1. Merge this task.
+2. In Flutterwave **live** mode set the webhook URL to
+   `https://brikvest.net/api/payments/flutterwave/webhook`, enable retries, and
+   set the secret hash to the same value entered in Replit Secrets.
+3. Confirm the live secret key was entered in Replit Secrets.
+4. Note a recovery point, then run the two SQL blocks from the
+   [run sheet](flutterwave-owner-run-sheet.md) in Database → Production → SQL
+   console, followed by its acceptance query.
+5. Review the publish database diff (expect no unexpected statements) and
+   publish. **Publishing after merge is the step that activates live
+   collection.** If the triggers are not installed, the gate keeps checkout
+   unavailable.
+6. Check `/api/healthz` shows release `flutterwave-live-launch-2026-11-26` with
+   collection and recovery on and all mail still paused; check the admin
+   readiness summary shows all three safeguards installed, a live-format key
+   and a configured webhook hash.
+7. Decide hosting: keep Autoscale (recovery runs on start and while the app is
+   awake; an idle app does nothing until its next request) or switch to
+   always-running hosting for continuous recovery. Not changed here.
+8. Incident pause: set `FLW_ENABLED=false` for production and republish. Leave
+   recovery, live authorization and the credentials in place so payments
+   already made are still verified.
+
+No real charge, sandbox payment, provider call, fabricated webhook or mail was
+used to prepare this. Authenticated live webhook delivery is confirmed only by
+the "Webhook accepted" log line after Flutterwave is configured.
+
+## Earlier release boundary (2026-11-21, historical)
 
 The owner authorized production prerequisite preparation after confirming the
 isolated checkout works. This record supersedes the earlier claim that main's
@@ -47,7 +136,7 @@ private, synthetic-only and on its dedicated test credentials.
   Drain or inspect pre-existing in-flight work before maintenance, and require
   every active instance to adopt the updated pause protocol.
 
-## Saved production configuration (not proof of running adoption)
+## Saved production configuration as of 2026-11-21 (historical; see the top section)
 
 ```text
 FLW_ENABLED=false
@@ -129,7 +218,7 @@ Read-only production checks still showed no payment tables or cost-basis column
 before publication. The existing PDF-review function matched the reviewed hash,
 but its required trigger was absent. No production guards were installed here.
 
-## Publishing and active-release verification
+## Publishing and active-release verification (2026-11-21 procedure; the top section's order now applies)
 
 1. Confirm the owner-reported seven-day PITR window and note an available
    pre-change recovery time in the production database settings. No restore or

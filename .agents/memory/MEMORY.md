@@ -27,3 +27,5 @@
 - [Gateway approval boundary](flutterwave-approval-boundary.md) — verified Flutterwave receipt awaits explicit admin approval; no automatic allocation, refund, or live release.
 - [Duplicate account boundary](account-consolidation-scope.md) — verified duplicates only; never rewrite retained evidence or use a merge as a general investor transfer.
 - [Preview source guards](preview-source-guards.md) — private legal-source protection must use the serving frontend's middleware API, not Express-only fields.
+- [Live payment safeguard gate](live-payment-safeguard-gate.md) — gate only checkout creation and gateway approval; evidence paths never depend on triggers.
+- [Frontend-only browser harness](frontend-only-browser-harness.md) — port-5173 Playwright harness failed with a PostCSS/Tailwind error; treat as harness fault first.

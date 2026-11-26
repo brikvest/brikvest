@@ -1,18 +1,38 @@
 import fs from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-describe("Disabled Flutterwave main-project handoff", () => {
-  it("keeps collection, authorization, workers and payment emails explicitly off in both environments", async () => {
+describe("Flutterwave main-project rollout settings", () => {
+  const section = async (environment: string) => {
     const config = await fs.readFile(".replit", "utf8");
-    for (const environment of ["development", "production"]) {
-      const section = config.match(new RegExp(
-        `\\[userenv\\.${environment}\\]\\s*\\n([\\s\\S]*?)(?=\\n\\[|$)`,
-      ))?.[1];
-      expect(section, `Missing ${environment} configuration`).toBeDefined();
-      for (const key of ["FLW_ENABLED", "FLW_LIVE_AUTHORIZED", "FLW_WORKER_ENABLED", "FLW_NOTIFICATION_DISPATCH"]) {
-        expect(section).toMatch(new RegExp(`^${key}\\s*=\\s*"false"\\s*$`, "m"));
-      }
-    }
+    const found = config.match(new RegExp(`\\[userenv\\.${environment}\\]\\s*\\n([\\s\\S]*?)(?=\\n\\[|$)`))?.[1];
+    expect(found, `Missing ${environment} configuration`).toBeDefined();
+    return found!;
+  };
+  const expectValues = (text: string, values: Record<string, string>) => {
+    for (const [key, value] of Object.entries(values))
+      expect(text, key).toMatch(new RegExp(`^${key}\\s*=\\s*"${value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}"\\s*$`, "m"));
+  };
+  it("keeps collection, authorization, recovery and all mail off in development", async () => {
+    const development = await section("development");
+    expectValues(development, {
+      FLW_ENABLED: "false", FLW_LIVE_AUTHORIZED: "false", FLW_WORKER_ENABLED: "false", FLW_NOTIFICATION_DISPATCH: "false",
+      LEGAL_DISPATCH_PAUSED: "true", BRIKVEST_EMAIL_DISPATCH_PAUSED: "true",
+    });
+    expect(development).not.toMatch(/^FLW_MODE\s*=\s*"live"/m);
+  });
+  it("saves live collection and recovery for production while every mail path stays held", async () => {
+    // Saved settings take effect only when the owner publishes; the database
+    // safeguard gate separately keeps live checkout closed until the owner
+    // installs the three reviewed triggers.
+    expectValues(await section("production"), {
+      FLW_MODE: "live", FLW_RETURN_ORIGIN: "https://brikvest.net",
+      FLW_LIVE_AUTHORIZED: "true", FLW_WORKER_ENABLED: "true", FLW_ENABLED: "true",
+      FLW_NOTIFICATION_DISPATCH: "false", LEGAL_DISPATCH_PAUSED: "true", BRIKVEST_EMAIL_DISPATCH_PAUSED: "true",
+    });
+  });
+  it("never stores provider credentials in project configuration", async () => {
+    const config = await fs.readFile(".replit", "utf8");
+    expect(config).not.toMatch(/FLW_SECRET_KEY|FLW_SECRET_HASH|FLWSECK/);
   });
 
   it("keeps automatic post-merge mutations fenced and Flutterwave SQL out of startup/build hooks", async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { confirmInvestmentWithinTransaction } from "../legal/approval";
-import { gatewayInstalled, resultRows as rows } from "./gateway-guards";
+import { gatewayInstalled, requireLiveSafeguards, resultRows as rows } from "./gateway-guards";
 import { exactAmount, GatewayError, gatewayConfig, gatewayVerificationConfig, providerRequest, safeCheckoutUrl, transactionId } from "./flutterwave-provider";
 import { closeQueuedCheckouts, enqueueCheckoutClosure } from "./flutterwave-checkout-closure";
 
@@ -33,6 +33,8 @@ async function audit(tx: Tx, id: number, event: string, reason?: string, adminId
 export async function initiateCheckout(reservationId: number, userId: number) {
   const config = gatewayConfig();
   await requireGatewaySchema();
+  // Live collection never starts without the owner-installed database guards.
+  if (config.mode === "live") await requireLiveSafeguards(db, "investor");
   // Commit the unique reference before the external request. If the process
   // dies or times out, retain an uncertain attempt; never blindly create another.
   const attempt = await db.transaction(async tx => {
@@ -210,6 +212,9 @@ export async function reviewGateway(id: number, adminId: number, decision: "appr
       await audit(tx, id, "rejected_no_refund_issued", reason.trim(), adminId);
       return { reservationId: r.id };
     }
+    // Allocation in live mode requires the frozen-cost and exact-PDF guards.
+    // Rejection, verification and recovery above/elsewhere stay available.
+    if (a.mode === "live") await requireLiveSafeguards(tx, "admin");
     if (a.state !== "awaiting_admin" || !a.verified_at || !exactAmount(a.verified_amount, a.expected_amount) ||
         a.verified_currency !== a.expected_currency || !exactAmount(r.amount,a.expected_amount) ||
         r.currency !== a.expected_currency || r.status !== "reserved") throw new GatewayError("Verified evidence is not eligible for approval. Reconcile manually.");

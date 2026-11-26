@@ -1,12 +1,14 @@
 import type { Express } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { resultRows as rows, gatewayInstalled } from "./gateway-guards";
-import { GatewayError, gatewayConfig, transactionId, webhookAuthenticated } from "./flutterwave-provider";
+import { resultRows as rows, gatewayInstalled, requireLiveSafeguards, safeguardStatus } from "./gateway-guards";
+import { GatewayError, gatewayConfig, secretKeyFormat, transactionId, webhookAuthenticated } from "./flutterwave-provider";
 import { initiateCheckout, queueVerification, recheckAttempt, requireGatewaySchema, reviewGateway, runVerification, safeAttempt } from "./flutterwave";
 import { dispatchGatewayConfirmation } from "./flutterwave-notifications";
 import { LegalApprovalTransitionError } from "../legal/approval";
-import { recoverGatewayWork } from "./flutterwave-worker";
+import { lastRecoveryCompletedAt, recoverGatewayWork } from "./flutterwave-worker";
+import { emailDispatchPaused } from "../email-dispatch-state";
+import { RELEASE_ID } from "../release";
 
 type Middleware = (req: any, res: any, next: any) => any;
 const positiveId = (value: any) => {
@@ -58,6 +60,7 @@ export function registerFlutterwaveRoutes(app: Express, auth: { requireAuth: Mid
       const config = gatewayConfig();
       if (!config.currencies.includes(r.currency)) throw new GatewayError(`Flutterwave is not configured for ${r.currency}. Bank transfer remains available; no conversion is performed.`);
       await requireGatewaySchema();
+      if (config.mode === "live") await requireLiveSafeguards(db, "investor");
     } catch (e) { available = false; reason = e instanceof GatewayError ? e.message : "Flutterwave is unavailable."; }
     const attempts = await gatewayInstalled(db) ? rows(await db.execute(sql`SELECT * FROM flutterwave_attempts WHERE reservation_id=${id} AND user_id=${req.user.id} ORDER BY id DESC`)).map(safeAttempt) : [];
     res.json({ available, reason, amount: r.amount, currency: r.currency, attempts });
@@ -82,7 +85,12 @@ export function registerFlutterwaveRoutes(app: Express, auth: { requireAuth: Mid
     res.json({ message: "Return received. Payment is subject to server verification and administrator approval." });
   }));
   app.post("/api/payments/flutterwave/webhook", wrap(async (req, res) => {
-    if (!webhookAuthenticated(req.get("verif-hash"))) throw new GatewayError("Invalid webhook authentication.", 401);
+    // Outcome only: never the header, the configured hash or the event body.
+    if (!webhookAuthenticated(req.get("verif-hash"))) {
+      console.warn("[PAYMENTS] Webhook rejected: authentication failed.");
+      throw new GatewayError("Invalid webhook authentication.", 401);
+    }
+    console.info("[PAYMENTS] Webhook accepted: authentication passed.");
     await requireGatewaySchema();
     if (req.body?.event !== "charge.completed") return res.sendStatus(200);
     const id = transactionId(req.body?.data?.id);
@@ -113,6 +121,33 @@ export function registerFlutterwaveRoutes(app: Express, auth: { requireAuth: Mid
       txRef: c.tx_ref, transactionId: c.transaction_id, verifiedAmount: c.amount, verifiedCurrency: c.currency,
       verifiedAt: c.verified_at, charges: [c], audit: [], unmatched: true,
     }))]);
+  }));
+  // Secret-free: formats, booleans and catalog states only. Never key or hash
+  // material, connection details, provider payloads or checkout links.
+  app.get("/api/admin/payments/flutterwave/readiness", auth.requireAdminAuth, wrap(async (_req, res) => {
+    const mode = ["test", "live"].includes(process.env.FLW_MODE || "test") ? (process.env.FLW_MODE || "test") : "invalid";
+    const schemaInstalled = await gatewayInstalled(db);
+    let safeguards: Awaited<ReturnType<typeof safeguardStatus>> | null = null;
+    try { safeguards = await safeguardStatus(db); } catch { /* Reported as unknown, which is not ready. */ }
+    const keyFormat = secretKeyFormat();
+    const webhookHashConfigured = !!process.env.FLW_SECRET_HASH;
+    const liveAuthorized = process.env.FLW_LIVE_AUTHORIZED === "true";
+    const collectionEnabled = process.env.FLW_ENABLED === "true";
+    const safeguardsReady = !!safeguards && safeguards.every(s => s.state === "present");
+    // Same validation checkout uses (switch, mode, key format, hash, origin).
+    let configured = false;
+    try { gatewayConfig(); configured = true; } catch { /* Not ready. */ }
+    const recovered = lastRecoveryCompletedAt();
+    res.json({
+      release: RELEASE_ID, mode, liveAuthorized, secretKeyFormat: keyFormat, webhookHashConfigured,
+      schemaInstalled, safeguards, safeguardsRequired: mode === "live",
+      collectionEnabled, recoveryEnabled: process.env.FLW_WORKER_ENABLED === "true",
+      paymentMailEnabled: process.env.FLW_NOTIFICATION_DISPATCH === "true",
+      legalMailPaused: process.env.LEGAL_DISPATCH_PAUSED === "true",
+      applicationMailPaused: emailDispatchPaused(),
+      lastRecoveryCompletedAt: recovered ? recovered.toISOString() : null,
+      checkoutAvailable: configured && schemaInstalled && (mode !== "live" || safeguardsReady),
+    });
   }));
   app.post("/api/admin/payments/flutterwave/recover", auth.requireAdminAuth, wrap(async (_req, res) => {
     await requireGatewaySchema();

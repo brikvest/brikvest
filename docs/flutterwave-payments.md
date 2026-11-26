@@ -39,6 +39,13 @@ remaining gates and the separately identified missing exact-PDF approval guard.
 
 ## Release status and safety boundary
 
+Live-launch status, saved production settings and the remaining owner actions
+are recorded in [flutterwave-main-live-readiness.md](flutterwave-main-live-readiness.md).
+In live mode, checkout creation and gateway approval additionally require the
+three owner-installed database safeguards from the
+[owner run sheet](flutterwave-owner-run-sheet.md); verification, webhook
+intake, recovery and link closure never depend on them.
+
 This implementation is **disabled by default**, defaults to **test mode**, and does
 not create database objects at startup. No migration, live charge, publishing,
 historical holding changes, or investor mail is authorized by this implementation.
@@ -114,7 +121,7 @@ Non-secret settings, configured only in the intended isolated environment:
 | `FLW_MODE` | test | `test` requires a `FLWSECK_TEST-` secret; live/test credentials cannot be mixed |
 | `FLW_CURRENCIES` | empty | Merchant-approved exact currency codes, e.g. `NGN` after approval |
 | `FLW_RETURN_ORIGIN` | absent | Clean HTTPS origin, no path/query/credentials |
-| `FLW_LIVE_AUTHORIZED` | false | Separate explicit live-collection authorization; never set during implementation |
+| `FLW_LIVE_AUTHORIZED` | false | Separate explicit live-collection authorization; saved for production only, never in development |
 | `FLW_WORKER_ENABLED` | false | Recover queued verification and missed events while the server is active |
 | `FLW_NOTIFICATION_DISPATCH` | false | Separate authorization to deliver confirmed-investment emails |
 
@@ -212,7 +219,9 @@ PDFs**, not merely payment or template approval.
 
 ## Recovery and delivery operations
 
-Enable the recovery worker only in the approved environment. It polls queued work
+Enable the recovery worker only in the approved environment. When enabled it
+runs one pass about 15 seconds after the server starts and then every minute
+while the instance is awake, logging a count-only completion line. It polls queued work
 and unresolved references; provider failures stay durable and retry after five
 minutes. Rechecks are also available per attempt in Payment Reviews and from the
 investor modal. **Recover pending work** invokes the same bounded recovery batch.

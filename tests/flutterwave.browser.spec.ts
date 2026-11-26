@@ -45,6 +45,15 @@ async function fixture(page: Page, initial?: string, replacement = false) {
     if (path === "/api/payments/flutterwave/reservations/1") return json({available:true,reason:"",amount:"1200.10",currency:"NGN",attempts:attempts()});
     if (path === "/api/payments/flutterwave/attempts") return json(attempts());
     if (path === "/api/admin/payments/flutterwave") return json(attempts());
+    if (path === "/api/admin/payments/flutterwave/readiness") return json({
+      release:"fixture-release", mode:"live", liveAuthorized:true, secretKeyFormat:"live", webhookHashConfigured:true, schemaInstalled:true,
+      safeguards:[
+        {name:"flutterwave_expected_immutable",label:"Checkout amount cannot be rewritten",state:"present"},
+        {name:"holding_cost_basis_guard",label:"Confirmed purchase cost is frozen",state:"present"},
+        {name:"legal_pdf_review_append_only",label:"Exact investor PDF approvals are append-only",state:"absent"},
+      ], safeguardsRequired:true, collectionEnabled:true, recoveryEnabled:true, paymentMailEnabled:false,
+      legalMailPaused:true, applicationMailPaused:true, lastRecoveryCompletedAt:"2026-11-26T09:00:00Z", checkoutAvailable:false,
+    });
     if (path.endsWith("/payment-instructions")) return json({method:{title:"Naira Transfer",icon:"₦",details:[{label:"Bank Name",value:"Fixture Bank"},{label:"Account Name",value:"Fixture Company"},{label:"Account Number",value:"0000000000"}]}});
     if (path === "/api/admin/stats") return json({totalProperties:1,totalReservations:1,totalInvestment:0,totalBids:0,pendingPayments:0});
     if (path === "/api/user/project-updates") return json({});
@@ -130,6 +139,13 @@ test("admin Payment Reviews shows verification evidence, audit and explicit appr
   await page.getByRole("button",{name:"Payment Reviews",exact:false}).click();
   const section = page.locator('section[aria-labelledby="flutterwave-reviews-title"]');
   await expect(section.getByText("Provider transaction: 101")).toBeVisible();
+  const readiness = section.getByTestId("flutterwave-readiness");
+  await expect(readiness.getByText("Checkout unavailable",{exact:true})).toBeVisible();
+  await expect(readiness.getByText("Live format",{exact:true})).toBeVisible();
+  await expect(readiness.getByText("Installed",{exact:true})).toHaveCount(2);
+  await expect(readiness.getByText("Not installed",{exact:true})).toHaveCount(1);
+  await expect(readiness.getByText("fixture-release")).toBeVisible();
+  await readiness.screenshot({ path: `test-results/flutterwave/readiness-${test.info().project.name}.png` });
   await expect(section.getByText("1200.10 NGN").last()).toBeVisible();
   await section.getByText("Audit history",{exact:false}).click();
   await expect(section.getByText("charge_verified",{exact:false})).toBeVisible();
